@@ -245,14 +245,21 @@
     async function handleAddUser(e) {
         e.preventDefault();
         const formData = new FormData(e.target);
+
+        // Sanitize Input (Trim whitespace)
+        const name = formData.get('name').trim();
+        const username = formData.get('username').trim();
+        const password = formData.get('password').trim();
+        const email = formData.get('email').trim();
+
         const userData = {
             id: 'u' + Date.now(),
-            name: formData.get('name'),
-            username: formData.get('username'),
-            password: formData.get('password'),
+            name: name,
+            username: username,
+            password: password,
             role: formData.get('role'),
             dept: formData.get('dept'),
-            email: formData.get('email'),
+            email: email,
             phone: formData.get('phone'),
             joinDate: formData.get('joinDate'),
             avatar: `https://ui-avatars.com/api/?name=${formData.get('name')}&background=random&color=fff`,

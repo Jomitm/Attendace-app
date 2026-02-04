@@ -66,9 +66,12 @@
 
         async login(username, password) {
             const users = await window.AppDB.getAll('users');
+            const cleanUser = username.trim().toLowerCase();
+            const cleanPass = password.trim();
+
             const user = users.find(u =>
-                (u.username.toLowerCase() === username.toLowerCase() || u.email.toLowerCase() === username.toLowerCase()) &&
-                u.password === password
+                (u.username.toLowerCase().trim() === cleanUser || u.email.toLowerCase().trim() === cleanUser) &&
+                u.password.trim() === cleanPass
             );
 
             if (user) {
