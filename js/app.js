@@ -98,6 +98,9 @@
 
         // Content Rendering
         try {
+            // Show Loading State immediately
+            if (contentArea) contentArea.innerHTML = '<div class="loading-spinner"></div>';
+
             if (hash === 'dashboard') {
                 contentArea.innerHTML = await window.AppUI.renderDashboard();
                 setupDashboardEvents();
@@ -116,6 +119,7 @@
             }
         } catch (e) {
             console.error("Render Error:", e);
+            contentArea.innerHTML = `<div style="text-align:center; color:red; padding:2rem;">Error loading page: ${e.message}</div>`;
         }
     }
 
@@ -126,18 +130,33 @@
         adminPollInterval = setInterval(async () => {
             if (window.location.hash === '#admin') {
                 const openModal = document.querySelector('.modal-overlay[style*="display: flex"]');
+                // Only poll if NO modal is open (to prevent overwriting form state)
                 if (!openModal) {
                     const tableBody = document.querySelector('#admin-user-table tbody');
                     if (tableBody) {
-                        const updatedUI = await window.AppUI.renderAdmin();
-                        const parser = new DOMParser();
-                        const doc = parser.parseFromString(updatedUI, 'text/html');
-                        const newBody = doc.querySelector('#admin-user-table tbody');
-                        if (newBody) tableBody.innerHTML = newBody.innerHTML;
+                        try {
+                            // Lightweight fetch just for the table part if possible, 
+                            // but for now we re-render and check diff.
+                            // NOTE: Optimized to not block UI thread
+                            const updatedUI = await window.AppUI.renderAdmin();
+                            const parser = new DOMParser();
+                            const doc = parser.parseFromString(updatedUI, 'text/html');
+                            const newBody = doc.querySelector('#admin-user-table tbody');
+
+                            // Only update if content changed to prevent flicker/lag
+                            if (newBody && tableBody.innerHTML !== newBody.innerHTML) {
+                                tableBody.innerHTML = newBody.innerHTML;
+                            }
+                        } catch (err) {
+                            console.warn("Polling skipped due to error or offline:", err);
+                        }
                     }
                 }
+            } else {
+                // formatting fix: stop polling if not on admin
+                clearInterval(adminPollInterval);
             }
-        }, 3000);
+        }, 10000); // Increased to 10 seconds to reduce lag
     }
 
     // --- Event Handlers ---

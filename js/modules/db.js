@@ -1,128 +1,100 @@
 /**
- * Database Module (IndexedDB Wrapper)
- * Handles offline storage for Users, Attendance, and Sync Queue.
- * (Converted to IIFE for file:// support)
+ * Database Module (Firestore Wrapper)
+ * Handles real-time cloud storage for Users and Attendance.
+ * Replaces IndexedDB implementation.
  */
 (function () {
-    const DB_NAME = 'crwi_attendance_db';
-    const DB_VERSION = 3; // Bumped to force store creation if missing
-
     class Database {
         constructor() {
-            this.db = null;
+            // AppFirestore should be initialized in firebase-config.js
+            this.db = window.AppFirestore;
         }
 
         async init() {
-            return new Promise((resolve, reject) => {
-                const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-                request.onerror = (event) => {
-                    console.error("Database error: " + event.target.errorCode);
-                    reject(event.target.error);
-                };
-
-                request.onsuccess = (event) => {
-                    this.db = event.target.result;
-                    console.log("Database initialized");
-                    resolve(this.db);
-                };
-
-                request.onupgradeneeded = (event) => {
-                    const db = event.target.result;
-
-                    // Users Store (key: id)
-                    if (!db.objectStoreNames.contains('users')) {
-                        const usersStore = db.createObjectStore('users', { keyPath: 'id' });
-                        usersStore.createIndex('username', 'username', { unique: true });
-                    }
-
-                    // Attendance Store (key: id)
-                    if (!db.objectStoreNames.contains('attendance')) {
-                        const attStore = db.createObjectStore('attendance', { keyPath: 'id' });
-                        attStore.createIndex('user_id', 'user_id', { unique: false });
-                        attStore.createIndex('date', 'date', { unique: false });
-                        attStore.createIndex('synced', 'synced', { unique: false });
-                    }
-
-                    // Sync Queue (key: id)
-                    if (!db.objectStoreNames.contains('sync_queue')) {
-                        const syncStore = db.createObjectStore('sync_queue', { keyPath: 'id', autoIncrement: true });
-                    }
-
-                    // Leaves Store (key: id)
-                    if (!db.objectStoreNames.contains('leaves')) {
-                        const leaveStore = db.createObjectStore('leaves', { keyPath: 'id' });
-                        leaveStore.createIndex('userId', 'userId', { unique: false });
-                        leaveStore.createIndex('status', 'status', { unique: false });
-                    }
-                };
-            });
+            // Firestore doesn't need explicit 'open', but we can check connection
+            if (!this.db) {
+                console.error("Firebase not initialized! Check config.");
+                return;
+            }
+            console.log("Firestore adapter ready.");
+            // No strict schema setup needed for Firestore (schema-less)
         }
 
-        async getAll(storeName) {
-            return new Promise((resolve, reject) => {
-                const transaction = this.db.transaction([storeName], 'readonly');
-                const store = transaction.objectStore(storeName);
-                const request = store.getAll();
-
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error);
-            });
+        async getAll(collectionName) {
+            try {
+                const snapshot = await this.db.collection(collectionName).get();
+                return snapshot.docs.map(doc => doc.data());
+            } catch (error) {
+                console.error(`Error getting all from ${collectionName}:`, error);
+                throw error;
+            }
         }
 
-        async get(storeName, key) {
-            return new Promise((resolve, reject) => {
-                const transaction = this.db.transaction([storeName], 'readonly');
-                const store = transaction.objectStore(storeName);
-                const request = store.get(key);
-
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error);
-            });
+        async get(collectionName, id) {
+            try {
+                const docRef = this.db.collection(collectionName).doc(id);
+                const doc = await docRef.get();
+                if (doc.exists) {
+                    return doc.data();
+                } else {
+                    return null;
+                }
+            } catch (error) {
+                console.error(`Error getting ${id} from ${collectionName}:`, error);
+                throw error;
+            }
         }
 
-        async add(storeName, item) {
-            return new Promise((resolve, reject) => {
-                const transaction = this.db.transaction([storeName], 'readwrite');
-                const store = transaction.objectStore(storeName);
-                const request = store.add(item);
-
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error);
-            });
+        async add(collectionName, item) {
+            // Use 'put' logic (set with ID) if item has an ID, otherwise addDoc
+            if (item.id) {
+                return this.put(collectionName, item);
+            }
+            try {
+                const docRef = await this.db.collection(collectionName).add(item);
+                // We might want to save the auto-generated ID back into the item?
+                // For now, just return the ID.
+                return docRef.id;
+            } catch (error) {
+                console.error(`Error adding to ${collectionName}:`, error);
+                throw error;
+            }
         }
 
-        async put(storeName, item) {
-            return new Promise((resolve, reject) => {
-                const transaction = this.db.transaction([storeName], 'readwrite');
-                const store = transaction.objectStore(storeName);
-                const request = store.put(item);
-
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error);
-            });
+        async put(collectionName, item) {
+            if (!item.id) throw new Error("Item must have an ID for 'put' operation.");
+            try {
+                await this.db.collection(collectionName).doc(item.id).set(item, { merge: true });
+                return item.id;
+            } catch (error) {
+                console.error(`Error putting ${item.id} to ${collectionName}:`, error);
+                throw error;
+            }
         }
 
-        async delete(storeName, key) {
-            return new Promise((resolve, reject) => {
-                const transaction = this.db.transaction([storeName], 'readwrite');
-                const store = transaction.objectStore(storeName);
-                const request = store.delete(key);
-
-                request.onsuccess = () => resolve();
-                request.onerror = () => reject(request.error);
-            });
+        async delete(collectionName, id) {
+            try {
+                await this.db.collection(collectionName).doc(id).delete();
+            } catch (error) {
+                console.error(`Error deleting ${id} from ${collectionName}:`, error);
+                throw error;
+            }
         }
 
-        async clear(storeName) {
-            return new Promise((resolve, reject) => {
-                const transaction = this.db.transaction([storeName], 'readwrite');
-                const store = transaction.objectStore(storeName);
-                const request = store.clear();
-
-                request.onsuccess = () => resolve();
-                request.onerror = () => reject(request.error);
-            });
+        async clear(collectionName) {
+            // DANGEROUS IN PRODUCTION - Deletes all documents in collection
+            // Only used for Reset/Debug
+            try {
+                const snapshot = await this.db.collection(collectionName).get();
+                const batch = this.db.batch();
+                snapshot.docs.forEach((doc) => {
+                    batch.delete(doc.ref);
+                });
+                await batch.commit();
+            } catch (error) {
+                console.error(`Error clearing ${collectionName}:`, error);
+                throw error;
+            }
         }
     }
 

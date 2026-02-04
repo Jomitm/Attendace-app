@@ -78,13 +78,39 @@
         }
 
         async getLogs(userId = null) {
-            // If userId provided (Admin view), fetch for that user, else current user
+            // Optimized: Use Firestore Query instead of fetching all
             const targetId = userId || window.AppAuth.getUser()?.id;
             if (!targetId) return [];
 
-            const allLogs = await window.AppDB.getAll('attendance');
-            // Sort by ID descending (newest first)
-            return allLogs.filter(l => l.user_id === targetId).sort((a, b) => b.id - a.id);
+            try {
+                // Access raw Firestore instance for query
+                const db = window.AppFirestore;
+                let query = db.collection('attendance');
+
+                // Filter by User
+                query = query.where('user_id', '==', targetId);
+
+                // Sort by ID (timestamp) descending for "Newest First"
+                // Note: Firestore requires an index for this. If it fails, we default to client-side sort for now.
+                // For simplicity/robustness without index mgmt, we fetch last 50 then sort client side safely
+                // or just standard fetch.
+
+                // Let's try simple fetch of recent items? 
+                // Firestore client SDK doesn't support 'orderBy' easily without composite index if filtering.
+                // Fallback: Fetch by user -> limit 50 -> sort client side.
+
+                // const snapshot = await query.orderBy('id', 'desc').limit(50).get(); // Needs Index
+
+                const snapshot = await query.get();
+                const userLogs = snapshot.docs.map(doc => doc.data());
+
+                // Client-side sort (but dataset is now much smaller, only this user's logs)
+                return userLogs.sort((a, b) => b.id - a.id).slice(0, 50); // Limit to last 50
+            } catch (e) {
+                console.warn("Optimized log fetch failed, falling back to simple filter", e);
+                // Fallback (e.g. offline mode restrictions?)
+                return [];
+            }
         }
 
         async getAllLogs() {

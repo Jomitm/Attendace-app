@@ -41,10 +41,23 @@
 
         async renderDashboard() {
             const user = window.AppAuth.getUser();
-            const { status } = await window.AppAttendance.getStatus();
-            const isCheckedIn = status === 'in';
+
+            console.time('DashboardFetch');
+            // Parallel Fetch
+            const [status, logs, monthlyStats, yearlyStats] = await Promise.all([
+                window.AppAttendance.getStatus(),
+                window.AppAttendance.getLogs(),
+                window.AppAnalytics.getUserMonthlyStats(user.id),
+                window.AppAnalytics.getUserYearlyStats(user.id)
+            ]);
+            console.timeEnd('DashboardFetch');
+
+            const isCheckedIn = status.status === 'in';
             const notifications = user.notifications || [];
-            const recentLogs = await window.AppAttendance.getLogs();
+
+            // Rename for clarity in template
+            const recentLogs = logs;
+            const statusData = status; // prevent conflict
 
             let timerHTML = '00 : 00 : 00';
             let btnText = 'Check-in';
@@ -82,8 +95,7 @@
                 `;
             }
 
-            const monthlyStats = await window.AppAnalytics.getUserMonthlyStats(user.id);
-            const yearlyStats = await window.AppAnalytics.getUserYearlyStats(user.id);
+            // Stats fetched in parallel above, variables ready.
 
             // Helper to generate breakdown HTML
             const renderBreakdown = (breakdown) => {
@@ -604,19 +616,17 @@
                  `;
             }
 
-            // Re-fetch allUsers and other data here for the main return block
-            // This is necessary because the `if (!allUsers || allUsers.length === 0)` block might have returned early.
-            // If it didn't return, allUsers is already populated from the first try-catch.
-            // However, pendingLeaves and usersMap might not be if the first try-catch failed.
-            // To simplify, we'll re-declare and fetch them here, assuming the first try-catch only handles the empty state.
-            // A more robust solution would be to structure the try-catch to populate all necessary data once.
-            const allUsersForTable = await window.AppDB.getAll('users'); // Re-fetch or pass from above
-            const pendingLeaves = await window.AppLeaves.getPendingLeaves();
+            // Fetch other data in PARALLEL to reduce load time
+            console.time('AdminFetch');
+            const [pendingLeaves] = await Promise.all([
+                window.AppLeaves.getPendingLeaves()
+            ]);
+            console.timeEnd('AdminFetch');
+
             const usersMap = {};
-            allUsersForTable.forEach(u => usersMap[u.id] = u);
+            allUsers.forEach(u => usersMap[u.id] = u);
 
-
-            return `
+            const html = `
                <div class="dashboard-grid">
                   <!-- LEAVE REQUESTS WIDGET -->
                   ${pendingLeaves.length > 0 ? `
@@ -698,204 +708,198 @@
                         </table>
                     </div>
                   </div>
-                `;
+                </div>
+
+                <!-- SHARED MODALS FOR ADMIN -->
+                <div id="edit-user-modal" class="modal-overlay" style="display: none;">
+                    <div class="modal-content">
+                        <h3>Edit Staff Details</h3>
+                        <form id="edit-user-form" onsubmit="window.app_submitEditUser(event)" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
+                            <input type="hidden" name="id" id="edit-user-id">
+                            <label>
+                                Full Name
+                                <input type="text" name="name" id="edit-user-name" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                            </label>
+                            
+                            <div style="display: flex; gap: 1rem; background: #fffbeb; padding: 1rem; border-radius: 0.5rem; border: 1px dashed #f59e0b;">
+                                <label style="flex:1">
+                                    Login ID
+                                    <input type="text" name="username" id="edit-user-username" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                                </label>
+                                <label style="flex:1">
+                                    Password
+                                    <input type="text" name="password" id="edit-user-password" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                                </label>
+                            </div>
+
+                            <label>
+                                Role/Designation
+                                <select name="role" id="edit-user-role" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                                    <option value="Employee">Employee</option>
+                                    <option value="Administrator">Administrator</option>
+                                    <option value="Manager">Manager</option>
+                                </select>
+                            </label>
+                            <label>
+                                Department
+                                <input type="text" name="dept" id="edit-user-dept" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                            </label>
+                             <div style="display: flex; gap: 1rem;">
+                                <label style="flex:1">
+                                    Email
+                                    <input type="email" name="email" id="edit-user-email" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                                </label>
+                                <label style="flex:1">
+                                    Phone
+                                    <input type="tel" name="phone" id="edit-user-phone" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                                </label>
+                            </div>
+                            
+                            <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                                <button type="button" onclick="document.getElementById('edit-user-modal').style.display = 'none'" style="flex: 1; padding: 0.75rem; border: 1px solid #ddd; background: white; border-radius: 0.5rem; cursor: pointer;">Cancel</button>
+                                <button type="submit" class="action-btn" style="flex: 1; padding: 0.75rem; border-radius: 0.5rem;">Update Details</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div id="user-details-modal" class="modal-overlay" style="display: none;">
+                    <div class="modal-content" style="max-width: 700px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                            <h3>Staff Attendance Record</h3>
+                            <button onclick="document.getElementById('user-details-modal').style.display='none'" style="background:none; border:none; cursor:pointer; font-size:1.2rem;"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                        <div id="user-details-content">
+                            <!-- Injected by JS -->
+                        </div>
+                    </div>
+                </div>
+
+                 <div id="notify-modal" class="modal-overlay" style="display: none;">
+                    <div class="modal-content">
+                        <h3>Send Notification</h3>
+                        <form id="notify-form" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
+                            <input type="hidden" name="toUserId" id="notify-user-id">
+                            <label>
+                                Message
+                                <textarea name="message" required rows="4" placeholder="Type your message here..." style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem; font-family: inherit;"></textarea>
+                            </label>
+                            
+                            <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                                <button type="button" onclick="document.getElementById('notify-modal').style.display = 'none'" style="flex: 1; padding: 0.75rem; border: 1px solid #ddd; background: white; border-radius: 0.5rem; cursor: pointer;">Cancel</button>
+                                <button type="submit" class="action-btn" style="flex: 1; padding: 0.75rem; border-radius: 0.5rem;">Send Message</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            
+                <div id="add-user-modal" class="modal-overlay" style="display: none;">
+                    <div class="modal-content">
+                        <h3>Create New Account</h3>
+                        <form id="add-user-form" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
+                            <label>
+                                Full Name
+                                <input type="text" name="name" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                            </label>
+                            
+                            <div style="display: flex; gap: 1rem; background: #f9fafb; padding: 1rem; border-radius: 0.5rem; border: 1px dashed #d1d5db;">
+                                <label style="flex:1">
+                                    Login ID
+                                    <input type="text" name="username" placeholder="e.g. jomit" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                                </label>
+                                <label style="flex:1">
+                                    Password
+                                    <input type="text" name="password" placeholder="e.g. secret123" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                                </label>
+                            </div>
+
+                            <label>
+                                Role/Designation
+                                <input type="text" name="role" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                            </label>
+                            <label>
+                                Department
+                                <input type="text" name="dept" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                            </label>
+                             <div style="display: flex; gap: 1rem;">
+                                <label style="flex:1">
+                                    Email
+                                    <input type="email" name="email" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                                </label>
+                                <label style="flex:1">
+                                    Phone
+                                    <input type="tel" name="phone" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                                </label>
+                            </div>
+                            <label>
+                                Joining Date
+                                <input type="date" name="joinDate" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                            </label>
+                            
+                            <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                                <button type="button" onclick="document.getElementById('add-user-modal').style.display = 'none'" style="flex: 1; padding: 0.75rem; border: 1px solid #ddd; background: white; border-radius: 0.5rem; cursor: pointer;">Cancel</button>
+                                <button type="submit" class="action-btn" style="flex: 1; padding: 0.75rem; border-radius: 0.5rem;">Create Account</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            `;
 
             // Auto-init refresh if on admin page
             setTimeout(() => window.initAdminLiveRefresh(), 100);
 
             return html;
-        } catch(e) {
-            console.error("Profile Render Error", e);
-            return `<div style="padding: 2rem; color: red;">Error loading admin: ${e.message}</div>`;
-        }
-    },
+        },
 
         // Helper to generate just the rows (for auto-refresh)
         renderAdminTableRows(users) {
-        if (!users || users.length === 0) return '<tr><td colspan="5" style="text-align:center; padding:1rem;">No users found</td></tr>';
+            if (!users || users.length === 0) return '<tr><td colspan="5" style="text-align:center; padding:1rem;">No users found</td></tr>';
 
-        return users.map(u => {
-            const statusColor = u.status === 'in' ? 'var(--success)' : '#9ca3af';
-            const statusText = u.status === 'in' ? 'Online' : 'Offline';
-            const lastSeen = u.lastCheckIn ? new Date(u.lastCheckIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--';
-            const rowStyle = u.status === 'in' ? 'background: #f0fdf4;' : '';
+            return users.map(u => {
+                const statusColor = u.status === 'in' ? 'var(--success)' : '#9ca3af';
+                const statusText = u.status === 'in' ? 'Online' : 'Offline';
+                const lastSeen = u.lastCheckIn ? new Date(u.lastCheckIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--';
+                const rowStyle = u.status === 'in' ? 'background: #f0fdf4;' : '';
 
-            return `
-                <tr style="${rowStyle}">
-                                        <td>
-                                            <div style="display:flex; align-items:center; gap:0.5rem;">
-                                                <img src="${u.avatar}" style="width:30px;height:30px;border-radius:50%">
-                                                <div>
-                                                    <div style="font-weight:600">${u.name}</div>
-                                                    <div style="font-size:0.75rem;color:#6b7280">${u.role}</div>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <div style="display:flex; align-items:center; gap:0.5rem;">
-                                                <div style="width:8px; height:8px; border-radius:50%; background:${statusColor}"></div>
-                                                <span style="font-size:0.9rem; font-weight:500;">${statusText}</span>
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <span style="font-family:monospace; background:${u.status === 'in' ? '#dcfce7' : '#f3f4f6'}; color:${u.status === 'in' ? '#166534' : '#374151'}; padding:2px 6px; border-radius:4px;">
-                                                ${lastSeen}
-                                            </span>
-                                        </td>
-                                        <td>${u.username}</td>
-                                        <td>
-                                            <div style="display: flex; gap: 0.5rem;">
-                                                <button onclick="window.app_editUser('${u.id}')" style="padding: 0.4rem; background: #f3f4f6; color: #4b5563; border: none; border-radius: 0.5rem; cursor: pointer;" title="Edit User">
-                                                    <i class="fa-solid fa-pen"></i>
-                                                </button>
-                                                <button onclick="window.app_viewLogs('${u.id}')" style="padding: 0.4rem 0.8rem; background: #eef2ff; color: var(--primary); border: none; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; font-weight: 500;">
-                                                    <i class="fa-solid fa-file-invoice"></i> Logs
-                                                </button>
-                                                <button onclick="window.app_notifyUser('${u.id}')" style="padding: 0.4rem 0.8rem; background: #fff7ed; color: #b45309; border: none; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; font-weight: 500;">
-                                                    <i class="fa-solid fa-envelope"></i>
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr >
+                return `
+                    <tr style="${rowStyle}">
+                        <td>
+                            <div style="display:flex; align-items:center; gap:0.5rem;">
+                                <img src="${u.avatar}" style="width:30px;height:30px;border-radius:50%">
+                                <div>
+                                    <div style="font-weight:600">${u.name}</div>
+                                    <div style="font-size:0.75rem;color:#6b7280">${u.role}</div>
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            <div style="display:flex; align-items:center; gap:0.5rem;">
+                                <div style="width:8px; height:8px; border-radius:50%; background:${statusColor}"></div>
+                                <span style="font-size:0.9rem; font-weight:500;">${statusText}</span>
+                            </div>
+                        </td>
+                        <td>
+                            <span style="font-family:monospace; background:${u.status === 'in' ? '#dcfce7' : '#f3f4f6'}; color:${u.status === 'in' ? '#166534' : '#374151'}; padding:2px 6px; border-radius:4px;">
+                                ${lastSeen}
+                            </span>
+                        </td>
+                        <td>${u.username}</td>
+                        <td>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button onclick="window.app_editUser('${u.id}')" style="padding: 0.4rem; background: #f3f4f6; color: #4b5563; border: none; border-radius: 0.5rem; cursor: pointer;" title="Edit User">
+                                    <i class="fa-solid fa-pen"></i>
+                                </button>
+                                <button onclick="window.app_viewLogs('${u.id}')" style="padding: 0.4rem 0.8rem; background: #eef2ff; color: var(--primary); border: none; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; font-weight: 500;">
+                                    <i class="fa-solid fa-file-invoice"></i> Logs
+                                </button>
+                                <button onclick="window.app_notifyUser('${u.id}')" style="padding: 0.4rem 0.8rem; background: #fff7ed; color: #b45309; border: none; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; font-weight: 500;">
+                                    <i class="fa-solid fa-envelope"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
                 `;
-        }).join('');
-    }
-
-                  < !--SHARED MODALS FOR ADMIN-- >
-                    <div id="edit-user-modal" class="modal-overlay" style="display: none;">
-                        <div class="modal-content">
-                            <h3>Edit Staff Details</h3>
-                            <form id="edit-user-form" onsubmit="window.app_submitEditUser(event)" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
-                                <input type="hidden" name="id" id="edit-user-id">
-                                <label>
-                                    Full Name
-                                    <input type="text" name="name" id="edit-user-name" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                </label>
-                                
-                                <div style="display: flex; gap: 1rem; background: #fffbeb; padding: 1rem; border-radius: 0.5rem; border: 1px dashed #f59e0b;">
-                                    <label style="flex:1">
-                                        Login ID
-                                        <input type="text" name="username" id="edit-user-username" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                    </label>
-                                    <label style="flex:1">
-                                        Password
-                                        <input type="text" name="password" id="edit-user-password" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                    </label>
-                                </div>
-
-                                <label>
-                                    Role/Designation
-                                    <select name="role" id="edit-user-role" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                        <option value="Employee">Employee</option>
-                                        <option value="Administrator">Administrator</option>
-                                        <option value="Manager">Manager</option>
-                                    </select>
-                                </label>
-                                <label>
-                                    Department
-                                    <input type="text" name="dept" id="edit-user-dept" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                </label>
-                                 <div style="display: flex; gap: 1rem;">
-                                    <label style="flex:1">
-                                        Email
-                                        <input type="email" name="email" id="edit-user-email" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                    </label>
-                                    <label style="flex:1">
-                                        Phone
-                                        <input type="tel" name="phone" id="edit-user-phone" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                    </label>
-                                </div>
-                                
-                                <div style="display: flex; gap: 1rem; margin-top: 1rem;">
-                                    <button type="button" onclick="document.getElementById('edit-user-modal').style.display = 'none'" style="flex: 1; padding: 0.75rem; border: 1px solid #ddd; background: white; border-radius: 0.5rem; cursor: pointer;">Cancel</button>
-                                    <button type="submit" class="action-btn" style="flex: 1; padding: 0.75rem; border-radius: 0.5rem;">Update Details</button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-
-                    <div id="user-details-modal" class="modal-overlay" style="display: none;">
-                        <div class="modal-content" style="max-width: 700px;">
-                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-                                <h3>Staff Attendance Record</h3>
-                                <button onclick="document.getElementById('user-details-modal').style.display='none'" style="background:none; border:none; cursor:pointer; font-size:1.2rem;"><i class="fa-solid fa-xmark"></i></button>
-                            </div>
-                            <div id="user-details-content">
-                                <!-- Injected by JS -->
-                            </div>
-                        </div>
-                    </div>
-
-                     <div id="notify-modal" class="modal-overlay" style="display: none;">
-                        <div class="modal-content">
-                            <h3>Send Notification</h3>
-                            <form id="notify-form" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
-                                <input type="hidden" name="toUserId" id="notify-user-id">
-                                <label>
-                                    Message
-                                    <textarea name="message" required rows="4" placeholder="Type your message here..." style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem; font-family: inherit;"></textarea>
-                                </label>
-                                
-                                <div style="display: flex; gap: 1rem; margin-top: 1rem;">
-                                    <button type="button" onclick="document.getElementById('notify-modal').style.display = 'none'" style="flex: 1; padding: 0.75rem; border: 1px solid #ddd; background: white; border-radius: 0.5rem; cursor: pointer;">Cancel</button>
-                                    <button type="submit" class="action-btn" style="flex: 1; padding: 0.75rem; border-radius: 0.5rem;">Send Message</button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                
-                    <div id="add-user-modal" class="modal-overlay" style="display: none;">
-                        <div class="modal-content">
-                            <h3>Create New Account</h3>
-                            <form id="add-user-form" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
-                                <label>
-                                    Full Name
-                                    <input type="text" name="name" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                </label>
-                                
-                                <div style="display: flex; gap: 1rem; background: #f9fafb; padding: 1rem; border-radius: 0.5rem; border: 1px dashed #d1d5db;">
-                                    <label style="flex:1">
-                                        Login ID
-                                        <input type="text" name="username" placeholder="e.g. jomit" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                    </label>
-                                    <label style="flex:1">
-                                        Password
-                                        <input type="text" name="password" placeholder="e.g. secret123" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                    </label>
-                                </div>
-
-                                <label>
-                                    Role/Designation
-                                    <input type="text" name="role" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                </label>
-                                <label>
-                                    Department
-                                    <input type="text" name="dept" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                </label>
-                                 <div style="display: flex; gap: 1rem;">
-                                    <label style="flex:1">
-                                        Email
-                                        <input type="email" name="email" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                    </label>
-                                    <label style="flex:1">
-                                        Phone
-                                        <input type="tel" name="phone" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                    </label>
-                                </div>
-                                <label>
-                                    Joining Date
-                                    <input type="date" name="joinDate" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                </label>
-                                
-                                <div style="display: flex; gap: 1rem; margin-top: 1rem;">
-                                    <button type="button" onclick="document.getElementById('add-user-modal').style.display = 'none'" style="flex: 1; padding: 0.75rem; border: 1px solid #ddd; background: white; border-radius: 0.5rem; cursor: pointer;">Cancel</button>
-                                    <button type="submit" class="action-btn" style="flex: 1; padding: 0.75rem; border-radius: 0.5rem;">Create Account</button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-               </div >
-        `;
+            }).join('');
         }
     };
     // Global Refresh Logic for Admin Table
