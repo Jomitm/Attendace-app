@@ -77,13 +77,14 @@
             for (let i = 6; i >= 0; i--) {
                 const date = new Date();
                 date.setDate(date.getDate() - i);
-                const dateStr = date.toISOString().split('T')[0];
+                // FIX: Match the format used in attendance.js (toLocaleDateString)
+                const dateKey = date.toLocaleDateString();
                 const dayLabel = date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
 
                 labels.push(dayLabel);
 
                 // Count logs for this day
-                const daysLogs = logs.filter(l => l.date === dateStr);
+                const daysLogs = logs.filter(l => l.date === dateKey);
                 const presentCount = daysLogs.filter(l => l.status === 'in' && l.type !== 'Sick Leave' && l.type !== 'Casual Leave' && l.type !== 'Annual Leave' && l.location !== 'On Leave').length;
                 const leaveCount = daysLogs.filter(l => l.location === 'On Leave' || String(l.type).includes('Leave')).length;
 
@@ -93,9 +94,10 @@
 
             return { labels, present: presentData, onLeave: leaveData };
         }
+
         async getUserMonthlyStats(userId) {
             const logs = await this.db.getAll('attendance');
-            const userLogs = logs.filter(l => l.userId === userId);
+            const userLogs = logs.filter(l => l.userId === userId || l.user_id === userId); // Handle both ID formats
 
             // Get Current Month
             const today = new Date();
@@ -131,11 +133,11 @@
                 breakdown: breakdown
             };
 
-            const startStr = startOfMonth.toISOString().split('T')[0];
-            const endStr = endOfMonth.toISOString().split('T')[0];
-
             userLogs.forEach(log => {
-                if (log.date >= startStr && log.date <= endStr) {
+                // FIX: Parse locale date string to Date object for comparison
+                const logDate = new Date(log.date);
+                // Check if date is valid
+                if (!isNaN(logDate) && logDate >= startOfMonth && logDate <= endOfMonth) {
                     let type = log.type || '';
 
                     // LATE Check
@@ -174,7 +176,7 @@
 
         async getUserYearlyStats(userId) {
             const logs = await this.db.getAll('attendance');
-            const userLogs = logs.filter(l => l.userId === userId);
+            const userLogs = logs.filter(l => l.userId === userId || l.user_id === userId);
             const { start, end, label } = this.getFinancialYearDates();
 
             // Initialize Breakdown
@@ -206,8 +208,9 @@
             const monthlyLates = {};
 
             userLogs.forEach(log => {
+                // FIX: Parse locale date string
                 const logDate = new Date(log.date);
-                if (logDate >= start && logDate <= end) {
+                if (!isNaN(logDate) && logDate >= start && logDate <= end) {
                     let type = log.type || '';
 
                     // LATE Check

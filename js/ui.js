@@ -200,7 +200,12 @@
                         </button>
 
                         <div class="location-text" id="location-text">
-                            <i class="fa-solid fa-location-dot"></i> <span>Waiting for location...</span>
+                            <i class="fa-solid fa-location-dot"></i> 
+                            <span>
+                                ${user.status === 'in' && user.currentLocation
+                    ? `Lat: ${Number(user.currentLocation.lat).toFixed(4)}, Lng: ${Number(user.currentLocation.lng).toFixed(4)}`
+                    : 'Waiting for location...'}
+                            </span>
                         </div>
                     </div>
 
@@ -697,7 +702,9 @@
                                 <tr>
                                     <th>Name</th>
                                     <th>Status</th>
-                                    <th>Check-In Time</th>
+                                    <th>Check-In</th>
+                                    <th>Check-Out</th>
+                                    <th>Location</th>
                                     <th>Login ID</th>
                                     <th>Actions</th>
                                 </tr>
@@ -853,12 +860,26 @@
 
         // Helper to generate just the rows (for auto-refresh)
         renderAdminTableRows(users) {
-            if (!users || users.length === 0) return '<tr><td colspan="5" style="text-align:center; padding:1rem;">No users found</td></tr>';
+            if (!users || users.length === 0) return '<tr><td colspan="7" style="text-align:center; padding:1rem;">No users found</td></tr>';
 
             return users.map(u => {
                 const statusColor = u.status === 'in' ? 'var(--success)' : '#9ca3af';
                 const statusText = u.status === 'in' ? 'Online' : 'Offline';
-                const lastSeen = u.lastCheckIn ? new Date(u.lastCheckIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--';
+
+                // TIMES
+                const lastIn = u.lastCheckIn ? new Date(u.lastCheckIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--';
+                const lastOut = u.lastCheckOut ? new Date(u.lastCheckOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--';
+
+                // LOCATION
+                let locDisplay = '--';
+                if (u.status === 'in' && u.currentLocation) {
+                    locDisplay = `<span style="font-size:0.8rem; color:var(--primary);"><i class="fa-solid fa-location-dot"></i> Lat: ${Number(u.currentLocation.lat).toFixed(3)}...</span>`;
+                } else if (u.status === 'out' && u.lastLocation) {
+                    locDisplay = `<span style="font-size:0.8rem; color:#6b7280; opacity:0.8;"><i class="fa-solid fa-clock-rotate-left"></i> Lat: ${Number(u.lastLocation.lat).toFixed(3)}...</span>`;
+                } else if (u.status === 'in') {
+                    locDisplay = '<span style="font-size:0.8rem; color:#f59e0b;"><i class="fa-solid fa-spinner fa-spin"></i> Locating...</span>';
+                }
+
                 const rowStyle = u.status === 'in' ? 'background: #f0fdf4;' : '';
 
                 return `
@@ -880,8 +901,16 @@
                         </td>
                         <td>
                             <span style="font-family:monospace; background:${u.status === 'in' ? '#dcfce7' : '#f3f4f6'}; color:${u.status === 'in' ? '#166534' : '#374151'}; padding:2px 6px; border-radius:4px;">
-                                ${lastSeen}
+                                ${lastIn}
                             </span>
+                        </td>
+                        <td>
+                            <span style="font-family:monospace; color:#6b7280;">
+                                ${lastOut}
+                            </span>
+                        </td>
+                        <td>
+                            ${locDisplay}
                         </td>
                         <td>${u.username}</td>
                         <td>

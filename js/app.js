@@ -181,12 +181,42 @@
     }
 
     function getLocation() {
-        return new Promise((resolve, reject) => {
-            if (!navigator.geolocation) reject('Geolocation is not supported');
-            else navigator.geolocation.getCurrentPosition(
-                (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
-                (e) => reject('Unable to retrieve location')
-            );
+        return new Promise(async (resolve, reject) => {
+            if (!navigator.geolocation) {
+                reject('Geolocation is not supported by your browser.');
+                return;
+            }
+
+            const getPosition = (options) => {
+                return new Promise((res, rej) => {
+                    navigator.geolocation.getCurrentPosition(res, rej, options);
+                });
+            };
+
+            try {
+                // Attempt 1: High Accuracy (GPS)
+                console.log("Requesting Location: High Accuracy...");
+                const p = await getPosition({ enableHighAccuracy: true, timeout: 5000, maximumAge: 0 });
+                resolve({ lat: p.coords.latitude, lng: p.coords.longitude });
+            } catch (err) {
+                console.warn("High Accuracy Failed:", err.message);
+
+                // Attempt 2: Low Accuracy (WiFi/Cell/IP) - Fallback
+                try {
+                    console.log("Requesting Location: Low Accuracy (Fallback)...");
+                    const p2 = await getPosition({ enableHighAccuracy: false, timeout: 10000, maximumAge: 0 });
+                    resolve({ lat: p2.coords.latitude, lng: p2.coords.longitude });
+                } catch (err2) {
+                    console.error("Low Accuracy Failed:", err2.message);
+
+                    let msg = 'Unable to retrieve location.';
+                    if (err2.code === 1) msg = 'Location permission denied. Please allow location access.';
+                    else if (err2.code === 2) msg = 'Location unavailable. Ensure GPS is on.';
+                    else if (err2.code === 3) msg = 'Location request timed out completely.';
+
+                    reject(msg);
+                }
+            }
         });
     }
 

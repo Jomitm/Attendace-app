@@ -53,100 +53,108 @@
             // Save Log
             await window.AppDB.add('attendance', log);
 
-            // Reset User State
+            // Update User State (Save Last Known Info)
             user.status = 'out';
+            user.lastCheckOut = Date.now(); // Save checkout timestamp
+            user.lastLocation = user.currentLocation; // Persist last known location
+
+            // Clear Active State
             user.lastCheckIn = null;
             user.currentLocation = null;
 
             await window.AppDB.put('users', user);
-            return log;
+            return true;
         }
+
+            await window.AppDB.put('users', user);
+    return log;
+}
 
         async addManualLog(logData) {
-            const user = window.AppAuth.getUser();
-            if (!user) return;
+    const user = window.AppAuth.getUser();
+    if (!user) return;
 
-            const newLog = {
-                id: String(Date.now()),
-                user_id: user.id,
-                ...logData,
-                synced: false
-            };
+    const newLog = {
+        id: String(Date.now()),
+        user_id: user.id,
+        ...logData,
+        synced: false
+    };
 
-            await window.AppDB.add('attendance', newLog);
-            return newLog;
-        }
+    await window.AppDB.add('attendance', newLog);
+    return newLog;
+}
 
         async getLogs(userId = null) {
-            // Optimized: Use Firestore Query instead of fetching all
-            const targetId = userId || window.AppAuth.getUser()?.id;
-            if (!targetId) return [];
+    // Optimized: Use Firestore Query instead of fetching all
+    const targetId = userId || window.AppAuth.getUser()?.id;
+    if (!targetId) return [];
 
-            try {
-                // Access raw Firestore instance for query
-                const db = window.AppFirestore;
-                let query = db.collection('attendance');
+    try {
+        // Access raw Firestore instance for query
+        const db = window.AppFirestore;
+        let query = db.collection('attendance');
 
-                // Filter by User
-                query = query.where('user_id', '==', targetId);
+        // Filter by User
+        query = query.where('user_id', '==', targetId);
 
-                // Sort by ID (timestamp) descending for "Newest First"
-                // Note: Firestore requires an index for this. If it fails, we default to client-side sort for now.
-                // For simplicity/robustness without index mgmt, we fetch last 50 then sort client side safely
-                // or just standard fetch.
+        // Sort by ID (timestamp) descending for "Newest First"
+        // Note: Firestore requires an index for this. If it fails, we default to client-side sort for now.
+        // For simplicity/robustness without index mgmt, we fetch last 50 then sort client side safely
+        // or just standard fetch.
 
-                // Let's try simple fetch of recent items? 
-                // Firestore client SDK doesn't support 'orderBy' easily without composite index if filtering.
-                // Fallback: Fetch by user -> limit 50 -> sort client side.
+        // Let's try simple fetch of recent items? 
+        // Firestore client SDK doesn't support 'orderBy' easily without composite index if filtering.
+        // Fallback: Fetch by user -> limit 50 -> sort client side.
 
-                // const snapshot = await query.orderBy('id', 'desc').limit(50).get(); // Needs Index
+        // const snapshot = await query.orderBy('id', 'desc').limit(50).get(); // Needs Index
 
-                const snapshot = await query.get();
-                const userLogs = snapshot.docs.map(doc => doc.data());
+        const snapshot = await query.get();
+        const userLogs = snapshot.docs.map(doc => doc.data());
 
-                // Client-side sort (but dataset is now much smaller, only this user's logs)
-                const sortedLogs = userLogs.sort((a, b) => b.id - a.id);
+        // Client-side sort (but dataset is now much smaller, only this user's logs)
+        const sortedLogs = userLogs.sort((a, b) => b.id - a.id);
 
-                // Check for ACTIVE session (Virtual Log)
-                try {
-                    const currentUserState = await window.AppDB.get('users', targetId);
-                    if (currentUserState && currentUserState.status === 'in' && currentUserState.lastCheckIn) {
-                        const checkInTime = new Date(currentUserState.lastCheckIn);
-                        const virtualLog = {
-                            id: 'active_now',
-                            date: checkInTime.toLocaleDateString(),
-                            checkIn: checkInTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                            checkOut: 'Active Now',
-                            duration: 'Working...',
-                            type: 'Office',
-                            location: currentUserState.currentLocation?.address || 'Current Session'
-                        };
-                        sortedLogs.unshift(virtualLog); // Add to top
-                    }
-                } catch (err) {
-                    console.warn("Could not fetch active status for logs", err);
-                }
-
-                return sortedLogs.slice(0, 50); // Limit to last 50
-            } catch (e) {
-                console.warn("Optimized log fetch failed, falling back to simple filter", e);
-                // Fallback (e.g. offline mode restrictions?)
-                return [];
+        // Check for ACTIVE session (Virtual Log)
+        try {
+            const currentUserState = await window.AppDB.get('users', targetId);
+            if (currentUserState && currentUserState.status === 'in' && currentUserState.lastCheckIn) {
+                const checkInTime = new Date(currentUserState.lastCheckIn);
+                const virtualLog = {
+                    id: 'active_now',
+                    date: checkInTime.toLocaleDateString(),
+                    checkIn: checkInTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    checkOut: 'Active Now',
+                    duration: 'Working...',
+                    type: 'Office',
+                    location: currentUserState.currentLocation?.address || 'Current Session'
+                };
+                sortedLogs.unshift(virtualLog); // Add to top
             }
+        } catch (err) {
+            console.warn("Could not fetch active status for logs", err);
         }
+
+        return sortedLogs.slice(0, 50); // Limit to last 50
+    } catch (e) {
+        console.warn("Optimized log fetch failed, falling back to simple filter", e);
+        // Fallback (e.g. offline mode restrictions?)
+        return [];
+    }
+}
 
         async getAllLogs() {
-            // Admin: Get all logs
-            return await window.AppDB.getAll('attendance');
-        }
+    // Admin: Get all logs
+    return await window.AppDB.getAll('attendance');
+}
 
-        msToTime(duration) {
-            let minutes = Math.floor((duration / (1000 * 60)) % 60);
-            let hours = Math.floor((duration / (1000 * 60 * 60)) % 24);
-            return `${hours}h ${minutes}m`;
-        }
+msToTime(duration) {
+    let minutes = Math.floor((duration / (1000 * 60)) % 60);
+    let hours = Math.floor((duration / (1000 * 60 * 60)) % 24);
+    return `${hours}h ${minutes}m`;
+}
     }
 
-    // Export to Window
-    window.AppAttendance = new Attendance();
-})();
+// Export to Window
+window.AppAttendance = new Attendance();
+}) ();
