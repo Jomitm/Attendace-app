@@ -100,7 +100,6 @@
             // Helper to generate breakdown HTML
             const renderBreakdown = (breakdown) => {
                 const items = Object.entries(breakdown);
-                // Define colors/icons for keys
                 const meta = {
                     'Present': { color: '#166534', bg: '#f0fdf4', label: 'Office' },
                     'Work - Home': { color: '#0369a1', bg: '#e0f2fe', label: 'WFH' },
@@ -118,52 +117,58 @@
                 };
 
                 return items.map(([key, count]) => {
-                    // Show all relevant items, even if 0? User said "all the option should aprear". 
-                    // But 0s might clutter. Let's show specific main ones always, others if > 0.
-                    // Actually user said "all the option should aprear", so I will render them all that are relevant or maybe just a compact grid.
-                    // To avoid massive grid, I'll filter for > 0 OR main ones (Present, Late, Absent).
                     const style = meta[key] || { color: '#374151', bg: '#f3f4f6', label: key };
-
-                    // Skip if 0, unless it's Present/Late/Absent which are core
                     if (count === 0 && !['Present', 'Late', 'Absent'].includes(key)) return '';
 
                     return `
-                        <div style="display:flex; flex-direction:column; align-items:center; padding:0.5rem; background:${style.bg}; border-radius:6px; min-width:60px;">
+                        <div style="display:flex; flex-direction:column; align-items:center; justifyContent:center; padding:0.5rem; background:${style.bg}; border-radius:8px; min-width:65px; text-align:center;">
                             <span style="font-weight:700; font-size:1.1rem; color:${style.color}">${count}</span>
-                            <span style="font-size:0.65rem; color:${style.color}; text-align:center; line-height:1.2;">${style.label}</span>
+                            <span style="font-size:0.65rem; color:${style.color}; font-weight:500; line-height:1.2; margin-top:2px;">${style.label}</span>
                         </div>
                      `;
                 }).join('');
             };
 
+            const renderStatsCard = (title, subtitle, statsObj) => {
+                const penaltyBadge = statsObj.penalty > 0
+                    ? `<span style="font-size:0.65rem; background:#fee2e2; color:#991b1b; padding:2px 8px; border-radius:12px; font-weight:600;">Penalty Applies</span>`
+                    : '';
+
+                return `
+                    <div class="card" style="padding: 1.25rem; display:flex; flex-direction:column; gap:1rem;">
+                        <!-- Header -->
+                        <div style="display:flex; justify-content:space-between; align-items:start;">
+                            <div>
+                                <h4 style="margin:0; font-size:1.1rem; color:#1f2937;">${title}</h4>
+                                <span style="font-size:0.75rem; color:#6b7280; margin-top:0.25rem; display:block;">${subtitle}</span>
+                            </div>
+                            ${penaltyBadge}
+                        </div>
+
+                        <!-- Time Stats -->
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.75rem;">
+                             <div style="background:#fef2f2; padding:0.75rem; border-radius:8px; text-align:center; border:1px solid #fee2e2;">
+                                <div style="color:#b91c1c; font-weight:700; font-size:1.1rem;">${statsObj.totalLateDuration}</div>
+                                <div style="color:#7f1d1d; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Late Time</div>
+                             </div>
+                             <div style="background:#ecfdf5; padding:0.75rem; border-radius:8px; text-align:center; border:1px solid #d1fae5;">
+                                <div style="color:#047857; font-weight:700; font-size:1.1rem;">${statsObj.totalExtraDuration}</div>
+                                <div style="color:#064e3b; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Extra Hrs</div>
+                             </div>
+                        </div>
+
+                        <!-- Breakdown -->
+                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: start;">
+                            ${renderBreakdown(statsObj.breakdown)}
+                        </div>
+                    </div>
+                `;
+            };
+
             const summaryHTML = `
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                    <!-- Monthly Card -->
-                    <div class="card" style="padding: 1rem;">
-                        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.5rem;">
-                            <div>
-                                <h4 style="margin:0; color:#374151;">${monthlyStats.label}</h4>
-                                <span style="font-size:0.75rem; color:#6b7280;">Monthly Stats</span>
-                            </div>
-                            ${monthlyStats.penalty > 0 ? '<span style="font-size:0.7rem; background:#fee2e2; color:#991b1b; padding:2px 6px; border-radius:4px;">Penalty Applied</span>' : ''}
-                        </div>
-                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center;">
-                            ${renderBreakdown(monthlyStats.breakdown)}
-                        </div>
-                    </div>
-
-                    <!-- Yearly Card -->
-                    <div class="card" style="padding: 1rem;">
-                         <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.5rem;">
-                            <div>
-                                <h4 style="margin:0; color:#374151;">Yearly Summary</h4>
-                                <span style="font-size:0.75rem; color:#6b7280;">${yearlyStats.label}</span>
-                            </div>
-                        </div>
-                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center;">
-                             ${renderBreakdown(yearlyStats.breakdown)}
-                        </div>
-                    </div>
+                    ${renderStatsCard(monthlyStats.label, 'Monthly Stats', monthlyStats)}
+                    ${renderStatsCard('Yearly Summary', yearlyStats.label, yearlyStats)}
                 </div>
             `;
 
@@ -510,69 +515,98 @@
 
                 const leaves = await window.AppLeaves.getUserLeaves(user.id);
 
+                // Helper functions (attached to window for gloabl access from onclick)
+                window.app_triggerUpload = () => document.getElementById('profile-upload').click();
+
+                window.app_handlePhotoUpload = async (input) => {
+                    if (input.files && input.files[0]) {
+                        const file = input.files[0];
+                        const reader = new FileReader();
+                        reader.onload = async (e) => {
+                            const base64 = e.target.result;
+                            const success = await window.AppAuth.updateUser({ id: user.id, avatar: base64 });
+                            if (success) {
+                                alert("Profile photo updated!");
+                                window.location.reload();
+                            } else {
+                                alert("Failed to save photo.");
+                            }
+                        };
+                        reader.readAsDataURL(file);
+                    }
+                };
+
                 return `
-                    <div class="dashboard-grid">
-                        <div class="card full-width">
-                            <div style="text-align: center; margin-bottom: 2rem;">
-                                <div class="logo-circle" style="width: 100px; height: 100px; margin: 0 auto 1rem auto;">
-                                    <img src="${user.avatar}" alt="Profile">
+                    < div class="dashboard-grid" >
+                        <div class="card full-width" style="padding: 0; overflow: hidden; position: relative;">
+                            <!-- Banner -->
+                            <div style="height: 150px; background: linear-gradient(to right, #4f46e5, #818cf8); position: relative;"></div>
+                            
+                            <!-- Profile Info -->
+                            <div style="padding: 0 2rem 2rem 2rem; display: flex; flex-direction: column; align-items: center; margin-top: -50px;">
+                                <div style="position: relative;">
+                                    <div class="logo-circle" style="width: 100px; height: 100px; border: 4px solid white; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+                                        <img src="${user.avatar}" alt="Profile" style="background:#fff;">
+                                    </div>
+                                    <button onclick="window.app_triggerUpload()" style="position: absolute; bottom: 0; right: 0; background: var(--primary); color: white; border: none; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.2);" title="Change Photo">
+                                        <i class="fa-solid fa-camera" style="font-size: 0.8rem;"></i>
+                                    </button>
+                                    <input type="file" id="profile-upload" accept="image/*" style="display: none;" onchange="window.app_handlePhotoUpload(this)">
                                 </div>
-                                <h2>${user.name}</h2>
-                                <p class="text-muted">${user.role}</p>
-                                <span class="badge ${user.status === 'in' ? 'in' : 'out'}" style="margin-top: 0.5rem; display: inline-block;">
-                                    ${user.status === 'in' ? 'Currently Checked In' : 'Currently Checked Out'}
+                                
+                                <h2 style="margin-top: 1rem; margin-bottom: 0.25rem;">${user.name}</h2>
+                                <p class="text-muted" style="font-weight: 500;">${user.role} <span style="margin: 0 0.5rem; color: #d1d5db;">|</span> ${user.dept || 'General'}</p>
+                                
+                                <span class="badge ${user.status === 'in' ? 'in' : 'out'}" style="margin-top: 1rem;">
+                                    ${user.status === 'in' ? '● Currently Online' : '○ Currently Offline'}
                                 </span>
                             </div>
 
-                            <div class="grid-2">
-                                <div style="padding: 1rem; background: #f9fafb; border-radius: 0.5rem;">
-                                    <small class="text-muted" style="display: block; margin-bottom: 0.25rem;">Login ID</small>
-                                    <div style="font-weight: 500;">${user.username}</div>
+                            <!-- Details Grid -->
+                            <div style="padding: 2rem; border-top: 1px solid #f3f4f6;">
+                                <h3 style="margin-bottom: 1.5rem; font-size: 1.1rem; color: var(--text-main);">Personal Information</h3>
+                                <div class="grid-2" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem;">
+                                    <div>
+                                        <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">Login ID</label>
+                                        <div style="font-weight: 500; font-family: monospace; background: #f9fafb; padding: 0.5rem; border-radius: 0.375rem; border: 1px solid #e5e7eb;">${user.username}</div>
+                                    </div>
+                                    <div>
+                                        <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">Joining Date</label>
+                                        <div style="font-weight: 500;">${user.joinDate || '--'}</div>
+                                    </div>
+                                    <div>
+                                        <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">Email Address</label>
+                                        <div style="font-weight: 500;">${user.email || '--'}</div>
+                                    </div>
+                                    <div>
+                                        <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">Phone Number</label>
+                                        <div style="font-weight: 500;">${user.phone || '--'}</div>
+                                    </div>
                                 </div>
-                                <div style="padding: 1rem; background: #f9fafb; border-radius: 0.5rem;">
-                                    <small class="text-muted" style="display: block; margin-bottom: 0.25rem;">Department</small>
-                                    <div style="font-weight: 500;">${user.dept || 'General'}</div>
-                                </div>
-                                <div style="padding: 1rem; background: #f9fafb; border-radius: 0.5rem;">
-                                    <small class="text-muted" style="display: block; margin-bottom: 0.25rem;">Email</small>
-                                    <div style="font-weight: 500;">${user.email || '--'}</div>
-                                </div>
-                                <div style="padding: 1rem; background: #f9fafb; border-radius: 0.5rem;">
-                                    <small class="text-muted" style="display: block; margin-bottom: 0.25rem;">Phone</small>
-                                    <div style="font-weight: 500;">${user.phone || '--'}</div>
-                                </div>
-                                <div style="padding: 1rem; background: #f9fafb; border-radius: 0.5rem;">
-                                    <small class="text-muted" style="display: block; margin-bottom: 0.25rem;">Joined On</small>
-                                    <div style="font-weight: 500;">${user.joinDate || '--'}</div>
-                                </div>
-                            </div>
 
-                            <div style="margin-top: 2rem; border-top: 1px solid #f3f4f6; padding-top: 1.5rem;">
-                                <button class="action-btn" onclick="document.dispatchEvent(new CustomEvent('auth-logout'))" style="width: 100%; background: #fee2e2; color: #991b1b; border: 1px solid #fecaca;">
-                                    Sign Out
-                                </button>
-                                ${user.role === 'Administrator' ? `
-                                <p style="margin-top: 1rem; text-align: center; font-size: 0.85rem; color: #6b7280;">
-                                    Wait 3 seconds for Admin button to appear after login...
-                                </p>` : ''}
+                                <div style="margin-top: 2.5rem; display: flex; gap: 1rem; justify-content: flex-end;">
+                                    <button class="action-btn" onclick="document.dispatchEvent(new CustomEvent('auth-logout'))" style="background: white; color: #991b1b; border: 1px solid #fecaca; box-shadow: none;">
+                                        <i class="fa-solid fa-arrow-right-from-bracket"></i> Sign Out
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
-                        <!-- Leave History Section -->
-                        <div class="card full-width" style="margin-top: 1.5rem;">
-                            <h3>My Leave History</h3>
-                            <div class="table-container">
-                                <table>
-                                    <thead>
-                                        <tr>
-                                            <th>Dates</th>
-                                            <th>Type</th>
-                                            <th>Reason</th>
-                                            <th>Status</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        ${leaves.length ? leaves.map(l => {
+                        <!--Leave History Section-- >
+                    <div class="card full-width" style="margin-top: 1.5rem;">
+                        <h3>My Leave History</h3>
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Dates</th>
+                                        <th>Type</th>
+                                        <th>Reason</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${leaves.length ? leaves.map(l => {
                     let badgeColor = '#f3f4f6'; // Pending (Gray)
                     let textColor = '#374151';
                     if (l.status === 'Approved') { badgeColor = '#dcfce7'; textColor = '#166534'; }
@@ -586,15 +620,15 @@
                                                 <td><span style="background:${badgeColor}; color:${textColor}; padding:0.25rem 0.5rem; border-radius:4px; font-size:0.8rem; font-weight:600;">${l.status}</span></td>
                                             </tr>`;
                 }).join('') : '<tr><td colspan="4" style="text-align:center; padding:1.5rem; color:#6b7280;">No leave requests found.</td></tr>'}
-                                    </tbody>
-                                </table>
-                            </div>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
-                `;
+                    </div >
+                    `;
             } catch (e) {
                 console.error("Profile Render Error", e);
-                return `<div style="padding: 2rem; color: red;">Error loading profile: ${e.message}</div>`;
+                return `< div style = "padding: 2rem; color: red;" > Error loading profile: ${e.message}</div > `;
             }
         },
 
@@ -618,7 +652,7 @@
                             </button>
                         </div>
                     </div>
-                 `;
+                `;
             }
 
             // Fetch other data in PARALLEL to reduce load time
@@ -632,55 +666,48 @@
             allUsers.forEach(u => usersMap[u.id] = u);
 
             const html = `
-               <div class="dashboard-grid">
-                  <!-- LEAVE REQUESTS WIDGET -->
-                  ${pendingLeaves.length > 0 ? `
-                  <div class="card full-width" style="border-left: 4px solid #f59e0b;">
-                    <h3>🚨 Pending Leave Requests (${pendingLeaves.length})</h3>
-                    <div class="table-container">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Staff</th>
-                                    <th>Type</th>
-                                    <th>Dates</th>
-                                    <th>Reason</th>
-                                    <th>Action</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${pendingLeaves.map(l => {
+                <div class="dashboard-grid">
+                    <!-- LEAVE REQUESTS WIDGET -->
+                    ${pendingLeaves.length > 0 ? `
+                    <div class="card full-width" style="border-left: 4px solid #f59e0b;">
+                        <h3>🚨 Pending Leave Requests (${pendingLeaves.length})</h3>
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Staff</th>
+                                        <th>Type</th>
+                                        <th>Dates</th>
+                                        <th>Reason</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${pendingLeaves.map(l => {
                 const user = usersMap[l.userId] || { name: 'Unknown' };
                 return `
-                                        <tr>
-                                            <td style="font-weight:600">${user.name}</td>
-                                            <td><span class="badge" style="background:#fff7ed; color:#c2410c">${l.type}</span></td>
-                                            <td>${l.startDate} to ${l.endDate}</td>
-                                            <td style="font-size:0.9rem; color:#6b7280; max-width:200px; white-space:normal;">${l.reason}</td>
-                                            <td>
-                                                <div style="display:flex; gap:0.5rem;">
-                                                    <button onclick="window.app_handleLeave('${l.id}', 'Approved')" style="padding:0.4rem 0.8rem; background:#dcfce7; color:#166534; border:none; border-radius:4px; cursor:pointer; font-size:0.8rem;">Approve</button>
-                                                    <button onclick="window.app_handleLeave('${l.id}', 'Rejected')" style="padding:0.4rem 0.8rem; background:#fee2e2; color:#991b1b; border:none; border-radius:4px; cursor:pointer; font-size:0.8rem;">Reject</button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    `;
+                                            <tr>
+                                                <td style="font-weight:600">${user.name}</td>
+                                                <td><span class="badge" style="background:#fff7ed; color:#c2410c">${l.type}</span></td>
+                                                <td>${l.startDate} to ${l.endDate}</td>
+                                                <td style="font-size:0.9rem; color:#6b7280; max-width:200px; white-space:normal;">${l.reason}</td>
+                                                <td>
+                                                    <div style="display:flex; gap:0.5rem;">
+                                                        <button onclick="window.app_handleLeave('${l.id}', 'Approved')" style="padding:0.4rem 0.8rem; background:#dcfce7; color:#166534; border:none; border-radius:4px; cursor:pointer; font-size:0.8rem;">Approve</button>
+                                                        <button onclick="window.app_handleLeave('${l.id}', 'Rejected')" style="padding:0.4rem 0.8rem; background:#fee2e2; color:#991b1b; border:none; border-radius:4px; cursor:pointer; font-size:0.8rem;">Reject</button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        `;
             }).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                  </div>
-                  ` : ''}
-
-                  <!-- ANALYTICS CHART -->
-                   <div class="card full-width">
-                        <div style="height: 300px;">
-                            <canvas id="admin-stats-chart"></canvas>
+                                </tbody>
+                            </table>
                         </div>
-                   </div>
+                    </div>
+                    ` : ''}
 
-                  <!-- USER TABLE -->
-                  <div class="card full-width">
+                    <!-- USER TABLE (Staff Monitoring) -->
+                    <div class="card full-width">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                             <h3>Staff Monitoring & Control</h3>
                             <div style="display:flex; gap:1rem; align-items:center;">
@@ -695,26 +722,37 @@
                                 </button>
                             </div>
                         </div>
-                        
+
                         <div class="table-container">
-                        <table id="admin-user-table">
-                            <thead>
-                                <tr>
-                                    <th>Name</th>
-                                    <th>Status</th>
-                                    <th>Check-In</th>
-                                    <th>Check-Out</th>
-                                    <th>Location</th>
-                                    <th>Login ID</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${this.renderAdminTableRows(allUsers)}
-                            </tbody>
-                        </table>
+                            <table id="admin-user-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Status</th>
+                                        <th>Activity</th>
+                                        <th>Check-In</th>
+                                        <th>Check-Out</th>
+                                        <th>Location</th>
+                                        <th>Login ID</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${this.renderAdminTableRows(allUsers)}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
-                  </div>
+
+                    <!-- ANALYTICS CHART (Attendance Overview) -->
+                    <div class="card full-width">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                                <h3>Attendance Overview</h3>
+                        </div>
+                        <div style="height: 300px;">
+                            <canvas id="admin-stats-chart"></canvas>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- SHARED MODALS FOR ADMIN -->
@@ -864,18 +902,64 @@
 
             return users.map(u => {
                 const statusColor = u.status === 'in' ? 'var(--success)' : '#9ca3af';
-                const statusText = u.status === 'in' ? 'Online' : 'Offline';
+                let statusText = u.status === 'in' ? 'Online' : 'Offline';
 
-                // TIMES
+                // CHECK FOR LATE LOGIN (Using same 09:05 threshold)
+                // We need to parse u.lastCheckIn timestamp to time of day
+                if (u.status === 'in' && u.lastCheckIn) {
+                    const checkInDate = new Date(u.lastCheckIn);
+                    const hours = checkInDate.getHours();
+                    const minutes = checkInDate.getMinutes();
+                    const totalMinutes = hours * 60 + minutes;
+
+                    // 9:05 AM = 9*60 + 5 = 545 minutes
+                    if (totalMinutes > 545) {
+                        statusText += ' <span style="background:#fee2e2; color:#991b1b; padding:2px 6px; border-radius:4px; font-size:0.75rem; margin-left:4px;">Late</span>';
+                    }
+                }
+
+                // ACTIVITY SCORE
+                let activityHTML = '<span style="color:#9ca3af; font-size:0.8rem;">--</span>';
+                if (u.status === 'in') {
+                    // Default to 100% if just started or undefined
+                    const score = u.activityScore !== undefined ? u.activityScore : 100;
+                    let color = '#10b981'; // Green
+                    if (score < 50) color = '#ef4444'; // Red
+                    else if (score < 75) color = '#f59e0b'; // Orange
+
+                    activityHTML = `
+                        <div style="display:flex; align-items:center; gap:0.5rem;">
+                            <div style="width:30px; height:4px; background:#e5e7eb; border-radius:2px; overflow:hidden;">
+                                <div style="width:${score}%; height:100%; background:${color};"></div>
+                            </div>
+                            <span style="font-size:0.8rem; font-weight:600; color:${color};">${score}%</span>
+                        </div>
+                    `;
+                }
                 const lastIn = u.lastCheckIn ? new Date(u.lastCheckIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--';
                 const lastOut = u.lastCheckOut ? new Date(u.lastCheckOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--';
 
                 // LOCATION
-                let locDisplay = '--';
+                let locDisplay = '<span style="color:#9ca3af; font-size:0.8rem;">--</span>';
+
                 if (u.status === 'in' && u.currentLocation) {
-                    locDisplay = `<span style="font-size:0.8rem; color:var(--primary);"><i class="fa-solid fa-location-dot"></i> Lat: ${Number(u.currentLocation.lat).toFixed(3)}...</span>`;
+                    const lat = Number(u.currentLocation.lat).toFixed(5);
+                    const lng = Number(u.currentLocation.lng).toFixed(5);
+                    const mapUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+                    locDisplay = `
+                        <a href="${mapUrl}" target="_blank" style="display:flex; align-items:center; gap:0.25rem; font-size:0.8rem; color:var(--primary); text-decoration:none; white-space:nowrap;" title="View on Google Maps">
+                            <i class="fa-solid fa-map-location-dot"></i> 
+                            <span>${lat}, ${lng}</span>
+                        </a>`;
                 } else if (u.status === 'out' && u.lastLocation) {
-                    locDisplay = `<span style="font-size:0.8rem; color:#6b7280; opacity:0.8;"><i class="fa-solid fa-clock-rotate-left"></i> Lat: ${Number(u.lastLocation.lat).toFixed(3)}...</span>`;
+                    const lat = Number(u.lastLocation.lat).toFixed(5);
+                    const lng = Number(u.lastLocation.lng).toFixed(5);
+                    const mapUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+                    locDisplay = `
+                        <a href="${mapUrl}" target="_blank" style="display:flex; align-items:center; gap:0.25rem; font-size:0.8rem; color:#6b7280; text-decoration:none; white-space:nowrap; opacity:0.8;" title="View Last Location">
+                            <i class="fa-solid fa-clock-rotate-left"></i> 
+                            <span>${lat}, ${lng}</span>
+                        </a>`;
                 } else if (u.status === 'in') {
                     locDisplay = '<span style="font-size:0.8rem; color:#f59e0b;"><i class="fa-solid fa-spinner fa-spin"></i> Locating...</span>';
                 }
@@ -898,6 +982,9 @@
                                 <div style="width:8px; height:8px; border-radius:50%; background:${statusColor}"></div>
                                 <span style="font-size:0.9rem; font-weight:500;">${statusText}</span>
                             </div>
+                        </td>
+                        <td>
+                            ${activityHTML}
                         </td>
                         <td>
                             <span style="font-family:monospace; background:${u.status === 'in' ? '#dcfce7' : '#f3f4f6'}; color:${u.status === 'in' ? '#166534' : '#374151'}; padding:2px 6px; border-radius:4px;">

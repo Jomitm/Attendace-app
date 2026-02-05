@@ -68,6 +68,13 @@
                     // Handle schema inconsistency (user_id vs userId)
                     const uid = log.user_id || log.userId;
                     const user = userMap[uid] || { name: 'Unknown', role: 'N/A' };
+
+                    // Format Location: Prefer raw coords if available (for Google Maps compatibility)
+                    let locString = log.location || 'N/A';
+                    if (log.lat && log.lng) {
+                        locString = `Lat: ${Number(log.lat).toFixed(5)}, Lng: ${Number(log.lng).toFixed(5)}`;
+                    }
+
                     return {
                         date: log.date,
                         name: user.name,
@@ -75,7 +82,7 @@
                         checkIn: log.checkIn,
                         checkOut: log.checkOut || '--',
                         duration: log.duration || '--',
-                        location: log.location || 'N/A',
+                        location: locString,
                         type: log.type || 'Standard'
                     };
                 });

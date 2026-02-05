@@ -517,15 +517,23 @@
                         </tr>
                     </thead>
                     <tbody>
-                        ${logs.map(log => `
+                        ${logs.map(log => {
+            let locDisplay = log.location || 'N/A';
+            if (log.lat && log.lng) {
+                locDisplay = `<a href="https://www.google.com/maps?q=${log.lat},${log.lng}" target="_blank" style="color:var(--primary);text-decoration:none;">
+                                    <i class="fa-solid fa-map-pin"></i> ${Number(log.lat).toFixed(4)}, ${Number(log.lng).toFixed(4)}
+                                </a>`;
+            }
+            return `
                             <tr>
                                 <td>${log.date}</td>
                                 <td>${log.checkIn}</td>
                                 <td>${log.checkOut || '--'}</td>
                                 <td>${log.duration || '--'}</td>
                                 <td>${log.type || 'Office'}</td>
-                                <td style="font-size:0.85rem; color:#6b7280;">${log.location || 'N/A'}</td>
-                            </tr>`).join('')}
+                                <td style="font-size:0.85rem; color:#6b7280;">${locDisplay}</td>
+                            </tr>`;
+        }).join('')}
                     </tbody>
                 </table>
             </div>` : '<p style="text-align:center; padding:1rem; color:#6b7280;">No logs found for this user.</p>';

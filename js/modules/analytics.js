@@ -107,33 +107,41 @@
             return { labels, present: presentData, onLeave: leaveData };
         }
 
+        // Helper to parse "HH:mm" or "h:mm AM/PM" to minutes from midnight
+        parseTimeToMinutes(timeStr) {
+            if (!timeStr) return null;
+            const [time, modifier] = timeStr.split(' ');
+            let [hours, minutes] = time.split(':');
+
+            if (hours === '12') hours = '00';
+            if (modifier === 'PM') hours = parseInt(hours, 10) + 12;
+
+            return parseInt(hours, 10) * 60 + parseInt(minutes, 10);
+        }
+
+        // Helper to format minutes to "Xh Ym"
+        formatDuration(totalMinutes) {
+            const h = Math.floor(totalMinutes / 60);
+            const m = totalMinutes % 60;
+            return `${h}h ${m}m`;
+        }
+
         async getUserMonthlyStats(userId) {
             const logs = await this.db.getAll('attendance');
-            const userLogs = logs.filter(l => l.userId === userId || l.user_id === userId); // Handle both ID formats
+            const userLogs = logs.filter(l => l.userId === userId || l.user_id === userId);
 
-            // Get Current Month
             const today = new Date();
             const year = today.getFullYear();
             const month = today.getMonth();
 
             const startOfMonth = new Date(year, month, 1);
-            const endOfMonth = new Date(year, month + 1, 0); // Last day of month
+            const endOfMonth = new Date(year, month + 1, 0);
 
-            // Initialize Breakdown
             const breakdown = {
-                'Present': 0,
-                'Late': 0,
-                'Work - Home': 0,
-                'Training': 0,
-                'Sick Leave': 0,
-                'Casual Leave': 0,
-                'Earned Leave': 0,
-                'Paid Leave': 0,
-                'Maternity Leave': 0,
-                'Absent': 0,
-                'Holiday': 0,
-                'National Holiday': 0,
-                'Regional Holidays': 0
+                'Present': 0, 'Late': 0, 'Work - Home': 0, 'Training': 0,
+                'Sick Leave': 0, 'Casual Leave': 0, 'Earned Leave': 0,
+                'Paid Leave': 0, 'Maternity Leave': 0, 'Absent': 0,
+                'Holiday': 0, 'National Holiday': 0, 'Regional Holidays': 0
             };
 
             const stats = {
@@ -142,20 +150,36 @@
                 leaves: 0,
                 penalty: 0,
                 label: startOfMonth.toLocaleDateString('default', { month: 'long', year: 'numeric' }),
-                breakdown: breakdown
+                breakdown: breakdown,
+                totalLateDuration: '0h 0m',
+                totalExtraDuration: '0h 0m'
             };
 
+            let totalLateMinutes = 0;
+            let totalExtraMinutes = 0;
+
             userLogs.forEach(log => {
-                // FIX: Parse locale date string to Date object for comparison
                 const logDate = new Date(log.date);
-                // Check if date is valid
                 if (!isNaN(logDate) && logDate >= startOfMonth && logDate <= endOfMonth) {
                     let type = log.type || '';
+                    const inMinutes = this.parseTimeToMinutes(log.checkIn);
+                    const outMinutes = this.parseTimeToMinutes(log.checkOut);
 
-                    // LATE Check
-                    if (log.checkIn && log.checkIn > '09:00') {
+                    // LATE Check (Threshold: 09:05 = 545 minutes)
+                    if (inMinutes !== null && inMinutes > 545) {
                         breakdown['Late']++;
                         stats.late++;
+                        totalLateMinutes += (inMinutes - 545); // Duration from 9:05
+                    }
+
+                    // EXTRA HOURS Check
+                    // 1. Morning: Before 09:00 (540 minutes)
+                    if (inMinutes !== null && inMinutes < 540) {
+                        totalExtraMinutes += (540 - inMinutes);
+                    }
+                    // 2. Evening: After 17:00 (17 * 60 = 1020 minutes)
+                    if (outMinutes !== null && outMinutes > 1020) {
+                        totalExtraMinutes += (outMinutes - 1020);
                     }
 
                     // CATEGORY Check
@@ -171,17 +195,19 @@
                     else if (type === 'Regional Holidays') breakdown['Regional Holidays']++;
                     else if (String(type).includes('Holiday')) breakdown['Holiday']++;
                     else if (log.checkIn) {
-                        breakdown['Present']++; // Standard Office
+                        breakdown['Present']++;
                     }
                 }
             });
 
-            // Recalculate Totals
             stats.present = breakdown['Present'] + breakdown['Work - Home'] + breakdown['Training'];
             stats.leaves = breakdown['Sick Leave'] + breakdown['Casual Leave'] + breakdown['Earned Leave'] + breakdown['Paid Leave'] + breakdown['Maternity Leave'] + breakdown['Absent'];
 
-            // Calculate penalty for this month
+            // Penalty Rule: > 3 Lates = 0.5 Leave penalty
             if (breakdown['Late'] > 3) stats.penalty = 0.5;
+
+            stats.totalLateDuration = this.formatDuration(totalLateMinutes);
+            stats.totalExtraDuration = this.formatDuration(totalExtraMinutes);
 
             return stats;
         }
@@ -191,48 +217,56 @@
             const userLogs = logs.filter(l => l.userId === userId || l.user_id === userId);
             const { start, end, label } = this.getFinancialYearDates();
 
-            // Initialize Breakdown
             const breakdown = {
-                'Present': 0,
-                'Late': 0,
-                'Work - Home': 0,
-                'Training': 0,
-                'Sick Leave': 0,
-                'Casual Leave': 0,
-                'Earned Leave': 0,
-                'Paid Leave': 0,
-                'Maternity Leave': 0,
-                'Absent': 0,
-                'Holiday': 0,
-                'National Holiday': 0,
-                'Regional Holidays': 0
+                'Present': 0, 'Late': 0, 'Work - Home': 0, 'Training': 0,
+                'Sick Leave': 0, 'Casual Leave': 0, 'Earned Leave': 0,
+                'Paid Leave': 0, 'Maternity Leave': 0, 'Absent': 0,
+                'Holiday': 0, 'National Holiday': 0, 'Regional Holidays': 0
             };
 
             const stats = {
                 present: 0,
-                late: 0, // Total Late
+                late: 0,
                 leaves: 0,
                 penaltyLeaves: 0,
                 label: label,
-                breakdown: breakdown // Attach breakdown
+                breakdown: breakdown,
+                totalLateDuration: '0h 0m',
+                totalExtraDuration: '0h 0m'
             };
 
             const monthlyLates = {};
+            let totalLateMinutes = 0;
+            let totalExtraMinutes = 0;
 
             userLogs.forEach(log => {
-                // FIX: Parse locale date string
                 const logDate = new Date(log.date);
                 if (!isNaN(logDate) && logDate >= start && logDate <= end) {
                     let type = log.type || '';
+                    const inMinutes = this.parseTimeToMinutes(log.checkIn);
+                    const outMinutes = this.parseTimeToMinutes(log.checkOut);
 
-                    // LATE Check
-                    if (log.checkIn && log.checkIn > '09:00') {
+                    // LATE Check (Threshold: 09:05 = 545 minutes)
+                    if (inMinutes !== null && inMinutes > 545) {
                         breakdown['Late']++;
 
-                        // Track monthly lates for penalty
+                        // Accumulate duration
+                        totalLateMinutes += (inMinutes - 545);
+
+                        // Track monthly for penalty
                         const monthKey = `${logDate.getFullYear()}-${logDate.getMonth()}`;
                         if (!monthlyLates[monthKey]) monthlyLates[monthKey] = 0;
                         monthlyLates[monthKey]++;
+                    }
+
+                    // EXTRA HOURS Check
+                    // 1. Morning: Before 09:00 (540 minutes)
+                    if (inMinutes !== null && inMinutes < 540) {
+                        totalExtraMinutes += (540 - inMinutes);
+                    }
+                    // 2. Evening: After 17:00 (1020 minutes)
+                    if (outMinutes !== null && outMinutes > 1020) {
+                        totalExtraMinutes += (outMinutes - 1020);
                     }
 
                     // CATEGORY Check
@@ -248,17 +282,18 @@
                     else if (type === 'Regional Holidays') breakdown['Regional Holidays']++;
                     else if (String(type).includes('Holiday')) breakdown['Holiday']++;
                     else if (log.checkIn) {
-                        breakdown['Present']++; // Standard Office
+                        breakdown['Present']++;
                     }
                 }
             });
 
-            // Recalculate Totals
             stats.present = breakdown['Present'] + breakdown['Work - Home'] + breakdown['Training'];
             stats.leaves = breakdown['Sick Leave'] + breakdown['Casual Leave'] + breakdown['Earned Leave'] + breakdown['Paid Leave'] + breakdown['Maternity Leave'] + breakdown['Absent'];
             stats.late = breakdown['Late'];
+            stats.totalLateDuration = this.formatDuration(totalLateMinutes);
+            stats.totalExtraDuration = this.formatDuration(totalExtraMinutes);
 
-            // Apply Penalty
+            // Apply Penalty (Monthly Reset)
             Object.values(monthlyLates).forEach(count => {
                 if (count > 3) stats.penaltyLeaves += 0.5;
             });

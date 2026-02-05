@@ -110,7 +110,9 @@
             if (!existing) return false;
 
             const updated = { ...existing, ...userData };
-            if (userData.name && userData.name !== existing.name) {
+
+            // Only regenerate default avatar if name changed AND no new avatar provided
+            if (userData.name && userData.name !== existing.name && !userData.avatar) {
                 updated.avatar = `https://ui-avatars.com/api/?name=${userData.name}&background=random&color=fff`;
             }
 
