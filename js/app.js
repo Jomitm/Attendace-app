@@ -237,9 +237,17 @@
                 contentArea.innerHTML = await window.AppUI.renderDashboard();
                 setupDashboardEvents();
             } else {
-                await window.AppAttendance.checkOut();
-                contentArea.innerHTML = await window.AppUI.renderDashboard();
-                setupDashboardEvents();
+                // Show Check-Out Modal instead of direct checkout
+                const modal = document.getElementById('checkout-modal');
+                if (modal) {
+                    modal.style.display = 'flex';
+                    if (btn) btn.disabled = false; // Re-enable button since we didn't submit yet
+                } else {
+                    // Fallback if modal missing (shouldn't happen)
+                    await window.AppAttendance.checkOut();
+                    contentArea.innerHTML = await window.AppUI.renderDashboard();
+                    setupDashboardEvents();
+                }
             }
         } catch (err) {
             alert(err.message || err);
@@ -249,6 +257,35 @@
             }
         }
     }
+
+    // New Function: Handle Check-Out Submission
+    window.app_submitCheckOut = async function (event) {
+        event.preventDefault();
+        const form = event.target;
+        const description = form.description.value;
+        const submitBtn = form.querySelector('button[type="submit"]');
+
+        try {
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Saving...';
+
+            await window.AppAttendance.checkOut(description);
+
+            // Hide modal
+            document.getElementById('checkout-modal').style.display = 'none';
+
+            // Refresh
+            const contentArea = document.getElementById('content-area');
+            if (contentArea) {
+                contentArea.innerHTML = await window.AppUI.renderDashboard();
+                setupDashboardEvents();
+            }
+        } catch (err) {
+            alert("Check-out failed: " + err.message);
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Complete Check-Out';
+        }
+    };
 
     async function handleManualLog(e) {
         e.preventDefault();
@@ -264,6 +301,7 @@
             checkOut: formData.get('checkOut'),
             duration: dur,
             location: formData.get('location'),
+            workDescription: formData.get('location'), // Save description here too
             type: 'Manual/WFH'
         };
         await window.AppAttendance.addManualLog(logData);

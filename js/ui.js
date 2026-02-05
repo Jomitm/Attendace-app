@@ -165,10 +165,91 @@
                 `;
             };
 
+            // NEW: Activity Report Widget Helper
+            const renderActivityReport = (logs) => {
+                // Default: Current Month
+                const today = new Date();
+                const startDefault = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+                const endDefault = today.toISOString().split('T')[0];
+
+                return `
+                    <div class="card" style="padding: 1rem; display:flex; flex-direction:column; max-height: 400px;">
+                        <div style="margin-bottom:1rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.5rem;">
+                             <h4 style="margin:0; color:#1f2937;">Activity Log</h4>
+                             <span style="font-size:0.75rem; color:#6b7280;">Work Descriptions</span>
+                        </div>
+
+                        <!-- Filters -->
+                         <div style="display:flex; gap:0.5rem; margin-bottom:1rem; align-items:center;">
+                            <input type="date" id="act-start" value="${startDefault}" style="border:1px solid #e5e7eb; border-radius:4px; padding:4px; font-size:0.8rem; width:110px;">
+                            <span style="color:#9ca3af; font-size:0.8rem;">to</span>
+                            <input type="date" id="act-end" value="${endDefault}" style="border:1px solid #e5e7eb; border-radius:4px; padding:4px; font-size:0.8rem; width:110px;">
+                            <button onclick="window.app_filterActivity()" style="background:var(--primary); color:white; border:none; border-radius:4px; padding:4px 8px; font-size:0.8rem; cursor:pointer;">Go</button>
+                        </div>
+
+                        <!-- Report Content (Scrollable) -->
+                        <div id="activity-list" style="flex:1; overflow-y:auto; font-size:0.85rem; padding-right:5px;">
+                            ${renderActivityList(logs, startDefault, endDefault)}
+                        </div>
+                    </div>
+                `;
+            };
+
+            // Global Helper for filtering (attached to window since it's called onclick)
+            // We define it inside but assign to window to access closure or just re-run logic separately
+            window.app_filterActivity = () => {
+                const s = document.getElementById('act-start').value;
+                const e = document.getElementById('act-end').value;
+                const list = document.getElementById('activity-list');
+                // We need access to logs here. Since this is async/global, we might need to re-fetch or store logs globally.
+                // Simpler: Just make renderDashboard store logs in a window var? Or fetch again.
+                // Fetching again is safer for data consistency.
+                window.AppAttendance.getLogs().then(logs => {
+                    list.innerHTML = renderActivityList(logs, s, e);
+                });
+            };
+
+            // Internal Helper to render the list HTML
+            const renderActivityList = (allLogs, startStr, endStr) => {
+                const start = new Date(startStr);
+                const end = new Date(endStr);
+                end.setHours(23, 59, 59, 999); // End of day
+
+                // Filter & Sort
+                const filtered = allLogs.filter(l => {
+                    const d = new Date(l.date); // Assumes YYYY-MM-DD or convertible format
+                    return d >= start && d <= end && l.workDescription;
+                }).sort((a, b) => new Date(b.date + ' ' + b.checkOut) - new Date(a.date + ' ' + a.checkOut));
+
+                if (filtered.length === 0) return '<div style="color:#9ca3af; text-align:center; padding:1rem;">No activity descriptions found.</div>';
+
+                let html = '';
+                let lastDate = '';
+
+                filtered.forEach(log => {
+                    const showDate = log.date !== lastDate;
+                    if (showDate) {
+                        html += `<div style="font-weight:600; color:#374151; background:#f9fafb; padding:4px 8px; border-radius:4px; margin-top:0.75rem; margin-bottom:0.25rem; font-size:0.8rem;">${log.date}</div>`;
+                        lastDate = log.date;
+                    }
+                    // Preserve whitespace/newlines in description
+                    html += `
+                        <div style="margin-left:0.5rem; padding-left:0.75rem; border-left:2px solid #e5e7eb; margin-bottom:0.5rem;">
+                            <div style="white-space: pre-wrap; color:#4b5563; font-size:0.85rem;">${log.workDescription}</div>
+                            <div style="font-size:0.7rem; color:#9ca3af; margin-top:2px;">${log.checkOut || 'Checked Out'}</div>
+                        </div>
+                     `;
+                });
+                return html;
+            };
+
+            // Get logs for the widget (Already fetched above as 'logs')
+
             const summaryHTML = `
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 1rem; align-items: start;">
                     ${renderStatsCard(monthlyStats.label, 'Monthly Stats', monthlyStats)}
                     ${renderStatsCard('Yearly Summary', yearlyStats.label, yearlyStats)}
+                    ${renderActivityReport(logs)}
                 </div>
             `;
 
@@ -230,6 +311,21 @@
                          <div style="margin-top: 1rem; text-align: center;">
                             <a href="#timesheet" onclick="window.location.hash = 'timesheet'; return false;" style="color: var(--primary); text-decoration: none; font-weight: 500;">View All</a>
                         </div>
+                    </div>
+                </div>
+
+                <!-- Check-Out Modal -->
+                <div id="checkout-modal" class="modal-overlay" style="display: none;">
+                    <div class="modal-content" style="width: 100%; max-width: 450px;">
+                        <h3 style="margin-bottom: 1rem;">Check Out</h3>
+                        <p style="color: #6b7280; font-size: 0.9rem; margin-bottom: 1rem;">Please summarize your work for today before checking out.</p>
+                        <form onsubmit="window.app_submitCheckOut(event)">
+                            <textarea name="description" required placeholder="- Completed monthly report&#10;- Fixed login bug..." style="width: 100%; height: 120px; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem; resize: none; font-family: inherit; margin-bottom: 1.5rem;"></textarea>
+                            <div style="display: flex; gap: 1rem;">
+                                <button type="button" onclick="document.getElementById('checkout-modal').style.display = 'none'" style="flex: 1; padding: 0.75rem; background: white; border: 1px solid #d1d5db; border-radius: 0.5rem; cursor: pointer;">Cancel</button>
+                                <button type="submit" class="action-btn" style="flex: 1; justify-content: center;">Complete Check-Out</button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             `;

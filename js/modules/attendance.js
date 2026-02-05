@@ -29,7 +29,7 @@
             return true;
         }
 
-        async checkOut() {
+        async checkOut(description = '') {
             const user = window.AppAuth.getUser();
             if (!user || user.status !== 'in') throw new Error("User is not checked in");
 
@@ -47,6 +47,7 @@
                 duration: this.msToTime(durationMs),
                 type: 'Office',
                 location: user.currentLocation?.address || 'Detected Location',
+                workDescription: description || '',
                 synced: false // For future sync logic
             };
 
