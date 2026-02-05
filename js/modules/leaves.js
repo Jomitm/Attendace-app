@@ -66,7 +66,7 @@
                     const dateStr = current.toISOString().split('T')[0];
                     const attendanceLog = {
                         id: 'att_' + leave.userId + '_' + dateStr,
-                        userId: leave.userId,
+                        user_id: leave.userId, // Standardize to user_id
                         date: dateStr,
                         checkIn: '09:00', // Standard time or leave blank
                         checkOut: '17:00',

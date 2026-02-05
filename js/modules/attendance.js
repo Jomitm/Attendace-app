@@ -29,7 +29,7 @@
             return true;
         }
 
-        async checkOut() {
+        async checkOut(description = '') {
             const user = window.AppAuth.getUser();
             if (!user || user.status !== 'in') throw new Error("User is not checked in");
 
@@ -37,29 +37,43 @@
             const checkOutTime = new Date();
             const durationMs = checkOutTime - checkInTime;
 
+            // Get Activity Stats
+            const activityStats = window.AppActivity ? window.AppActivity.getStats() : { score: 0 };
+
             // Create Attendance Log
             const log = {
-                id: Date.now(),
+                id: String(Date.now()), // Ensure ID is string
                 user_id: user.id,
                 date: checkOutTime.toLocaleDateString(),
                 checkIn: checkInTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 checkOut: checkOutTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 duration: this.msToTime(durationMs),
+                durationMs: durationMs, // Store raw ms for calculations
                 type: 'Office',
                 location: user.currentLocation?.address || 'Detected Location',
+                workDescription: description || '',
+                activityScore: activityStats.score,
                 synced: false // For future sync logic
             };
 
             // Save Log
             await window.AppDB.add('attendance', log);
 
-            // Reset User State
+            // Update User State (Save Last Known Info)
             user.status = 'out';
+            user.lastCheckOut = Date.now(); // Save checkout timestamp
+            user.lastLocation = user.currentLocation; // Persist last known location
+
+            // Clear Active State
             user.lastCheckIn = null;
             user.currentLocation = null;
 
             await window.AppDB.put('users', user);
-            return log;
+
+            // Stop Activity Monitoring
+            if (window.AppActivity) window.AppActivity.stop();
+
+            return true;
         }
 
         async addManualLog(logData) {
@@ -67,7 +81,7 @@
             if (!user) return;
 
             const newLog = {
-                id: Date.now(),
+                id: String(Date.now()),
                 user_id: user.id,
                 ...logData,
                 synced: false
@@ -105,7 +119,29 @@
                 const userLogs = snapshot.docs.map(doc => doc.data());
 
                 // Client-side sort (but dataset is now much smaller, only this user's logs)
-                return userLogs.sort((a, b) => b.id - a.id).slice(0, 50); // Limit to last 50
+                const sortedLogs = userLogs.sort((a, b) => b.id - a.id);
+
+                // Check for ACTIVE session (Virtual Log)
+                try {
+                    const currentUserState = await window.AppDB.get('users', targetId);
+                    if (currentUserState && currentUserState.status === 'in' && currentUserState.lastCheckIn) {
+                        const checkInTime = new Date(currentUserState.lastCheckIn);
+                        const virtualLog = {
+                            id: 'active_now',
+                            date: checkInTime.toLocaleDateString(),
+                            checkIn: checkInTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                            checkOut: 'Active Now',
+                            duration: 'Working...',
+                            type: 'Office',
+                            location: currentUserState.currentLocation?.address || 'Current Session'
+                        };
+                        sortedLogs.unshift(virtualLog); // Add to top
+                    }
+                } catch (err) {
+                    console.warn("Could not fetch active status for logs", err);
+                }
+
+                return sortedLogs.slice(0, 50); // Limit to last 50
             } catch (e) {
                 console.warn("Optimized log fetch failed, falling back to simple filter", e);
                 // Fallback (e.g. offline mode restrictions?)

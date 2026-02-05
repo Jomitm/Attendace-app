@@ -28,39 +28,45 @@
             const stats = this.processLast7Days(logs);
 
             // 3. Render Chart
+            // 3. Render Chart
             const ctx = canvas.getContext('2d');
-            this.chartInstance = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: stats.labels,
-                    datasets: [
-                        {
-                            label: 'Present',
-                            data: stats.present,
-                            backgroundColor: '#4ade80',
-                            borderRadius: 4
-                        },
-                        {
-                            label: 'On Leave',
-                            data: stats.onLeave,
-                            backgroundColor: '#f87171',
-                            borderRadius: 4
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { position: 'bottom' },
-                        title: { display: true, text: 'Weekly Attendance Overview' }
+            try {
+                this.chartInstance = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: stats.labels,
+                        datasets: [
+                            {
+                                label: 'Present',
+                                data: stats.present,
+                                backgroundColor: '#4ade80',
+                                borderRadius: 4
+                            },
+                            {
+                                label: 'On Leave',
+                                data: stats.onLeave,
+                                backgroundColor: '#f87171',
+                                borderRadius: 4
+                            }
+                        ]
                     },
-                    scales: {
-                        y: { beginAtZero: true, ticks: { stepSize: 1 } },
-                        x: { grid: { display: false } }
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { position: 'bottom' },
+                            title: { display: true, text: 'Weekly Attendance Overview' }
+                        },
+                        scales: {
+                            y: { beginAtZero: true, ticks: { stepSize: 1 } },
+                            x: { grid: { display: false } }
+                        }
                     }
-                }
-            });
+                });
+            } catch (err) {
+                console.error("Chart.js Error:", err);
+                canvas.parentNode.innerHTML = `<div style="color:red; text-align:center; padding:1rem;">Failed to load chart: ${err.message}</div>`;
+            }
         }
 
         processLast7Days(logs) {
@@ -68,52 +74,74 @@
             const presentData = [];
             const leaveData = [];
 
-            for (let i = 6; i >= 0; i--) {
-                const date = new Date();
-                date.setDate(date.getDate() - i);
-                const dateStr = date.toISOString().split('T')[0];
-                const dayLabel = date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
+            // Helper for robust date comparison (ignores time & string format)
+            const isSameDay = (d1, d2) => {
+                return d1.getFullYear() === d2.getFullYear() &&
+                    d1.getMonth() === d2.getMonth() &&
+                    d1.getDate() === d2.getDate();
+            };
 
+            for (let i = 6; i >= 0; i--) {
+                const targetDate = new Date();
+                targetDate.setDate(targetDate.getDate() - i);
+
+                const dayLabel = targetDate.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
                 labels.push(dayLabel);
 
                 // Count logs for this day
-                const daysLogs = logs.filter(l => l.date === dateStr);
+                const daysLogs = logs.filter(l => {
+                    const logDate = new Date(l.date);
+                    // Invalid dates are ignored
+                    if (isNaN(logDate.getTime())) return false;
+                    return isSameDay(logDate, targetDate);
+                });
+
                 const presentCount = daysLogs.filter(l => l.status === 'in' && l.type !== 'Sick Leave' && l.type !== 'Casual Leave' && l.type !== 'Annual Leave' && l.location !== 'On Leave').length;
-                const leaveCount = daysLogs.filter(l => l.location === 'On Leave' || l.type.includes('Leave')).length;
+                const leaveCount = daysLogs.filter(l => l.location === 'On Leave' || String(l.type).includes('Leave')).length;
 
                 presentData.push(presentCount);
                 leaveData.push(leaveCount);
             }
 
+            console.log("Weekly Stats Generated:", { labels, present: presentData });
             return { labels, present: presentData, onLeave: leaveData };
         }
+
+        // Helper to parse "HH:mm" or "h:mm AM/PM" to minutes from midnight
+        parseTimeToMinutes(timeStr) {
+            if (!timeStr) return null;
+            const [time, modifier] = timeStr.split(' ');
+            let [hours, minutes] = time.split(':');
+
+            if (hours === '12') hours = '00';
+            if (modifier === 'PM') hours = parseInt(hours, 10) + 12;
+
+            return parseInt(hours, 10) * 60 + parseInt(minutes, 10);
+        }
+
+        // Helper to format minutes to "Xh Ym"
+        formatDuration(totalMinutes) {
+            const h = Math.floor(totalMinutes / 60);
+            const m = totalMinutes % 60;
+            return `${h}h ${m}m`;
+        }
+
         async getUserMonthlyStats(userId) {
             const logs = await this.db.getAll('attendance');
-            const userLogs = logs.filter(l => l.userId === userId);
+            const userLogs = logs.filter(l => l.userId === userId || l.user_id === userId);
 
-            // Get Current Month
             const today = new Date();
             const year = today.getFullYear();
             const month = today.getMonth();
 
             const startOfMonth = new Date(year, month, 1);
-            const endOfMonth = new Date(year, month + 1, 0); // Last day of month
+            const endOfMonth = new Date(year, month + 1, 0);
 
-            // Initialize Breakdown
             const breakdown = {
-                'Present': 0,
-                'Late': 0,
-                'Work - Home': 0,
-                'Training': 0,
-                'Sick Leave': 0,
-                'Casual Leave': 0,
-                'Earned Leave': 0,
-                'Paid Leave': 0,
-                'Maternity Leave': 0,
-                'Absent': 0,
-                'Holiday': 0,
-                'National Holiday': 0,
-                'Regional Holidays': 0
+                'Present': 0, 'Late': 0, 'Work - Home': 0, 'Training': 0,
+                'Sick Leave': 0, 'Casual Leave': 0, 'Earned Leave': 0,
+                'Paid Leave': 0, 'Maternity Leave': 0, 'Absent': 0,
+                'Holiday': 0, 'National Holiday': 0, 'Regional Holidays': 0
             };
 
             const stats = {
@@ -122,20 +150,36 @@
                 leaves: 0,
                 penalty: 0,
                 label: startOfMonth.toLocaleDateString('default', { month: 'long', year: 'numeric' }),
-                breakdown: breakdown
+                breakdown: breakdown,
+                totalLateDuration: '0h 0m',
+                totalExtraDuration: '0h 0m'
             };
 
-            const startStr = startOfMonth.toISOString().split('T')[0];
-            const endStr = endOfMonth.toISOString().split('T')[0];
+            let totalLateMinutes = 0;
+            let totalExtraMinutes = 0;
 
             userLogs.forEach(log => {
-                if (log.date >= startStr && log.date <= endStr) {
+                const logDate = new Date(log.date);
+                if (!isNaN(logDate) && logDate >= startOfMonth && logDate <= endOfMonth) {
                     let type = log.type || '';
+                    const inMinutes = this.parseTimeToMinutes(log.checkIn);
+                    const outMinutes = this.parseTimeToMinutes(log.checkOut);
 
-                    // LATE Check
-                    if (log.checkIn && log.checkIn > '09:00') {
+                    // LATE Check (Threshold: 09:05 = 545 minutes)
+                    if (inMinutes !== null && inMinutes > 545) {
                         breakdown['Late']++;
                         stats.late++;
+                        totalLateMinutes += (inMinutes - 545); // Duration from 9:05
+                    }
+
+                    // EXTRA HOURS Check
+                    // 1. Morning: Before 09:00 (540 minutes)
+                    if (inMinutes !== null && inMinutes < 540) {
+                        totalExtraMinutes += (540 - inMinutes);
+                    }
+                    // 2. Evening: After 17:00 (17 * 60 = 1020 minutes)
+                    if (outMinutes !== null && outMinutes > 1020) {
+                        totalExtraMinutes += (outMinutes - 1020);
                     }
 
                     // CATEGORY Check
@@ -149,69 +193,80 @@
                     else if (type === 'Absent') breakdown['Absent']++;
                     else if (type === 'National Holiday') breakdown['National Holiday']++;
                     else if (type === 'Regional Holidays') breakdown['Regional Holidays']++;
-                    else if (type.includes('Holiday')) breakdown['Holiday']++;
+                    else if (String(type).includes('Holiday')) breakdown['Holiday']++;
                     else if (log.checkIn) {
-                        breakdown['Present']++; // Standard Office
+                        breakdown['Present']++;
                     }
                 }
             });
 
-            // Recalculate Totals
             stats.present = breakdown['Present'] + breakdown['Work - Home'] + breakdown['Training'];
             stats.leaves = breakdown['Sick Leave'] + breakdown['Casual Leave'] + breakdown['Earned Leave'] + breakdown['Paid Leave'] + breakdown['Maternity Leave'] + breakdown['Absent'];
 
-            // Calculate penalty for this month
+            // Penalty Rule: > 3 Lates = 0.5 Leave penalty
             if (breakdown['Late'] > 3) stats.penalty = 0.5;
+
+            stats.totalLateDuration = this.formatDuration(totalLateMinutes);
+            stats.totalExtraDuration = this.formatDuration(totalExtraMinutes);
 
             return stats;
         }
 
         async getUserYearlyStats(userId) {
             const logs = await this.db.getAll('attendance');
-            const userLogs = logs.filter(l => l.userId === userId);
+            const userLogs = logs.filter(l => l.userId === userId || l.user_id === userId);
             const { start, end, label } = this.getFinancialYearDates();
 
-            // Initialize Breakdown
             const breakdown = {
-                'Present': 0,
-                'Late': 0,
-                'Work - Home': 0,
-                'Training': 0,
-                'Sick Leave': 0,
-                'Casual Leave': 0,
-                'Earned Leave': 0,
-                'Paid Leave': 0,
-                'Maternity Leave': 0,
-                'Absent': 0,
-                'Holiday': 0,
-                'National Holiday': 0,
-                'Regional Holidays': 0
+                'Present': 0, 'Late': 0, 'Work - Home': 0, 'Training': 0,
+                'Sick Leave': 0, 'Casual Leave': 0, 'Earned Leave': 0,
+                'Paid Leave': 0, 'Maternity Leave': 0, 'Absent': 0,
+                'Holiday': 0, 'National Holiday': 0, 'Regional Holidays': 0
             };
 
             const stats = {
                 present: 0,
-                late: 0, // Total Late
+                late: 0,
                 leaves: 0,
                 penaltyLeaves: 0,
                 label: label,
-                breakdown: breakdown // Attach breakdown
+                breakdown: breakdown,
+                totalLateDuration: '0h 0m',
+                totalExtraDuration: '0h 0m'
             };
 
             const monthlyLates = {};
+            let totalLateMinutes = 0;
+            let totalExtraMinutes = 0;
 
             userLogs.forEach(log => {
                 const logDate = new Date(log.date);
-                if (logDate >= start && logDate <= end) {
+                if (!isNaN(logDate) && logDate >= start && logDate <= end) {
                     let type = log.type || '';
+                    const inMinutes = this.parseTimeToMinutes(log.checkIn);
+                    const outMinutes = this.parseTimeToMinutes(log.checkOut);
 
-                    // LATE Check
-                    if (log.checkIn && log.checkIn > '09:00') {
+                    // LATE Check (Threshold: 09:05 = 545 minutes)
+                    if (inMinutes !== null && inMinutes > 545) {
                         breakdown['Late']++;
 
-                        // Track monthly lates for penalty
+                        // Accumulate duration
+                        totalLateMinutes += (inMinutes - 545);
+
+                        // Track monthly for penalty
                         const monthKey = `${logDate.getFullYear()}-${logDate.getMonth()}`;
                         if (!monthlyLates[monthKey]) monthlyLates[monthKey] = 0;
                         monthlyLates[monthKey]++;
+                    }
+
+                    // EXTRA HOURS Check
+                    // 1. Morning: Before 09:00 (540 minutes)
+                    if (inMinutes !== null && inMinutes < 540) {
+                        totalExtraMinutes += (540 - inMinutes);
+                    }
+                    // 2. Evening: After 17:00 (1020 minutes)
+                    if (outMinutes !== null && outMinutes > 1020) {
+                        totalExtraMinutes += (outMinutes - 1020);
                     }
 
                     // CATEGORY Check
@@ -225,19 +280,20 @@
                     else if (type === 'Absent') breakdown['Absent']++;
                     else if (type === 'National Holiday') breakdown['National Holiday']++;
                     else if (type === 'Regional Holidays') breakdown['Regional Holidays']++;
-                    else if (type.includes('Holiday')) breakdown['Holiday']++;
+                    else if (String(type).includes('Holiday')) breakdown['Holiday']++;
                     else if (log.checkIn) {
-                        breakdown['Present']++; // Standard Office
+                        breakdown['Present']++;
                     }
                 }
             });
 
-            // Recalculate Totals
             stats.present = breakdown['Present'] + breakdown['Work - Home'] + breakdown['Training'];
             stats.leaves = breakdown['Sick Leave'] + breakdown['Casual Leave'] + breakdown['Earned Leave'] + breakdown['Paid Leave'] + breakdown['Maternity Leave'] + breakdown['Absent'];
             stats.late = breakdown['Late'];
+            stats.totalLateDuration = this.formatDuration(totalLateMinutes);
+            stats.totalExtraDuration = this.formatDuration(totalExtraMinutes);
 
-            // Apply Penalty
+            // Apply Penalty (Monthly Reset)
             Object.values(monthlyLates).forEach(count => {
                 if (count > 3) stats.penaltyLeaves += 0.5;
             });
@@ -280,8 +336,111 @@
 
             return 'Work Day';
         }
+        async getHeroOfTheWeek() {
+            try {
+                const logs = await this.db.getAll('attendance');
+                const users = await this.db.getAll('users');
+
+                const sevenDaysAgo = new Date();
+                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+                sevenDaysAgo.setHours(0, 0, 0, 0);
+
+                const recentLogs = logs.filter(l => {
+                    const logDate = new Date(l.date);
+                    return !isNaN(logDate.getTime()) && logDate >= sevenDaysAgo;
+                });
+
+                if (recentLogs.length === 0) return null;
+
+                const userStats = {};
+
+                recentLogs.forEach(l => {
+                    const uid = l.user_id || l.userId;
+                    if (!uid) return;
+
+                    if (!userStats[uid]) {
+                        userStats[uid] = {
+                            userId: uid,
+                            totalDurationMs: 0,
+                            daysCount: new Set(),
+                            activityLogDepth: 0,
+                            avgActivityScore: 0,
+                            scoreCount: 0
+                        };
+                    }
+
+                    const stats = userStats[uid];
+
+                    // Fallback for logs without durationMs
+                    let dMs = l.durationMs;
+                    if (dMs === undefined && l.checkIn && l.checkOut && l.checkOut !== 'Active Now') {
+                        const inMins = this.parseTimeToMinutes(l.checkIn);
+                        const outMins = this.parseTimeToMinutes(l.checkOut);
+                        if (inMins !== null && outMins !== null) {
+                            dMs = (outMins - inMins) * 60 * 1000;
+                        }
+                        if (dMs < 0) dMs = 0;
+                    }
+
+                    stats.totalDurationMs += dMs || 0;
+                    stats.daysCount.add(l.date);
+                    stats.activityLogDepth += (l.workDescription || "").length;
+                    if (l.activityScore !== undefined) {
+                        stats.avgActivityScore += l.activityScore;
+                        stats.scoreCount++;
+                    }
+                });
+
+                // Calculate final scores
+                const rankings = Object.values(userStats).map(stats => {
+                    const days = stats.daysCount.size;
+                    const hours = stats.totalDurationMs / (1000 * 60 * 60);
+                    const avgScore = stats.scoreCount > 0 ? stats.avgActivityScore / stats.scoreCount : 70;
+
+                    // Algorithm: 
+                    // - 40% Weight for Consistency (Days present)
+                    // - 30% Weight for Effort (Hours worked)
+                    // - 20% Weight for Quality (Activity log depth)
+                    // - 10% Weight for Engagement (Activity Score)
+
+                    const consistencyScore = (days / 7) * 100;
+                    const effortScore = Math.min((hours / 40) * 100, 100); // Caps at 40 hours
+                    const qualityScore = Math.min((stats.activityLogDepth / 500) * 100, 100); // Caps at 500 chars total
+
+                    const finalScore = (consistencyScore * 0.4) + (effortScore * 0.3) + (qualityScore * 0.2) + (avgScore * 0.1);
+
+                    return {
+                        ...stats,
+                        days,
+                        hours: hours.toFixed(1),
+                        finalScore
+                    };
+                });
+
+                rankings.sort((a, b) => b.finalScore - a.finalScore);
+                const winnerStats = rankings[0];
+                const winner = users.find(u => u.id === winnerStats.userId);
+
+                if (!winner) return null;
+
+                return {
+                    user: winner,
+                    stats: winnerStats,
+                    reason: this.determineHeroReason(winnerStats)
+                };
+            } catch (err) {
+                console.error("Hero Calculation Error:", err);
+                return null;
+            }
+        }
+
+        determineHeroReason(stats) {
+            if (stats.days >= 5) return "Unmatched Consistency";
+            if (stats.hours >= 40) return "Hardworking Machine";
+            if (stats.activityLogDepth > 300) return "Detailed Communicator";
+            return "Top Performer";
+        }
     }
 
     window.AppAnalytics = new Analytics();
-
 })();

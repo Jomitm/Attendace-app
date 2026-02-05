@@ -174,6 +174,9 @@
                     const secs = Math.floor((diff / 1000) % 60).toString().padStart(2, '0');
                     display.textContent = `${hrs} : ${mins} : ${secs}`;
                 }, 1000);
+
+                // Start Activity Monitor
+                if (window.AppActivity) window.AppActivity.start();
             } else if (display) {
                 display.textContent = '00 : 00 : 00';
             }
@@ -181,12 +184,42 @@
     }
 
     function getLocation() {
-        return new Promise((resolve, reject) => {
-            if (!navigator.geolocation) reject('Geolocation is not supported');
-            else navigator.geolocation.getCurrentPosition(
-                (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
-                (e) => reject('Unable to retrieve location')
-            );
+        return new Promise(async (resolve, reject) => {
+            if (!navigator.geolocation) {
+                reject('Geolocation is not supported by your browser.');
+                return;
+            }
+
+            const getPosition = (options) => {
+                return new Promise((res, rej) => {
+                    navigator.geolocation.getCurrentPosition(res, rej, options);
+                });
+            };
+
+            try {
+                // Attempt 1: High Accuracy (GPS)
+                console.log("Requesting Location: High Accuracy...");
+                const p = await getPosition({ enableHighAccuracy: true, timeout: 5000, maximumAge: 0 });
+                resolve({ lat: p.coords.latitude, lng: p.coords.longitude });
+            } catch (err) {
+                console.warn("High Accuracy Failed:", err.message);
+
+                // Attempt 2: Low Accuracy (WiFi/Cell/IP) - Fallback
+                try {
+                    console.log("Requesting Location: Low Accuracy (Fallback)...");
+                    const p2 = await getPosition({ enableHighAccuracy: false, timeout: 10000, maximumAge: 0 });
+                    resolve({ lat: p2.coords.latitude, lng: p2.coords.longitude });
+                } catch (err2) {
+                    console.error("Low Accuracy Failed:", err2.message);
+
+                    let msg = 'Unable to retrieve location.';
+                    if (err2.code === 1) msg = 'Location permission denied. Please allow location access.';
+                    else if (err2.code === 2) msg = 'Location unavailable. Ensure GPS is on.';
+                    else if (err2.code === 3) msg = 'Location request timed out completely.';
+
+                    reject(msg);
+                }
+            }
         });
     }
 
@@ -207,9 +240,17 @@
                 contentArea.innerHTML = await window.AppUI.renderDashboard();
                 setupDashboardEvents();
             } else {
-                await window.AppAttendance.checkOut();
-                contentArea.innerHTML = await window.AppUI.renderDashboard();
-                setupDashboardEvents();
+                // Show Check-Out Modal instead of direct checkout
+                const modal = document.getElementById('checkout-modal');
+                if (modal) {
+                    modal.style.display = 'flex';
+                    if (btn) btn.disabled = false; // Re-enable button since we didn't submit yet
+                } else {
+                    // Fallback if modal missing (shouldn't happen)
+                    await window.AppAttendance.checkOut();
+                    contentArea.innerHTML = await window.AppUI.renderDashboard();
+                    setupDashboardEvents();
+                }
             }
         } catch (err) {
             alert(err.message || err);
@@ -219,6 +260,35 @@
             }
         }
     }
+
+    // New Function: Handle Check-Out Submission
+    window.app_submitCheckOut = async function (event) {
+        event.preventDefault();
+        const form = event.target;
+        const description = form.description.value;
+        const submitBtn = form.querySelector('button[type="submit"]');
+
+        try {
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Saving...';
+
+            await window.AppAttendance.checkOut(description);
+
+            // Hide modal
+            document.getElementById('checkout-modal').style.display = 'none';
+
+            // Refresh
+            const contentArea = document.getElementById('page-content');
+            if (contentArea) {
+                contentArea.innerHTML = await window.AppUI.renderDashboard();
+                setupDashboardEvents();
+            }
+        } catch (err) {
+            alert("Check-out failed: " + err.message);
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Complete Check-Out';
+        }
+    };
 
     async function handleManualLog(e) {
         e.preventDefault();
@@ -234,6 +304,7 @@
             checkOut: formData.get('checkOut'),
             duration: dur,
             location: formData.get('location'),
+            workDescription: formData.get('location'), // Save description here too
             type: 'Manual/WFH'
         };
         await window.AppAttendance.addManualLog(logData);
@@ -469,6 +540,10 @@
         const user = await window.AppDB.get('users', userId);
         const logs = await window.AppAttendance.getLogs(userId);
 
+        // Store logs globally or pass them? Simple hack: attach to window for export button to access
+        window.currentViewedLogs = logs;
+        window.currentViewedUser = user;
+
         const logsHTML = logs.length ? `
             <div class="table-container">
                 <table>
@@ -477,16 +552,43 @@
                             <th>Date</th>
                             <th>In</th>
                             <th>Out</th>
+                            <th>Duration</th>
+                            <th>Type</th>
+                            <th>Location</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${logs.map(log => `<tr><td>${log.date}</td><td>${log.checkIn}</td><td>${log.checkOut || '--'}</td></tr>`).join('')}
+                        ${logs.map(log => {
+            let locDisplay = log.location || 'N/A';
+            if (log.lat && log.lng) {
+                locDisplay = `<a href="https://www.google.com/maps?q=${log.lat},${log.lng}" target="_blank" style="color:var(--primary);text-decoration:none;">
+                                    <i class="fa-solid fa-map-pin"></i> ${Number(log.lat).toFixed(4)}, ${Number(log.lng).toFixed(4)}
+                                </a>`;
+            }
+            return `
+                            <tr>
+                                <td>${log.date}</td>
+                                <td>${log.checkIn}</td>
+                                <td>${log.checkOut || '--'}</td>
+                                <td>${log.duration || '--'}</td>
+                                <td>${log.type || 'Office'}</td>
+                                <td style="font-size:0.85rem; color:#6b7280;">${locDisplay}</td>
+                            </tr>`;
+        }).join('')}
                     </tbody>
                 </table>
-            </div>` : '<p>No logs found.</p>';
+            </div>` : '<p style="text-align:center; padding:1rem; color:#6b7280;">No logs found for this user.</p>';
 
         document.getElementById('user-details-content').innerHTML = `
-            <h3>${user.name}</h3>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                <div>
+                     <h3>${user.name}</h3>
+                     <p style="color:#6b7280; font-size:0.9rem;">${user.role} | ${user.dept || 'General'}</p>
+                </div>
+                <button onclick="window.AppReports.exportUserLogsCSV(window.currentViewedUser, window.currentViewedLogs)" class="action-btn" style="padding:0.5rem 1rem; font-size:0.9rem;">
+                    <i class="fa-solid fa-file-export"></i> Export Report
+                </button>
+            </div>
             ${logsHTML}
         `;
         document.getElementById('user-details-modal').style.display = 'flex';

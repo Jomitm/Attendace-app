@@ -64,8 +64,10 @@
         async put(collectionName, item) {
             if (!item.id) throw new Error("Item must have an ID for 'put' operation.");
             try {
-                await this.db.collection(collectionName).doc(item.id).set(item, { merge: true });
-                return item.id;
+                // FORCE STRING ID
+                const docId = String(item.id);
+                await this.db.collection(collectionName).doc(docId).set(item, { merge: true });
+                return docId;
             } catch (error) {
                 console.error(`Error putting ${item.id} to ${collectionName}:`, error);
                 throw error;
