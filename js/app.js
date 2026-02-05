@@ -17,17 +17,6 @@
     const mobileHeader = document.querySelector('.mobile-header');
     const mobileNav = document.querySelector('.mobile-nav');
 
-    async function initApp() {
-        try {
-            await window.AppAuth.init();
-            router();
-            registerSW();
-        } catch (e) {
-            console.error("Initialization Failed:", e);
-            if (contentArea) contentArea.innerHTML = `<div style="text-align:center; padding:2rem; color:red;">Failed to load application.<br><small>${e.message}</small></div>`;
-        }
-    }
-
     function registerSW() {
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
@@ -36,6 +25,44 @@
                     .catch(err => console.log('ServiceWorker registration failed: ', err));
             });
         }
+    }
+
+    // --- UI Helpers ---
+    function toggleMobileSidebar(show) {
+        const sidebar = document.querySelector('.sidebar');
+        const overlay = document.getElementById('sidebar-overlay');
+        if (sidebar && overlay) {
+            if (show) {
+                sidebar.classList.add('open');
+                overlay.classList.add('active');
+            } else {
+                sidebar.classList.remove('open');
+                overlay.classList.remove('active');
+            }
+        }
+    }
+
+    // Initialize Global App Logic
+    async function init() {
+        try {
+            await window.AppAuth.init();
+            registerSW();
+        } catch (e) {
+            console.error("Initialization Failed:", e);
+            if (contentArea) contentArea.innerHTML = `<div style="text-align:center; padding:2rem; color:red;">Failed to load application.<br><small>${e.message}</small></div>`;
+        }
+
+        // Global Toggles
+        document.addEventListener('click', (e) => {
+            if (e.target.id === 'sidebar-toggle' || e.target.closest('#sidebar-toggle')) {
+                toggleMobileSidebar(true);
+            } else if (e.target.id === 'sidebar-overlay') {
+                toggleMobileSidebar(false);
+            }
+        });
+
+        window.addEventListener('hashchange', router);
+        router();
     }
 
     // Router
@@ -60,7 +87,12 @@
         }
 
         // LOGGED IN
-        if (sidebar && window.innerWidth > 768) sidebar.style.display = 'flex';
+        // Clear mobile specific states on route change
+        toggleMobileSidebar(false);
+
+        if (sidebar && window.innerWidth > 768) {
+            sidebar.style.display = 'flex';
+        }
         if (mobileHeader) mobileHeader.style.display = 'flex';
         if (mobileNav) mobileNav.style.display = 'flex';
 
@@ -646,11 +678,7 @@
     // Removed old document.addEventListener calls for admin actions since we use global funcs now.
 
     // Initialization
-    window.addEventListener('hashchange', router);
-    window.addEventListener('load', initApp);
-    window.addEventListener('resize', () => {
-        if (sidebar) sidebar.style.display = window.innerWidth > 768 ? 'flex' : 'none';
-    });
+    init();
 
     console.log("App.js Loaded & Globals Ready");
 })();
