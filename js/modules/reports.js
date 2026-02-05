@@ -130,16 +130,22 @@
          */
         async exportUserLogsCSV(user, logs) {
             try {
-                const flattenedData = logs.map(log => ({
-                    date: log.date,
-                    name: user.name,
-                    role: user.role,
-                    checkIn: log.checkIn,
-                    checkOut: log.checkOut || '--',
-                    duration: log.duration || '--',
-                    location: log.location || 'N/A',
-                    type: log.type || 'Standard'
-                }));
+                const flattenedData = logs.map(log => {
+                    let locString = log.location || 'N/A';
+                    if (log.lat && log.lng) {
+                        locString = `Lat: ${Number(log.lat).toFixed(5)}, Lng: ${Number(log.lng).toFixed(5)}`;
+                    }
+                    return {
+                        date: log.date,
+                        name: user.name,
+                        role: user.role,
+                        checkIn: log.checkIn,
+                        checkOut: log.checkOut || '--',
+                        duration: log.duration || '--',
+                        location: locString,
+                        type: log.type || 'Standard'
+                    };
+                });
 
                 // Sort by Date (descending)
                 flattenedData.sort((a, b) => new Date(b.date) - new Date(a.date));

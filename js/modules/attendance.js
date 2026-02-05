@@ -51,6 +51,8 @@
                 durationMs: durationMs, // Store raw ms for calculations
                 type: 'Office',
                 location: user.currentLocation?.address || 'Detected Location',
+                lat: user.currentLocation?.lat,
+                lng: user.currentLocation?.lng,
                 workDescription: description || '',
                 activityScore: activityStats.score,
                 synced: false // For future sync logic

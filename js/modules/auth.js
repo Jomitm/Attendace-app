@@ -111,6 +111,20 @@
 
             const updated = { ...existing, ...userData };
 
+            // Sync Role & isAdmin Status
+            // If checking the box or selecting the role, ensure both flags match
+            if (userData.isAdmin || userData.role === 'Administrator') {
+                updated.isAdmin = true;
+                updated.role = 'Administrator';
+            } else if (userData.isAdmin === false || (userData.role && userData.role !== 'Administrator')) {
+                // If explicitly demoting OR changing role away from Admin
+                updated.isAdmin = false;
+                // Keep the new role if specified, otherwise default to Employee if demoting
+                if (!userData.role || userData.role === 'Administrator') {
+                    updated.role = 'Employee';
+                }
+            }
+
             // Only regenerate default avatar if name changed AND no new avatar provided
             if (userData.name && userData.name !== existing.name && !userData.avatar) {
                 updated.avatar = `https://ui-avatars.com/api/?name=${userData.name}&background=random&color=fff`;

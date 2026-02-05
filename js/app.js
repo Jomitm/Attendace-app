@@ -79,7 +79,7 @@
         // Admin Link logic
         const adminLinks = document.querySelectorAll('a[data-page="admin"]');
         adminLinks.forEach(link => {
-            if (user.role === 'Administrator') {
+            if (user.role === 'Administrator' || user.isAdmin) {
                 link.style.display = 'flex';
             } else {
                 link.style.setProperty('display', 'none', 'important');
@@ -98,6 +98,12 @@
 
         // Content Rendering
         try {
+            // Render Modals into the central container if not already present
+            const modalContainer = document.getElementById('modal-container');
+            if (modalContainer && !modalContainer.innerHTML) {
+                modalContainer.innerHTML = window.AppUI.renderModals();
+            }
+
             // Show Loading State immediately
             if (contentArea) contentArea.innerHTML = '<div class="loading-spinner"></div>';
 
@@ -109,7 +115,7 @@
             } else if (hash === 'profile') {
                 contentArea.innerHTML = await window.AppUI.renderProfile();
             } else if (hash === 'admin') {
-                if (user.role !== 'Administrator') {
+                if (user.role !== 'Administrator' && !user.isAdmin) {
                     window.location.hash = 'dashboard';
                     return;
                 }
@@ -323,6 +329,8 @@
         const password = formData.get('password').trim();
         const email = formData.get('email').trim();
 
+        const isAdmin = formData.get('isAdmin') === 'on' || formData.get('isAdmin') === 'true';
+
         const userData = {
             id: 'u' + Date.now(),
             name: name,
@@ -333,11 +341,20 @@
             email: email,
             phone: formData.get('phone'),
             joinDate: formData.get('joinDate'),
+            isAdmin: isAdmin,
             avatar: `https://ui-avatars.com/api/?name=${formData.get('name')}&background=random&color=fff`,
             status: 'out',
             lastCheckIn: null
         };
+
         try {
+            // isAdmin/role sync is handled by auth.updateUser but handleAddUser adds directly to DB.
+            // Let's ensure sync here too or use a common create function.
+            if (userData.isAdmin || userData.role === 'Administrator') {
+                userData.isAdmin = true;
+                userData.role = 'Administrator';
+            }
+
             await window.AppDB.add('users', userData);
             alert('Success! Account created.');
             document.getElementById('add-user-modal').style.display = 'none';
@@ -351,8 +368,6 @@
         // Explicitly handle event
         if (e) e.preventDefault();
 
-        alert("Processing update... Please wait.");
-
         const form = document.getElementById('edit-user-form');
         const formData = new FormData(form);
 
@@ -362,6 +377,8 @@
             return;
         }
 
+        const isAdmin = formData.get('isAdmin') === 'on' || formData.get('isAdmin') === 'true';
+
         const userData = {
             id: id,
             name: formData.get('name'),
@@ -370,10 +387,11 @@
             role: formData.get('role'),
             dept: formData.get('dept'),
             email: formData.get('email'),
-            phone: formData.get('phone')
+            phone: formData.get('phone'),
+            isAdmin: isAdmin
         };
 
-        console.log("Updating User:", userData);
+        console.log("Submitting User Update:", userData);
 
         try {
             const success = await window.AppAuth.updateUser(userData);
@@ -381,11 +399,11 @@
                 alert(`SUCCESS: User '${userData.name}' updated.`);
                 window.location.reload();
             } else {
-                alert('DB Error: Update returned false.');
+                alert('Update failed. User not found.');
             }
         } catch (err) {
-            console.error(err);
-            alert('Exception: ' + err.message);
+            console.error("Update Error:", err);
+            alert('Error: ' + err.message);
         }
     };
 
@@ -423,7 +441,7 @@
                 else alert('Invalid Credentials');
             });
         }
-        else if (id === 'edit-user-form') handleEditUser(e);
+        else if (id === 'edit-user-form') window.app_submitEditUser(e);
         else if (id === 'notify-form') handleNotifyUser(e);
         else if (id === 'leave-request-form') handleLeaveRequest(e);
     });
@@ -526,6 +544,7 @@
         form.querySelector('#edit-user-dept').value = user.dept;
         form.querySelector('#edit-user-email').value = user.email;
         form.querySelector('#edit-user-phone').value = user.phone;
+        form.querySelector('#edit-user-isAdmin').checked = !!(user.isAdmin || user.role === 'Administrator');
         document.getElementById('edit-user-modal').style.display = 'flex';
     };
 
@@ -538,9 +557,12 @@
     window.app_viewLogs = async (userId) => {
         console.log("Viewing details for:", userId);
         const user = await window.AppDB.get('users', userId);
-        const logs = await window.AppAttendance.getLogs(userId);
+        let logs = await window.AppAttendance.getLogs(userId);
 
-        // Store logs globally or pass them? Simple hack: attach to window for export button to access
+        // Sort: Chronological (Oldest First) for the detailed report view if requested
+        // But usually, newest first is better for quick check. 
+        // Let's stick to newest first as per attendance.js, but ensure it's clear.
+
         window.currentViewedLogs = logs;
         window.currentViewedUser = user;
 
@@ -592,6 +614,22 @@
             ${logsHTML}
         `;
         document.getElementById('user-details-modal').style.display = 'flex';
+    };
+
+    window.app_deleteUser = async (userId) => {
+        if (confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
+            try {
+                await window.AppDB.delete('users', userId);
+                alert('User deleted successfully.');
+                // Refresh Admin View
+                const contentArea = document.getElementById('page-content');
+                if (contentArea) {
+                    contentArea.innerHTML = await window.AppUI.renderAdmin();
+                }
+            } catch (err) {
+                alert('Failed to delete user: ' + err.message);
+            }
+        }
     };
 
     window.app_handleLeave = async (leaveId, status) => {

@@ -441,6 +441,54 @@
             if (stats.activityLogDepth > 300) return "Detailed Communicator";
             return "Top Performer";
         }
+
+        async getSystemPerformance() {
+            try {
+                const logs = await this.db.getAll('attendance');
+                const trendData = [];
+                let totalScore = 0;
+                let scoreCount = 0;
+
+                const isSameDay = (d1, d2) => {
+                    return d1.getFullYear() === d2.getFullYear() &&
+                        d1.getMonth() === d2.getMonth() &&
+                        d1.getDate() === d2.getDate();
+                };
+
+                for (let i = 6; i >= 0; i--) {
+                    const targetDate = new Date();
+                    targetDate.setDate(targetDate.getDate() - i);
+
+                    const dayLogs = logs.filter(l => {
+                        const logDate = new Date(l.date);
+                        return !isNaN(logDate.getTime()) && isSameDay(logDate, targetDate);
+                    });
+
+                    if (dayLogs.length === 0) {
+                        trendData.push(0);
+                    } else {
+                        const dayScores = dayLogs.map(l => l.activityScore || 0).filter(s => s > 0);
+                        const dayAvg = dayScores.length > 0 ? dayScores.reduce((a, b) => a + b, 0) / dayScores.length : 0;
+                        trendData.push(Math.round(dayAvg));
+
+                        if (dayAvg > 0) {
+                            totalScore += dayAvg;
+                            scoreCount++;
+                        }
+                    }
+                }
+
+                const finalAvg = scoreCount > 0 ? Math.round(totalScore / scoreCount) : 0;
+
+                return {
+                    avgScore: finalAvg,
+                    trendData: trendData
+                };
+            } catch (err) {
+                console.error("System Performance Calculation Error:", err);
+                return { avgScore: 0, trendData: [0, 0, 0, 0, 0, 0, 0] };
+            }
+        }
     }
 
     window.AppAnalytics = new Analytics();
