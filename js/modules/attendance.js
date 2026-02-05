@@ -106,12 +106,8 @@
 
                 // Sort by ID (timestamp) descending for "Newest First"
                 // Note: Firestore requires an index for this. If it fails, we default to client-side sort for now.
-                // For simplicity/robustness without index mgmt, we fetch last 50 then sort client side safely
+                // For simplicity/robustness without index mgmt, we fetch last 50 then sort client safely
                 // or just standard fetch.
-
-                // Let's try simple fetch of recent items? 
-                // Firestore client SDK doesn't support 'orderBy' easily without composite index if filtering.
-                // Fallback: Fetch by user -> limit 50 -> sort client side.
 
                 // const snapshot = await query.orderBy('id', 'desc').limit(50).get(); // Needs Index
 

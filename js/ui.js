@@ -681,7 +681,7 @@
                 };
 
                 return `
-                    < div class="dashboard-grid" >
+                    <div class="dashboard-grid">
                         <div class="card full-width" style="padding: 0; overflow: hidden; position: relative;">
                             <!-- Banner -->
                             <div style="height: 150px; background: linear-gradient(to right, #4f46e5, #818cf8); position: relative;"></div>
@@ -736,43 +736,43 @@
                             </div>
                         </div>
 
-                        <!--Leave History Section-- >
-                    <div class="card full-width" style="margin-top: 1.5rem;">
-                        <h3>My Leave History</h3>
-                        <div class="table-container">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Dates</th>
-                                        <th>Type</th>
-                                        <th>Reason</th>
-                                        <th>Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${leaves.length ? leaves.map(l => {
+                        <!-- Leave History Section -->
+                        <div class="card full-width" style="margin-top: 1.5rem;">
+                            <h3>My Leave History</h3>
+                            <div class="table-container">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Dates</th>
+                                            <th>Type</th>
+                                            <th>Reason</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${leaves.length ? leaves.map(l => {
                     let badgeColor = '#f3f4f6'; // Pending (Gray)
                     let textColor = '#374151';
                     if (l.status === 'Approved') { badgeColor = '#dcfce7'; textColor = '#166534'; }
                     if (l.status === 'Rejected') { badgeColor = '#fee2e2'; textColor = '#991b1b'; }
 
                     return `
-                                            <tr>
-                                                <td>${l.startDate} <span style="color:#9ca3af">to</span> ${l.endDate}</td>
-                                                <td>${l.type}</td>
-                                                <td style="color:#6b7280; font-size:0.9rem;">${l.reason}</td>
-                                                <td><span style="background:${badgeColor}; color:${textColor}; padding:0.25rem 0.5rem; border-radius:4px; font-size:0.8rem; font-weight:600;">${l.status}</span></td>
-                                            </tr>`;
+                                                <tr>
+                                                    <td>${l.startDate} <span style="color:#9ca3af">to</span> ${l.endDate}</td>
+                                                    <td>${l.type}</td>
+                                                    <td style="color:#6b7280; font-size:0.9rem;">${l.reason}</td>
+                                                    <td><span style="background:${badgeColor}; color:${textColor}; padding:0.25rem 0.5rem; border-radius:4px; font-size:0.8rem; font-weight:600;">${l.status}</span></td>
+                                                </tr>`;
                 }).join('') : '<tr><td colspan="4" style="text-align:center; padding:1.5rem; color:#6b7280;">No leave requests found.</td></tr>'}
-                                </tbody>
-                            </table>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
-                    </div >
-                    `;
+                `;
             } catch (e) {
                 console.error("Profile Render Error", e);
-                return `< div style = "padding: 2rem; color: red;" > Error loading profile: ${e.message}</div > `;
+                return `<div style="padding: 2rem; color: red;">Error loading profile: ${e.message}</div>`;
             }
         },
 
@@ -782,413 +782,108 @@
                 allUsers = await window.AppDB.getAll('users');
             } catch (e) {
                 console.error("Failed to fetch users", e);
-                return `<div style="padding: 2rem; color: red;">Error loading users: ${e.message}</div>`;
             }
 
-            if (!allUsers || allUsers.length === 0) {
-                return `
-                    <div class="dashboard-grid">
-                        <div class="card full-width" style="text-align:center; padding: 3rem;">
-                            <h3>No User Data Found</h3>
-                            <p class="text-muted">The database appears to be empty.</p>
-                            <button onclick="window.AppAuth.seedUsers().then(() => window.location.reload())" class="action-btn" style="margin-top: 1rem;">
-                                <i class="fa-solid fa-database"></i> Seed Mock Data
-                            </button>
-                        </div>
-                    </div>
-                `;
-            }
-
-            // Fetch other data in PARALLEL to reduce load time
-            console.time('AdminFetch');
-            const [pendingLeaves] = await Promise.all([
-                window.AppLeaves.getPendingLeaves()
-            ]);
-            console.timeEnd('AdminFetch');
-
-            const usersMap = {};
-            allUsers.forEach(u => usersMap[u.id] = u);
-
-            const html = `
+            return `
                 <div class="dashboard-grid">
-                    <!-- LEAVE REQUESTS WIDGET -->
-                    ${pendingLeaves.length > 0 ? `
-                    <div class="card full-width" style="border-left: 4px solid #f59e0b;">
-                        <h3>🚨 Pending Leave Requests (${pendingLeaves.length})</h3>
-                        <div class="table-container">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Staff</th>
-                                        <th>Type</th>
-                                        <th>Dates</th>
-                                        <th>Reason</th>
-                                        <th>Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${pendingLeaves.map(l => {
-                const user = usersMap[l.userId] || { name: 'Unknown' };
-                return `
-                                            <tr>
-                                                <td style="font-weight:600">${user.name}</td>
-                                                <td><span class="badge" style="background:#fff7ed; color:#c2410c">${l.type}</span></td>
-                                                <td>${l.startDate} to ${l.endDate}</td>
-                                                <td style="font-size:0.9rem; color:#6b7280; max-width:200px; white-space:normal;">${l.reason}</td>
-                                                <td>
-                                                    <div style="display:flex; gap:0.5rem;">
-                                                        <button onclick="window.app_handleLeave('${l.id}', 'Approved')" style="padding:0.4rem 0.8rem; background:#dcfce7; color:#166534; border:none; border-radius:4px; cursor:pointer; font-size:0.8rem;">Approve</button>
-                                                        <button onclick="window.app_handleLeave('${l.id}', 'Rejected')" style="padding:0.4rem 0.8rem; background:#fee2e2; color:#991b1b; border:none; border-radius:4px; cursor:pointer; font-size:0.8rem;">Reject</button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        `;
-            }).join('')}
-                                </tbody>
-                            </table>
+                    <!-- Stats Overview -->
+                     <div class="card" style="background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); color: white; border: none;">
+                        <span style="font-size: 0.8rem; opacity: 0.8; font-weight: 500;">Total Registered Staff</span>
+                        <h2 style="font-size: 2.5rem; margin: 0.5rem 0;">${allUsers.length}</h2>
+                        <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                            <div style="flex: 1; background: rgba(255,255,255,0.1); padding: 0.75rem; border-radius: 0.75rem;">
+                                <div style="font-size: 1.2rem; font-weight: 700;">${allUsers.filter(u => u.status === 'in').length}</div>
+                                <div style="font-size: 0.7rem; opacity: 0.7; text-transform: uppercase;">Active Now</div>
+                            </div>
+                            <div style="flex: 1; background: rgba(255,255,255,0.1); padding: 0.75rem; border-radius: 0.75rem;">
+                                <div style="font-size: 1.2rem; font-weight: 700;">${allUsers.filter(u => u.role === 'Administrator').length}</div>
+                                <div style="font-size: 0.7rem; opacity: 0.7; text-transform: uppercase;">Admins</div>
+                            </div>
                         </div>
                     </div>
-                    ` : ''}
 
-                    <!-- USER TABLE (Staff Monitoring) -->
+                    <div class="card">
+                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1.5rem;">
+                            <div>
+                                <h4>System Performance</h4>
+                                <p class="text-muted" style="font-size: 0.8rem;">Average activity score</p>
+                            </div>
+                            <div style="background: #f0fdf4; color: #166534; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 600;">Optimal</div>
+                        </div>
+                        <div style="height: 100px; display: flex; align-items: flex-end; gap: 8px;">
+                            ${[40, 65, 52, 88, 75, 92, 85].map(h => `<div style="flex: 1; background: var(--primary); height: ${h}%; border-radius: 4px 4px 0 0; opacity: 0.8;"></div>`).join('')}
+                        </div>
+                    </div>
+
                     <div class="card full-width">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                            <h3>Staff Monitoring & Control</h3>
-                            <div style="display:flex; gap:1rem; align-items:center;">
-                                <span style="font-size:0.8rem; color:#6b7280; display:flex; align-items:center; gap:0.25rem;">
-                                    <span style="display:block; width:8px; height:8px; background:var(--success); border-radius:50%; animation: pulse 1.5s infinite;"></span> Live
-                                </span>
-                                <button class="action-btn secondary" onclick="window.AppReports.exportAttendanceCSV()" style="background: #eef2ff; color: var(--primary); border: 1px solid #c7d2fe;">
-                                    <i class="fa-solid fa-file-csv"></i> Export CSV
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+                            <h3>Staff Management</h3>
+                            <div style="display: flex; gap: 0.75rem;">
+                                <button class="action-btn secondary" style="padding: 0.5rem 1rem; font-size: 0.9rem;" onclick="window.app_exportReports()">
+                                    <i class="fa-solid fa-file-export"></i> Export CSV
                                 </button>
-                                <button class="action-btn" onclick="document.getElementById('add-user-modal').style.display = 'flex'">
-                                    <i class="fa-solid fa-user-plus"></i> New Account
+                                <button class="action-btn" style="padding: 0.5rem 1rem; font-size: 0.9rem;" onclick="document.getElementById('add-user-modal').style.display = 'flex'">
+                                    <i class="fa-solid fa-user-plus"></i> Add Staff
                                 </button>
                             </div>
                         </div>
 
-                        <div class="table-container">
-                            <table id="admin-user-table">
+                         <div class="table-container">
+                            <table>
                                 <thead>
                                     <tr>
-                                        <th>Name</th>
+                                        <th>Staff Member</th>
                                         <th>Status</th>
-                                        <th>Activity</th>
-                                        <th>Check-In</th>
-                                        <th>Check-Out</th>
-                                        <th>Location</th>
-                                        <th>Login ID</th>
+                                        <th>Role</th>
+                                        <th>Dept.</th>
+                                        <th>Last Active</th>
                                         <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    ${this.renderAdminTableRows(allUsers)}
+                                    ${allUsers.map(u => `
+                                        <tr>
+                                            <td>
+                                                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                                    <img src="${u.avatar}" style="width: 32px; height: 32px; border-radius: 50%;">
+                                                    <div>
+                                                        <div style="font-weight: 600;">${u.name}</div>
+                                                        <div style="font-size: 0.75rem; color: #6b7280;">ID: ${u.username}</div>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <span class="status-badge ${u.status === 'in' ? 'in' : 'out'}" style="padding: 0.25rem 0.75rem; font-size: 0.75rem;">
+                                                    ${u.status === 'in' ? 'Online' : 'Offline'}
+                                                </span>
+                                            </td>
+                                            <td>${u.role}</td>
+                                            <td>${u.dept || '--'}</td>
+                                            <td style="font-size: 0.85rem; color: #4b5563;">${u.lastCheckIn ? new Date(u.lastCheckIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Never'}</td>
+                                            <td>
+                                                <div style="display: flex; gap: 0.5rem;">
+                                                     <button onclick="document.dispatchEvent(new CustomEvent('view-user-logs', {detail: '${u.id}'}))" style="padding: 0.4rem; background: #eef2ff; color: #4338ca; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;" title="View Logs"><i class="fa-solid fa-list-check"></i></button>
+                                                     <button onclick="document.dispatchEvent(new CustomEvent('open-notify-modal', {detail: {id: '${u.id}', name: '${u.name}'}}))" style="padding: 0.4rem; background: #fff7ed; color: #c2410c; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;" title="Send Notification"><i class="fa-solid fa-bell"></i></button>
+                                                     <button onclick="document.dispatchEvent(new CustomEvent('open-edit-modal', {detail: ${JSON.stringify(u).replace(/"/g, '&quot;')}}))" style="padding: 0.4rem; background: #f3f4f6; color: #374151; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;" title="Edit Profile"><i class="fa-solid fa-pen"></i></button>
+                                                     <button onclick="document.dispatchEvent(new CustomEvent('auth-delete-user', {detail: '${u.id}'}))" style="padding: 0.4rem; background: #fef2f2; color: #b91c1c; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;" title="Delete User"><i class="fa-solid fa-trash"></i></button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
                                 </tbody>
                             </table>
                         </div>
                     </div>
 
-                    <!-- ANALYTICS CHART (Attendance Overview) -->
+                    <!-- Chart Section -->
                     <div class="card full-width">
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-                                <h3>Attendance Overview</h3>
-                        </div>
-                        <div style="height: 300px;">
+                        <h3>Attendance Trends</h3>
+                        <div style="height: 300px; width: 100%; margin-top: 1rem;">
                             <canvas id="admin-stats-chart"></canvas>
                         </div>
                     </div>
                 </div>
-
-                <!-- SHARED MODALS FOR ADMIN -->
-                <div id="edit-user-modal" class="modal-overlay" style="display: none;">
-                    <div class="modal-content">
-                        <h3>Edit Staff Details</h3>
-                        <form id="edit-user-form" onsubmit="window.app_submitEditUser(event)" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
-                            <input type="hidden" name="id" id="edit-user-id">
-                            <label>
-                                Full Name
-                                <input type="text" name="name" id="edit-user-name" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                            </label>
-                            
-                            <div style="display: flex; gap: 1rem; background: #fffbeb; padding: 1rem; border-radius: 0.5rem; border: 1px dashed #f59e0b;">
-                                <label style="flex:1">
-                                    Login ID
-                                    <input type="text" name="username" id="edit-user-username" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                </label>
-                                <label style="flex:1">
-                                    Password
-                                    <input type="text" name="password" id="edit-user-password" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                </label>
-                            </div>
-
-                            <label>
-                                Role/Designation
-                                <select name="role" id="edit-user-role" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                    <option value="Employee">Employee</option>
-                                    <option value="Administrator">Administrator</option>
-                                    <option value="Manager">Manager</option>
-                                </select>
-                            </label>
-                            <label>
-                                Department
-                                <input type="text" name="dept" id="edit-user-dept" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                            </label>
-                             <div style="display: flex; gap: 1rem;">
-                                <label style="flex:1">
-                                    Email
-                                    <input type="email" name="email" id="edit-user-email" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                </label>
-                                <label style="flex:1">
-                                    Phone
-                                    <input type="tel" name="phone" id="edit-user-phone" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                </label>
-                            </div>
-                            
-                            <div style="display: flex; gap: 1rem; margin-top: 1rem;">
-                                <button type="button" onclick="document.getElementById('edit-user-modal').style.display = 'none'" style="flex: 1; padding: 0.75rem; border: 1px solid #ddd; background: white; border-radius: 0.5rem; cursor: pointer;">Cancel</button>
-                                <button type="submit" class="action-btn" style="flex: 1; padding: 0.75rem; border-radius: 0.5rem;">Update Details</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-
-                <div id="user-details-modal" class="modal-overlay" style="display: none;">
-                    <div class="modal-content" style="max-width: 700px;">
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-                            <h3>Staff Attendance Record</h3>
-                            <button onclick="document.getElementById('user-details-modal').style.display='none'" style="background:none; border:none; cursor:pointer; font-size:1.2rem;"><i class="fa-solid fa-xmark"></i></button>
-                        </div>
-                        <div id="user-details-content">
-                            <!-- Injected by JS -->
-                        </div>
-                    </div>
-                </div>
-
-                 <div id="notify-modal" class="modal-overlay" style="display: none;">
-                    <div class="modal-content">
-                        <h3>Send Notification</h3>
-                        <form id="notify-form" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
-                            <input type="hidden" name="toUserId" id="notify-user-id">
-                            <label>
-                                Message
-                                <textarea name="message" required rows="4" placeholder="Type your message here..." style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem; font-family: inherit;"></textarea>
-                            </label>
-                            
-                            <div style="display: flex; gap: 1rem; margin-top: 1rem;">
-                                <button type="button" onclick="document.getElementById('notify-modal').style.display = 'none'" style="flex: 1; padding: 0.75rem; border: 1px solid #ddd; background: white; border-radius: 0.5rem; cursor: pointer;">Cancel</button>
-                                <button type="submit" class="action-btn" style="flex: 1; padding: 0.75rem; border-radius: 0.5rem;">Send Message</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            
-                <div id="add-user-modal" class="modal-overlay" style="display: none;">
-                    <div class="modal-content">
-                        <h3>Create New Account</h3>
-                        <form id="add-user-form" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
-                            <label>
-                                Full Name
-                                <input type="text" name="name" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                            </label>
-                            
-                            <div style="display: flex; gap: 1rem; background: #f9fafb; padding: 1rem; border-radius: 0.5rem; border: 1px dashed #d1d5db;">
-                                <label style="flex:1">
-                                    Login ID
-                                    <input type="text" name="username" placeholder="e.g. jomit" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                </label>
-                                <label style="flex:1">
-                                    Password
-                                    <input type="text" name="password" placeholder="e.g. secret123" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                </label>
-                            </div>
-
-                            <label>
-                                Role/Designation
-                                <input type="text" name="role" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                            </label>
-                            <label>
-                                Department
-                                <input type="text" name="dept" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                            </label>
-                             <div style="display: flex; gap: 1rem;">
-                                <label style="flex:1">
-                                    Email
-                                    <input type="email" name="email" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                </label>
-                                <label style="flex:1">
-                                    Phone
-                                    <input type="tel" name="phone" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                                </label>
-                            </div>
-                            <label>
-                                Joining Date
-                                <input type="date" name="joinDate" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
-                            </label>
-                            
-                            <div style="display: flex; gap: 1rem; margin-top: 1rem;">
-                                <button type="button" onclick="document.getElementById('add-user-modal').style.display = 'none'" style="flex: 1; padding: 0.75rem; border: 1px solid #ddd; background: white; border-radius: 0.5rem; cursor: pointer;">Cancel</button>
-                                <button type="submit" class="action-btn" style="flex: 1; padding: 0.75rem; border-radius: 0.5rem;">Create Account</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
             `;
-
-            // Auto-init refresh if on admin page
-            setTimeout(() => window.initAdminLiveRefresh(), 100);
-
-            return html;
-        },
-
-        // Helper to generate just the rows (for auto-refresh)
-        renderAdminTableRows(users) {
-            if (!users || users.length === 0) return '<tr><td colspan="7" style="text-align:center; padding:1rem;">No users found</td></tr>';
-
-            return users.map(u => {
-                const statusColor = u.status === 'in' ? 'var(--success)' : '#9ca3af';
-                let statusText = u.status === 'in' ? 'Online' : 'Offline';
-
-                // CHECK FOR LATE LOGIN (Using same 09:05 threshold)
-                // We need to parse u.lastCheckIn timestamp to time of day
-                if (u.status === 'in' && u.lastCheckIn) {
-                    const checkInDate = new Date(u.lastCheckIn);
-                    const hours = checkInDate.getHours();
-                    const minutes = checkInDate.getMinutes();
-                    const totalMinutes = hours * 60 + minutes;
-
-                    // 9:05 AM = 9*60 + 5 = 545 minutes
-                    if (totalMinutes > 545) {
-                        statusText += ' <span style="background:#fee2e2; color:#991b1b; padding:2px 6px; border-radius:4px; font-size:0.75rem; margin-left:4px;">Late</span>';
-                    }
-                }
-
-                // ACTIVITY SCORE
-                let activityHTML = '<span style="color:#9ca3af; font-size:0.8rem;">--</span>';
-                if (u.status === 'in') {
-                    // Default to 100% if just started or undefined
-                    const score = u.activityScore !== undefined ? u.activityScore : 100;
-                    let color = '#10b981'; // Green
-                    if (score < 50) color = '#ef4444'; // Red
-                    else if (score < 75) color = '#f59e0b'; // Orange
-
-                    activityHTML = `
-                        <div style="display:flex; align-items:center; gap:0.5rem;">
-                            <div style="width:30px; height:4px; background:#e5e7eb; border-radius:2px; overflow:hidden;">
-                                <div style="width:${score}%; height:100%; background:${color};"></div>
-                            </div>
-                            <span style="font-size:0.8rem; font-weight:600; color:${color};">${score}%</span>
-                        </div>
-                    `;
-                }
-                const lastIn = u.lastCheckIn ? new Date(u.lastCheckIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--';
-                const lastOut = u.lastCheckOut ? new Date(u.lastCheckOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--';
-
-                // LOCATION
-                let locDisplay = '<span style="color:#9ca3af; font-size:0.8rem;">--</span>';
-
-                if (u.status === 'in' && u.currentLocation) {
-                    const lat = Number(u.currentLocation.lat).toFixed(5);
-                    const lng = Number(u.currentLocation.lng).toFixed(5);
-                    const mapUrl = `https://www.google.com/maps?q=${lat},${lng}`;
-                    locDisplay = `
-                        <a href="${mapUrl}" target="_blank" style="display:flex; align-items:center; gap:0.25rem; font-size:0.8rem; color:var(--primary); text-decoration:none; white-space:nowrap;" title="View on Google Maps">
-                            <i class="fa-solid fa-map-location-dot"></i> 
-                            <span>${lat}, ${lng}</span>
-                        </a>`;
-                } else if (u.status === 'out' && u.lastLocation) {
-                    const lat = Number(u.lastLocation.lat).toFixed(5);
-                    const lng = Number(u.lastLocation.lng).toFixed(5);
-                    const mapUrl = `https://www.google.com/maps?q=${lat},${lng}`;
-                    locDisplay = `
-                        <a href="${mapUrl}" target="_blank" style="display:flex; align-items:center; gap:0.25rem; font-size:0.8rem; color:#6b7280; text-decoration:none; white-space:nowrap; opacity:0.8;" title="View Last Location">
-                            <i class="fa-solid fa-clock-rotate-left"></i> 
-                            <span>${lat}, ${lng}</span>
-                        </a>`;
-                } else if (u.status === 'in') {
-                    locDisplay = '<span style="font-size:0.8rem; color:#f59e0b;"><i class="fa-solid fa-spinner fa-spin"></i> Locating...</span>';
-                }
-
-                const rowStyle = u.status === 'in' ? 'background: #f0fdf4;' : '';
-
-                return `
-                    <tr style="${rowStyle}">
-                        <td>
-                            <div style="display:flex; align-items:center; gap:0.5rem;">
-                                <img src="${u.avatar}" style="width:30px;height:30px;border-radius:50%">
-                                <div>
-                                    <div style="font-weight:600">${u.name}</div>
-                                    <div style="font-size:0.75rem;color:#6b7280">${u.role}</div>
-                                </div>
-                            </div>
-                        </td>
-                        <td>
-                            <div style="display:flex; align-items:center; gap:0.5rem;">
-                                <div style="width:8px; height:8px; border-radius:50%; background:${statusColor}"></div>
-                                <span style="font-size:0.9rem; font-weight:500;">${statusText}</span>
-                            </div>
-                        </td>
-                        <td>
-                            ${activityHTML}
-                        </td>
-                        <td>
-                            <span style="font-family:monospace; background:${u.status === 'in' ? '#dcfce7' : '#f3f4f6'}; color:${u.status === 'in' ? '#166534' : '#374151'}; padding:2px 6px; border-radius:4px;">
-                                ${lastIn}
-                            </span>
-                        </td>
-                        <td>
-                            <span style="font-family:monospace; color:#6b7280;">
-                                ${lastOut}
-                            </span>
-                        </td>
-                        <td>
-                            ${locDisplay}
-                        </td>
-                        <td>${u.username}</td>
-                        <td>
-                            <div style="display: flex; gap: 0.5rem;">
-                                <button onclick="window.app_editUser('${u.id}')" style="padding: 0.4rem; background: #f3f4f6; color: #4b5563; border: none; border-radius: 0.5rem; cursor: pointer;" title="Edit User">
-                                    <i class="fa-solid fa-pen"></i>
-                                </button>
-                                <button onclick="window.app_viewLogs('${u.id}')" style="padding: 0.4rem 0.8rem; background: #eef2ff; color: var(--primary); border: none; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; font-weight: 500;">
-                                    <i class="fa-solid fa-file-invoice"></i> Logs
-                                </button>
-                                <button onclick="window.app_notifyUser('${u.id}')" style="padding: 0.4rem 0.8rem; background: #fff7ed; color: #b45309; border: none; border-radius: 0.5rem; cursor: pointer; font-size: 0.85rem; font-weight: 500;">
-                                    <i class="fa-solid fa-envelope"></i>
-                                </button>
-                            </div>
-                        </td>
-                    </tr>
-                `;
-            }).join('');
         }
-    };
-    // Global Refresh Logic for Admin Table
-    window.adminRefreshInterval = null;
-    window.initAdminLiveRefresh = () => {
-        if (window.adminRefreshInterval) clearInterval(window.adminRefreshInterval);
-
-        const tableBody = document.querySelector('#admin-user-table tbody');
-        if (!tableBody) return; // Not on admin page
-
-        window.adminRefreshInterval = setInterval(async () => {
-            const tableBodyCheck = document.querySelector('#admin-user-table tbody');
-            if (!tableBodyCheck) {
-                clearInterval(window.adminRefreshInterval);
-                return;
-            }
-
-            try {
-                // Fetch fresh users
-                const users = await window.AppDB.getAll('users');
-                // Use the helper to generate new HTML
-                const newRows = window.AppUI.renderAdminTableRows(users);
-                // Simple DOM update
-                if (tableBodyCheck.innerHTML !== newRows) {
-                    tableBodyCheck.innerHTML = newRows;
-                }
-            } catch (e) {
-                console.error("Auto-refresh failed", e);
-            }
-        }, 5000); // 5 seconds
     };
 })();

@@ -336,6 +336,7 @@
 
             return 'Work Day';
         }
+
         async getHeroOfTheWeek() {
             try {
                 const logs = await this.db.getAll('attendance');
