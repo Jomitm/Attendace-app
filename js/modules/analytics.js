@@ -74,17 +74,28 @@
             const presentData = [];
             const leaveData = [];
 
-            for (let i = 6; i >= 0; i--) {
-                const date = new Date();
-                date.setDate(date.getDate() - i);
-                // FIX: Match the format used in attendance.js (toLocaleDateString)
-                const dateKey = date.toLocaleDateString();
-                const dayLabel = date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
+            // Helper for robust date comparison (ignores time & string format)
+            const isSameDay = (d1, d2) => {
+                return d1.getFullYear() === d2.getFullYear() &&
+                    d1.getMonth() === d2.getMonth() &&
+                    d1.getDate() === d2.getDate();
+            };
 
+            for (let i = 6; i >= 0; i--) {
+                const targetDate = new Date();
+                targetDate.setDate(targetDate.getDate() - i);
+
+                const dayLabel = targetDate.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
                 labels.push(dayLabel);
 
                 // Count logs for this day
-                const daysLogs = logs.filter(l => l.date === dateKey);
+                const daysLogs = logs.filter(l => {
+                    const logDate = new Date(l.date);
+                    // Invalid dates are ignored
+                    if (isNaN(logDate.getTime())) return false;
+                    return isSameDay(logDate, targetDate);
+                });
+
                 const presentCount = daysLogs.filter(l => l.status === 'in' && l.type !== 'Sick Leave' && l.type !== 'Casual Leave' && l.type !== 'Annual Leave' && l.location !== 'On Leave').length;
                 const leaveCount = daysLogs.filter(l => l.location === 'On Leave' || String(l.type).includes('Leave')).length;
 
@@ -92,6 +103,7 @@
                 leaveData.push(leaveCount);
             }
 
+            console.log("Weekly Stats Generated:", { labels, present: presentData });
             return { labels, present: presentData, onLeave: leaveData };
         }
 
