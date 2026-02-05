@@ -218,7 +218,10 @@
                 // Filter & Sort
                 const filtered = allLogs.filter(l => {
                     const d = new Date(l.date); // Assumes YYYY-MM-DD or convertible format
-                    return d >= start && d <= end && l.workDescription;
+                    // Fallback: Use location as description if workDescription is missing (for manual logs)
+                    const desc = l.workDescription || (l.location && !l.location.startsWith('Lat:') ? l.location : null);
+                    l._displayDesc = desc; // Temp store
+                    return d >= start && d <= end && desc;
                 }).sort((a, b) => new Date(b.date + ' ' + b.checkOut) - new Date(a.date + ' ' + a.checkOut));
 
                 if (filtered.length === 0) return '<div style="color:#9ca3af; text-align:center; padding:1rem;">No activity descriptions found.</div>';
@@ -235,7 +238,7 @@
                     // Preserve whitespace/newlines in description
                     html += `
                         <div style="margin-left:0.5rem; padding-left:0.75rem; border-left:2px solid #e5e7eb; margin-bottom:0.5rem;">
-                            <div style="white-space: pre-wrap; color:#4b5563; font-size:0.85rem;">${log.workDescription}</div>
+                            <div style="white-space: pre-wrap; color:#4b5563; font-size:0.85rem;">${log._displayDesc}</div>
                             <div style="font-size:0.7rem; color:#9ca3af; margin-top:2px;">${log.checkOut || 'Checked Out'}</div>
                         </div>
                      `;
