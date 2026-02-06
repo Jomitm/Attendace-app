@@ -1222,7 +1222,6 @@
                         </table>
                     </div>
                 </div>
->>>>>>> 5b112f3 (Enhance Attendance: Advanced HR rules (ED/EA), shared calendar visibility, location verification, and UI refinements)
             `;
         }
     };

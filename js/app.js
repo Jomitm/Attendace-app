@@ -725,47 +725,65 @@
     }
 
     window.app_submitEditUser = async (e) => {
-        // Explicitly handle event
         if (e) e.preventDefault();
 
-        const form = document.getElementById('edit-user-form');
-        const formData = new FormData(form);
+        // VALIDATED: Your evaluation is correct. e.target is the form, currentTarget is document.
+        const form = (e && e.target && e.target.tagName === 'FORM') ? e.target : document.getElementById('edit-user-form');
 
-        const id = formData.get('id');
-        if (!id) {
-            alert('Error: User ID missing.');
+        if (!form) {
+            console.error("Critical Failure: Edit user form not found.");
+            alert("Error: Form missing.");
             return;
         }
 
-        const isAdmin = form.querySelector('[name="isAdmin"]').checked;
+        const formData = new FormData(form);
+        // VALIDATED: name="id" is present in ui.js, so this lookup is correct.
+        const id = (formData.get('id') || "").trim();
+
+        if (!id) {
+            console.error("Data Failure: No 'id' name attribute found in form data.", {
+                target: e.target,
+                allData: Object.fromEntries(formData.entries())
+            });
+            alert('Error: User ID missing. Please refresh.');
+            return;
+        }
+
+        const isAdminEl = form.querySelector('[name="isAdmin"]');
+        const isAdmin = !!(isAdminEl && isAdminEl.checked);
 
         const userData = {
-            id: id,
-            name: formData.get('name'),
-            username: formData.get('username'),
-            password: formData.get('password'),
+            id,
+            name: (formData.get('name') || "").trim(),
+            username: (formData.get('username') || "").trim(),
+            password: (formData.get('password') || "").trim(),
             role: formData.get('role'),
             dept: formData.get('dept'),
-            email: formData.get('email'),
-            phone: formData.get('phone'),
-            isAdmin: isAdmin
+            email: (formData.get('email') || "").trim(),
+            phone: (formData.get('phone') || "").trim(),
+            isAdmin
         };
 
-        console.log("Submitting User Update:", userData);
+        console.log("Executing Update for User:", userData);
 
         try {
             const success = await window.AppAuth.updateUser(userData);
+
             if (success) {
-                console.log("Update Success for ID:", userData.id);
-                alert(`SUCCESS: User '${userData.name}' updated.`);
+                console.log("Success: User updated in DB.");
+                alert(`SUCCESS: Details for '${userData.name}' have been saved.`);
                 document.getElementById('edit-user-modal').style.display = 'none';
-                // Refresh Admin View without reload to prevent race conditions
+
                 const contentArea = document.getElementById('page-content');
                 if (contentArea) {
-                    contentArea.innerHTML = await window.AppUI.renderAdmin();
+                    // Small delay to let DB settle
+                    setTimeout(async () => {
+                        contentArea.innerHTML = await window.AppUI.renderAdmin();
+                        if (window.AppAnalytics) await window.AppAnalytics.initAdminCharts();
+                    }, 50);
                 }
             } else {
-                alert('Update failed. User not found.');
+                alert('Update failed: User not found.');
             }
         } catch (err) {
             console.error("Update Error:", err);
@@ -794,22 +812,31 @@
     // --- Global Event Delegation ---
 
     document.addEventListener('submit', (e) => {
-        const id = e.target.id;
-        console.log("Form Submitted:", id); // Verify submission in console
+        // Force prevent default for ALL forms in this app to prevent query param reloads
+        e.preventDefault();
+
+        // Use getAttribute('id') because elements with name="id" shadow the form.id property!
+        const id = e.target.getAttribute('id');
+        console.log("Submit Event Intercepted. Form ID:", id);
 
         if (id === 'manual-log-form') handleManualLog(e);
         else if (id === 'add-user-form') handleAddUser(e);
         else if (id === 'login-form') {
-            e.preventDefault();
             const fd = new FormData(e.target);
             window.AppAuth.login(fd.get('username'), fd.get('password')).then(success => {
                 if (success) window.location.reload();
                 else alert('Invalid Credentials');
             });
         }
-        else if (id === 'edit-user-form') window.app_submitEditUser(e);
+        else if (id === 'edit-user-form') {
+            console.log("Routing to app_submitEditUser...");
+            window.app_submitEditUser(e);
+        }
         else if (id === 'notify-form') handleNotifyUser(e);
         else if (id === 'leave-request-form') handleLeaveRequest(e);
+        else {
+            console.warn("Unhandled form submission ID:", id, "Target:", e.target);
+        }
     });
 
     async function handleLeaveRequest(e) {
