@@ -23,7 +23,7 @@
         async getAll(collectionName) {
             try {
                 const snapshot = await this.db.collection(collectionName).get();
-                return snapshot.docs.map(doc => doc.data());
+                return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
             } catch (error) {
                 console.error(`Error getting all from ${collectionName}:`, error);
                 throw error;
@@ -37,7 +37,7 @@
                 const docRef = this.db.collection(collectionName).doc(docId);
                 const doc = await docRef.get();
                 if (doc.exists) {
-                    return doc.data();
+                    return { ...doc.data(), id: doc.id };
                 } else {
                     return null;
                 }

@@ -756,6 +756,7 @@
         try {
             const success = await window.AppAuth.updateUser(userData);
             if (success) {
+                console.log("Update Success for ID:", userData.id);
                 alert(`SUCCESS: User '${userData.name}' updated.`);
                 document.getElementById('edit-user-modal').style.display = 'none';
                 // Refresh Admin View without reload to prevent race conditions
@@ -898,7 +899,9 @@
     // --- Global Functions (Exposed for UI onclicks) ---
 
     window.app_editUser = async (userId) => {
+        console.log("Opening Edit Modal for ID:", userId);
         const user = await window.AppDB.get('users', userId);
+        console.log("User Data Found:", user);
         if (!user) return;
         const form = document.getElementById('edit-user-form');
         form.querySelector('#edit-user-id').value = user.id;
