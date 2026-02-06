@@ -54,7 +54,8 @@
                     joinDate: '2024-01-01',
                     avatar: 'https://ui-avatars.com/api/?name=Jomit&background=0D8ABC&color=fff',
                     status: 'out',
-                    lastCheckIn: null
+                    lastCheckIn: null,
+                    baseSalary: 50000
                 }
             ];
 
@@ -113,15 +114,32 @@
 
             // Sync Role & isAdmin Status
             // If checking the box or selecting the role, ensure both flags match
-            if (userData.isAdmin || userData.role === 'Administrator') {
+            const wantsAdmin = (userData.isAdmin === true || userData.isAdmin === 'true' || userData.role === 'Administrator');
+
+            if (wantsAdmin) {
                 updated.isAdmin = true;
                 updated.role = 'Administrator';
-            } else if (userData.isAdmin === false || (userData.role && userData.role !== 'Administrator')) {
+                console.log(`Auth: Promoting user ${updated.id} to Administrator (Input was: isAdmin=${userData.isAdmin}, role=${userData.role})`);
+            } else {
                 // If explicitly demoting OR changing role away from Admin
-                updated.isAdmin = false;
-                // Keep the new role if specified, otherwise default to Employee if demoting
-                if (!userData.role || userData.role === 'Administrator') {
-                    updated.role = 'Employee';
+                // We check if the INTENT was to change role or just update other details.
+                // But if 'isAdmin' is explicitly passed as false, we must respect it.
+                if (userData.isAdmin === false || userData.isAdmin === 'false') {
+                    updated.isAdmin = false;
+                    // If they were Admin and now demoted, default to Employee unless another role specified
+                    if (updated.role === 'Administrator' && userData.role === 'Administrator') {
+                        updated.role = 'Employee';
+                    } else if (userData.role && userData.role !== 'Administrator') {
+                        updated.role = userData.role;
+                    } else if (updated.role === 'Administrator') {
+                        updated.role = 'Employee';
+                    }
+                    console.log(`Auth: Demoting/Updating user ${updated.id} to ${updated.role} (Input was: isAdmin=${userData.isAdmin}, role=${userData.role})`);
+                } else if (userData.role && userData.role !== 'Administrator') {
+                    // Just a role change for a non-admin, or changing away from admin without touching checkbox (shouldn't happen in UI but good safety)
+                    updated.isAdmin = false;
+                    updated.role = userData.role;
+                    console.log(`Auth: Role change for user ${updated.id} to ${updated.role}`);
                 }
             }
 
@@ -138,6 +156,7 @@
             }
             return true;
         }
+
         async resetData() {
             if (confirm('Are you sure you want to RESET ALL DATA? This will clear logs and users.')) {
                 await window.AppDB.clear('users');

@@ -29,7 +29,7 @@
             return true;
         }
 
-        async checkOut(description = '') {
+        async checkOut(description = '', lat = null, lng = null, address = 'Detected Location', locationMismatched = false, explanation = '') {
             const user = window.AppAuth.getUser();
             if (!user || user.status !== 'in') throw new Error("User is not checked in");
 
@@ -44,16 +44,21 @@
             const log = {
                 id: String(Date.now()), // Ensure ID is string
                 user_id: user.id,
-                date: checkOutTime.toLocaleDateString(),
+                date: checkOutTime.toISOString().split('T')[0], // Stable ISO format YYYY-MM-DD
                 checkIn: checkInTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 checkOut: checkOutTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 duration: this.msToTime(durationMs),
                 durationMs: durationMs, // Store raw ms for calculations
                 type: 'Office',
-                location: user.currentLocation?.address || 'Detected Location',
+                location: user.currentLocation?.address || 'Checked In Location',
                 lat: user.currentLocation?.lat,
                 lng: user.currentLocation?.lng,
+                checkOutLocation: address,
+                outLat: lat,
+                outLng: lng,
                 workDescription: description || '',
+                locationMismatched: locationMismatched,
+                locationExplanation: explanation || '',
                 activityScore: activityStats.score,
                 synced: false // For future sync logic
             };
@@ -64,7 +69,9 @@
             // Update User State (Save Last Known Info)
             user.status = 'out';
             user.lastCheckOut = Date.now(); // Save checkout timestamp
-            user.lastLocation = user.currentLocation; // Persist last known location
+            user.lastLocation = user.currentLocation; // Persist last known check-in location
+            user.lastCheckOutLocation = { lat, lng, address }; // Persist last known check-out location
+            user.locationMismatched = locationMismatched;
 
             // Clear Active State
             user.lastCheckIn = null;

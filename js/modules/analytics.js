@@ -22,44 +22,74 @@
             }
 
             // 1. Fetch Data
-            const logs = await this.db.getAll('attendance');
+            const [logs, allUsers] = await Promise.all([
+                this.db.getAll('attendance'),
+                this.db.getAll('users')
+            ]);
 
             // 2. Process Data (Last 7 Days)
-            const stats = this.processLast7Days(logs);
+            const stats = this.processLast7Days(logs, allUsers);
 
-            // 3. Render Chart
             // 3. Render Chart
             const ctx = canvas.getContext('2d');
             try {
                 this.chartInstance = new Chart(ctx, {
-                    type: 'bar',
+                    type: 'line',
                     data: {
                         labels: stats.labels,
                         datasets: [
                             {
-                                label: 'Present',
+                                label: 'Staff Present',
                                 data: stats.present,
-                                backgroundColor: '#4ade80',
-                                borderRadius: 4
+                                borderColor: '#10b981',
+                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                fill: true,
+                                tension: 0.4,
+                                borderWidth: 3,
+                                pointBackgroundColor: '#10b981',
+                                pointRadius: 4
                             },
                             {
                                 label: 'On Leave',
                                 data: stats.onLeave,
-                                backgroundColor: '#f87171',
-                                borderRadius: 4
+                                borderColor: '#ef4444',
+                                backgroundColor: 'transparent',
+                                borderDash: [5, 5],
+                                tension: 0.1,
+                                pointRadius: 0
                             }
                         ]
                     },
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
+                        interaction: {
+                            intersect: false,
+                            mode: 'index',
+                        },
                         plugins: {
-                            legend: { position: 'bottom' },
-                            title: { display: true, text: 'Weekly Attendance Overview' }
+                            legend: {
+                                position: 'top',
+                                labels: { usePointStyle: true, boxWidth: 6 }
+                            },
+                            tooltip: {
+                                backgroundColor: 'rgba(30, 27, 75, 0.9)',
+                                padding: 12,
+                                titleFont: { size: 14, weight: 'bold' },
+                                bodyFont: { size: 13 },
+                                cornerRadius: 8
+                            }
                         },
                         scales: {
-                            y: { beginAtZero: true, ticks: { stepSize: 1 } },
-                            x: { grid: { display: false } }
+                            y: {
+                                beginAtZero: true,
+                                ticks: { stepSize: 1, color: '#6b7280' },
+                                grid: { color: 'rgba(0,0,0,0.05)' }
+                            },
+                            x: {
+                                grid: { display: false },
+                                ticks: { color: '#6b7280' }
+                            }
                         }
                     }
                 });
@@ -69,7 +99,7 @@
             }
         }
 
-        processLast7Days(logs) {
+        processLast7Days(logs, allUsers = []) {
             const labels = [];
             const presentData = [];
             const leaveData = [];
@@ -88,22 +118,45 @@
                 const dayLabel = targetDate.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
                 labels.push(dayLabel);
 
-                // Count logs for this day
+                // Count unique users for this day
                 const daysLogs = logs.filter(l => {
                     const logDate = new Date(l.date);
-                    // Invalid dates are ignored
                     if (isNaN(logDate.getTime())) return false;
                     return isSameDay(logDate, targetDate);
                 });
 
-                const presentCount = daysLogs.filter(l => l.status === 'in' && l.type !== 'Sick Leave' && l.type !== 'Casual Leave' && l.type !== 'Annual Leave' && l.location !== 'On Leave').length;
-                const leaveCount = daysLogs.filter(l => l.location === 'On Leave' || String(l.type).includes('Leave')).length;
+                const uniquePresent = new Set();
+                const uniqueLeave = new Set();
 
-                presentData.push(presentCount);
-                leaveData.push(leaveCount);
+                daysLogs.forEach(l => {
+                    const uid = l.user_id || l.userId;
+                    if (!uid) return;
+
+                    const isLeaveType = String(l.type || '').toLowerCase().includes('leave') ||
+                        l.location === 'On Leave' ||
+                        l.type === 'Absent';
+
+                    if (isLeaveType) {
+                        uniqueLeave.add(uid);
+                    } else {
+                        uniquePresent.add(uid);
+                    }
+                });
+
+                // If processing TODAY, also include users who are currently checked in (active sessions)
+                if (i === 0) {
+                    allUsers.forEach(u => {
+                        if (u.status === 'in') {
+                            uniquePresent.add(u.id);
+                        }
+                    });
+                }
+
+                presentData.push(uniquePresent.size);
+                leaveData.push(uniqueLeave.size);
             }
 
-            console.log("Weekly Stats Generated:", { labels, present: presentData });
+            console.log("Weekly Stats Generated (Unique):", { labels, present: presentData });
             return { labels, present: presentData, onLeave: leaveData };
         }
 
@@ -129,7 +182,32 @@
         async getUserMonthlyStats(userId) {
             const logs = await this.db.getAll('attendance');
             const userLogs = logs.filter(l => l.userId === userId || l.user_id === userId);
+            return this.calculateStatsForLogs(userLogs);
+        }
 
+        async getSystemMonthlySummary() {
+            const allUsers = await this.db.getAll('users');
+            const allLogs = await this.db.getAll('attendance');
+
+            const today = new Date();
+            const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+            const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+
+            const summary = await Promise.all(allUsers.map(async (user) => {
+                const userLogs = allLogs.filter(l => (l.userId === user.id || l.user_id === user.id) &&
+                    (new Date(l.date) >= startOfMonth && new Date(l.date) <= endOfMonth));
+
+                const stats = this.calculateStatsForLogs(userLogs);
+                return {
+                    user,
+                    stats
+                };
+            }));
+
+            return summary;
+        }
+
+        calculateStatsForLogs(userLogs) {
             const today = new Date();
             const year = today.getFullYear();
             const month = today.getMonth();
@@ -138,7 +216,7 @@
             const endOfMonth = new Date(year, month + 1, 0);
 
             const breakdown = {
-                'Present': 0, 'Late': 0, 'Work - Home': 0, 'Training': 0,
+                'Present': 0, 'Late': 0, 'Early Departure': 0, 'Work - Home': 0, 'Training': 0,
                 'Sick Leave': 0, 'Casual Leave': 0, 'Earned Leave': 0,
                 'Paid Leave': 0, 'Maternity Leave': 0, 'Absent': 0,
                 'Holiday': 0, 'National Holiday': 0, 'Regional Holidays': 0
@@ -148,7 +226,9 @@
                 present: 0,
                 late: 0,
                 leaves: 0,
+                unpaidLeaves: 0,
                 penalty: 0,
+                earlyDepartures: 0,
                 label: startOfMonth.toLocaleDateString('default', { month: 'long', year: 'numeric' }),
                 breakdown: breakdown,
                 totalLateDuration: '0h 0m',
@@ -165,32 +245,48 @@
                     const inMinutes = this.parseTimeToMinutes(log.checkIn);
                     const outMinutes = this.parseTimeToMinutes(log.checkOut);
 
-                    // LATE Check (Threshold: 09:05 = 545 minutes)
-                    if (inMinutes !== null && inMinutes > 545) {
-                        breakdown['Late']++;
-                        stats.late++;
-                        totalLateMinutes += (inMinutes - 545); // Duration from 9:05
+                    let dayLateMins = 0;
+                    let dayEarlyCredit = 0;
+
+                    // EARLY ARRIVAL Credit (Before 09:00 = 540)
+                    if (inMinutes !== null && inMinutes < 540) {
+                        dayEarlyCredit = 540 - inMinutes;
                     }
 
-                    // EXTRA HOURS Check
-                    // 1. Morning: Before 09:00 (540 minutes)
-                    if (inMinutes !== null && inMinutes < 540) {
-                        totalExtraMinutes += (540 - inMinutes);
+                    // LATE Check (Threshold: 09:05 = 545 minutes)
+                    if (inMinutes !== null && inMinutes > 545) {
+                        dayLateMins = inMinutes - 545;
+
+                        // User Rule: If there are enough early arrivals, do not reduce salary/count as late
+                        // We subtract the credit from the late minutes
+                        const compensatedLate = Math.max(0, dayLateMins - dayEarlyCredit);
+
+                        if (compensatedLate > 0) {
+                            breakdown['Late']++;
+                            stats.late++;
+                            totalLateMinutes += compensatedLate;
+                        }
                     }
-                    // 2. Evening: After 17:00 (17 * 60 = 1020 minutes)
-                    if (outMinutes !== null && outMinutes > 1020) {
-                        totalExtraMinutes += (outMinutes - 1020);
+
+                    // EARLY DEPARTURE Check (Before 17:00 = 1020 minutes)
+                    if (outMinutes !== null && outMinutes < 1020 && !String(type).includes('Leave') && type !== 'Absent') {
+                        stats.earlyDepartures++;
+                        breakdown['Early Departure']++;
                     }
+
+                    // EXTRA HOURS Check (for duration display)
+                    if (inMinutes !== null && inMinutes < 540) totalExtraMinutes += (540 - inMinutes);
+                    if (outMinutes !== null && outMinutes > 1020) totalExtraMinutes += (outMinutes - 1020);
 
                     // CATEGORY Check
                     if (type === 'Work - Home') breakdown['Work - Home']++;
                     else if (type === 'Training') breakdown['Training']++;
-                    else if (type === 'Sick Leave') breakdown['Sick Leave']++;
+                    else if (type === 'Sick Leave') { breakdown['Sick Leave']++; stats.unpaidLeaves++; }
                     else if (type === 'Casual Leave') breakdown['Casual Leave']++;
                     else if (type === 'Earned Leave') breakdown['Earned Leave']++;
                     else if (type === 'Paid Leave') breakdown['Paid Leave']++;
                     else if (type === 'Maternity Leave') breakdown['Maternity Leave']++;
-                    else if (type === 'Absent') breakdown['Absent']++;
+                    else if (type === 'Absent') { breakdown['Absent']++; stats.unpaidLeaves++; }
                     else if (type === 'National Holiday') breakdown['National Holiday']++;
                     else if (type === 'Regional Holidays') breakdown['Regional Holidays']++;
                     else if (String(type).includes('Holiday')) breakdown['Holiday']++;
@@ -203,8 +299,13 @@
             stats.present = breakdown['Present'] + breakdown['Work - Home'] + breakdown['Training'];
             stats.leaves = breakdown['Sick Leave'] + breakdown['Casual Leave'] + breakdown['Earned Leave'] + breakdown['Paid Leave'] + breakdown['Maternity Leave'] + breakdown['Absent'];
 
-            // Penalty Rule: > 3 Lates = 0.5 Leave penalty
-            if (breakdown['Late'] > 3) stats.penalty = 0.5;
+            // Penalty Rule 1: > 3 Lates = 0.5 Leave penalty
+            if (stats.late > 3) stats.penalty += Math.floor(stats.late / 3) * 0.5;
+
+            // Penalty Rule 2: > 3 Early Departures = 1.0 Leave penalty (User: "if early departure is more than 3 days ... considered 1 day leave")
+            if (stats.earlyDepartures >= 3) {
+                stats.penalty += Math.floor(stats.earlyDepartures / 3) * 1.0;
+            }
 
             stats.totalLateDuration = this.formatDuration(totalLateMinutes);
             stats.totalExtraDuration = this.formatDuration(totalExtraMinutes);
@@ -218,7 +319,7 @@
             const { start, end, label } = this.getFinancialYearDates();
 
             const breakdown = {
-                'Present': 0, 'Late': 0, 'Work - Home': 0, 'Training': 0,
+                'Present': 0, 'Late': 0, 'Early Departure': 0, 'Work - Home': 0, 'Training': 0,
                 'Sick Leave': 0, 'Casual Leave': 0, 'Earned Leave': 0,
                 'Paid Leave': 0, 'Maternity Leave': 0, 'Absent': 0,
                 'Holiday': 0, 'National Holiday': 0, 'Regional Holidays': 0
@@ -228,6 +329,7 @@
                 present: 0,
                 late: 0,
                 leaves: 0,
+                earlyDepartures: 0,
                 penaltyLeaves: 0,
                 label: label,
                 breakdown: breakdown,
@@ -249,25 +351,22 @@
                     // LATE Check (Threshold: 09:05 = 545 minutes)
                     if (inMinutes !== null && inMinutes > 545) {
                         breakdown['Late']++;
-
-                        // Accumulate duration
                         totalLateMinutes += (inMinutes - 545);
 
-                        // Track monthly for penalty
                         const monthKey = `${logDate.getFullYear()}-${logDate.getMonth()}`;
                         if (!monthlyLates[monthKey]) monthlyLates[monthKey] = 0;
                         monthlyLates[monthKey]++;
                     }
 
+                    // EARLY DEPARTURE Check (Before 17:00 = 1020 minutes)
+                    if (outMinutes !== null && outMinutes < 1020 && !String(type).includes('Leave') && type !== 'Absent') {
+                        stats.earlyDepartures++;
+                        breakdown['Early Departure']++;
+                    }
+
                     // EXTRA HOURS Check
-                    // 1. Morning: Before 09:00 (540 minutes)
-                    if (inMinutes !== null && inMinutes < 540) {
-                        totalExtraMinutes += (540 - inMinutes);
-                    }
-                    // 2. Evening: After 17:00 (1020 minutes)
-                    if (outMinutes !== null && outMinutes > 1020) {
-                        totalExtraMinutes += (outMinutes - 1020);
-                    }
+                    if (inMinutes !== null && inMinutes < 540) totalExtraMinutes += (540 - inMinutes);
+                    if (outMinutes !== null && outMinutes > 1020) totalExtraMinutes += (outMinutes - 1020);
 
                     // CATEGORY Check
                     if (type === 'Work - Home') breakdown['Work - Home']++;
@@ -446,6 +545,7 @@
             try {
                 const logs = await this.db.getAll('attendance');
                 const trendData = [];
+                const labels = [];
                 let totalScore = 0;
                 let scoreCount = 0;
 
@@ -459,6 +559,8 @@
                     const targetDate = new Date();
                     targetDate.setDate(targetDate.getDate() - i);
 
+                    const label = targetDate.toLocaleDateString('en-US', { weekday: 'narrow' });
+                    labels.push(label);
                     const dayLogs = logs.filter(l => {
                         const logDate = new Date(l.date);
                         return !isNaN(logDate.getTime()) && isSameDay(logDate, targetDate);
@@ -482,7 +584,8 @@
 
                 return {
                     avgScore: finalAvg,
-                    trendData: trendData
+                    trendData: trendData,
+                    labels: labels
                 };
             } catch (err) {
                 console.error("System Performance Calculation Error:", err);

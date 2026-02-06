@@ -82,7 +82,9 @@
                         checkIn: log.checkIn,
                         checkOut: log.checkOut || '--',
                         duration: log.duration || '--',
-                        location: locString,
+                        workSummary: log.workDescription || '--',
+                        inLocation: locString,
+                        outLocation: log.checkOutLocation || '--',
                         type: log.type || 'Standard'
                     };
                 });
@@ -98,7 +100,9 @@
                             checkIn: checkInDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                             checkOut: 'Active Now',
                             duration: 'Working...',
-                            location: u.currentLocation?.address || 'Current Session',
+                            workSummary: 'Current Session (Active)',
+                            inLocation: u.currentLocation?.address || 'Current Session',
+                            outLocation: '--',
                             type: 'Office (Active)'
                         });
                     }
@@ -108,8 +112,8 @@
                 flattenedData.sort((a, b) => new Date(b.date) - new Date(a.date));
 
                 // 4. Generate CSV
-                const headers = ['Date', 'Staff Name', 'Role', 'Check In', 'Check Out', 'Duration', 'Location', 'Type'];
-                const keys = ['date', 'name', 'role', 'checkIn', 'checkOut', 'duration', 'location', 'type'];
+                const headers = ['Date', 'Staff Name', 'Role', 'Check In', 'Check Out', 'Duration', 'Work Summary', 'Check-in Location', 'Check-out Location', 'Type'];
+                const keys = ['date', 'name', 'role', 'checkIn', 'checkOut', 'duration', 'workSummary', 'inLocation', 'outLocation', 'type'];
 
                 const csvContent = this.convertToCSV(flattenedData, headers, keys);
 
@@ -142,7 +146,9 @@
                         checkIn: log.checkIn,
                         checkOut: log.checkOut || '--',
                         duration: log.duration || '--',
-                        location: locString,
+                        workSummary: log.workDescription || '--',
+                        inLocation: locString,
+                        outLocation: log.checkOutLocation || '--',
                         type: log.type || 'Standard'
                     };
                 });
@@ -150,8 +156,8 @@
                 // Sort by Date (descending)
                 flattenedData.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-                const headers = ['Date', 'Staff Name', 'Role', 'Check In', 'Check Out', 'Duration', 'Location', 'Type'];
-                const keys = ['date', 'name', 'role', 'checkIn', 'checkOut', 'duration', 'location', 'type'];
+                const headers = ['Date', 'Staff Name', 'Role', 'Check In', 'Check Out', 'Duration', 'Work Summary', 'Check-in Location', 'Check-out Location', 'Type'];
+                const keys = ['date', 'name', 'role', 'checkIn', 'checkOut', 'duration', 'workSummary', 'inLocation', 'outLocation', 'type'];
 
                 const csvContent = this.convertToCSV(flattenedData, headers, keys);
                 const fileName = `Attendance_Report_${user.name.replace(/ /g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;

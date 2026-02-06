@@ -49,7 +49,26 @@
                     <div class="modal-content" style="width: 100%; max-width: 450px;">
                         <h3 style="margin-bottom: 1rem;">Check Out</h3>
                         <p style="color: #6b7280; font-size: 0.9rem; margin-bottom: 1rem;">Please summarize your work for today before checking out.</p>
+<<<<<<< HEAD
                         <form onsubmit="window.app_submitCheckOut(event)">
+=======
+                        
+                        <div id="checkout-plan-ref" style="display:none; background:#f9fafb; padding:0.75rem; border-radius:8px; border:1px solid #e5e7eb; margin-bottom:1rem; font-size:0.85rem;">
+                            <div style="font-weight:600; color:#4f46e5; margin-bottom:4px;">Today's Plan:</div>
+                            <div id="checkout-plan-text" style="color:#374151; margin-bottom:8px; line-height:1.4;"></div>
+                            <button type="button" onclick="window.app_useWorkPlan()" style="background:#4f46e5; color:white; border:none; padding:4px 10px; border-radius:4px; font-size:0.75rem; cursor:pointer; font-weight:500;">
+                                <i class="fa-solid fa-file-import"></i> Use this Plan
+                            </button>
+                        </div>
+
+                        <form onsubmit="window.app_submitCheckOut(event)">
+                            <div id="checkout-location-mismatch" style="display:none; margin-bottom: 1rem; padding: 0.75rem; background: #fff1f2; border: 1px solid #fda4af; border-radius: 8px;">
+                                <label style="display:block; font-size: 0.85rem; font-weight: 600; color: #991b1b; margin-bottom: 0.5rem;">
+                                    <i class="fa-solid fa-triangle-exclamation"></i> Different Location Detected
+                                </label>
+                                <textarea name="locationExplanation" placeholder="Please explain why you are checking out from a different location..." style="width: 100%; height: 60px; padding: 0.5rem; border: 1px solid #fda4af; border-radius: 0.5rem; resize: none; font-size: 0.85rem; font-family: inherit;"></textarea>
+                            </div>
+>>>>>>> 5b112f3 (Enhance Attendance: Advanced HR rules (ED/EA), shared calendar visibility, location verification, and UI refinements)
                             <textarea name="description" required placeholder="- Completed monthly report&#10;- Fixed login bug..." style="width: 100%; height: 120px; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem; resize: none; font-family: inherit; margin-bottom: 1.5rem;"></textarea>
                             <div style="display: flex; gap: 1rem;">
                                 <button type="button" onclick="document.getElementById('checkout-modal').style.display = 'none'" style="flex: 1; padding: 0.75rem; background: white; border: 1px solid #d1d5db; border-radius: 0.5rem; cursor: pointer;">Cancel</button>
@@ -209,7 +228,13 @@
                                     <input type="tel" name="phone" id="edit-user-phone" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
                                 </label>
                             </div>
+<<<<<<< HEAD
                             
+=======
+
+                            </div>
+
+>>>>>>> 5b112f3 (Enhance Attendance: Advanced HR rules (ED/EA), shared calendar visibility, location verification, and UI refinements)
                             <div style="display: flex; gap: 1rem; margin-top: 1rem;">
                                 <button type="button" onclick="document.getElementById('edit-user-modal').style.display = 'none'" style="flex: 1; padding: 0.75rem; border: 1px solid #ddd; background: white; border-radius: 0.5rem; cursor: pointer;">Cancel</button>
                                 <button type="submit" class="action-btn" style="flex: 1; padding: 0.75rem; border-radius: 0.5rem;">Update Details</button>
@@ -367,12 +392,13 @@
 
             console.time('DashboardFetch');
             // Parallel Fetch
-            const [status, logs, monthlyStats, yearlyStats, heroData] = await Promise.all([
+            const [status, logs, monthlyStats, yearlyStats, heroData, calendarPlans] = await Promise.all([
                 window.AppAttendance.getStatus(),
                 window.AppAttendance.getLogs(),
                 window.AppAnalytics.getUserMonthlyStats(user.id),
                 window.AppAnalytics.getUserYearlyStats(user.id),
-                window.AppAnalytics.getHeroOfTheWeek()
+                window.AppAnalytics.getHeroOfTheWeek(),
+                window.AppCalendar ? window.AppCalendar.getPlans() : { leaves: [], events: [] }
             ]);
             console.timeEnd('DashboardFetch');
 
@@ -435,6 +461,7 @@
                     'Paid Leave': { color: '#be123c', bg: '#ffe4e6', label: 'Paid' },
                     'Maternity Leave': { color: '#a21caf', bg: '#fae8ff', label: 'Maternity' },
                     'Absent': { color: '#7f1d1d', bg: '#fee2e2', label: 'Absent' },
+                    'Early Departure': { color: '#991b1b', bg: '#fff1f2', label: 'Early Exit' },
                     'Holiday': { color: '#1e293b', bg: '#f1f5f9', label: 'Holiday' },
                     'National Holiday': { color: '#334155', bg: '#f8fafc', label: 'Nat. Hol' },
                     'Regional Holidays': { color: '#475569', bg: '#f8fafc', label: 'Reg. Hol' }
@@ -442,7 +469,7 @@
 
                 return items.map(([key, count]) => {
                     const style = meta[key] || { color: '#374151', bg: '#f3f4f6', label: key };
-                    if (count === 0 && !['Present', 'Late', 'Absent'].includes(key)) return '';
+                    if (count === 0 && !['Present', 'Late', 'Absent', 'Early Departure'].includes(key)) return '';
 
                     return `
                         <div style="display:flex; flex-direction:column; align-items:center; justifyContent:center; padding:0.5rem; background:${style.bg}; border-radius:8px; min-width:65px; text-align:center;">
@@ -541,11 +568,10 @@
 
                 // Filter & Sort
                 const filtered = allLogs.filter(l => {
-                    const d = new Date(l.date); // Assumes YYYY-MM-DD or convertible format
-                    // Fallback: Use location as description if workDescription is missing (for manual logs)
-                    const desc = l.workDescription || (l.location && !l.location.startsWith('Lat:') ? l.location : null);
-                    l._displayDesc = desc; // Temp store
-                    return d >= start && d <= end && desc;
+                    const d = new Date(l.date);
+                    const desc = l.workDescription || (l.location && !l.location.startsWith('Lat:') ? l.location : 'Standard Activity');
+                    l._displayDesc = desc;
+                    return d >= start && d <= end;
                 }).sort((a, b) => new Date(b.date + ' ' + b.checkOut) - new Date(a.date + ' ' + a.checkOut));
 
                 if (filtered.length === 0) return '<div style="color:#9ca3af; text-align:center; padding:1rem;">No activity descriptions found.</div>';
@@ -572,11 +598,106 @@
 
             // Get logs for the widget (Already fetched above as 'logs')
 
+            // NEW: Work Plan Calendar Widget (Shared)
+            const renderYearlyPlan = (plans) => {
+                const today = new Date();
+                const currentUser = window.AppAuth.getUser();
+                if (window.app_calMonth === undefined) window.app_calMonth = today.getMonth();
+                if (window.app_calYear === undefined) window.app_calYear = today.getFullYear();
+
+                const year = window.app_calYear;
+                const month = window.app_calMonth;
+                const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+                const getDayEvents = (d) => {
+                    // Use LOCAL date construction
+                    const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                    const evs = [];
+                    plans.leaves.forEach(l => {
+                        if (dStr >= l.startDate && dStr <= l.endDate) {
+                            evs.push({ title: `${l.userName || 'Staff'} (Leave)`, type: 'leave', userId: l.userId });
+                        }
+                    });
+                    plans.events.forEach(e => {
+                        if (e.date === dStr) evs.push({ title: e.title, type: 'event' });
+                    });
+                    plans.workPlans.forEach(p => {
+                        if (p.date === dStr) evs.push({ title: `${p.userName}: ${p.plan}`, type: 'work', userId: p.userId });
+                    });
+                    return evs;
+                };
+
+                const firstDay = new Date(year, month, 1).getDay();
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+                let calendarHTML = '';
+                for (let i = 0; i < firstDay; i++) calendarHTML += '<div class="cal-day empty"></div>';
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const evs = getDayEvents(d);
+                    const hasLeave = evs.some(e => e.type === 'leave');
+                    const hasEvent = evs.some(e => e.type === 'event');
+                    const hasWork = evs.some(e => e.type === 'work');
+                    const isToday = d === today.getDate() && month === today.getMonth() && year === today.getFullYear();
+                    const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+                    calendarHTML += `
+                        <div class="cal-day ${isToday ? 'today' : ''} ${hasLeave ? 'has-leave' : ''} ${hasEvent ? 'has-event' : ''} ${hasWork ? 'has-work' : ''}" 
+                             onclick="window.app_openDayPlan('${dStr}')" style="cursor:pointer;">
+                            ${d}
+                        </div>
+                    `;
+                }
+
+                // Global data for the handlers in app.js
+                window._currentPlans = plans;
+                window._getDayEvents = getDayEvents; // Helper for modal
+
+                return `
+                    <div class="card" style="padding: 1rem; display:flex; flex-direction:column; min-width: 250px;">
+                        <div style="margin-bottom:0.75rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.5rem; display:flex; justify-content:space-between; align-items:center;">
+                             <div style="display:flex; align-items:center; gap:0.5rem;">
+                                <button onclick="window.app_changeCalMonth(-1)" style="background:none; border:none; color:#6b7280; cursor:pointer; padding:2px;"><i class="fa-solid fa-chevron-left"></i></button>
+                                <div style="text-align:center; min-width:80px;">
+                                    <h4 style="margin:0; color:#1f2937; font-size:0.95rem;">${monthNames[month]} ${year}</h4>
+                                </div>
+                                <button onclick="window.app_changeCalMonth(1)" style="background:none; border:none; color:#6b7280; cursor:pointer; padding:2px;"><i class="fa-solid fa-chevron-right"></i></button>
+                             </div>
+                             ${user.role === 'Administrator' || user.isAdmin ? `<button onclick="window.app_openEventModal()" style="background:none; border:none; color:var(--primary); cursor:pointer;"><i class="fa-solid fa-plus-circle"></i></button>` : ''}
+                        </div>
+                        <div class="calendar-grid-mini" style="display:grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align:center; font-size: 0.7rem;">
+                            <div style="font-weight:700; color:#9ca3af;">S</div>
+                            <div style="font-weight:700; color:#9ca3af;">M</div>
+                            <div style="font-weight:700; color:#9ca3af;">T</div>
+                            <div style="font-weight:700; color:#9ca3af;">W</div>
+                            <div style="font-weight:700; color:#9ca3af;">T</div>
+                            <div style="font-weight:700; color:#9ca3af;">F</div>
+                            <div style="font-weight:700; color:#9ca3af;">S</div>
+                            ${calendarHTML}
+                        </div>
+                        <div style="margin-top:0.75rem; display:flex; flex-wrap:wrap; gap:0.5rem; font-size:0.6rem; color:#6b7280; justify-content:center;">
+                            <span style="display:flex; align-items:center; gap:2px;"><span style="width:6px; height:6px; background:#b91c1c; border-radius:50%;"></span> Leave</span>
+                            <span style="display:flex; align-items:center; gap:2px;"><span style="width:6px; height:6px; background:#166534; border-radius:50%;"></span> Event</span>
+                            <span style="display:flex; align-items:center; gap:2px;"><span style="width:6px; height:6px; background:#4f46e5; border-radius:50%;"></span> Plan</span>
+                        </div>
+                        <style>
+                            .cal-day { padding: 4px; border-radius: 4px; position: relative; transition: all 0.2s; }
+                            .cal-day:hover:not(.empty) { background: #f3f4f6; }
+                            .cal-day.today { background: var(--primary) !important; color: white !important; font-weight: 700; }
+                            .cal-day.has-leave { background: #fee2e2; color: #b91c1c; }
+                            .cal-day.has-event { background: #dcfce7; color: #166534; }
+                            .cal-day.has-work { border: 1px solid #818cf8; }
+                            .cal-day.empty { visibility: hidden; }
+                        </style>
+                    </div>
+                `;
+            };
+
             const summaryHTML = `
-                <div style="display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 1rem; align-items: start;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; align-items: start; grid-column: 1 / -1;">
                     ${renderStatsCard(monthlyStats.label, 'Monthly Stats', monthlyStats)}
                     ${renderStatsCard('Yearly Summary', yearlyStats.label, yearlyStats)}
                     ${renderActivityReport(logs)}
+                    ${renderYearlyPlan(calendarPlans)}
                 </div>
             `;
 
@@ -670,26 +791,27 @@
                     <div class="table-container">
                         <table>
                             <thead>
-                                <tr>
-                                    <th>Date</th>
-                                    <th>Check In</th>
-                                    <th>Check Out</th>
-                                    <th>Duration</th>
-                                    <th>Type</th>
-                                    <th>Location</th>
-                                </tr>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>In / Out</th>
+                                        <th>Duration</th>
+                                        <th>Work Summary</th>
+                                        <th>Location</th>
+                                    </tr>
                             </thead>
                             <tbody>
-                                ${logs.length ? logs.map(log => `
-                                    <tr>
-                                        <td>${log.date}</td>
-                                        <td>${log.checkIn}</td>
-                                        <td>${log.checkOut || '--'}</td>
-                                        <td><span style="background: #eef2ff; color: var(--primary); padding: 0.25rem 0.5rem; border-radius: 4px; font-weight: 600;">${log.duration || '--'}</span></td>
-                                        <td>${log.type || 'Office'}</td>
-                                        <td>${log.location}</td>
-                                    </tr>
-                                `).join('') : `<tr><td colspan="6" style="text-align:center; padding: 2rem;">No logs found</td></tr>`}
+                                    ${logs.length ? logs.map(log => `
+                                        <tr>
+                                            <td style="font-weight: 500;">${log.date}</td>
+                                            <td style="font-size: 0.85rem;">
+                                                <span style="color: #10b981;">In:</span> ${log.checkIn}<br>
+                                                <span style="color: #ef4444;">Out:</span> ${log.checkOut || '--'}
+                                            </td>
+                                            <td><span style="background: #eef2ff; color: var(--primary); padding: 0.25rem 0.5rem; border-radius: 4px; font-weight: 600;">${log.duration || '--'}</span></td>
+                                            <td style="font-size: 0.85rem; color: #4b5563; max-width: 250px;">${log.workDescription || '<span style="color:#9ca3af; font-style:italic;">No summary</span>'}</td>
+                                            <td style="font-size: 0.75rem; color: #6b7280;">${log.location}</td>
+                                        </tr>
+                                    `).join('') : `<tr><td colspan="5" style="text-align:center; padding: 2rem;">No logs found</td></tr>`}
                             </tbody>
                         </table>
                     </div>
@@ -861,15 +983,44 @@
                     </div>
 
                     <div class="card">
-                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1.5rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
                             <div>
-                                <h4>System Performance</h4>
-                                <p class="text-muted" style="font-size: 0.8rem;">Avg. Activity: ${performance.avgScore}%</p>
+                                <h4 style="margin:0;">System Performance</h4>
+                                <p class="text-muted" style="font-size: 0.8rem; margin-top:2px;">Avg. Activity: ${performance.avgScore}%</p>
                             </div>
                             <div style="background: ${perfBg}; color: ${perfColor}; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 600;">${perfStatus}</div>
                         </div>
-                        <div style="height: 100px; display: flex; align-items: flex-end; gap: 8px;">
-                            ${performance.trendData.map(h => `<div style="flex: 1; background: var(--primary); height: ${Math.max(h, 5)}%; border-radius: 4px 4px 0 0; opacity: 0.8;" title="Score: ${h}%"></div>`).join('')}
+                        
+                        <!-- Chart Area -->
+                        <div style="height: 100px; display: flex; align-items: flex-end; gap: 6px; margin-bottom: 8px;">
+                            ${performance.trendData.map((h, i) => {
+                const barColor = h > 70 ? 'var(--primary)' : (h > 40 ? '#f59e0b' : '#ef4444');
+                const dayLabel = performance.labels ? performance.labels[i] : '';
+                return `
+                                    <div style="flex: 1; display: flex; flex-direction: column; height: 100%; justify-content: flex-end; align-items: center; gap: 4px;">
+                                        <div style="font-size: 0.6rem; font-weight: 700; color: ${barColor};">${h}%</div>
+                                        <div style="width: 100%; background: ${barColor}; height: ${Math.max(h, 5)}%; border-radius: 4px 4px 0 0; opacity: 0.8;" title="Score: ${h}%"></div>
+                                    </div>
+                                `;
+            }).join('')}
+                        </div>
+                        
+                        <!-- X-Axis Labels -->
+                        <div style="display: flex; gap: 6px; border-top: 1px solid #f3f4f6; padding-top: 4px; margin-bottom: 1rem;">
+                             ${(performance.labels || []).map(label => `<div style="flex: 1; text-align: center; font-size: 0.65rem; color: #9ca3af; font-weight: 600;">${label}</div>`).join('')}
+                        </div>
+
+                        <!-- Legend -->
+                        <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.65rem; color: #6b7280; font-weight: 500;">
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span style="width: 8px; height: 8px; border-radius: 2px; background: var(--primary);"></span> Optimal (>70%)
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span style="width: 8px; height: 8px; border-radius: 2px; background: #f59e0b;"></span> Good (40-70%)
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 4px;">
+                                <span style="width: 8px; height: 8px; border-radius: 2px; background: #ef4444;"></span> Low (<40%)
+                            </div>
                         </div>
                     </div>
 
@@ -885,7 +1036,6 @@
                                 </button>
                             </div>
                         </div>
-
                          <div class="table-container">
                             <table>
                                 <thead>
@@ -936,6 +1086,7 @@
                                                 <div style="font-size: 0.75rem; color: #6b7280;">${u.dept || '--'}</div>
                                             </td>
                                             <td>
+<<<<<<< HEAD
                                                 ${(() => {
                         const loc = u.currentLocation || u.lastLocation;
                         if (loc && loc.lat && loc.lng) {
@@ -948,6 +1099,36 @@
                         }
                         return `<span style="color:#9ca3af; font-size:0.75rem;">N/A</span>`;
                     })()}
+=======
+                                                <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem;">
+                                                    <div style="display: flex; align-items: center; gap: 4px;">
+                                                        <span style="color: #6b7280; font-weight: 500; min-width: 25px;">IN:</span>
+                                                        ${(() => {
+                        const loc = u.currentLocation || u.lastLocation;
+                        if (loc && loc.lat && loc.lng) {
+                            return `<a href="https://www.google.com/maps?q=${loc.lat},${loc.lng}" target="_blank" style="color:var(--primary); text-decoration:none; display:flex; align-items:center; gap:2px;">
+                                        <i class="fa-solid fa-location-dot"></i> Map
+                                    </a>`;
+                        }
+                        return loc?.address ? loc.address : `<span style="color:#9ca3af;">N/A</span>`;
+                    })()}
+                                                    </div>
+                                                    <div style="display: flex; align-items: center; gap: 4px;">
+                                                        <span style="color: #6b7280; font-weight: 500; min-width: 25px;">OUT:</span>
+                                                        ${(() => {
+                        const loc = u.lastCheckOutLocation;
+                        const isMismatched = u.locationMismatched === true;
+                        const color = isMismatched ? '#ef4444' : 'var(--primary)';
+                        if (loc && loc.lat && loc.lng) {
+                            return `<a href="https://www.google.com/maps?q=${loc.lat},${loc.lng}" target="_blank" style="color:${color}; text-decoration:none; display:flex; align-items:center; gap:2px; font-weight:${isMismatched ? '700' : '400'}">
+                                        <i class="fa-solid fa-location-dot"></i> Map ${isMismatched ? '(Mismatch)' : ''}
+                                    </a>`;
+                        }
+                        return loc?.address ? loc.address : `<span style="color:#9ca3af;">N/A</span>`;
+                    })()}
+                                                    </div>
+                                                </div>
+>>>>>>> 5b112f3 (Enhance Attendance: Advanced HR rules (ED/EA), shared calendar visibility, location verification, and UI refinements)
                                             </td>
                                              <td>
                                                  <div style="display: flex; gap: 0.5rem;">
@@ -973,6 +1154,104 @@
                         </div>
                     </div>
                 </div>
+<<<<<<< HEAD
+=======
+            `;
+        },
+
+        async renderSalaryProcessing() {
+            const summary = await window.AppAnalytics.getSystemMonthlySummary();
+            const today = new Date();
+            const monthLabel = today.toLocaleDateString('default', { month: 'long', year: 'numeric' });
+
+            return `
+                <div class="card full-width">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; flex-wrap: wrap; gap: 1rem;">
+                        <div>
+                            <h3>Salary Processing</h3>
+                            <p class="text-muted">Period: ${monthLabel}</p>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 1rem;">
+                            <div style="background: #f8fafc; padding: 0.5rem 1rem; border-radius: 0.5rem; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 0.5rem;">
+                                <label style="font-weight: 600; color: #64748b; font-size: 0.85rem;">Global TDS:</label>
+                                <input type="number" id="global-tds-percent" value="0" min="0" max="100" 
+                                    style="width: 60px; padding: 4px; border: 1px solid #cbd5e1; border-radius: 4px;"
+                                    onchange="window.app_recalculateAllSalaries()">
+                                <span style="font-weight: 600; color: #64748b;">%</span>
+                            </div>
+                            <button class="action-btn" onclick="window.app_exportSalaryCSV()" style="background: #10b981;">
+                                <i class="fa-solid fa-file-csv"></i> Export CSV
+                            </button>
+                            <button class="action-btn" onclick="window.app_saveAllSalaries()">
+                                <i class="fa-solid fa-save"></i> Save All Records
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Staff Member</th>
+                                    <th>Base Salary</th>
+                                    <th>Attendance Summary</th>
+                                    <th>Deductions</th>
+                                    <th>Adjusted Salary</th>
+                                    <th>TDS Amount</th>
+                                    <th>Final Net</th>
+                                    <th>Comment</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${summary.map(item => {
+                const { user, stats } = item;
+                const base = user.baseSalary || 0;
+                const dailyRate = base / 22;
+
+                const totalDeductionDays = stats.unpaidLeaves + stats.penalty;
+                const deductionAmount = Math.round(dailyRate * totalDeductionDays);
+                const calculatedSalary = Math.max(0, base - deductionAmount);
+
+                return `
+                                        <tr data-user-id="${user.id}" data-base-salary="${base}">
+                                            <td>
+                                                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                                    <img src="${user.avatar}" style="width: 32px; height: 32px; border-radius: 50%;">
+                                                    <div style="font-weight: 600;">${user.name}</div>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <input type="number" class="base-salary-input" value="${base}" 
+                                                    style="width: 90px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;"
+                                                    onchange="window.app_recalculateRow(this.closest('tr'))">
+                                            </td>
+                                            <td style="font-size: 0.85rem;">
+                                                <span style="color: #10b981;">P: ${stats.present}</span> | 
+                                                <span style="color: #f59e0b;">L: ${stats.late}</span> | 
+                                                <span style="color: #991b1b;">ED: ${stats.earlyDepartures}</span> |
+                                                <span style="color: #ef4444;">UL: <span class="unpaid-leaves-count">${stats.unpaidLeaves}</span></span>
+                                                <span class="penalty-count" data-penalty="${stats.penalty}" style="display:none"></span>
+                                            </td>
+                                            <td style="color: #ef4444; font-weight: 600;" class="deduction-amount">-₹${deductionAmount.toLocaleString()}</td>
+                                            <td>
+                                                <input type="number" class="salary-input" value="${calculatedSalary}" 
+                                                    style="width: 100px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;"
+                                                    onchange="this.dataset.manual = 'true'; window.app_recalculateRow(this.closest('tr'))">
+                                            </td>
+                                            <td style="color: #64748b;" class="tds-amount">₹0</td>
+                                            <td style="font-weight: 700; color: #1e40af;" class="final-net-salary">₹${calculatedSalary.toLocaleString()}</td>
+                                            <td>
+                                                <input type="text" class="comment-input" placeholder="Required if adjusted..."
+                                                    style="width: 150px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;">
+                                            </td>
+                                        </tr>
+                                    `;
+            }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+>>>>>>> 5b112f3 (Enhance Attendance: Advanced HR rules (ED/EA), shared calendar visibility, location verification, and UI refinements)
             `;
         }
     };

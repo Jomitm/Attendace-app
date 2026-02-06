@@ -28,6 +28,9 @@
     }
 
     // --- UI Helpers ---
+    const getLocalISO = (date = new Date()) => {
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    };
     function toggleMobileSidebar(show) {
         const sidebar = document.querySelector('.sidebar');
         const overlay = document.getElementById('sidebar-overlay');
@@ -42,7 +45,74 @@
         }
     }
 
+    // Modal Helper to avoid overwriting modal-container
+    window.app_showModal = (html, id) => {
+        const container = document.getElementById('modal-container');
+        if (!container) return;
+        // Remove existing modal with same ID if any
+        const existing = document.getElementById(id);
+        if (existing) existing.remove();
+
+        container.insertAdjacentHTML('beforeend', html);
+    };
+
     // Initialize Global App Logic
+    // --- Yearly Plan / Calendar Logic ---
+    window.app_openEventModal = () => {
+        const html = `
+            <div class="modal-overlay" id="event-modal" style="display:flex;">
+                <div class="modal-content">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+                        <h3>Add Shared Event</h3>
+                        <button onclick="this.closest('.modal-overlay').remove()" style="background:none; border:none; font-size:1.2rem; cursor:pointer;">&times;</button>
+                    </div>
+                    <form onsubmit="window.app_submitEvent(event)">
+                        <div style="display:flex; flex-direction:column; gap:1rem;">
+                            <div>
+                                <label style="display:block; font-size:0.85rem; margin-bottom:0.25rem;">Event Title</label>
+                                <input type="text" id="event-title" required style="width:100%; padding:0.75rem; border:1px solid #ddd; border-radius:8px;">
+                            </div>
+                            <div>
+                                <label style="display:block; font-size:0.85rem; margin-bottom:0.25rem;">Date</label>
+                                <input type="date" id="event-date" required style="width:100%; padding:0.75rem; border:1px solid #ddd; border-radius:8px;">
+                            </div>
+                            <div>
+                                <label style="display:block; font-size:0.85rem; margin-bottom:0.25rem;">Type</label>
+                                <select id="event-type" style="width:100%; padding:0.75rem; border:1px solid #ddd; border-radius:8px;">
+                                    <option value="holiday">Holiday</option>
+                                    <option value="meeting">Meeting</option>
+                                    <option value="event">Other Event</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="action-btn" style="width:100%; margin-top:1rem;">Save Event</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        `;
+        window.app_showModal(html, 'event-modal');
+    };
+
+    window.app_submitEvent = async (e) => {
+        e.preventDefault();
+        const title = document.getElementById('event-title').value;
+        const date = document.getElementById('event-date').value;
+        const type = document.getElementById('event-type').value;
+
+        try {
+            await window.AppCalendar.addEvent({ title, date, type });
+            alert("Event added successfully!");
+            document.getElementById('event-modal')?.remove();
+            // Refresh Dashboard
+            const contentArea = document.getElementById('page-content');
+            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            setupDashboardEvents();
+        } catch (err) {
+            alert("Error: " + err.message);
+        }
+    };
+
+    // --- Original Login/Auth Logic ---
     async function init() {
         try {
             await window.AppAuth.init();
@@ -109,10 +179,11 @@
         }
 
         // Admin Link logic
-        const adminLinks = document.querySelectorAll('a[data-page="admin"]');
+        const adminLinks = document.querySelectorAll('a[data-page="admin"], a[data-page="salary"]');
         adminLinks.forEach(link => {
             if (user.role === 'Administrator' || user.isAdmin) {
-                link.style.display = 'flex';
+                if (window.innerWidth > 768) link.style.display = 'flex';
+                else link.style.display = 'flex'; // mobile bottom nav
             } else {
                 link.style.setProperty('display', 'none', 'important');
             }
@@ -132,8 +203,8 @@
         try {
             // Render Modals into the central container if not already present
             const modalContainer = document.getElementById('modal-container');
-            if (modalContainer && !modalContainer.innerHTML) {
-                modalContainer.innerHTML = window.AppUI.renderModals();
+            if (modalContainer && !document.getElementById('checkout-modal')) {
+                modalContainer.insertAdjacentHTML('beforeend', window.AppUI.renderModals());
             }
 
             // Show Loading State immediately
@@ -146,6 +217,12 @@
                 contentArea.innerHTML = await window.AppUI.renderTimesheet();
             } else if (hash === 'profile') {
                 contentArea.innerHTML = await window.AppUI.renderProfile();
+            } else if (hash === 'salary') {
+                if (user.role !== 'Administrator' && !user.isAdmin) {
+                    window.location.hash = 'dashboard';
+                    return;
+                }
+                contentArea.innerHTML = await window.AppUI.renderSalaryProcessing();
             } else if (hash === 'admin') {
                 if (user.role !== 'Administrator' && !user.isAdmin) {
                     window.location.hash = 'dashboard';
@@ -160,6 +237,21 @@
             contentArea.innerHTML = `<div style="text-align:center; color:red; padding:2rem;">Error loading page: ${e.message}</div>`;
         }
     }
+
+    // --- Admin Link Logic ---
+    function updateAdminVisibility(user) {
+        const adminLinks = document.querySelectorAll('a[data-page="admin"], a[data-page="salary"]');
+        adminLinks.forEach(link => {
+            if (user.role === 'Administrator' || user.isAdmin) {
+                link.style.display = 'flex';
+            } else {
+                link.style.setProperty('display', 'none', 'important');
+            }
+        });
+    }
+
+    // Router Helper (Call this inside router)
+    // Actually, I'll just integrate it.
 
     // --- Admin Polling ---
     function startAdminPolling() {
@@ -261,6 +353,124 @@
         });
     }
 
+    // --- Work Plan Logic ---
+    window.app_openDayPlan = async (date) => {
+        const currentUser = window.AppAuth.getUser();
+        const d = new Date(date).getDate();
+        const evs = window._getDayEvents ? window._getDayEvents(d) : [];
+        const plans = window._currentPlans;
+        const myPlan = plans && plans.workPlans ? plans.workPlans.find(p => p.date === date && p.userId === currentUser.id) : null;
+
+        // Grouping logic for multi-user visibility
+        const teamActivity = evs.filter(e => e.type === 'leave' || e.type === 'event');
+        const otherStaffPlans = evs.filter(e => e.type === 'work' && e.userId !== currentUser.id);
+
+        const html = `
+            <div class="modal-overlay" id="day-plan-modal" style="display:flex;">
+                <div class="modal-content" style="max-width: 500px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                        <h3>Plan for ${date}</h3>
+                        <button onclick="this.closest('.modal-overlay').remove()" style="background:none; border:none; font-size:1.2rem; cursor:pointer;">&times;</button>
+                    </div>
+
+                    <div style="margin: 0.5rem 0 1.5rem 0; max-height: 350px; overflow-y: auto; background:#f9fafb; padding:1rem; border-radius:8px;">
+                        <!-- Team Activity (Leaves/Shared Events) -->
+                        <div style="margin-bottom: 1.25rem;">
+                            <label style="font-size: 0.7rem; font-weight:700; color: #9ca3af; display: block; margin-bottom: 0.5rem; text-transform:uppercase; letter-spacing:0.5px;">Team Leaves & Events</label>
+                            ${teamActivity.length ? teamActivity.map(e => `
+                                <div style="font-size: 0.85rem; padding: 6px 0; border-bottom: 1px solid #f3f4f6; display:flex; gap:8px; align-items:start;">
+                                    <span style="width:8px; height:8px; border-radius:50%; margin-top:5px; background:${e.type === 'leave' ? '#ef4444' : '#10b981'}"></span>
+                                    <span style="flex:1;">${e.title}</span>
+                                </div>
+                            `).join('') : '<div style="color:#9ca3af; font-size:0.8rem;">No leaves or events.</div>'}
+                        </div>
+
+                        <!-- Staff Work Plans (Other Members) -->
+                        <div>
+                            <label style="font-size: 0.7rem; font-weight:700; color: #9ca3af; display: block; margin-bottom: 0.5rem; text-transform:uppercase; letter-spacing:0.5px;">Staff Work Plans</label>
+                            ${otherStaffPlans.length ? otherStaffPlans.map(e => {
+            const parts = e.title.split(':');
+            const name = parts[0];
+            const planText = parts.slice(1).join(':').trim();
+            return `
+                                <div style="font-size: 0.85rem; padding: 10px; border: 1px solid #e5e7eb; background:white; border-radius:8px; margin-bottom:8px; display:flex; flex-direction:column; gap:4px;">
+                                    <div style="font-weight:600; font-size:0.75rem; color:var(--primary);">${name}</div>
+                                    <div style="color:#374151; line-height:1.4;">${planText}</div>
+                                </div>
+                            `;
+        }).join('') : '<div style="color:#9ca3af; font-size:0.8rem;">No staff plans yet.</div>'}
+                        </div>
+                    </div>
+                    
+                    <form onsubmit="window.app_saveDayPlan(event, '${date}')">
+                        <div style="padding-top:1rem; border-top:1px solid #f3f4f6;">
+                            <label style="display:block; font-size:0.85rem; font-weight:600; margin-bottom:0.5rem;">Your Daily Task/Goal</label>
+                            <textarea id="my-work-plan" required placeholder="What are you working on today?" style="width:100%; height:100px; padding:0.75rem; border:1px solid #ddd; border-radius:8px; font-family:inherit; resize:none;">${myPlan ? myPlan.plan : ''}</textarea>
+                        </div>
+                        <div style="display:flex; gap:1rem; margin-top:1.5rem;">
+                             <button type="button" onclick="this.closest('.modal-overlay').remove()" style="flex:1; padding:0.75rem; background:#fff; border:1px solid #ddd; border-radius:8px; cursor:pointer; font-weight:500;">Cancel</button>
+                             <button type="submit" class="action-btn" style="flex:2; padding:0.75rem;">Save My Plan</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        `;
+        window.app_showModal(html, 'day-plan-modal');
+    };
+
+    window.app_saveDayPlan = async (e, date) => {
+        e.preventDefault();
+        const plan = document.getElementById('my-work-plan').value;
+        try {
+            await window.AppCalendar.setWorkPlan(date, plan);
+            alert("Plan saved! This will now pre-fill your checkout summary for this day.");
+            document.getElementById('day-plan-modal')?.remove();
+            // Refresh
+            const contentArea = document.getElementById('page-content');
+            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            setupDashboardEvents();
+        } catch (err) {
+            alert(err.message);
+        }
+    };
+
+    window.app_changeCalMonth = (delta) => {
+        let newMonth = window.app_calMonth + delta;
+        if (newMonth < 0) { window.app_calYear--; newMonth = 11; }
+        if (newMonth > 11) { window.app_calYear++; newMonth = 0; }
+        window.app_calMonth = newMonth;
+        // Refresh Dashboard
+        window.AppUI.renderDashboard().then(async html => {
+            const contentArea = document.getElementById('page-content');
+            contentArea.innerHTML = html;
+            // Re-setup dashboard specific events (like attendance button)
+            setupDashboardEvents();
+        });
+    };
+
+    window.app_useWorkPlan = () => {
+        const planText = document.getElementById('checkout-plan-text')?.innerText;
+        const descArea = document.querySelector('#checkout-modal textarea[name="description"]');
+        if (descArea && planText) {
+            descArea.value = planText;
+        }
+    };
+
+    // Helper to calculate distance in meters between two coordinates
+    function calculateDistance(lat1, lon1, lat2, lon2) {
+        if (!lat1 || !lon1 || !lat2 || !lon2) return 0;
+        const R = 6371e3; // meters
+        const φ1 = lat1 * Math.PI / 180;
+        const φ2 = lat2 * Math.PI / 180;
+        const Δφ = (lat2 - lat1) * Math.PI / 180;
+        const Δλ = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
+
     async function handleAttendance() {
         const btn = document.getElementById('attendance-btn');
         const locationText = document.getElementById('location-text');
@@ -278,14 +488,59 @@
                 contentArea.innerHTML = await window.AppUI.renderDashboard();
                 setupDashboardEvents();
             } else {
-                // Show Check-Out Modal instead of direct checkout
+                // Pre-fill Checkout Description from Work Plan
+                const user = window.AppAuth.getUser();
+                const today = getLocalISO();
+                const workPlan = await window.AppCalendar.getWorkPlan(user.id, today);
+
+                // Ensure persistent modals are present
+                const modalContainer = document.getElementById('modal-container');
+                if (modalContainer && !document.getElementById('checkout-modal')) {
+                    modalContainer.insertAdjacentHTML('beforeend', window.AppUI.renderModals());
+                }
+
+                // Show Check-Out Modal
                 const modal = document.getElementById('checkout-modal');
                 if (modal) {
+                    const planRef = document.getElementById('checkout-plan-ref');
+                    const planTextEl = document.getElementById('checkout-plan-text');
+                    const descArea = modal.querySelector('textarea[name="description"]');
+
+                    if (workPlan && workPlan.plan) {
+                        if (planRef) planRef.style.display = 'block';
+                        if (planTextEl) planTextEl.innerText = workPlan.plan;
+                        // Pre-fill only if the textarea is empty
+                        if (descArea && !descArea.value.trim()) {
+                            descArea.value = workPlan.plan;
+                        }
+                    } else {
+                        if (planRef) planRef.style.display = 'none';
+                    }
+
+                    // Location Verification
+                    const mismatchDiv = document.getElementById('checkout-location-mismatch');
+                    try {
+                        const currentPos = await getLocation();
+                        const checkInLoc = user.currentLocation || user.lastLocation;
+
+                        if (checkInLoc && checkInLoc.lat && checkInLoc.lng) {
+                            const dist = calculateDistance(currentPos.lat, currentPos.lng, checkInLoc.lat, checkInLoc.lng);
+                            // If more than 100 meters away, show mismatch warning
+                            if (dist > 100) {
+                                if (mismatchDiv) mismatchDiv.style.display = 'block';
+                            } else {
+                                if (mismatchDiv) mismatchDiv.style.display = 'none';
+                            }
+                        }
+                    } catch (locErr) {
+                        console.warn("Location check failed during checkout trigger:", locErr);
+                    }
+
                     modal.style.display = 'flex';
-                    if (btn) btn.disabled = false; // Re-enable button since we didn't submit yet
+                    if (btn) btn.disabled = false;
                 } else {
-                    // Fallback if modal missing (shouldn't happen)
                     await window.AppAttendance.checkOut();
+                    const contentArea = document.getElementById('page-content');
                     contentArea.innerHTML = await window.AppUI.renderDashboard();
                     setupDashboardEvents();
                 }
@@ -308,9 +563,26 @@
 
         try {
             submitBtn.disabled = true;
-            submitBtn.textContent = 'Saving...';
+            submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Locating & Saving...`;
 
-            await window.AppAttendance.checkOut(description);
+            // Fetch location during checkout
+            try {
+                pos = await getLocation();
+            } catch (locErr) {
+                console.warn("Checkout Location Failed:", locErr);
+            }
+
+            // Detect mismatch for saving
+            let locationMismatched = false;
+            const checkInLoc = window.AppAuth.getUser()?.currentLocation;
+            if (checkInLoc && checkInLoc.lat && checkInLoc.lng && pos.lat && pos.lng) {
+                const dist = calculateDistance(pos.lat, pos.lng, checkInLoc.lat, checkInLoc.lng);
+                if (dist > 100) locationMismatched = true;
+            }
+
+            const explanation = form.locationExplanation ? form.locationExplanation.value : '';
+
+            await window.AppAttendance.checkOut(description, pos.lat, pos.lng, 'Detected Location', locationMismatched, explanation);
 
             // Hide modal
             document.getElementById('checkout-modal').style.display = 'none';
@@ -409,7 +681,7 @@
             return;
         }
 
-        const isAdmin = formData.get('isAdmin') === 'on' || formData.get('isAdmin') === 'true';
+        const isAdmin = form.querySelector('[name="isAdmin"]').checked;
 
         const userData = {
             id: id,
@@ -671,6 +943,133 @@
         // Refresh Admin View
         const contentArea = document.getElementById('page-content');
         contentArea.innerHTML = await window.AppUI.renderAdmin();
+    };
+
+    window.app_recalculateRow = (row) => {
+        const base = parseFloat(row.querySelector('.base-salary-input').value) || 0;
+        const dailyRate = base / 22;
+        const unpaid = parseFloat(row.querySelector('.unpaid-leaves-count').innerText) || 0;
+        const penalty = parseFloat(row.querySelector('.penalty-count').dataset.penalty) || 0;
+        const tdsPercent = parseFloat(document.getElementById('global-tds-percent').value) || 0;
+
+        const deduct = Math.round(dailyRate * (unpaid + penalty));
+        row.querySelector('.deduction-amount').innerText = '-₹' + deduct.toLocaleString();
+
+        const adjInput = row.querySelector('.salary-input');
+        if (!adjInput.dataset.manual) {
+            adjInput.value = Math.max(0, base - deduct);
+        }
+
+        const adjusted = parseFloat(adjInput.value) || 0;
+        const tdsAmount = Math.round(adjusted * (tdsPercent / 100));
+        const finalNet = Math.max(0, adjusted - tdsAmount);
+
+        row.querySelector('.tds-amount').innerText = '₹' + tdsAmount.toLocaleString();
+        row.querySelector('.tds-amount').dataset.value = tdsAmount;
+        row.querySelector('.final-net-salary').innerText = '₹' + finalNet.toLocaleString();
+        row.querySelector('.final-net-salary').dataset.value = finalNet;
+    };
+
+    window.app_recalculateAllSalaries = () => {
+        document.querySelectorAll('tr[data-user-id]').forEach(row => {
+            window.app_recalculateRow(row);
+        });
+    };
+
+    window.app_saveAllSalaries = async () => {
+        const rows = document.querySelectorAll('tr[data-user-id]');
+        const salaryRecords = [];
+        const userUpdates = [];
+        const today = new Date();
+        const monthKey = `${today.getFullYear()}-${today.getMonth() + 1}`;
+        const tdsPercent = parseFloat(document.getElementById('global-tds-percent').value) || 0;
+
+        for (const row of rows) {
+            const userId = row.dataset.userId;
+            const baseSalaryInput = row.querySelector('.base-salary-input').value;
+            const adjustedSalary = row.querySelector('.salary-input').value;
+            const comment = row.querySelector('.comment-input').value;
+            const tdsAmount = row.querySelector('.tds-amount').dataset.value || 0;
+            const finalNet = row.querySelector('.final-net-salary').dataset.value || 0;
+
+            // Check if comment required
+            if (row.querySelector('.comment-input').required && !comment) {
+                alert(`Please provide a comment for user ID: ${userId} as the salary was adjusted.`);
+                return;
+            }
+
+            // Record for the month
+            salaryRecords.push({
+                id: `salary_${userId}_${monthKey}`,
+                userId,
+                month: monthKey,
+                baseAmount: Number(baseSalaryInput),
+                deductions: Number(row.querySelector('.deduction-amount').innerText.replace(/[^0-9.-]+/g, "")),
+                adjustedAmount: Number(adjustedSalary),
+                tdsPercent: tdsPercent,
+                tdsAmount: Number(tdsAmount),
+                finalNet: Number(finalNet),
+                comment: comment || '',
+                processedAt: Date.now()
+            });
+
+            // Update user's base salary if changed
+            userUpdates.push({
+                id: userId,
+                baseSalary: Number(baseSalaryInput)
+            });
+        }
+
+        try {
+            // Persist monthly records
+            for (const record of salaryRecords) {
+                await window.AppDB.put('salaries', record);
+            }
+
+            // Sync user base salaries
+            for (const update of userUpdates) {
+                const existingUser = await window.AppDB.get('users', update.id);
+                if (existingUser) {
+                    existingUser.baseSalary = update.baseSalary;
+                    await window.AppDB.put('users', existingUser);
+                }
+            }
+
+            alert('All records and TDS details saved successfully!');
+            // Refresh view to ensure calculations sync with any base salary changes
+            const contentArea = document.getElementById('page-content');
+            contentArea.innerHTML = await window.AppUI.renderSalaryProcessing();
+        } catch (err) {
+            console.error("Salary Save Error:", err);
+            alert('Failed to save records: ' + err.message);
+        }
+    };
+
+    window.app_exportSalaryCSV = () => {
+        const rows = document.querySelectorAll('tr[data-user-id]');
+        let csv = 'Staff Name,Base Salary,Attendance (P/L/UL),Deductions,Adjusted Salary,TDS (%),TDS Amount,Final Net,Comment\n';
+
+        rows.forEach(row => {
+            const name = row.querySelector('div[style*="font-weight: 600"]').innerText;
+            const base = row.querySelector('.base-salary-input').value;
+            const attendance = row.querySelector('td:nth-child(3)').innerText.replace(/[\n|]/g, '').trim();
+            const deduct = row.querySelector('.deduction-amount').innerText.replace('₹', '').replace(',', '');
+            const adjusted = row.querySelector('.salary-input').value;
+            const tdsP = document.getElementById('global-tds-percent').value;
+            const tdsA = row.querySelector('.tds-amount').innerText.replace('₹', '').replace(',', '');
+            const net = row.querySelector('.final-net-salary').innerText.replace('₹', '').replace(',', '');
+            const comment = row.querySelector('.comment-input').value;
+
+            csv += `"${name}",${base},"${attendance}",${deduct},${adjusted},${tdsP},${tdsA},${net},"${comment}"\n`;
+        });
+
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const month = new Date().toLocaleDateString('default', { month: 'short', year: 'numeric' });
+        a.setAttribute('href', url);
+        a.setAttribute('download', `Salaries_${month.replace(' ', '_')}.csv`);
+        a.click();
     };
 
     // Listeners for Modal Events 
