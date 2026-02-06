@@ -8,6 +8,7 @@
         constructor() {
             this.currentUser = null;
             this.sessionKey = 'crwi_session_user';
+            this.heartbeatInterval = null;
         }
 
         async init() {
@@ -17,6 +18,9 @@
             const storedId = localStorage.getItem(this.sessionKey);
             if (storedId) {
                 this.currentUser = await window.AppDB.get('users', storedId);
+                if (this.currentUser) {
+                    this.startHeartbeat();
+                }
             }
 
             // Seed mock users if empty (First Run)
@@ -59,6 +63,7 @@
             if (user) {
                 this.currentUser = user;
                 localStorage.setItem(this.sessionKey, user.id);
+                this.startHeartbeat();
                 return true;
             } else {
                 // Debugging help for 'Invalid Credentials'
@@ -74,6 +79,7 @@
         }
 
         logout() {
+            this.stopHeartbeat();
             this.currentUser = null;
             localStorage.removeItem(this.sessionKey);
             window.location.reload();
@@ -122,11 +128,43 @@
 
         async resetData() {
             if (confirm('Are you sure you want to RESET ALL DATA? This will clear logs and users.')) {
+                this.stopHeartbeat();
                 await window.AppDB.clear('users');
                 await window.AppDB.clear('attendance');
                 localStorage.clear();
                 alert('Data reset. Reloading...');
                 window.location.reload();
+            }
+        }
+
+        startHeartbeat() {
+            if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+
+            const updateLastSeen = async () => {
+                if (this.currentUser && window.AppDB) {
+                    try {
+                        await window.AppDB.put('users', {
+                            id: this.currentUser.id,
+                            lastSeen: Date.now()
+                        });
+                    } catch (err) {
+                        console.warn("Heartbeat update failed:", err);
+                    }
+                }
+            };
+
+            // Immediate update
+            updateLastSeen();
+            // Then every 30 seconds
+            this.heartbeatInterval = setInterval(updateLastSeen, 30000);
+            console.log("Presence Heartbeat started.");
+        }
+
+        stopHeartbeat() {
+            if (this.heartbeatInterval) {
+                clearInterval(this.heartbeatInterval);
+                this.heartbeatInterval = null;
+                console.log("Presence Heartbeat stopped.");
             }
         }
     }

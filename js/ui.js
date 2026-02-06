@@ -1039,6 +1039,7 @@
                                 </thead>
                                 <tbody>
                                     ${allUsers.map(u => {
+                const isLive = u.lastSeen && (Date.now() - u.lastSeen < 120000); // 2 minutes window
                 const lastIn = u.lastCheckIn ? new Date(u.lastCheckIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--';
                 const lastOut = u.lastCheckOut ? new Date(u.lastCheckOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--';
 
@@ -1046,16 +1047,22 @@
                                         <tr>
                                             <td>
                                                 <div style="display: flex; align-items: center; gap: 0.75rem;">
-                                                    <img src="${u.avatar}" style="width: 32px; height: 32px; border-radius: 50%;">
+                                                    <div style="position: relative;">
+                                                        <img src="${u.avatar}" style="width: 32px; height: 32px; border-radius: 50%;">
+                                                        ${isLive ? `<div style="position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; background: #10b981; border: 2px solid white; border-radius: 50%;" title="Currently Online"></div>` : ''}
+                                                    </div>
                                                     <div>
-                                                        <div style="font-weight: 600;">${u.name}</div>
+                                                        <div style="font-weight: 600; display: flex; align-items: center; gap: 4px;">
+                                                            ${u.name}
+                                                            ${isLive ? `<span style="font-size: 0.6rem; background: #f0fdf4; color: #166534; padding: 1px 4px; border-radius: 4px; font-weight: 700;">LIVE</span>` : ''}
+                                                        </div>
                                                         <div style="font-size: 0.75rem; color: #6b7280;">ID: ${u.username}</div>
                                                     </div>
                                                 </div>
                                             </td>
                                             <td>
                                                 <span class="status-badge ${u.status === 'in' ? 'in' : 'out'}" style="padding: 0.25rem 0.75rem; font-size: 0.75rem;">
-                                                    ${u.status === 'in' ? 'Online' : 'Offline'}
+                                                    ${u.status === 'in' ? 'Checked In' : 'Checked Out'}
                                                 </span>
                                             </td>
                                             <td>

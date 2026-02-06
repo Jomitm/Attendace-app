@@ -102,6 +102,16 @@
                 throw error;
             }
         }
+
+        listen(collectionName, callback) {
+            if (!this.db) return null;
+            return this.db.collection(collectionName).onSnapshot((snapshot) => {
+                const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+                callback(data);
+            }, (error) => {
+                console.error(`Realtime listener error in ${collectionName}:`, error);
+            });
+        }
     }
 
     // Export to Window (Global)

@@ -9,7 +9,7 @@
 
     // App State
     let timerInterval = null;
-    let adminPollInterval = null;
+    let adminListenerUnsubscribe = null;
 
     // DOM Elements - queried dynamically or once if available
     const contentArea = document.getElementById('page-content');
@@ -141,9 +141,10 @@
         const hash = window.location.hash.slice(1) || 'dashboard';
 
         // Cleanup
-        if (hash !== 'admin' && adminPollInterval) {
-            clearInterval(adminPollInterval);
-            adminPollInterval = null;
+        if (hash !== 'admin' && adminListenerUnsubscribe) {
+            console.log("Cleaning up Admin Realtime Listener.");
+            adminListenerUnsubscribe();
+            adminListenerUnsubscribe = null;
         }
 
         // AUTH GUARD
@@ -230,7 +231,7 @@
                 }
                 contentArea.innerHTML = await window.AppUI.renderAdmin();
                 window.AppAnalytics.initAdminCharts();
-                startAdminPolling();
+                startAdminRealtimeListener();
             }
         } catch (e) {
             console.error("Render Error:", e);
@@ -253,40 +254,29 @@
     // Router Helper (Call this inside router)
     // Actually, I'll just integrate it.
 
-    // --- Admin Polling ---
-    function startAdminPolling() {
-        if (adminPollInterval) clearInterval(adminPollInterval);
+    // --- Admin Realtime Listener ---
+    function startAdminRealtimeListener() {
+        if (adminListenerUnsubscribe) adminListenerUnsubscribe();
 
-        adminPollInterval = setInterval(async () => {
-            if (window.location.hash === '#admin') {
-                const openModal = document.querySelector('.modal-overlay[style*="display: flex"]');
-                // Only poll if NO modal is open (to prevent overwriting form state)
-                if (!openModal) {
-                    const tableBody = document.querySelector('#admin-user-table tbody');
-                    if (tableBody) {
-                        try {
-                            // Lightweight fetch just for the table part if possible, 
-                            // but for now we re-render and check diff.
-                            // NOTE: Optimized to not block UI thread
-                            const updatedUI = await window.AppUI.renderAdmin();
-                            const parser = new DOMParser();
-                            const doc = parser.parseFromString(updatedUI, 'text/html');
-                            const newBody = doc.querySelector('#admin-user-table tbody');
+        console.log("Starting Admin Realtime Listener...");
+        adminListenerUnsubscribe = window.AppDB.listen('users', async (data) => {
+            const currentHash = window.location.hash.slice(1);
+            if (currentHash !== 'admin') return;
 
-                            // Only update if content changed to prevent flicker/lag
-                            if (newBody && tableBody.innerHTML !== newBody.innerHTML) {
-                                tableBody.innerHTML = newBody.innerHTML;
-                            }
-                        } catch (err) {
-                            console.warn("Polling skipped due to error or offline:", err);
-                        }
-                    }
+            const openModal = document.querySelector('.modal-overlay[style*="display: flex"], .modal[style*="display: flex"]');
+
+            // Only update if NO modal is open (to prevent overwriting form state)
+            if (!openModal) {
+                console.log("Admin Data Update Received (Realtime) - Refreshing UI");
+                const contentArea = document.getElementById('page-content');
+                if (contentArea) {
+                    contentArea.innerHTML = await window.AppUI.renderAdmin();
+                    if (window.AppAnalytics) window.AppAnalytics.initAdminCharts();
                 }
             } else {
-                // formatting fix: stop polling if not on admin
-                clearInterval(adminPollInterval);
+                console.log("Admin Update received but skipped because a modal is open.");
             }
-        }, 10000); // Increased to 10 seconds to reduce lag
+        });
     }
 
     // --- Event Handlers ---
