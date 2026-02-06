@@ -133,7 +133,7 @@
                 <div id="leave-modal" class="modal-overlay" style="display: none;">
                     <div class="modal-content" style="width: 100%; max-width: 500px;">
                         <h3>Request Leave</h3>
-                        <form id="leave-request-form" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
+                        <form id="leave-request-form" method="POST" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
                             <div style="display: flex; gap: 1rem;">
                                 <label style="flex:1">From
                                     <input type="date" name="startDate" required style="width:100%; padding:0.5rem; border:1px solid #ddd; border-radius:0.5rem;">
@@ -170,7 +170,7 @@
                 <div id="edit-user-modal" class="modal-overlay" style="display: none;">
                     <div class="modal-content">
                         <h3>Edit Staff Details</h3>
-                        <form id="edit-user-form" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
+                        <form id="edit-user-form" method="POST" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
                             <input type="hidden" name="id" id="edit-user-id">
                             <label>
                                 Full Name
@@ -249,7 +249,7 @@
                  <div id="notify-modal" class="modal-overlay" style="display: none;">
                     <div class="modal-content">
                         <h3>Send Notification</h3>
-                        <form id="notify-form" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
+                        <form id="notify-form" method="POST" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
                             <input type="hidden" name="toUserId" id="notify-user-id">
                             <label>
                                 Message
@@ -268,7 +268,7 @@
                 <div id="add-user-modal" class="modal-overlay" style="display: none;">
                     <div class="modal-content">
                         <h3>Create New Account</h3>
-                        <form id="add-user-form" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
+                        <form id="add-user-form" method="POST" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
                             <label>
                                 Full Name
                                 <input type="text" name="name" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">

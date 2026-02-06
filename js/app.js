@@ -45,6 +45,14 @@
         }
     }
 
+    function cleanURL() {
+        if (window.location.search) {
+            const clean = window.location.protocol + "//" + window.location.host + window.location.pathname + window.location.hash;
+            window.history.replaceState({ path: clean }, '', clean);
+            console.log("Address bar cleaned of query parameters.");
+        }
+    }
+
     // Modal Helper to avoid overwriting modal-container
     window.app_showModal = (html, id) => {
         const container = document.getElementById('modal-container');
@@ -114,6 +122,7 @@
 
     // --- Original Login/Auth Logic ---
     async function init() {
+        cleanURL();
         try {
             await window.AppAuth.init();
             registerSW();
