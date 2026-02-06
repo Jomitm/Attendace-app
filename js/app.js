@@ -757,7 +757,12 @@
             const success = await window.AppAuth.updateUser(userData);
             if (success) {
                 alert(`SUCCESS: User '${userData.name}' updated.`);
-                window.location.reload();
+                document.getElementById('edit-user-modal').style.display = 'none';
+                // Refresh Admin View without reload to prevent race conditions
+                const contentArea = document.getElementById('page-content');
+                if (contentArea) {
+                    contentArea.innerHTML = await window.AppUI.renderAdmin();
+                }
             } else {
                 alert('Update failed. User not found.');
             }

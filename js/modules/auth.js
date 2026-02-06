@@ -90,36 +90,21 @@
 
             const updated = { ...existing, ...userData };
 
-            // Sync Role & isAdmin Status
-            // If checking the box or selecting the role, ensure both flags match
-            const wantsAdmin = (userData.isAdmin === true || userData.isAdmin === 'true' || userData.role === 'Administrator');
-
-            if (wantsAdmin) {
+            // Sync Role & isAdmin Status (Robust Logic)
+            if (userData.isAdmin === true || userData.isAdmin === 'true') {
                 updated.isAdmin = true;
                 updated.role = 'Administrator';
-                console.log(`Auth: Promoting user ${updated.id} to Administrator (Input was: isAdmin=${userData.isAdmin}, role=${userData.role})`);
+            } else if (userData.role === 'Administrator') {
+                // If role selected as Admin but checkbox unchecked, treat as Admin
+                updated.isAdmin = true;
+                updated.role = 'Administrator';
             } else {
-                // If explicitly demoting OR changing role away from Admin
-                // We check if the INTENT was to change role or just update other details.
-                // But if 'isAdmin' is explicitly passed as false, we must respect it.
-                if (userData.isAdmin === false || userData.isAdmin === 'false') {
-                    updated.isAdmin = false;
-                    // If they were Admin and now demoted, default to Employee unless another role specified
-                    if (updated.role === 'Administrator' && userData.role === 'Administrator') {
-                        updated.role = 'Employee';
-                    } else if (userData.role && userData.role !== 'Administrator') {
-                        updated.role = userData.role;
-                    } else if (updated.role === 'Administrator') {
-                        updated.role = 'Employee';
-                    }
-                    console.log(`Auth: Demoting/Updating user ${updated.id} to ${updated.role} (Input was: isAdmin=${userData.isAdmin}, role=${userData.role})`);
-                } else if (userData.role && userData.role !== 'Administrator') {
-                    // Just a role change for a non-admin, or changing away from admin without touching checkbox (shouldn't happen in UI but good safety)
-                    updated.isAdmin = false;
-                    updated.role = userData.role;
-                    console.log(`Auth: Role change for user ${updated.id} to ${updated.role}`);
-                }
+                // Not an admin
+                updated.isAdmin = false;
+                updated.role = userData.role || existing.role || 'Employee';
             }
+
+            console.log(`Auth: User ${updated.id} update - Role: ${updated.role}, Admin: ${updated.isAdmin}`);
 
             // Only regenerate default avatar if name changed AND no new avatar provided
             if (userData.name && userData.name !== existing.name && !userData.avatar) {

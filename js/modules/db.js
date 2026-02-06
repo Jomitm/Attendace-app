@@ -31,8 +31,10 @@
         }
 
         async get(collectionName, id) {
+            if (!id) return null;
             try {
-                const docRef = this.db.collection(collectionName).doc(id);
+                const docId = String(id);
+                const docRef = this.db.collection(collectionName).doc(docId);
                 const doc = await docRef.get();
                 if (doc.exists) {
                     return doc.data();
@@ -75,8 +77,10 @@
         }
 
         async delete(collectionName, id) {
+            if (!id) return;
             try {
-                await this.db.collection(collectionName).doc(id).delete();
+                const docId = String(id);
+                await this.db.collection(collectionName).doc(docId).delete();
             } catch (error) {
                 console.error(`Error deleting ${id} from ${collectionName}:`, error);
                 throw error;
