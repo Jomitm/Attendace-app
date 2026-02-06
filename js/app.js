@@ -328,8 +328,13 @@
 
             try {
                 // Attempt 1: High Accuracy (GPS)
-                console.log("Requesting Location: High Accuracy...");
-                const p = await getPosition({ enableHighAccuracy: true, timeout: 5000, maximumAge: 0 });
+                // iOS often needs more than 5s for a cold GPS lock. 10s is safer.
+                console.log("Requesting Location: High Accuracy (GPS)...");
+                const p = await getPosition({
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 5000 // Allow a 5-second old cached location for speed
+                });
                 resolve({ lat: p.coords.latitude, lng: p.coords.longitude });
             } catch (err) {
                 console.warn("High Accuracy Failed:", err.message);
@@ -337,15 +342,19 @@
                 // Attempt 2: Low Accuracy (WiFi/Cell/IP) - Fallback
                 try {
                     console.log("Requesting Location: Low Accuracy (Fallback)...");
-                    const p2 = await getPosition({ enableHighAccuracy: false, timeout: 10000, maximumAge: 0 });
+                    const p2 = await getPosition({
+                        enableHighAccuracy: false,
+                        timeout: 15000,
+                        maximumAge: 10000
+                    });
                     resolve({ lat: p2.coords.latitude, lng: p2.coords.longitude });
                 } catch (err2) {
                     console.error("Low Accuracy Failed:", err2.message);
 
                     let msg = 'Unable to retrieve location.';
-                    if (err2.code === 1) msg = 'Location permission denied. Please allow location access.';
-                    else if (err2.code === 2) msg = 'Location unavailable. Ensure GPS is on.';
-                    else if (err2.code === 3) msg = 'Location request timed out completely.';
+                    if (err2.code === 1) msg = 'Location permission denied. Please allow location access in your iOS Settings.';
+                    else if (err2.code === 2) msg = 'Location unavailable. Ensure GPS is enabled (Settings > Privacy > Location).';
+                    else if (err2.code === 3) msg = 'Location request timed out. Try moving near a window or outdoors.';
 
                     reject(msg);
                 }
@@ -622,6 +631,7 @@
             submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Locating & Saving...`;
 
             // Fetch location during checkout
+            let pos = { lat: 0, lng: 0 };
             try {
                 pos = await getLocation();
             } catch (locErr) {
