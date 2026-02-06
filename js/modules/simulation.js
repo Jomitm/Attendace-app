@@ -23,12 +23,12 @@
 
             // 1. Define Users for all departments
             const users = [
-                { id: 'sim_admin_new', name: 'Sr. Maria Admin', username: 'maria', role: 'Administrator', isAdmin: true, dept: 'Administration', avatar: 'https://ui-avatars.com/api/?name=Maria+Admin&background=1e40af&color=fff' },
-                { id: 'sim_punctual', name: 'Jomit Punctuall', username: 'jomit_p', role: 'Administrator', isAdmin: true, dept: 'IT Department', avatar: 'https://ui-avatars.com/api/?name=Jomit+P&background=10b981&color=fff' },
-                { id: 'sim_late', name: 'Staff Late', username: 'late_user', role: 'Employee', isAdmin: false, dept: 'Sales', avatar: 'https://ui-avatars.com/api/?name=Late+Staff&background=f59e0b&color=fff' },
-                { id: 'sim_early', name: 'Staff Early', username: 'early_user', role: 'Employee', isAdmin: false, dept: 'HR', avatar: 'https://ui-avatars.com/api/?name=Early+Staff&background=ef4444&color=fff' },
-                { id: 'sim_mismatch', name: 'Staff Field', username: 'field_user', role: 'Employee', isAdmin: false, dept: 'Operations', avatar: 'https://ui-avatars.com/api/?name=Field+Staff&background=6366f1&color=fff' },
-                { id: 'sim_general', name: 'Staff General', username: 'general_user', role: 'Employee', isAdmin: false, dept: 'General', avatar: 'https://ui-avatars.com/api/?name=General+Staff&background=94a3b8&color=fff' }
+                { id: 'sim_admin_new', name: 'Sr. Maria Admin', username: 'maria', email: 'maria@crwi.org', role: 'Administrator', isAdmin: true, dept: 'Administration', avatar: 'https://ui-avatars.com/api/?name=Maria+Admin&background=1e40af&color=fff' },
+                { id: 'sim_punctual', name: 'Jomit Punctuall', username: 'jomit_p', email: 'jomit@crwi.org', role: 'Administrator', isAdmin: true, dept: 'IT Department', avatar: 'https://ui-avatars.com/api/?name=Jomit+P&background=10b981&color=fff' },
+                { id: 'sim_late', name: 'Staff Late', username: 'late_user', email: 'late@crwi.org', role: 'Employee', isAdmin: false, dept: 'Sales', avatar: 'https://ui-avatars.com/api/?name=Late+Staff&background=f59e0b&color=fff' },
+                { id: 'sim_early', name: 'Staff Early', username: 'early_user', email: 'early@crwi.org', role: 'Employee', isAdmin: false, dept: 'HR', avatar: 'https://ui-avatars.com/api/?name=Early+Staff&background=ef4444&color=fff' },
+                { id: 'sim_mismatch', name: 'Staff Field', username: 'field_user', email: 'field@crwi.org', role: 'Employee', isAdmin: false, dept: 'Operations', avatar: 'https://ui-avatars.com/api/?name=Field+Staff&background=6366f1&color=fff' },
+                { id: 'sim_general', name: 'Staff General', username: 'general_user', email: 'general@crwi.org', role: 'Employee', isAdmin: false, dept: 'General', avatar: 'https://ui-avatars.com/api/?name=General+Staff&background=94a3b8&color=fff' }
             ];
 
             // 2. Create Simulated Users
