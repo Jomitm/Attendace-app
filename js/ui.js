@@ -49,10 +49,6 @@
                     <div class="modal-content" style="width: 100%; max-width: 450px;">
                         <h3 style="margin-bottom: 1rem;">Check Out</h3>
                         <p style="color: #6b7280; font-size: 0.9rem; margin-bottom: 1rem;">Please summarize your work for today before checking out.</p>
-<<<<<<< HEAD
-                        <form onsubmit="window.app_submitCheckOut(event)">
-=======
-                        
                         <div id="checkout-plan-ref" style="display:none; background:#f9fafb; padding:0.75rem; border-radius:8px; border:1px solid #e5e7eb; margin-bottom:1rem; font-size:0.85rem;">
                             <div style="font-weight:600; color:#4f46e5; margin-bottom:4px;">Today's Plan:</div>
                             <div id="checkout-plan-text" style="color:#374151; margin-bottom:8px; line-height:1.4;"></div>
@@ -68,7 +64,6 @@
                                 </label>
                                 <textarea name="locationExplanation" placeholder="Please explain why you are checking out from a different location..." style="width: 100%; height: 60px; padding: 0.5rem; border: 1px solid #fda4af; border-radius: 0.5rem; resize: none; font-size: 0.85rem; font-family: inherit;"></textarea>
                             </div>
->>>>>>> 5b112f3 (Enhance Attendance: Advanced HR rules (ED/EA), shared calendar visibility, location verification, and UI refinements)
                             <textarea name="description" required placeholder="- Completed monthly report&#10;- Fixed login bug..." style="width: 100%; height: 120px; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem; resize: none; font-family: inherit; margin-bottom: 1.5rem;"></textarea>
                             <div style="display: flex; gap: 1rem;">
                                 <button type="button" onclick="document.getElementById('checkout-modal').style.display = 'none'" style="flex: 1; padding: 0.75rem; background: white; border: 1px solid #d1d5db; border-radius: 0.5rem; cursor: pointer;">Cancel</button>
@@ -228,13 +223,7 @@
                                     <input type="tel" name="phone" id="edit-user-phone" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
                                 </label>
                             </div>
-<<<<<<< HEAD
-                            
-=======
 
-                            </div>
-
->>>>>>> 5b112f3 (Enhance Attendance: Advanced HR rules (ED/EA), shared calendar visibility, location verification, and UI refinements)
                             <div style="display: flex; gap: 1rem; margin-top: 1rem;">
                                 <button type="button" onclick="document.getElementById('edit-user-modal').style.display = 'none'" style="flex: 1; padding: 0.75rem; border: 1px solid #ddd; background: white; border-radius: 0.5rem; cursor: pointer;">Cancel</button>
                                 <button type="submit" class="action-btn" style="flex: 1; padding: 0.75rem; border-radius: 0.5rem;">Update Details</button>
@@ -1086,20 +1075,6 @@
                                                 <div style="font-size: 0.75rem; color: #6b7280;">${u.dept || '--'}</div>
                                             </td>
                                             <td>
-<<<<<<< HEAD
-                                                ${(() => {
-                        const loc = u.currentLocation || u.lastLocation;
-                        if (loc && loc.lat && loc.lng) {
-                            return `<a href="https://www.google.com/maps?q=${loc.lat},${loc.lng}" target="_blank" style="color:var(--primary); text-decoration:none; font-size:0.75rem; display:flex; align-items:center; gap:4px;">
-                                        <i class="fa-solid fa-location-dot"></i> View Map
-                                    </a>`;
-                        }
-                        if (loc && loc.address) {
-                            return `<span style="font-size:0.7rem; color:#6b7280;">${loc.address}</span>`;
-                        }
-                        return `<span style="color:#9ca3af; font-size:0.75rem;">N/A</span>`;
-                    })()}
-=======
                                                 <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem;">
                                                     <div style="display: flex; align-items: center; gap: 4px;">
                                                         <span style="color: #6b7280; font-weight: 500; min-width: 25px;">IN:</span>
@@ -1107,8 +1082,8 @@
                         const loc = u.currentLocation || u.lastLocation;
                         if (loc && loc.lat && loc.lng) {
                             return `<a href="https://www.google.com/maps?q=${loc.lat},${loc.lng}" target="_blank" style="color:var(--primary); text-decoration:none; display:flex; align-items:center; gap:2px;">
-                                        <i class="fa-solid fa-location-dot"></i> Map
-                                    </a>`;
+                                            <i class="fa-solid fa-location-dot"></i> Map
+                                        </a>`;
                         }
                         return loc?.address ? loc.address : `<span style="color:#9ca3af;">N/A</span>`;
                     })()}
@@ -1154,8 +1129,6 @@
                         </div>
                     </div>
                 </div>
-<<<<<<< HEAD
-=======
             `;
         },
 
