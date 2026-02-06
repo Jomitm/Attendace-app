@@ -1101,9 +1101,7 @@
                         }
                         return loc?.address ? loc.address : `<span style="color:#9ca3af;">N/A</span>`;
                     })()}
-                                                    </div>
                                                 </div>
->>>>>>> 5b112f3 (Enhance Attendance: Advanced HR rules (ED/EA), shared calendar visibility, location verification, and UI refinements)
                                             </td>
                                              <td>
                                                  <div style="display: flex; gap: 0.5rem;">
