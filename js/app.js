@@ -370,10 +370,13 @@
                 <div class="modal-content" style="max-width: 500px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
                         <h3>Plan for ${date}</h3>
-                        <button onclick="this.closest('.modal-overlay').remove()" style="background:none; border:none; font-size:1.2rem; cursor:pointer;">&times;</button>
+                        <div style="display:flex; gap:0.5rem; align-items:center;">
+                            ${myPlan ? `<button onclick="window.app_deleteDayPlan('${date}')" title="Delete Plan" style="background:none; border:none; color:#ef4444; font-size:1rem; cursor:pointer;"><i class="fa-solid fa-trash-can"></i></button>` : ''}
+                            <button onclick="this.closest('.modal-overlay').remove()" style="background:none; border:none; font-size:1.2rem; cursor:pointer;">&times;</button>
+                        </div>
                     </div>
 
-                    <div style="margin: 0.5rem 0 1.5rem 0; max-height: 350px; overflow-y: auto; background:#f9fafb; padding:1rem; border-radius:8px;">
+                    <div style="margin: 0.5rem 0 1.5rem 0; max-height: 250px; overflow-y: auto; background:#f9fafb; padding:1rem; border-radius:8px;">
                         <!-- Team Activity (Leaves/Shared Events) -->
                         <div style="margin-bottom: 1.25rem;">
                             <label style="font-size: 0.7rem; font-weight:700; color: #9ca3af; display: block; margin-bottom: 0.5rem; text-transform:uppercase; letter-spacing:0.5px;">Team Leaves & Events</label>
@@ -404,8 +407,21 @@
                     
                     <form onsubmit="window.app_saveDayPlan(event, '${date}')">
                         <div style="padding-top:1rem; border-top:1px solid #f3f4f6;">
-                            <label style="display:block; font-size:0.85rem; font-weight:600; margin-bottom:0.5rem;">Your Daily Task/Goal</label>
-                            <textarea id="my-work-plan" required placeholder="What are you working on today?" style="width:100%; height:100px; padding:0.75rem; border:1px solid #ddd; border-radius:8px; font-family:inherit; resize:none;">${myPlan ? myPlan.plan : ''}</textarea>
+                            <label style="display:block; font-size:0.85rem; font-weight:600; margin-bottom:0.5rem;">Main Task / Goal</label>
+                            <textarea id="my-work-plan" required placeholder="What are you working on today?" style="width:100%; height:80px; padding:0.75rem; border:1px solid #ddd; border-radius:8px; font-family:inherit; resize:none; margin-bottom:1rem;">${myPlan ? myPlan.plan : ''}</textarea>
+                            
+                            <label style="display:block; font-size:0.85rem; font-weight:600; margin-bottom:0.5rem;">Sub-plans / Steps</label>
+                            <div id="sub-plans-container" style="display:flex; flex-direction:column; gap:0.5rem; margin-bottom:1rem;">
+                                ${myPlan && myPlan.subPlans ? myPlan.subPlans.map((sub, i) => `
+                                    <div class="sub-plan-row" style="display:flex; gap:0.5rem; align-items:center;">
+                                        <input type="text" value="${sub}" class="sub-plan-input" placeholder="e.g. Design UI" style="flex:1; padding:0.5rem; border:1px solid #ddd; border-radius:6px; font-size:0.85rem;">
+                                        <button type="button" onclick="this.parentElement.remove()" style="background:none; border:none; color:#9ca3af; cursor:pointer;"><i class="fa-solid fa-circle-xmark"></i></button>
+                                    </div>
+                                `).join('') : ''}
+                            </div>
+                            <button type="button" onclick="window.app_addSubPlanUI()" style="background:#f3f4f6; border:1px dashed #d1d5db; border-radius:6px; padding:0.5rem; width:100%; font-size:0.8rem; color:#4b5563; cursor:pointer;">
+                                <i class="fa-solid fa-plus"></i> Add Sub-plan
+                            </button>
                         </div>
                         <div style="display:flex; gap:1rem; margin-top:1.5rem;">
                              <button type="button" onclick="this.closest('.modal-overlay').remove()" style="flex:1; padding:0.75rem; background:#fff; border:1px solid #ddd; border-radius:8px; cursor:pointer; font-weight:500;">Cancel</button>
@@ -418,11 +434,43 @@
         window.app_showModal(html, 'day-plan-modal');
     };
 
+    window.app_addSubPlanUI = () => {
+        const container = document.getElementById('sub-plans-container');
+        if (!container) return;
+        const row = document.createElement('div');
+        row.className = 'sub-plan-row';
+        row.style.cssText = 'display:flex; gap:0.5rem; align-items:center;';
+        row.innerHTML = `
+            <input type="text" class="sub-plan-input" placeholder="e.g. Design UI" style="flex:1; padding:0.5rem; border:1px solid #ddd; border-radius:6px; font-size:0.85rem;">
+            <button type="button" onclick="this.parentElement.remove()" style="background:none; border:none; color:#9ca3af; cursor:pointer;"><i class="fa-solid fa-circle-xmark"></i></button>
+        `;
+        container.appendChild(row);
+        row.querySelector('input').focus();
+    };
+
+    window.app_deleteDayPlan = async (date) => {
+        if (!confirm("Are you sure you want to delete your work plan for this day?")) return;
+        try {
+            await window.AppCalendar.deleteWorkPlan(date);
+            alert("Plan deleted!");
+            document.getElementById('day-plan-modal')?.remove();
+            // Refresh
+            const contentArea = document.getElementById('page-content');
+            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            setupDashboardEvents();
+        } catch (err) {
+            alert(err.message);
+        }
+    };
+
     window.app_saveDayPlan = async (e, date) => {
         e.preventDefault();
         const plan = document.getElementById('my-work-plan').value;
+        const subPlanInputs = document.querySelectorAll('.sub-plan-input');
+        const subPlans = Array.from(subPlanInputs).map(input => input.value.trim()).filter(v => v !== '');
+
         try {
-            await window.AppCalendar.setWorkPlan(date, plan);
+            await window.AppCalendar.setWorkPlan(date, plan, subPlans);
             alert("Plan saved! This will now pre-fill your checkout summary for this day.");
             document.getElementById('day-plan-modal')?.remove();
             // Refresh
@@ -452,6 +500,8 @@
         const planText = document.getElementById('checkout-plan-text')?.innerText;
         const descArea = document.querySelector('#checkout-modal textarea[name="description"]');
         if (descArea && planText) {
+            // Include sub-plans in the pre-fill if they exist in the hidden text or elements
+            // Actually, checkout-plan-text and myPlan are available in handleAttendance
             descArea.value = planText;
         }
     };
@@ -508,10 +558,16 @@
 
                     if (workPlan && workPlan.plan) {
                         if (planRef) planRef.style.display = 'block';
-                        if (planTextEl) planTextEl.innerText = workPlan.plan;
+
+                        let displayPlan = workPlan.plan;
+                        if (workPlan.subPlans && workPlan.subPlans.length > 0) {
+                            displayPlan += '\n- ' + workPlan.subPlans.join('\n- ');
+                        }
+
+                        if (planTextEl) planTextEl.innerText = displayPlan;
                         // Pre-fill only if the textarea is empty
                         if (descArea && !descArea.value.trim()) {
-                            descArea.value = workPlan.plan;
+                            descArea.value = displayPlan;
                         }
                     } else {
                         if (planRef) planRef.style.display = 'none';

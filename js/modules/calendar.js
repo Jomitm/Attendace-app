@@ -33,7 +33,7 @@
         /**
          * Set/Add a work plan for a specific day
          */
-        async setWorkPlan(date, plan) {
+        async setWorkPlan(date, plan, subPlans = []) {
             const user = window.AppAuth.getUser();
             if (!user) throw new Error("Not authenticated");
 
@@ -43,9 +43,19 @@
                 userName: user.name,
                 date: date,
                 plan: plan,
+                subPlans: subPlans,
                 updatedAt: new Date().toISOString()
             };
             return await this.db.put('work_plans', workPlan);
+        }
+
+        /**
+         * Delete a work plan for a specific day
+         */
+        async deleteWorkPlan(date) {
+            const user = window.AppAuth.getUser();
+            if (!user) throw new Error("Not authenticated");
+            return await this.db.delete('work_plans', `plan_${user.id}_${date}`);
         }
 
         /**
@@ -101,9 +111,13 @@
             // Format work plans
             const workEvents = plans.workPlans.map(p => ({
                 date: p.date,
-                title: `${p.userName}: ${p.plan}`,
+                title: p.subPlans && p.subPlans.length > 0
+                    ? `${p.userName}: ${p.plan}\n- ${p.subPlans.join('\n- ')}`
+                    : `${p.userName}: ${p.plan}`,
                 type: 'work',
-                userId: p.userId
+                userId: p.userId,
+                plan: p.plan,
+                subPlans: p.subPlans || []
             }));
 
             // Merge
