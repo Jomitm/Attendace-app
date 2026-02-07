@@ -7,32 +7,32 @@
     window.AppUI = {
         renderLogin: () => {
             return `
-                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; padding: 2rem;">
-                    <div class="card" style="width: 100%; max-width: 400px; text-align: center;">
-                        <button onclick="window.AppAuth.resetData()" style="position: absolute; top: 1rem; right: 1rem; background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 0.8rem;">
-                             <i class="fa-solid fa-rotate-right"></i> Reset App
+                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; padding: 1rem;">
+                    <div class="card" style="width: 100%; max-width: 360px; text-align: center; padding: 1.5rem;">
+                        <button onclick="window.AppAuth.resetData()" style="position: absolute; top: 0.75rem; right: 0.75rem; background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 0.75rem;">
+                             <i class="fa-solid fa-rotate-right"></i> Reset
                         </button>
-                        <div class="logo-circle" style="width: 60px; height: 60px; margin: 0 auto 1.5rem auto;">
+                        <div class="logo-circle" style="width: 48px; height: 48px; margin: 0 auto 1rem auto;">
                             <img src="https://ui-avatars.com/api/?name=CRWI&background=random" alt="Logo">
                         </div>
-                        <h2 style="margin-bottom: 0.5rem;">CRWI Attendance</h2>
-                        <p class="text-muted" style="margin-bottom: 2rem;">Please sign in to continue</p>
+                        <h2 style="margin-bottom: 0.25rem; font-size: 1.5rem;">CRWI</h2>
+                        <p class="text-muted" style="margin-bottom: 1.5rem; font-size: 0.9rem;">Sign in to continue</p>
                         
-                        <form id="login-form" style="display: flex; flex-direction: column; gap: 1rem; text-align: left;">
+                        <form id="login-form" style="display: flex; flex-direction: column; gap: 0.75rem; text-align: left;">
                             <div>
-                                <label style="font-size: 0.9rem; font-weight: 500; margin-bottom: 0.5rem; display: block;">Login ID / Email</label>
-                                <input type="text" name="username" placeholder="Enter Login ID" required style="width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem;">
+                                <label style="font-size: 0.85rem; font-weight: 500; margin-bottom: 0.4rem; display: block;">Login ID / Email</label>
+                                <input type="text" name="username" placeholder="Enter Login ID" required style="width: 100%; padding: 0.6rem; border: 1px solid #d1d5db; border-radius: 0.5rem; font-size: 0.9rem;">
                             </div>
                             <div>
-                                <label style="font-size: 0.9rem; font-weight: 500; margin-bottom: 0.5rem; display: block;">Password</label>
-                                <input type="password" name="password" placeholder="Enter Password" required style="width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem;">
+                                <label style="font-size: 0.85rem; font-weight: 500; margin-bottom: 0.4rem; display: block;">Password</label>
+                                <input type="password" name="password" placeholder="Enter Password" required style="width: 100%; padding: 0.6rem; border: 1px solid #d1d5db; border-radius: 0.5rem; font-size: 0.9rem;">
                             </div>
                             
-                            <button type="submit" class="action-btn" style="margin-top: 1rem; width: 100%;">Sign In</button>
+                            <button type="submit" class="action-btn" style="margin-top: 0.5rem; width: 100%; padding: 0.75rem;">Sign In</button>
                         </form>
                         
-                        <p style="margin-top: 2rem; font-size: 0.85rem; color: #6b7280;">
-                            Contact Admin for login credentials.
+                        <p style="margin-top: 1.5rem; font-size: 0.75rem; color: #6b7280;">
+                            Contact Admin for credentials.
                         </p>
                     </div>
                 </div>
@@ -338,39 +338,88 @@
             if (!heroData) return '';
             const { user, stats, reason } = heroData;
             return `
-                <div class="card hero-of-the-week full-width" style="background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); color: white; border: none; overflow: hidden; position: relative;">
+                <div class="card hero-of-the-week" style="background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); color: white; border: none; overflow: hidden; position: relative; padding: 1rem;">
                     <!-- Decorative Elements -->
-                    <div style="position: absolute; top: -20px; right: -20px; width: 150px; height: 150px; background: rgba(255,255,255,0.05); border-radius: 50%;"></div>
-                    <div style="position: absolute; bottom: -30px; left: -10px; width: 100px; height: 100px; background: rgba(255,255,255,0.03); border-radius: 50%;"></div>
-                    <i class="fa-solid fa-crown" style="position: absolute; top: 1rem; right: 1rem; font-size: 2.5rem; color: #fbbf24; opacity: 0.3; transform: rotate(15deg);"></i>
-
-                    <div style="position: relative; z-index: 1; display: flex; align-items: center; gap: 1.5rem;">
+                    <div style="position: absolute; top: -20px; right: -20px; width: 120px; height: 120px; background: rgba(255,255,255,0.05); border-radius: 50%;"></div>
+                    <div style="position: absolute; bottom: -30px; left: -10px; width: 80px; height: 80px; background: rgba(255,255,255,0.03); border-radius: 50%;"></div>
+                    <i class="fa-solid fa-crown" style="position: absolute; top: 0.75rem; right: 0.75rem; font-size: 2rem; color: #fbbf24; opacity: 0.3; transform: rotate(15deg);"></i>
+    
+                    <div style="position: relative; z-index: 1; display: flex; align-items: center; gap: 1rem;">
                         <div style="position: relative;">
-                             <div class="logo-circle" style="width: 80px; height: 80px; border: 3px solid #fbbf24; box-shadow: 0 0 20px rgba(251, 191, 36, 0.3);">
+                             <div class="logo-circle" style="width: 60px; height: 60px; border: 2px solid #fbbf24; box-shadow: 0 0 15px rgba(251, 191, 36, 0.3);">
                                 <img src="${user.avatar}" alt="${user.name}">
                             </div>
-                            <div style="position: absolute; bottom: -5px; right: -5px; background: #fbbf24; color: #1e1b4b; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 800; border: 2px solid #1e1b4b;">
+                            <div style="position: absolute; bottom: -3px; right: -3px; background: #fbbf24; color: #1e1b4b; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.65rem; font-weight: 800; border: 2px solid #1e1b4b;">
                                 <i class="fa-solid fa-trophy"></i>
                             </div>
                         </div>
-
+    
                         <div style="flex: 1;">
-                            <span style="font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: #fbbf24;">Hero of the Week</span>
-                            <h3 style="margin: 0.25rem 0; font-size: 1.5rem; letter-spacing: -0.5px;">${user.name}</h3>
-                            <div style="display: flex; gap: 1rem; align-items: center; margin-top: 0.5rem;">
-                                <div style="font-size: 0.85rem; background: rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 20px; backdrop-filter: blur(4px);">
+                            <span style="font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: #fbbf24;">Hero of the Week</span>
+                            <h3 style="margin: 0.15rem 0; font-size: 1.25rem; letter-spacing: -0.5px;">${user.name}</h3>
+                            <div style="display: flex; gap: 0.75rem; align-items: center; margin-top: 0.25rem;">
+                                <div style="font-size: 0.75rem; background: rgba(255,255,255,0.1); padding: 3px 8px; border-radius: 20px; backdrop-filter: blur(4px);">
                                     <i class="fa-solid fa-star" style="color: #fbbf24; margin-right: 4px;"></i> ${reason}
                                 </div>
-                                <div style="font-size: 0.85rem; opacity: 0.9;">
-                                     <i class="fa-solid fa-clock" style="margin-right: 4px;"></i> ${stats.hours}h tracked
+                                <div style="font-size: 0.75rem; opacity: 0.9;">
+                                     <i class="fa-solid fa-clock" style="margin-right: 4px;"></i> ${stats.hours}h
                                 </div>
                             </div>
                         </div>
-
-                        <div style="text-align: center; padding-left: 1rem; border-left: 1px solid rgba(255,255,255,0.1);">
-                            <div style="font-size: 1.8rem; font-weight: 800; color: #fbbf24;">${Math.round(stats.finalScore)}</div>
-                            <div style="font-size: 0.6rem; text-transform: uppercase; opacity: 0.7; font-weight: 600;">Power Score</div>
+    
+                        <div style="text-align: center; padding-left: 0.75rem; border-left: 1px solid rgba(255,255,255,0.1);">
+                            <div style="font-size: 1.5rem; font-weight: 800; color: #fbbf24;">${Math.round(stats.finalScore)}</div>
+                            <div style="font-size: 0.55rem; text-transform: uppercase; opacity: 0.7; font-weight: 600;">Power Score</div>
                         </div>
+                    </div>
+                </div>
+            `;
+        },
+
+        renderLeaveRequests: (leaves) => {
+            if (!leaves || leaves.length === 0) return '';
+
+            return `
+                <div class="card full-width" style="padding: 0.75rem; display:flex; flex-direction:column; margin-bottom: 1rem;">
+                    <div style="margin-bottom:0.75rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.4rem; display:flex; justify-content:space-between; align-items:center;">
+                        <div>
+                            <h4 style="margin:0; color:#1f2937; font-size: 1rem;">Leave Requests</h4>
+                            <span style="font-size:0.7rem; color:#6b7280;">Pending Approval</span>
+                        </div>
+                        <button onclick="window.app_exportLeaves()" class="chip-btn" style="font-size:0.7rem; background:#f0fdf4; color:#166534; border-color:#bbf7d0;">
+                            <i class="fa-solid fa-file-csv"></i> Export All
+                        </button>
+                    </div>
+
+                    <div style="flex:1; overflow-y:auto; max-height: 300px; font-size:0.8rem; padding-right:5px;">
+                        <table style="width:100%; border-collapse:collapse;">
+                            <thead style="position:sticky; top:0; background:white; z-index:1;">
+                                <tr style="text-align:left; border-bottom:1px solid #f3f4f6;">
+                                    <th style="padding:0.5rem 0.25rem;">Staff</th>
+                                    <th style="padding:0.5rem 0.25rem;">Period</th>
+                                    <th style="padding:0.5rem 0.25rem;">Type</th>
+                                    <th style="padding:0.5rem 0.25rem;">Reason</th>
+                                    <th style="padding:0.5rem 0.25rem; text-align:right;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${leaves.map(l => `
+                                    <tr style="border-bottom:1px solid #f9fafb;">
+                                        <td style="padding:0.5rem 0.25rem; font-weight:600; color:var(--primary);">${l.userName || 'Staff'}</td>
+                                        <td style="padding:0.5rem 0.25rem; font-size:0.75rem; color:#4b5563;">${l.startDate}<br>${l.endDate}</td>
+                                        <td style="padding:0.5rem 0.25rem;"><span style="background:#f3f4f6; padding:2px 6px; border-radius:4px; font-size:0.7rem;">${l.type}</span></td>
+                                        <td style="padding:0.5rem 0.25rem; font-size:0.75rem; color:#6b7280; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${l.reason}">${l.reason}</td>
+                                        <td style="padding:0.5rem 0.25rem; text-align:right;">
+                                            <div style="display:flex; gap:0.25rem; justify-content:flex-end;">
+                                                <button onclick="window.app_addLeaveComment('${l.id}')" title="Add Comment" style="background:#fefce8; color:#854d0e; border:none; border-radius:4px; padding:4px 6px; cursor:pointer;"><i class="fa-solid fa-comment-dots"></i></button>
+                                                <button onclick="window.app_approveLeave('${l.id}')" title="Approve" style="background:#f0fdf4; color:#166534; border:none; border-radius:4px; padding:4px 8px; cursor:pointer;"><i class="fa-solid fa-check"></i></button>
+                                                <button onclick="window.app_rejectLeave('${l.id}')" title="Reject" style="background:#fff1f2; color:#991b1b; border:none; border-radius:4px; padding:4px 8px; cursor:pointer;"><i class="fa-solid fa-xmark"></i></button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             `;
@@ -381,13 +430,15 @@
 
             console.time('DashboardFetch');
             // Parallel Fetch
-            const [status, logs, monthlyStats, yearlyStats, heroData, calendarPlans] = await Promise.all([
+            const [status, logs, monthlyStats, yearlyStats, heroData, calendarPlans, staffActivities, pendingLeaves] = await Promise.all([
                 window.AppAttendance.getStatus(),
                 window.AppAttendance.getLogs(),
                 window.AppAnalytics.getUserMonthlyStats(user.id),
                 window.AppAnalytics.getUserYearlyStats(user.id),
                 window.AppAnalytics.getHeroOfTheWeek(),
-                window.AppCalendar ? window.AppCalendar.getPlans() : { leaves: [], events: [] }
+                window.AppCalendar ? window.AppCalendar.getPlans() : { leaves: [], events: [] },
+                window.AppAnalytics.getAllStaffActivities(7),
+                (user.role === 'Administrator' || user.isAdmin) ? window.AppLeaves.getPendingLeaves() : Promise.resolve([])
             ]);
             console.timeEnd('DashboardFetch');
 
@@ -461,9 +512,9 @@
                     if (count === 0 && !['Present', 'Late', 'Absent', 'Early Departure'].includes(key)) return '';
 
                     return `
-                        <div style="display:flex; flex-direction:column; align-items:center; justifyContent:center; padding:0.5rem; background:${style.bg}; border-radius:8px; min-width:65px; text-align:center;">
-                            <span style="font-weight:700; font-size:1.1rem; color:${style.color}">${count}</span>
-                            <span style="font-size:0.65rem; color:${style.color}; font-weight:500; line-height:1.2; margin-top:2px;">${style.label}</span>
+                        <div style="display:flex; flex-direction:column; align-items:center; justifyContent:center; padding:0.4rem; background:${style.bg}; border-radius:8px; min-width:60px; text-align:center;">
+                            <span style="font-weight:700; font-size:1rem; color:${style.color}">${count}</span>
+                            <span style="font-size:0.6rem; color:${style.color}; font-weight:500; line-height:1.2; margin-top:1px;">${style.label}</span>
                         </div>
                      `;
                 }).join('');
@@ -475,30 +526,30 @@
                     : '';
 
                 return `
-                    <div class="card" style="padding: 1.25rem; display:flex; flex-direction:column; gap:1rem;">
+                    <div class="card" style="padding: 1rem; display:flex; flex-direction:column; gap:0.75rem;">
                         <!-- Header -->
                         <div style="display:flex; justify-content:space-between; align-items:start;">
                             <div>
-                                <h4 style="margin:0; font-size:1.1rem; color:#1f2937;">${title}</h4>
-                                <span style="font-size:0.75rem; color:#6b7280; margin-top:0.25rem; display:block;">${subtitle}</span>
+                                <h4 style="margin:0; font-size:1rem; color:#1f2937;">${title}</h4>
+                                <span style="font-size:0.7rem; color:#6b7280; margin-top:0.15rem; display:block;">${subtitle}</span>
                             </div>
                             ${penaltyBadge}
                         </div>
 
                         <!-- Time Stats -->
-                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.75rem;">
-                             <div style="background:#fef2f2; padding:0.75rem; border-radius:8px; text-align:center; border:1px solid #fee2e2;">
-                                <div style="color:#b91c1c; font-weight:700; font-size:1.1rem;">${statsObj.totalLateDuration}</div>
-                                <div style="color:#7f1d1d; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Late Time</div>
+                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.5rem;">
+                             <div style="background:#fef2f2; padding:0.6rem; border-radius:8px; text-align:center; border:1px solid #fee2e2;">
+                                <div style="color:#b91c1c; font-weight:700; font-size:1rem;">${statsObj.totalLateDuration}</div>
+                                <div style="color:#7f1d1d; font-size:0.6rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Late</div>
                              </div>
-                             <div style="background:#ecfdf5; padding:0.75rem; border-radius:8px; text-align:center; border:1px solid #d1fae5;">
-                                <div style="color:#047857; font-weight:700; font-size:1.1rem;">${statsObj.totalExtraDuration}</div>
-                                <div style="color:#064e3b; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Extra Hrs</div>
+                             <div style="background:#ecfdf5; padding:0.6rem; border-radius:8px; text-align:center; border:1px solid #d1fae5;">
+                                <div style="color:#047857; font-weight:700; font-size:1rem;">${statsObj.totalExtraDuration}</div>
+                                <div style="color:#064e3b; font-size:0.6rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Extra</div>
                              </div>
                         </div>
 
                         <!-- Breakdown -->
-                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: start;">
+                        <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; justify-content: start;">
                             ${renderBreakdown(statsObj.breakdown)}
                         </div>
                     </div>
@@ -513,22 +564,22 @@
                 const endDefault = today.toISOString().split('T')[0];
 
                 return `
-                    <div class="card" style="padding: 1rem; display:flex; flex-direction:column; max-height: 400px;">
-                        <div style="margin-bottom:1rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.5rem;">
-                             <h4 style="margin:0; color:#1f2937;">Activity Log</h4>
-                             <span style="font-size:0.75rem; color:#6b7280;">Work Descriptions</span>
+                    <div class="card" style="padding: 0.75rem; display:flex; flex-direction:column;">
+                        <div style="margin-bottom:0.75rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.4rem;">
+                             <h4 style="margin:0; color:#1f2937; font-size: 1rem;">Activity Log</h4>
+                             <span style="font-size:0.7rem; color:#6b7280;">Work Descriptions</span>
                         </div>
 
                         <!-- Filters -->
-                         <div style="display:flex; gap:0.5rem; margin-bottom:1rem; align-items:center;">
-                            <input type="date" id="act-start" value="${startDefault}" style="border:1px solid #e5e7eb; border-radius:4px; padding:4px; font-size:0.8rem; width:110px;">
-                            <span style="color:#9ca3af; font-size:0.8rem;">to</span>
-                            <input type="date" id="act-end" value="${endDefault}" style="border:1px solid #e5e7eb; border-radius:4px; padding:4px; font-size:0.8rem; width:110px;">
-                            <button onclick="window.app_filterActivity()" style="background:var(--primary); color:white; border:none; border-radius:4px; padding:4px 8px; font-size:0.8rem; cursor:pointer;">Go</button>
+                         <div style="display:flex; gap:0.4rem; margin-bottom:0.75rem; align-items:center;">
+                            <input type="date" id="act-start" value="${startDefault}" style="border:1px solid #e5e7eb; border-radius:4px; padding:3px; font-size:0.75rem; width:100px;">
+                            <span style="color:#9ca3af; font-size:0.75rem;">to</span>
+                            <input type="date" id="act-end" value="${endDefault}" style="border:1px solid #e5e7eb; border-radius:4px; padding:3px; font-size:0.75rem; width:100px;">
+                            <button onclick="window.app_filterActivity()" style="background:var(--primary); color:white; border:none; border-radius:4px; padding:3px 6px; font-size:0.75rem; cursor:pointer;">Go</button>
                         </div>
 
                         <!-- Report Content (Scrollable) -->
-                        <div id="activity-list" style="flex:1; overflow-y:auto; font-size:0.85rem; padding-right:5px;">
+                        <div id="activity-list" style="flex:1; overflow-y:auto; min-height: 250px; font-size:0.8rem; padding-right:5px;">
                             ${renderActivityList(logs, startDefault, endDefault)}
                         </div>
                     </div>
@@ -587,6 +638,156 @@
 
             // Get logs for the widget (Already fetched above as 'logs')
 
+            // NEW: Staff Activity Widget Helper
+            const renderStaffActivityWidget = (allStaffLogs) => {
+                // Calculate yesterday's date
+                const yesterday = new Date();
+                yesterday.setDate(yesterday.getDate() - 1);
+                const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+                // Initialize auto-scroll after render
+                setTimeout(() => {
+                    const container = document.getElementById('staff-activity-list');
+                    if (!container) return;
+
+                    let scrollInterval;
+                    let isPaused = false;
+
+                    const startAutoScroll = () => {
+                        if (scrollInterval) clearInterval(scrollInterval);
+                        scrollInterval = setInterval(() => {
+                            if (!isPaused && container) {
+                                container.scrollTop += 1;
+                                // Reset to top when reaching bottom
+                                if (container.scrollTop >= container.scrollHeight - container.clientHeight) {
+                                    container.scrollTop = 0;
+                                }
+                            }
+                        }, 50); // Scroll speed: lower = faster
+                    };
+
+                    // Pause on hover
+                    container.addEventListener('mouseenter', () => {
+                        isPaused = true;
+                    });
+
+                    container.addEventListener('mouseleave', () => {
+                        isPaused = false;
+                    });
+
+                    startAutoScroll();
+
+                    // Store interval ID for cleanup
+                    window.staffActivityScrollInterval = scrollInterval;
+                }, 500);
+
+                return `
+                <div class="card" style="padding: 0.75rem; display:flex; flex-direction:column; max-height: 400px;">
+                    <div style="margin-bottom:0.75rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.4rem;">
+                         <h4 style="margin:0; color:#1f2937; font-size: 1rem;">Team Activities</h4>
+                         <span style="font-size:0.7rem; color:#6b7280;">Previous Day's Work</span>
+                    </div>
+
+                    <!-- Filter Buttons -->
+                    <div style="display:flex; gap:0.4rem; margin-bottom:0.75rem;">
+                        <button onclick="window.app_filterStaffActivity(1)" class="chip-btn" style="font-size:0.7rem; padding:0.3rem 0.6rem;">Yesterday</button>
+                        <button onclick="window.app_filterStaffActivity(3)" class="chip-btn" style="font-size:0.7rem; padding:0.3rem 0.6rem;">Last 3 Days</button>
+                        <button onclick="window.app_filterStaffActivity(7)" class="chip-btn" style="font-size:0.7rem; padding:0.3rem 0.6rem;">Last Week</button>
+                    </div>
+
+                    <!-- Scrollable List with Auto-Scroll -->
+                    <div id="staff-activity-list" style="flex:1; overflow-y:auto; font-size:0.8rem; padding-right:5px; scroll-behavior: smooth;">
+                        ${renderStaffActivityList(allStaffLogs, 1)}
+                    </div>
+                </div>
+            `;
+            };
+
+            // Global Helper for filtering staff activities
+            window.app_filterStaffActivity = (daysBack) => {
+                const list = document.getElementById('staff-activity-list');
+                if (!list) return;
+
+                // Clear existing scroll interval
+                if (window.staffActivityScrollInterval) {
+                    clearInterval(window.staffActivityScrollInterval);
+                }
+
+                window.AppAnalytics.getAllStaffActivities(daysBack).then(logs => {
+                    list.innerHTML = renderStaffActivityList(logs, daysBack);
+
+                    // Restart auto-scroll
+                    setTimeout(() => {
+                        let scrollInterval;
+                        let isPaused = false;
+
+                        const startAutoScroll = () => {
+                            if (scrollInterval) clearInterval(scrollInterval);
+                            scrollInterval = setInterval(() => {
+                                if (!isPaused && list) {
+                                    list.scrollTop += 1;
+                                    if (list.scrollTop >= list.scrollHeight - list.clientHeight) {
+                                        list.scrollTop = 0;
+                                    }
+                                }
+                            }, 50);
+                        };
+
+                        // Re-attach hover listeners
+                        list.removeEventListener('mouseenter', () => { });
+                        list.removeEventListener('mouseleave', () => { });
+
+                        list.addEventListener('mouseenter', () => {
+                            isPaused = true;
+                        });
+
+                        list.addEventListener('mouseleave', () => {
+                            isPaused = false;
+                        });
+
+                        startAutoScroll();
+                        window.staffActivityScrollInterval = scrollInterval;
+                    }, 100);
+                });
+            };
+
+            // Internal Helper to render staff activity list
+            const renderStaffActivityList = (allLogs, daysBack) => {
+                // Filter by days back
+                const cutoffDate = new Date();
+                cutoffDate.setDate(cutoffDate.getDate() - daysBack);
+                cutoffDate.setHours(0, 0, 0, 0);
+
+                const filtered = allLogs.filter(log => {
+                    const logDate = new Date(log.date);
+                    return logDate >= cutoffDate;
+                });
+
+                if (filtered.length === 0) {
+                    return '<div style="color:#9ca3af; text-align:center; padding:1rem;">No team activities found.</div>';
+                }
+
+                let html = '';
+                let lastDate = '';
+
+                filtered.forEach(log => {
+                    const showDate = log.date !== lastDate;
+                    if (showDate) {
+                        html += `<div style="font-weight:600; color:#374151; background:#f9fafb; padding:4px 8px; border-radius:4px; margin-top:0.75rem; margin-bottom:0.25rem; font-size:0.8rem;">${log.date}</div>`;
+                        lastDate = log.date;
+                    }
+
+                    html += `
+                    <div style="margin-left:0.5rem; padding-left:0.75rem; border-left:2px solid #e5e7eb; margin-bottom:0.5rem;">
+                        <div style="font-weight:600; color:var(--primary); font-size:0.8rem;">${log.staffName}</div>
+                        <div style="white-space: pre-wrap; color:#4b5563; font-size:0.85rem; margin-top:2px;">${log._displayDesc}</div>
+                        <div style="font-size:0.7rem; color:#9ca3af; margin-top:2px;">${log.checkOut || 'Checked Out'}</div>
+                    </div>
+                 `;
+                });
+                return html;
+            };
+
             // NEW: Work Plan Calendar Widget (Shared)
             const renderYearlyPlan = (plans) => {
                 const today = new Date();
@@ -642,18 +843,18 @@
                 window._getDayEvents = getDayEvents; // Helper for modal
 
                 return `
-                    <div class="card" style="padding: 1rem; display:flex; flex-direction:column; min-width: 250px;">
-                        <div style="margin-bottom:0.75rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.5rem; display:flex; justify-content:space-between; align-items:center;">
-                             <div style="display:flex; align-items:center; gap:0.5rem;">
+                    <div class="card" style="padding: 0.75rem; display:flex; flex-direction:column;">
+                        <div style="margin-bottom:0.6rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.4rem; display:flex; justify-content:space-between; align-items:center;">
+                             <div style="display:flex; align-items:center; gap:0.4rem;">
                                 <button onclick="window.app_changeCalMonth(-1)" style="background:none; border:none; color:#6b7280; cursor:pointer; padding:2px;"><i class="fa-solid fa-chevron-left"></i></button>
-                                <div style="text-align:center; min-width:80px;">
-                                    <h4 style="margin:0; color:#1f2937; font-size:0.95rem;">${monthNames[month]} ${year}</h4>
+                                <div style="text-align:center; min-width:70px;">
+                                    <h4 style="margin:0; color:#1f2937; font-size:0.9rem;">${monthNames[month]} ${year}</h4>
                                 </div>
                                 <button onclick="window.app_changeCalMonth(1)" style="background:none; border:none; color:#6b7280; cursor:pointer; padding:2px;"><i class="fa-solid fa-chevron-right"></i></button>
                              </div>
                              ${user.role === 'Administrator' || user.isAdmin ? `<button onclick="window.app_openEventModal()" style="background:none; border:none; color:var(--primary); cursor:pointer;"><i class="fa-solid fa-plus-circle"></i></button>` : ''}
                         </div>
-                        <div class="calendar-grid-mini" style="display:grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align:center; font-size: 0.7rem;">
+                        <div class="calendar-grid-mini" style="display:grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align:center; font-size: 0.65rem;">
                             <div style="font-weight:700; color:#9ca3af;">S</div>
                             <div style="font-weight:700; color:#9ca3af;">M</div>
                             <div style="font-weight:700; color:#9ca3af;">T</div>
@@ -663,10 +864,10 @@
                             <div style="font-weight:700; color:#9ca3af;">S</div>
                             ${calendarHTML}
                         </div>
-                        <div style="margin-top:0.75rem; display:flex; flex-wrap:wrap; gap:0.5rem; font-size:0.6rem; color:#6b7280; justify-content:center;">
-                            <span style="display:flex; align-items:center; gap:2px;"><span style="width:6px; height:6px; background:#b91c1c; border-radius:50%;"></span> Leave</span>
-                            <span style="display:flex; align-items:center; gap:2px;"><span style="width:6px; height:6px; background:#166534; border-radius:50%;"></span> Event</span>
-                            <span style="display:flex; align-items:center; gap:2px;"><span style="width:6px; height:6px; background:#4f46e5; border-radius:50%;"></span> Plan</span>
+                        <div style="margin-top:0.6rem; display:flex; flex-wrap:wrap; gap:0.4rem; font-size:0.55rem; color:#6b7280; justify-content:center;">
+                            <span style="display:flex; align-items:center; gap:2px;"><span style="width:5px; height:5px; background:#b91c1c; border-radius:50%;"></span> Leave</span>
+                            <span style="display:flex; align-items:center; gap:2px;"><span style="width:5px; height:5px; background:#166534; border-radius:50%;"></span> Event</span>
+                            <span style="display:flex; align-items:center; gap:2px;"><span style="width:5px; height:5px; background:#4f46e5; border-radius:50%;"></span> Plan</span>
                         </div>
                         <style>
                             .cal-day { padding: 4px; border-radius: 4px; position: relative; transition: all 0.2s; }
@@ -681,37 +882,46 @@
                 `;
             };
 
+            const heroHTML = this.renderHeroCard(heroData);
+
             const summaryHTML = `
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; align-items: start; grid-column: 1 / -1;">
+                ${this.renderLeaveRequests(pendingLeaves)}
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; align-items: stretch; grid-column: 1 / -1;">
                     ${renderStatsCard(monthlyStats.label, 'Monthly Stats', monthlyStats)}
                     ${renderStatsCard('Yearly Summary', yearlyStats.label, yearlyStats)}
                     ${renderActivityReport(logs)}
-                    ${renderYearlyPlan(calendarPlans)}
+                    <div style="display: flex; flex-direction: column; gap: 1rem;">
+                        ${renderYearlyPlan(calendarPlans)}
+                        ${heroHTML}
+                    </div>
                 </div>
             `;
 
-            const heroHTML = this.renderHeroCard(heroData);
-
             return `
                 <div class="dashboard-grid">
-                    ${heroHTML}
+                    <div class="card welcome-card full-width" style="background: linear-gradient(135deg, #1e1b4b 0%, #4338ca 100%); position: relative; overflow: hidden; min-height: 140px; display: flex; align-items: center; padding: 1.5rem;">
+                        <!-- Premium Background Decorations -->
+                        <div style="position: absolute; top: -30px; right: -30px; width: 200px; height: 200px; background: rgba(255,255,255,0.05); border-radius: 50%;"></div>
+                        <div style="position: absolute; bottom: -50px; left: -20px; width: 150px; height: 150px; background: rgba(255,255,255,0.03); border-radius: 50%;"></div>
+                        
+                        <div style="position: relative; z-index: 1; flex: 1;">
+                            <h2 style="font-size: 1.8rem; font-weight: 700; margin: 0; letter-spacing: -0.5px;">Good Afternoon, ${user.name}</h2>
+                            <p style="opacity: 0.9; margin-top: 0.5rem; font-size: 1rem;">Welcome back! Ready to start your productive day?</p>
+                        </div>
+                        <div style="position: relative; z-index: 1;">
+                            <i class="fa-solid fa-cloud-sun" style="font-size: 4rem; color: #fbbf24; filter: drop-shadow(0 0 10px rgba(251, 191, 36, 0.4));"></i>
+                        </div>
+                    </div>
+
                     ${notifHTML}
                     ${summaryHTML}
 
-                    <div class="card welcome-card full-width">
-                        <div>
-                            <h3>Good Afternoon, ${user.name}</h3>
-                            <p style="opacity: 0.9">Have a productive day!</p>
-                        </div>
-                        <i class="fa-solid fa-cloud-sun" style="font-size: 3rem; opacity: 0.8;"></i>
-                    </div>
-
-                    <div class="card check-in-widget">
-                        <div class="user-mini-profile" style="flex-direction: column; text-align: center;">
-                            <img src="${user.avatar}" alt="Profile" style="width: 80px; height: 80px;">
+                    <div class="card check-in-widget" style="padding: 1rem; gap: 1rem;">
+                        <div class="user-mini-profile" style="flex-direction: column; text-align: center; gap: 0.5rem;">
+                            <img src="${user.avatar}" alt="Profile" style="width: 60px; height: 60px;">
                             <div>
-                                <h4>${user.name}</h4>
-                                <p class="text-muted">${user.role}</p>
+                                <h4 style="font-size: 1rem;">${user.name}</h4>
+                                <p class="text-muted" style="font-size: 0.8rem;">${user.role}</p>
                             </div>
                         </div>
 
@@ -752,6 +962,8 @@
                             <a href="#timesheet" onclick="window.location.hash = 'timesheet'; return false;" style="color: var(--primary); text-decoration: none; font-weight: 500;">View All</a>
                         </div>
                     </div>
+
+                    ${renderStaffActivityWidget(staffActivities)}
                 </div>
 
                         </button>
@@ -842,32 +1054,32 @@
                     <div class="dashboard-grid">
                         <div class="card full-width" style="padding: 0; overflow: hidden; position: relative;">
                             <!-- Banner -->
-                            <div style="height: 150px; background: linear-gradient(to right, #4f46e5, #818cf8); position: relative;"></div>
+                            <div style="height: 120px; background: linear-gradient(to right, #4f46e5, #818cf8); position: relative;"></div>
                             
                             <!-- Profile Info -->
-                            <div style="padding: 0 2rem 2rem 2rem; display: flex; flex-direction: column; align-items: center; margin-top: -50px;">
+                            <div style="padding: 0 1.5rem 1.5rem 1.5rem; display: flex; flex-direction: column; align-items: center; margin-top: -40px;">
                                 <div style="position: relative;">
-                                    <div class="logo-circle" style="width: 100px; height: 100px; border: 4px solid white; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+                                    <div class="logo-circle" style="width: 80px; height: 80px; border: 3px solid white; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
                                         <img src="${user.avatar}" alt="Profile" style="background:#fff;">
                                     </div>
-                                    <button onclick="window.app_triggerUpload()" style="position: absolute; bottom: 0; right: 0; background: var(--primary); color: white; border: none; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.2);" title="Change Photo">
-                                        <i class="fa-solid fa-camera" style="font-size: 0.8rem;"></i>
+                                    <button onclick="window.app_triggerUpload()" style="position: absolute; bottom: 0; right: 0; background: var(--primary); color: white; border: none; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.2);" title="Change Photo">
+                                        <i class="fa-solid fa-camera" style="font-size: 0.7rem;"></i>
                                     </button>
                                     <input type="file" id="profile-upload" accept="image/*" style="display: none;" onchange="window.app_handlePhotoUpload(this)">
                                 </div>
                                 
-                                <h2 style="margin-top: 1rem; margin-bottom: 0.25rem;">${user.name}</h2>
-                                <p class="text-muted" style="font-weight: 500;">${user.role} <span style="margin: 0 0.5rem; color: #d1d5db;">|</span> ${user.dept || 'General'}</p>
+                                <h2 style="margin-top: 0.75rem; margin-bottom: 0.15rem; font-size: 1.5rem;">${user.name}</h2>
+                                <p class="text-muted" style="font-weight: 500; font-size: 0.9rem;">${user.role} <span style="margin: 0 0.5rem; color: #d1d5db;">|</span> ${user.dept || 'General'}</p>
                                 
-                                <span class="badge ${user.status === 'in' ? 'in' : 'out'}" style="margin-top: 1rem;">
+                                <span class="badge ${user.status === 'in' ? 'in' : 'out'}" style="margin-top: 0.75rem; font-size: 0.75rem;">
                                     ${user.status === 'in' ? '● Currently Online' : '○ Currently Offline'}
                                 </span>
                             </div>
 
                             <!-- Details Grid -->
-                            <div style="padding: 2rem; border-top: 1px solid #f3f4f6;">
-                                <h3 style="margin-bottom: 1.5rem; font-size: 1.1rem; color: var(--text-main);">Personal Information</h3>
-                                <div class="grid-2" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem;">
+                            <div style="padding: 1.5rem; border-top: 1px solid #f3f4f6;">
+                                <h3 style="margin-bottom: 1rem; font-size: 1rem; color: var(--text-main);">Personal Information</h3>
+                                <div class="grid-2" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;">
                                     <div>
                                         <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">Login ID</label>
                                         <div style="font-weight: 500; font-family: monospace; background: #f9fafb; padding: 0.5rem; border-radius: 0.375rem; border: 1px solid #e5e7eb;">${user.username}</div>
@@ -886,8 +1098,11 @@
                                     </div>
                                 </div>
 
-                                <div style="margin-top: 2.5rem; display: flex; gap: 1rem; justify-content: flex-end;">
-                                    <button class="action-btn" onclick="document.dispatchEvent(new CustomEvent('auth-logout'))" style="background: white; color: #991b1b; border: 1px solid #fecaca; box-shadow: none;">
+                                <div style="margin-top: 1.5rem; display: flex; gap: 1rem; justify-content: flex-end;">
+                                    <button class="action-btn" onclick="window.AppTour.resetTour('${user.id}')" style="background: white; color: var(--primary); border: 1px solid #c7d2fe; box-shadow: none; padding: 0.6rem 1.5rem; font-size: 0.9rem;">
+                                        <i class="fa-solid fa-circle-question"></i> Replay Tour
+                                    </button>
+                                    <button class="action-btn" onclick="document.dispatchEvent(new CustomEvent('auth-logout'))" style="background: white; color: #991b1b; border: 1px solid #fecaca; box-shadow: none; padding: 0.6rem 1.5rem; font-size: 0.9rem;">
                                         <i class="fa-solid fa-arrow-right-from-bracket"></i> Sign Out
                                     </button>
                                 </div>
@@ -901,10 +1116,11 @@
                                 <table>
                                     <thead>
                                         <tr>
-                                            <th>Dates</th>
-                                            <th>Type</th>
-                                            <th>Reason</th>
-                                            <th>Status</th>
+                                            <th style="padding: 12px 8px;">Dates</th>
+                                            <th style="padding: 12px 8px;">Type</th>
+                                            <th style="padding: 12px 8px;">Reason</th>
+                                            <th style="padding: 12px 8px;">Status</th>
+                                            <th style="padding: 12px 8px;">Admin Feedback</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -915,13 +1131,14 @@
                     if (l.status === 'Rejected') { badgeColor = '#fee2e2'; textColor = '#991b1b'; }
 
                     return `
-                                                <tr>
-                                                    <td>${l.startDate} <span style="color:#9ca3af">to</span> ${l.endDate}</td>
-                                                    <td>${l.type}</td>
-                                                    <td style="color:#6b7280; font-size:0.9rem;">${l.reason}</td>
-                                                    <td><span style="background:${badgeColor}; color:${textColor}; padding:0.25rem 0.5rem; border-radius:4px; font-size:0.8rem; font-weight:600;">${l.status}</span></td>
+                                                <tr style="border-bottom: 1px solid #f3f4f6;">
+                                                    <td style="padding: 12px 8px;">${l.startDate} <span style="color:#9ca3af">to</span> ${l.endDate}</td>
+                                                    <td style="padding: 12px 8px;">${l.type}</td>
+                                                    <td style="padding: 12px 8px; color:#6b7280; font-size:0.9rem;">${l.reason}</td>
+                                                    <td style="padding: 12px 8px;"><span style="background:${badgeColor}; color:${textColor}; padding:0.25rem 0.5rem; border-radius:4px; font-size:0.8rem; font-weight:600;">${l.status}</span></td>
+                                                    <td style="padding: 12px 8px; font-style: italic; color: #4338ca; font-size: 0.85rem;">${l.adminComment || '<span style="color:#9ca3af; font-style:normal;">No feedback yet</span>'}</td>
                                                 </tr>`;
-                }).join('') : '<tr><td colspan="4" style="text-align:center; padding:1.5rem; color:#6b7280;">No leave requests found.</td></tr>'}
+                }).join('') : '<tr><td colspan="5" style="text-align:center; padding:1.5rem; color:#6b7280;">No leave requests found.</td></tr>'}
                                     </tbody>
                                 </table>
                             </div>
@@ -957,10 +1174,10 @@
             return `
             <div class="dashboard-grid">
                 <div class="card full-width">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
                         <div>
-                            <h2 style="font-size:1.5rem; margin-bottom:0.25rem;">Attendance Sheet</h2>
-                            <p style="color:var(--text-muted); font-size:0.9rem;">Master grid view for all staff logs.</p>
+                            <h2 style="font-size:1.25rem; margin-bottom:0.15rem;">Attendance Sheet</h2>
+                            <p style="color:var(--text-muted); font-size:0.85rem;">Master grid view for all staff logs.</p>
                         </div>
                         <div style="display:flex; gap:0.75rem; align-items:center;">
                             <select onchange="window.app_refreshMasterSheet()" id="sheet-month" style="padding:0.5rem; border-radius:8px; border:1px solid #ddd;">
@@ -1070,17 +1287,17 @@
             return `
                 <div class="dashboard-grid">
                     <!-- Stats Overview -->
-                     <div class="card" style="background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); color: white; border: none;">
-                        <span style="font-size: 0.8rem; opacity: 0.8; font-weight: 500;">Total Registered Staff</span>
-                        <h2 style="font-size: 2.5rem; margin: 0.5rem 0;">${allUsers.length}</h2>
-                        <div style="display: flex; gap: 1rem; margin-top: 1rem;">
-                            <div style="flex: 1; background: rgba(255,255,255,0.1); padding: 0.75rem; border-radius: 0.75rem;">
-                                <div style="font-size: 1.2rem; font-weight: 700;">${activeCount}</div>
-                                <div style="font-size: 0.7rem; opacity: 0.7; text-transform: uppercase;">Active Now</div>
+                     <div class="card" style="background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); color: white; border: none; padding: 1.25rem;">
+                        <span style="font-size: 0.75rem; opacity: 0.8; font-weight: 500;">Total Registered Staff</span>
+                        <h2 style="font-size: 2rem; margin: 0.25rem 0;">${allUsers.length}</h2>
+                        <div style="display: flex; gap: 0.75rem; margin-top: 0.75rem;">
+                            <div style="flex: 1; background: rgba(255,255,255,0.1); padding: 0.6rem; border-radius: 0.75rem;">
+                                <div style="font-size: 1.1rem; font-weight: 700;">${activeCount}</div>
+                                <div style="font-size: 0.65rem; opacity: 0.7; text-transform: uppercase;">Active</div>
                             </div>
-                            <div style="flex: 1; background: rgba(255,255,255,0.1); padding: 0.75rem; border-radius: 0.75rem;">
-                                <div style="font-size: 1.2rem; font-weight: 700;">${adminCount}</div>
-                                <div style="font-size: 0.7rem; opacity: 0.7; text-transform: uppercase;">Admins</div>
+                            <div style="flex: 1; background: rgba(255,255,255,0.1); padding: 0.6rem; border-radius: 0.75rem;">
+                                <div style="font-size: 1.1rem; font-weight: 700;">${adminCount}</div>
+                                <div style="font-size: 0.65rem; opacity: 0.7; text-transform: uppercase;">Admins</div>
                             </div>
                         </div>
                     </div>
@@ -1095,13 +1312,13 @@
                         </div>
                         
                         <!-- Chart Area -->
-                        <div style="height: 100px; display: flex; align-items: flex-end; gap: 6px; margin-bottom: 8px;">
+                        <div style="height: 80px; display: flex; align-items: flex-end; gap: 5px; margin-bottom: 6px;">
                             ${performance.trendData.map((h, i) => {
                 const barColor = h > 70 ? 'var(--primary)' : (h > 40 ? '#f59e0b' : '#ef4444');
                 const dayLabel = performance.labels ? performance.labels[i] : '';
                 return `
-                                    <div style="flex: 1; display: flex; flex-direction: column; height: 100%; justify-content: flex-end; align-items: center; gap: 4px;">
-                                        <div style="font-size: 0.6rem; font-weight: 700; color: ${barColor};">${h}%</div>
+                                    <div style="flex: 1; display: flex; flex-direction: column; height: 100%; justify-content: flex-end; align-items: center; gap: 3px;">
+                                        <div style="font-size: 0.55rem; font-weight: 700; color: ${barColor};">${h}%</div>
                                         <div style="width: 100%; background: ${barColor}; height: ${Math.max(h, 5)}%; border-radius: 4px 4px 0 0; opacity: 0.8;" title="Score: ${h}%"></div>
                                     </div>
                                 `;
@@ -1128,14 +1345,14 @@
                     </div>
 
                     <div class="card full-width">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-                            <h3>Staff Management</h3>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                            <h3 style="font-size: 1.1rem;">Staff Management</h3>
                             <div style="display: flex; gap: 0.75rem;">
-                                <button class="action-btn secondary" style="padding: 0.5rem 1rem; font-size: 0.9rem;" onclick="window.app_exportReports()">
-                                    <i class="fa-solid fa-file-export"></i> Export CSV
+                                <button class="action-btn secondary" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;" onclick="window.app_exportReports()">
+                                    <i class="fa-solid fa-file-export"></i> CSV
                                 </button>
-                                <button class="action-btn" style="padding: 0.5rem 1rem; font-size: 0.9rem;" onclick="document.getElementById('add-user-modal').style.display = 'flex'">
-                                    <i class="fa-solid fa-user-plus"></i> Add Staff
+                                <button class="action-btn" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;" onclick="document.getElementById('add-user-modal').style.display = 'flex'">
+                                    <i class="fa-solid fa-user-plus"></i> Staff
                                 </button>
                             </div>
                         </div>
@@ -1258,10 +1475,10 @@
 
             return `
                 <div class="card full-width">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; flex-wrap: wrap; gap: 1rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
                         <div>
-                            <h3>Salary Processing</h3>
-                            <p class="text-muted">Period: ${monthLabel}</p>
+                            <h3 style="font-size: 1.15rem;">Salary Processing</h3>
+                            <p class="text-muted" style="font-size: 0.8rem;">Period: ${monthLabel}</p>
                         </div>
                         <div style="display: flex; align-items: center; gap: 1rem;">
                             <div style="background: #f8fafc; padding: 0.5rem 1rem; border-radius: 0.5rem; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 0.5rem;">
@@ -1271,11 +1488,11 @@
                                     onchange="window.app_recalculateAllSalaries()">
                                 <span style="font-weight: 600; color: #64748b;">%</span>
                             </div>
-                            <button class="action-btn" onclick="window.app_exportSalaryCSV()" style="background: #10b981;">
-                                <i class="fa-solid fa-file-csv"></i> Export CSV
+                            <button class="action-btn" onclick="window.app_exportSalaryCSV()" style="background: #10b981; padding: 0.5rem 1rem; font-size: 0.85rem;">
+                                <i class="fa-solid fa-file-csv"></i> CSV
                             </button>
-                            <button class="action-btn" onclick="window.app_saveAllSalaries()">
-                                <i class="fa-solid fa-save"></i> Save All Records
+                            <button class="action-btn" onclick="window.app_saveAllSalaries()" style="padding: 0.5rem 1rem; font-size: 0.85rem;">
+                                <i class="fa-solid fa-save"></i> Save All
                             </button>
                         </div>
                     </div>

@@ -26,11 +26,37 @@
         }
 
         /**
+         * Get All Leaves
+         * Get All Leaves (for Admin Reports)
+         */
+        async getAllLeaves() {
+            const [allLeaves, allUsers] = await Promise.all([
+                this.db.getAll('leaves'),
+                this.db.getAll('users')
+            ]);
+
+            return allLeaves.map(l => {
+                const user = allUsers.find(u => u.id === l.userId);
+                return { ...l, userName: user ? user.name : 'Unknown' };
+            }).sort((a, b) => new Date(b.appliedOn) - new Date(a.appliedOn));
+        }
+
+        /**
          * Get Pending Leaves (for Admin)
          */
         async getPendingLeaves() {
-            const allLeaves = await this.db.getAll('leaves');
-            return allLeaves.filter(l => l.status === 'Pending').sort((a, b) => new Date(b.appliedOn) - new Date(a.appliedOn));
+            const [allLeaves, allUsers] = await Promise.all([
+                this.db.getAll('leaves'),
+                this.db.getAll('users')
+            ]);
+
+            return allLeaves
+                .filter(l => l.status === 'Pending')
+                .map(l => {
+                    const user = allUsers.find(u => u.id === l.userId);
+                    return { ...l, userName: user ? user.name : 'Unknown' };
+                })
+                .sort((a, b) => new Date(b.appliedOn) - new Date(a.appliedOn));
         }
 
         /**
@@ -44,13 +70,14 @@
         /**
          * Update Leave Status (Approve/Reject)
          */
-        async updateLeaveStatus(leaveId, status, adminId) {
+        async updateLeaveStatus(leaveId, status, adminId, adminComment = '') {
             const leave = await this.db.get('leaves', leaveId);
             if (!leave) throw new Error("Leave not found");
 
             leave.status = status;
             leave.actionBy = adminId;
             leave.actionDate = new Date().toISOString();
+            leave.adminComment = adminComment;
 
             await this.db.put('leaves', leave);
 

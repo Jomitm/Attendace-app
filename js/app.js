@@ -70,29 +70,29 @@
         const html = `
             <div class="modal-overlay" id="event-modal" style="display:flex;">
                 <div class="modal-content">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
-                        <h3>Add Shared Event</h3>
-                        <button onclick="this.closest('.modal-overlay').remove()" style="background:none; border:none; font-size:1.2rem; cursor:pointer;">&times;</button>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                        <h3 style="font-size: 1.1rem;">Add Shared Event</h3>
+                        <button onclick="this.closest('.modal-overlay').remove()" style="background:none; border:none; font-size:1.1rem; cursor:pointer;">&times;</button>
                     </div>
                     <form onsubmit="window.app_submitEvent(event)">
-                        <div style="display:flex; flex-direction:column; gap:1rem;">
+                        <div style="display:flex; flex-direction:column; gap:0.75rem;">
                             <div>
-                                <label style="display:block; font-size:0.85rem; margin-bottom:0.25rem;">Event Title</label>
-                                <input type="text" id="event-title" required style="width:100%; padding:0.75rem; border:1px solid #ddd; border-radius:8px;">
+                                <label style="display:block; font-size:0.8rem; margin-bottom:0.2rem;">Event Title</label>
+                                <input type="text" id="event-title" required style="width:100%; padding:0.6rem; border:1px solid #ddd; border-radius:8px; font-size:0.9rem;">
                             </div>
                             <div>
-                                <label style="display:block; font-size:0.85rem; margin-bottom:0.25rem;">Date</label>
-                                <input type="date" id="event-date" required style="width:100%; padding:0.75rem; border:1px solid #ddd; border-radius:8px;">
+                                <label style="display:block; font-size:0.8rem; margin-bottom:0.2rem;">Date</label>
+                                <input type="date" id="event-date" required style="width:100%; padding:0.6rem; border:1px solid #ddd; border-radius:8px; font-size:0.9rem;">
                             </div>
                             <div>
-                                <label style="display:block; font-size:0.85rem; margin-bottom:0.25rem;">Type</label>
-                                <select id="event-type" style="width:100%; padding:0.75rem; border:1px solid #ddd; border-radius:8px;">
+                                <label style="display:block; font-size:0.8rem; margin-bottom:0.2rem;">Type</label>
+                                <select id="event-type" style="width:100%; padding:0.6rem; border:1px solid #ddd; border-radius:8px; font-size:0.9rem;">
                                     <option value="holiday">Holiday</option>
                                     <option value="meeting">Meeting</option>
                                     <option value="event">Other Event</option>
                                 </select>
                             </div>
-                            <button type="submit" class="action-btn" style="width:100%; margin-top:1rem;">Save Event</button>
+                            <button type="submit" class="action-btn" style="width:100%; margin-top:0.5rem; padding: 0.75rem;">Save Event</button>
                         </div>
                     </form>
                 </div>
@@ -142,6 +142,12 @@
 
         window.addEventListener('hashchange', router);
         router();
+
+        // Trigger Tour if applicable
+        const currentUser = window.AppAuth.getUser();
+        if (currentUser && window.AppTour) {
+            window.AppTour.init(currentUser);
+        }
     }
 
     // Router
@@ -170,11 +176,9 @@
         // Clear mobile specific states on route change
         toggleMobileSidebar(false);
 
-        if (sidebar && window.innerWidth > 768) {
-            sidebar.style.display = 'flex';
-        }
-        if (mobileHeader) mobileHeader.style.display = 'flex';
-        if (mobileNav) mobileNav.style.display = 'flex';
+        if (sidebar) sidebar.style.display = '';
+        if (mobileHeader) mobileHeader.style.display = '';
+        if (mobileNav) mobileNav.style.display = '';
 
         // Update Side Profile
         const sideProfile = document.querySelector('.sidebar-footer .user-mini-profile');
@@ -381,64 +385,64 @@
         const html = `
             <div class="modal-overlay" id="day-plan-modal" style="display:flex;">
                 <div class="modal-content" style="max-width: 500px;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-                        <h3>Plan for ${date}</h3>
-                        <div style="display:flex; gap:0.5rem; align-items:center;">
-                            ${myPlan ? `<button onclick="window.app_deleteDayPlan('${date}')" title="Delete Plan" style="background:none; border:none; color:#ef4444; font-size:1rem; cursor:pointer;"><i class="fa-solid fa-trash-can"></i></button>` : ''}
-                            <button onclick="this.closest('.modal-overlay').remove()" style="background:none; border:none; font-size:1.2rem; cursor:pointer;">&times;</button>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                        <h3 style="font-size: 1.1rem;">Plan for ${date}</h3>
+                        <div style="display:flex; gap:0.4rem; align-items:center;">
+                            ${myPlan ? `<button onclick="window.app_deleteDayPlan('${date}')" title="Delete Plan" style="background:none; border:none; color:#ef4444; font-size:0.9rem; cursor:pointer;"><i class="fa-solid fa-trash-can"></i></button>` : ''}
+                            <button onclick="this.closest('.modal-overlay').remove()" style="background:none; border:none; font-size:1.1rem; cursor:pointer;">&times;</button>
                         </div>
                     </div>
 
-                    <div style="margin: 0.5rem 0 1.5rem 0; max-height: 250px; overflow-y: auto; background:#f9fafb; padding:1rem; border-radius:8px;">
+                    <div style="margin: 0.4rem 0 1rem 0; max-height: 200px; overflow-y: auto; background:#f9fafb; padding:0.75rem; border-radius:8px;">
                         <!-- Team Activity (Leaves/Shared Events) -->
-                        <div style="margin-bottom: 1.25rem;">
-                            <label style="font-size: 0.7rem; font-weight:700; color: #9ca3af; display: block; margin-bottom: 0.5rem; text-transform:uppercase; letter-spacing:0.5px;">Team Leaves & Events</label>
+                        <div style="margin-bottom: 1rem;">
+                            <label style="font-size: 0.65rem; font-weight:700; color: #9ca3af; display: block; margin-bottom: 0.4rem; text-transform:uppercase; letter-spacing:0.5px;">Team Leaves & Events</label>
                             ${teamActivity.length ? teamActivity.map(e => `
-                                <div style="font-size: 0.85rem; padding: 6px 0; border-bottom: 1px solid #f3f4f6; display:flex; gap:8px; align-items:start;">
-                                    <span style="width:8px; height:8px; border-radius:50%; margin-top:5px; background:${e.type === 'leave' ? '#ef4444' : '#10b981'}"></span>
+                                <div style="font-size: 0.8rem; padding: 4px 0; border-bottom: 1px solid #f3f4f6; display:flex; gap:6px; align-items:start;">
+                                    <span style="width:6px; height:6px; border-radius:50%; margin-top:5px; background:${e.type === 'leave' ? '#ef4444' : '#10b981'}"></span>
                                     <span style="flex:1;">${e.title}</span>
                                 </div>
-                            `).join('') : '<div style="color:#9ca3af; font-size:0.8rem;">No leaves or events.</div>'}
+                            `).join('') : '<div style="color:#9ca3af; font-size:0.75rem;">No leaves or events.</div>'}
                         </div>
 
                         <!-- Staff Work Plans (Other Members) -->
                         <div>
-                            <label style="font-size: 0.7rem; font-weight:700; color: #9ca3af; display: block; margin-bottom: 0.5rem; text-transform:uppercase; letter-spacing:0.5px;">Staff Work Plans</label>
+                            <label style="font-size: 0.65rem; font-weight:700; color: #9ca3af; display: block; margin-bottom: 0.4rem; text-transform:uppercase; letter-spacing:0.5px;">Staff Work Plans</label>
                             ${otherStaffPlans.length ? otherStaffPlans.map(e => {
             const parts = e.title.split(':');
             const name = parts[0];
             const planText = parts.slice(1).join(':').trim();
             return `
-                                <div style="font-size: 0.85rem; padding: 10px; border: 1px solid #e5e7eb; background:white; border-radius:8px; margin-bottom:8px; display:flex; flex-direction:column; gap:4px;">
-                                    <div style="font-weight:600; font-size:0.75rem; color:var(--primary);">${name}</div>
-                                    <div style="color:#374151; line-height:1.4;">${planText}</div>
+                                <div style="font-size: 0.8rem; padding: 8px; border: 1px solid #e5e7eb; background:white; border-radius:8px; margin-bottom:6px; display:flex; flex-direction:column; gap:3px;">
+                                    <div style="font-weight:600; font-size:0.7rem; color:var(--primary);">${name}</div>
+                                    <div style="color:#374151; line-height:1.3;">${planText}</div>
                                 </div>
                             `;
-        }).join('') : '<div style="color:#9ca3af; font-size:0.8rem;">No staff plans yet.</div>'}
+        }).join('') : '<div style="color:#9ca3af; font-size:0.75rem;">No staff plans yet.</div>'}
                         </div>
                     </div>
                     
                     <form onsubmit="window.app_saveDayPlan(event, '${date}')">
-                        <div style="padding-top:1rem; border-top:1px solid #f3f4f6;">
-                            <label style="display:block; font-size:0.85rem; font-weight:600; margin-bottom:0.5rem;">Main Task / Goal</label>
-                            <textarea id="my-work-plan" required placeholder="What are you working on today?" style="width:100%; height:80px; padding:0.75rem; border:1px solid #ddd; border-radius:8px; font-family:inherit; resize:none; margin-bottom:1rem;">${myPlan ? myPlan.plan : ''}</textarea>
+                        <div style="padding-top:0.75rem; border-top:1px solid #f3f4f6;">
+                            <label style="display:block; font-size:0.8rem; font-weight:600; margin-bottom:0.4rem;">Main Task / Goal</label>
+                            <textarea id="my-work-plan" required placeholder="What are you working on today?" style="width:100%; height:70px; padding:0.6rem; border:1px solid #ddd; border-radius:8px; font-family:inherit; resize:none; margin-bottom:0.75rem; font-size:0.9rem;">${myPlan ? myPlan.plan : ''}</textarea>
                             
-                            <label style="display:block; font-size:0.85rem; font-weight:600; margin-bottom:0.5rem;">Sub-plans / Steps</label>
-                            <div id="sub-plans-container" style="display:flex; flex-direction:column; gap:0.5rem; margin-bottom:1rem;">
+                            <label style="display:block; font-size:0.8rem; font-weight:600; margin-bottom:0.4rem;">Sub-plans / Steps</label>
+                            <div id="sub-plans-container" style="display:flex; flex-direction:column; gap:0.4rem; margin-bottom:0.75rem;">
                                 ${myPlan && myPlan.subPlans ? myPlan.subPlans.map((sub, i) => `
-                                    <div class="sub-plan-row" style="display:flex; gap:0.5rem; align-items:center;">
-                                        <input type="text" value="${sub}" class="sub-plan-input" placeholder="e.g. Design UI" style="flex:1; padding:0.5rem; border:1px solid #ddd; border-radius:6px; font-size:0.85rem;">
+                                    <div class="sub-plan-row" style="display:flex; gap:0.4rem; align-items:center;">
+                                        <input type="text" value="${sub}" class="sub-plan-input" placeholder="e.g. Design UI" style="flex:1; padding:0.4rem; border:1px solid #ddd; border-radius:6px; font-size:0.8rem;">
                                         <button type="button" onclick="this.parentElement.remove()" style="background:none; border:none; color:#9ca3af; cursor:pointer;"><i class="fa-solid fa-circle-xmark"></i></button>
                                     </div>
                                 `).join('') : ''}
                             </div>
-                            <button type="button" onclick="window.app_addSubPlanUI()" style="background:#f3f4f6; border:1px dashed #d1d5db; border-radius:6px; padding:0.5rem; width:100%; font-size:0.8rem; color:#4b5563; cursor:pointer;">
+                            <button type="button" onclick="window.app_addSubPlanUI()" style="background:#f3f4f6; border:1px dashed #d1d5db; border-radius:6px; padding:0.4rem; width:100%; font-size:0.75rem; color:#4b5563; cursor:pointer;">
                                 <i class="fa-solid fa-plus"></i> Add Sub-plan
                             </button>
                         </div>
-                        <div style="display:flex; gap:1rem; margin-top:1.5rem;">
-                             <button type="button" onclick="this.closest('.modal-overlay').remove()" style="flex:1; padding:0.75rem; background:#fff; border:1px solid #ddd; border-radius:8px; cursor:pointer; font-weight:500;">Cancel</button>
-                             <button type="submit" class="action-btn" style="flex:2; padding:0.75rem;">Save My Plan</button>
+                        <div style="display:flex; gap:0.75rem; margin-top:1rem;">
+                             <button type="button" onclick="this.closest('.modal-overlay').remove()" style="flex:1; padding:0.6rem; background:#fff; border:1px solid #ddd; border-radius:8px; cursor:pointer; font-weight:500; font-size:0.9rem;">Cancel</button>
+                             <button type="submit" class="action-btn" style="flex:2; padding:0.6rem; font-size:0.9rem;">Save Plan</button>
                         </div>
                     </form>
                 </div>
@@ -1137,6 +1141,79 @@
         }
     };
 
+    // --- Leave Management Handlers ---
+    window.app_approveLeave = async (leaveId) => {
+        if (!confirm("Are you sure you want to APPROVE this leave request?")) return;
+        try {
+            const user = window.AppAuth.getUser();
+            await window.AppLeaves.updateLeaveStatus(leaveId, 'Approved', user.id);
+            alert("Leave Approved! Attendance logs have been automatically generated.");
+
+            // Refresh Dashboard
+            const contentArea = document.getElementById('page-content');
+            if (contentArea) {
+                contentArea.innerHTML = await window.AppUI.renderDashboard();
+                setupDashboardEvents();
+            }
+        } catch (err) {
+            alert("Error: " + err.message);
+        }
+    };
+
+    window.app_rejectLeave = async (leaveId) => {
+        const reason = prompt("Enter rejection reason (optional):", "");
+        if (reason === null) return; // Cancelled
+
+        try {
+            const user = window.AppAuth.getUser();
+            await window.AppLeaves.updateLeaveStatus(leaveId, 'Rejected', user.id, reason);
+            alert("Leave Rejected.");
+
+            // Refresh Dashboard
+            const contentArea = document.getElementById('page-content');
+            if (contentArea) {
+                contentArea.innerHTML = await window.AppUI.renderDashboard();
+                setupDashboardEvents();
+            }
+        } catch (err) {
+            alert("Error: " + err.message);
+        }
+    };
+
+    window.app_addLeaveComment = async (leaveId) => {
+        const leave = await window.AppDB.get('leaves', leaveId);
+        const comment = prompt("Enter/Edit Admin Comment:", leave.adminComment || "");
+        if (comment === null) return;
+
+        try {
+            const user = window.AppAuth.getUser();
+            await window.AppLeaves.updateLeaveStatus(leaveId, leave.status, user.id, comment);
+            alert("Comment saved.");
+
+            // Refresh Dashboard
+            const contentArea = document.getElementById('page-content');
+            if (contentArea) {
+                contentArea.innerHTML = await window.AppUI.renderDashboard();
+                setupDashboardEvents();
+            }
+        } catch (err) {
+            alert("Error: " + err.message);
+        }
+    };
+
+    window.app_exportLeaves = async () => {
+        try {
+            const allLeaves = await window.AppLeaves.getAllLeaves();
+            if (allLeaves.length === 0) {
+                alert("No leave requests found to export.");
+                return;
+            }
+            await window.AppReports.exportLeavesCSV(allLeaves);
+        } catch (err) {
+            alert("Export Failed: " + err.message);
+        }
+    };
+
 
     window.app_refreshMasterSheet = async () => {
         const contentArea = document.getElementById('page-content');
@@ -1299,14 +1376,7 @@
         }
     };
 
-    window.app_handleLeave = async (leaveId, status) => {
-        const user = window.AppAuth.getUser();
-        await window.AppLeaves.updateLeaveStatus(leaveId, status, user.id);
-        alert(`Leave ${status}!`);
-        // Refresh Admin View
-        const contentArea = document.getElementById('page-content');
-        contentArea.innerHTML = await window.AppUI.renderAdmin();
-    };
+
 
     window.app_recalculateRow = (row) => {
         const base = parseFloat(row.querySelector('.base-salary-input').value) || 0;

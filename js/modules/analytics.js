@@ -611,6 +611,53 @@
                 return { avgScore: 0, trendData: [0, 0, 0, 0, 0, 0, 0] };
             }
         }
+
+        async getAllStaffActivities(daysBack = 7) {
+            try {
+                // Calculate date range
+                const endDate = new Date();
+                endDate.setHours(23, 59, 59, 999);
+                const startDate = new Date();
+                startDate.setDate(startDate.getDate() - daysBack);
+                startDate.setHours(0, 0, 0, 0);
+
+                // Fetch all attendance logs
+                const db = window.AppFirestore;
+                const snapshot = await db.collection('attendance').get();
+                const allLogs = snapshot.docs.map(doc => doc.data());
+
+                // Fetch all users to get names
+                const usersSnapshot = await db.collection('users').get();
+                const usersMap = {};
+                usersSnapshot.docs.forEach(doc => {
+                    const userData = doc.data();
+                    usersMap[userData.id] = userData.name;
+                });
+
+                // Filter logs by date range and add staff names
+                const filteredLogs = allLogs
+                    .filter(log => {
+                        const logDate = new Date(log.date);
+                        return logDate >= startDate && logDate <= endDate && log.workDescription;
+                    })
+                    .map(log => ({
+                        ...log,
+                        staffName: usersMap[log.user_id] || 'Unknown Staff',
+                        _displayDesc: log.workDescription || 'No description'
+                    }))
+                    .sort((a, b) => {
+                        // Sort by date descending, then by checkout time descending
+                        const dateCompare = new Date(b.date) - new Date(a.date);
+                        if (dateCompare !== 0) return dateCompare;
+                        return (b.checkOut || '').localeCompare(a.checkOut || '');
+                    });
+
+                return filteredLogs;
+            } catch (err) {
+                console.error("Error fetching all staff activities:", err);
+                return [];
+            }
+        }
     }
 
     window.AppAnalytics = new Analytics();

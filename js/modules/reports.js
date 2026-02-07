@@ -199,6 +199,24 @@
                 alert("Export Failed: " + err.message);
             }
         }
+
+        /**
+         * Export Leave Requests to CSV
+         */
+        async exportLeavesCSV(leaves) {
+            try {
+                const headers = ['Applied On', 'Staff Name', 'Type', 'From', 'To', 'Reason', 'Status', 'Admin Comment'];
+                const keys = ['appliedOn', 'userName', 'type', 'startDate', 'endDate', 'reason', 'status', 'adminComment'];
+
+                const csvContent = this.convertToCSV(leaves, headers, keys);
+                const fileName = `Leave_Requests_${new Date().toISOString().split('T')[0]}.csv`;
+                this.downloadFile(csvContent, fileName, 'text/csv');
+                return true;
+            } catch (err) {
+                console.error("Leave Export Failed:", err);
+                alert("Export Failed: " + err.message);
+            }
+        }
     }
 
     // Initialize
