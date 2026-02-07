@@ -994,17 +994,17 @@
 
             return `
                 <div class="dashboard-grid">
-                    <div class="card welcome-card full-width" style="background: linear-gradient(135deg, #1e1b4b 0%, #4338ca 100%); position: relative; overflow: hidden; min-height: 140px; display: flex; align-items: center; padding: 1.5rem;">
+                    <div class="card welcome-card full-width" style="background: linear-gradient(135deg, #1e1b4b 0%, #4338ca 100%); position: relative; overflow: hidden; min-height: 120px; display: flex; align-items: center; padding: 1.25rem;">
                         <!-- Premium Background Decorations -->
-                        <div style="position: absolute; top: -30px; right: -30px; width: 200px; height: 200px; background: rgba(255,255,255,0.05); border-radius: 50%;"></div>
-                        <div style="position: absolute; bottom: -50px; left: -20px; width: 150px; height: 150px; background: rgba(255,255,255,0.03); border-radius: 50%;"></div>
+                        <div style="position: absolute; top: -30px; right: -30px; width: 180px; height: 180px; background: rgba(255,255,255,0.05); border-radius: 50%;"></div>
+                        <div style="position: absolute; bottom: -50px; left: -20px; width: 120px; height: 120px; background: rgba(255,255,255,0.03); border-radius: 50%;"></div>
                         
                         <div style="position: relative; z-index: 1; flex: 1;">
-                            <h2 style="font-size: 1.8rem; font-weight: 700; margin: 0; letter-spacing: -0.5px;">Good Afternoon, ${user.name}</h2>
-                            <p style="opacity: 0.9; margin-top: 0.5rem; font-size: 1rem;">Welcome back! Ready to start your productive day?</p>
+                            <h2 style="font-size: 1.5rem; font-weight: 700; margin: 0; letter-spacing: -0.5px;">Good Afternoon, ${user.name}</h2>
+                            <p style="opacity: 0.9; margin-top: 0.35rem; font-size: 0.9rem;">Welcome back! Ready to start your productive day?</p>
                         </div>
-                        <div style="position: relative; z-index: 1;">
-                            <i class="fa-solid fa-cloud-sun" style="font-size: 4rem; color: #fbbf24; filter: drop-shadow(0 0 10px rgba(251, 191, 36, 0.4));"></i>
+                        <div class="welcome-icon" style="position: relative; z-index: 1;">
+                            <i class="fa-solid fa-cloud-sun" style="font-size: 3rem; color: #fbbf24; filter: drop-shadow(0 0 10px rgba(251, 191, 36, 0.4));"></i>
                         </div>
                     </div>
 
@@ -1072,19 +1072,19 @@
             const logs = await window.AppAttendance.getLogs();
             return `
                 <div class="card full-width">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                        <h3>Timesheet Log</h3>
-                        <div style="display:flex; gap:0.5rem;">
-                            <button class="action-btn secondary" style="padding: 0.5rem 1rem; font-size: 0.9rem; background: #fff1f2; color: #be123c; border: 1px solid #fda4af;" onclick="document.getElementById('leave-modal').style.display = 'flex'">
-                                <i class="fa-solid fa-calendar-xmark"></i> Request Leave
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 0.75rem;">
+                        <h3 style="margin: 0;">Timesheet Log</h3>
+                        <div style="display:flex; gap:0.5rem; width: 100%; justify-content: space-between;">
+                            <button class="action-btn secondary" style="flex: 1; padding: 0.5rem; font-size: 0.8rem; background: #fff1f2; color: #be123c; border: 1px solid #fda4af;" onclick="document.getElementById('leave-modal').style.display = 'flex'">
+                                <i class="fa-solid fa-calendar-xmark"></i> Leave
                             </button>
-                            <button class="action-btn" style="padding: 0.5rem 1rem; font-size: 0.9rem;" onclick="document.dispatchEvent(new CustomEvent('open-log-modal'))">
+                            <button class="action-btn" style="flex: 1; padding: 0.5rem; font-size: 0.8rem;" onclick="document.dispatchEvent(new CustomEvent('open-log-modal'))">
                                 <i class="fa-solid fa-plus"></i> Add log
                             </button>
                         </div>
                     </div>
                     
-                    <div class="table-container">
+                    <div class="table-container mobile-table-card">
                         <table>
                             <thead>
                                     <tr>
@@ -1098,14 +1098,14 @@
                             <tbody>
                                     ${logs.length ? logs.map(log => `
                                         <tr>
-                                            <td style="font-weight: 500;">${log.date}</td>
-                                            <td style="font-size: 0.85rem;">
+                                            <td data-label="Date" style="font-weight: 500;">${log.date}</td>
+                                            <td data-label="In / Out" style="font-size: 0.85rem;">
                                                 <span style="color: #10b981;">In:</span> ${log.checkIn}<br>
                                                 <span style="color: #ef4444;">Out:</span> ${log.checkOut || '--'}
                                             </td>
-                                            <td><span style="background: #eef2ff; color: var(--primary); padding: 0.25rem 0.5rem; border-radius: 4px; font-weight: 600;">${log.duration || '--'}</span></td>
-                                            <td style="font-size: 0.85rem; color: #4b5563; max-width: 250px;">${log.workDescription || '<span style="color:#9ca3af; font-style:italic;">No summary</span>'}</td>
-                                            <td style="font-size: 0.75rem; color: #6b7280;">${log.location}</td>
+                                            <td data-label="Duration"><span style="background: #eef2ff; color: var(--primary); padding: 0.25rem 0.5rem; border-radius: 4px; font-weight: 600;">${log.duration || '--'}</span></td>
+                                            <td data-label="Work Summary" style="font-size: 0.85rem; color: #4b5563; max-width: 250px;">${log.workDescription || '<span style="color:#9ca3af; font-style:italic;">No summary</span>'}</td>
+                                            <td data-label="Location" style="font-size: 0.75rem; color: #6b7280;">${log.location}</td>
                                         </tr>
                                     `).join('') : `<tr><td colspan="5" style="text-align:center; padding: 2rem;">No logs found</td></tr>`}
                             </tbody>
@@ -1207,7 +1207,7 @@
                         <!-- Leave History Section -->
                         <div class="card full-width" style="margin-top: 1.5rem;">
                             <h3>My Leave History</h3>
-                            <div class="table-container">
+                            <div class="table-container mobile-table-card">
                                 <table>
                                     <thead>
                                         <tr>
@@ -1227,11 +1227,11 @@
 
                     return `
                                                 <tr style="border-bottom: 1px solid #f3f4f6;">
-                                                    <td style="padding: 12px 8px;">${l.startDate} <span style="color:#9ca3af">to</span> ${l.endDate}</td>
-                                                    <td style="padding: 12px 8px;">${l.type}</td>
-                                                    <td style="padding: 12px 8px; color:#6b7280; font-size:0.9rem;">${l.reason}</td>
-                                                    <td style="padding: 12px 8px;"><span style="background:${badgeColor}; color:${textColor}; padding:0.25rem 0.5rem; border-radius:4px; font-size:0.8rem; font-weight:600;">${l.status}</span></td>
-                                                    <td style="padding: 12px 8px; font-style: italic; color: #4338ca; font-size: 0.85rem;">${l.adminComment || '<span style="color:#9ca3af; font-style:normal;">No feedback yet</span>'}</td>
+                                                    <td data-label="Dates" style="padding: 12px 8px;">${l.startDate} <span style="color:#9ca3af">to</span> ${l.endDate}</td>
+                                                    <td data-label="Type" style="padding: 12px 8px;">${l.type}</td>
+                                                    <td data-label="Reason" style="padding: 12px 8px; color:#6b7280; font-size:0.9rem;">${l.reason}</td>
+                                                    <td data-label="Status" style="padding: 12px 8px;"><span style="background:${badgeColor}; color:${textColor}; padding:0.25rem 0.5rem; border-radius:4px; font-size:0.8rem; font-weight:600;">${l.status}</span></td>
+                                                    <td data-label="Feedback" style="padding: 12px 8px; font-style: italic; color: #4338ca; font-size: 0.85rem;">${l.adminComment || '<span style="color:#9ca3af; font-style:normal;">No feedback yet</span>'}</td>
                                                 </tr>`;
                 }).join('') : '<tr><td colspan="5" style="text-align:center; padding:1.5rem; color:#6b7280;">No leave requests found.</td></tr>'}
                                     </tbody>
@@ -1440,18 +1440,18 @@
                     </div>
 
                     <div class="card full-width">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                            <h3 style="font-size: 1.1rem;">Staff Management</h3>
-                            <div style="display: flex; gap: 0.75rem;">
-                                <button class="action-btn secondary" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;" onclick="window.app_exportReports()">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+                            <h3 style="font-size: 1.1rem; margin: 0;">Staff Management</h3>
+                            <div style="display: flex; gap: 0.5rem; width: 100%; justify-content: space-between;">
+                                <button class="action-btn secondary" style="flex: 1; padding: 0.4rem; font-size: 0.8rem;" onclick="window.app_exportReports()">
                                     <i class="fa-solid fa-file-export"></i> CSV
                                 </button>
-                                <button class="action-btn" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;" onclick="document.getElementById('add-user-modal').style.display = 'flex'">
-                                    <i class="fa-solid fa-user-plus"></i> Staff
+                                <button class="action-btn" style="flex: 1; padding: 0.4rem; font-size: 0.8rem;" onclick="document.getElementById('add-user-modal').style.display = 'flex'">
+                                    <i class="fa-solid fa-user-plus"></i> Add Staff
                                 </button>
                             </div>
                         </div>
-                         <div class="table-container">
+                         <div class="table-container mobile-table-card">
                             <table>
                                 <thead>
                                     <tr>
@@ -1471,14 +1471,14 @@
 
                 return `
                                         <tr>
-                                            <td>
-                                                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                            <td data-label="Staff">
+                                                <div style="display: flex; align-items: center; gap: 0.75rem; justify-content: flex-end;">
                                                     <div style="position: relative;">
                                                         <img src="${u.avatar}" style="width: 32px; height: 32px; border-radius: 50%;">
                                                         ${isLive ? `<div style="position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; background: #10b981; border: 2px solid white; border-radius: 50%;" title="Currently Online"></div>` : ''}
                                                     </div>
-                                                    <div>
-                                                        <div style="font-weight: 600; display: flex; align-items: center; gap: 4px;">
+                                                    <div style="text-align: right;">
+                                                        <div style="font-weight: 600; display: flex; align-items: center; gap: 4px; justify-content: flex-end;">
                                                             ${u.name}
                                                             ${isLive ? `<span style="font-size: 0.6rem; background: #f0fdf4; color: #166534; padding: 1px 4px; border-radius: 4px; font-weight: 700;">LIVE</span>` : ''}
                                                         </div>
@@ -1486,13 +1486,13 @@
                                                     </div>
                                                 </div>
                                             </td>
-                                            <td>
+                                            <td data-label="Status">
                                                 <span class="status-badge ${u.status === 'in' ? 'in' : 'out'}" style="padding: 0.25rem 0.75rem; font-size: 0.75rem;">
-                                                    ${u.status === 'in' ? 'Checked In' : 'Checked Out'}
+                                                    ${u.status === 'in' ? 'In' : 'Out'}
                                                 </span>
                                             </td>
-                                            <td>
-                                                <div style="font-size: 0.85rem; color: #374151; display: flex; flex-direction: column; gap: 2px;">
+                                            <td data-label="Logged">
+                                                <div style="font-size: 0.85rem; color: #374151; display: flex; flex-direction: column; gap: 2px; align-items: flex-end;">
                                                     <div style="display: flex; align-items: center; gap: 4px;">
                                                         <i class="fa-solid fa-arrow-right-to-bracket" style="color: #10b981; font-size: 0.7rem;"></i>
                                                         <span>${lastIn}</span>
@@ -1503,45 +1503,45 @@
                                                     </div>
                                                 </div>
                                             </td>
-                                            <td>
+                                            <td data-label="Role">
                                                 <div style="font-weight: 500; font-size: 0.85rem;">${u.role}</div>
                                                 <div style="font-size: 0.75rem; color: #6b7280;">${u.dept || '--'}</div>
                                             </td>
-                                            <td>
-                                                <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem;">
+                                            <td data-label="Location">
+                                                <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; align-items: flex-end;">
                                                     <div style="display: flex; align-items: center; gap: 4px;">
-                                                        <span style="color: #6b7280; font-weight: 500; min-width: 25px;">IN:</span>
+                                                        <span style="color: #6b7280; font-weight: 500;">IN:</span>
                                                         ${(() => {
                         const loc = u.currentLocation || u.lastLocation;
                         if (loc && loc.lat && loc.lng) {
                             return `<a href="https://www.google.com/maps?q=${loc.lat},${loc.lng}" target="_blank" style="color:var(--primary); text-decoration:none; display:flex; align-items:center; gap:2px;">
-                                            <i class="fa-solid fa-location-dot"></i> Map
+                                             Map
                                         </a>`;
                         }
                         return loc?.address ? loc.address : `<span style="color:#9ca3af;">N/A</span>`;
                     })()}
                                                     </div>
                                                     <div style="display: flex; align-items: center; gap: 4px;">
-                                                        <span style="color: #6b7280; font-weight: 500; min-width: 25px;">OUT:</span>
+                                                        <span style="color: #6b7280; font-weight: 500;">OUT:</span>
                                                         ${(() => {
                         const loc = u.lastCheckOutLocation;
                         const isMismatched = u.locationMismatched === true;
                         const color = isMismatched ? '#ef4444' : 'var(--primary)';
                         if (loc && loc.lat && loc.lng) {
                             return `<a href="https://www.google.com/maps?q=${loc.lat},${loc.lng}" target="_blank" style="color:${color}; text-decoration:none; display:flex; align-items:center; gap:2px; font-weight:${isMismatched ? '700' : '400'}">
-                                        <i class="fa-solid fa-location-dot"></i> Map ${isMismatched ? '(Mismatch)' : ''}
+                                         Map ${isMismatched ? '(Mismatch)' : ''}
                                     </a>`;
                         }
                         return loc?.address ? loc.address : `<span style="color:#9ca3af;">N/A</span>`;
                     })()}
                                                 </div>
                                             </td>
-                                             <td>
-                                                 <div style="display: flex; gap: 0.5rem;">
-                                                      <button onclick="window.app_viewLogs('${u.id}')" style="padding: 0.4rem; background: #eef2ff; color: #4338ca; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;" title="View Logs"><i class="fa-solid fa-list-check"></i></button>
-                                                      <button onclick="window.app_notifyUser('${u.id}')" style="padding: 0.4rem; background: #fff7ed; color: #c2410c; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;" title="Send Notification"><i class="fa-solid fa-bell"></i></button>
-                                                      <button onclick="window.app_editUser('${u.id}')" style="padding: 0.4rem; background: #f3f4f6; color: #374151; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;" title="Edit Profile"><i class="fa-solid fa-pen"></i></button>
-                                                      <button onclick="window.app_deleteUser('${u.id}')" style="padding: 0.4rem; background: #fef2f2; color: #b91c1c; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px;" title="Delete User"><i class="fa-solid fa-trash"></i></button>
+                                             <td data-label="Actions">
+                                                 <div style="display: flex; gap: 0.4rem; justify-content: flex-end;">
+                                                      <button onclick="window.app_viewLogs('${u.id}')" style="padding: 0.3rem; background: #eef2ff; color: #4338ca; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;" title="Logs"><i class="fa-solid fa-list-check" style="font-size:0.8rem;"></i></button>
+                                                      <button onclick="window.app_notifyUser('${u.id}')" style="padding: 0.3rem; background: #fff7ed; color: #c2410c; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;" title="Notify"><i class="fa-solid fa-bell" style="font-size:0.8rem;"></i></button>
+                                                      <button onclick="window.app_editUser('${u.id}')" style="padding: 0.3rem; background: #f3f4f6; color: #374151; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;" title="Edit"><i class="fa-solid fa-pen" style="font-size:0.8rem;"></i></button>
+                                                      <button onclick="window.app_deleteUser('${u.id}')" style="padding: 0.3rem; background: #fef2f2; color: #b91c1c; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;" title="Delete"><i class="fa-solid fa-trash" style="font-size:0.8rem;"></i></button>
                                                  </div>
                                              </td>
                                         </tr>
