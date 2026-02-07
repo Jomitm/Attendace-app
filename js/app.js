@@ -865,8 +865,11 @@
             userId: user.id,
             startDate: fd.get('startDate'),
             endDate: fd.get('endDate'),
+            startTime: fd.get('startTime') || '',
+            endTime: fd.get('endTime') || '',
             type: fd.get('type'),
-            reason: fd.get('reason')
+            reason: fd.get('reason'),
+            durationHours: fd.get('durationHours') || ''
         });
         alert('Leave requested successfully!');
         document.getElementById('leave-modal').style.display = 'none';

@@ -13,14 +13,26 @@
          */
         async getPlans() {
             try {
-                const [leaves, events, workPlans] = await Promise.all([
+                const [leaves, events, workPlans, users] = await Promise.all([
                     this.db.getAll('leaves'),
                     this.db.getAll('events').catch(() => []),
-                    this.db.getAll('work_plans').catch(() => [])
+                    this.db.getAll('work_plans').catch(() => []),
+                    this.db.getAll('users').catch(() => [])
                 ]);
 
+                // Map User IDs to Names for Leaves
+                const userMap = {};
+                users.forEach(u => { userMap[u.id] = u.name; });
+
+                const enrichedLeaves = leaves
+                    .filter(l => l.status === 'Approved')
+                    .map(l => ({
+                        ...l,
+                        userName: l.userName || userMap[l.userId] || 'Staff'
+                    }));
+
                 return {
-                    leaves: leaves.filter(l => l.status === 'Approved'),
+                    leaves: enrichedLeaves,
                     events: events || [],
                     workPlans: workPlans || []
                 };

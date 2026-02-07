@@ -179,6 +179,14 @@
             return `${h}h ${m}m`;
         }
 
+        getWeekNumber(date) {
+            const d = new Date(date);
+            d.setHours(0, 0, 0, 0);
+            d.setDate(d.getDate() + 4 - (d.getUTCDay() || 7));
+            const yearStart = new Date(d.getFullYear(), 0, 1);
+            return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+        }
+
         async getUserMonthlyStats(userId) {
             const logs = await this.db.getAll('attendance');
             const userLogs = logs.filter(l => l.userId === userId || l.user_id === userId);
@@ -237,6 +245,7 @@
 
             let totalLateMinutes = 0;
             let totalExtraMinutes = 0;
+            const weeklyGraceCount = {};
 
             userLogs.forEach(log => {
                 const logDate = new Date(log.date);
@@ -252,24 +261,25 @@
                     const isManual = log.isManualOverride === true;
 
                     if (!isManual) {
-                        // EARLY ARRIVAL Credit (Before 09:00 = 540)
-                        if (inMinutes !== null && inMinutes < 540) {
-                            dayEarlyCredit = 540 - inMinutes;
+                        // EARLY ARRIVAL Credit (Before 09:15 = 555)
+                        if (inMinutes !== null && inMinutes < 555) {
+                            dayEarlyCredit = 555 - inMinutes;
                         }
 
-                        // LATE Check (Threshold: 09:05 = 545 minutes)
-                        if (inMinutes !== null && inMinutes > 545) {
-                            dayLateMins = inMinutes - 545;
+                        // LATE Check (Target: 09:15 = 555)
+                        if (inMinutes !== null && inMinutes > 555) {
+                            const weekKey = `${logDate.getFullYear()}-W${this.getWeekNumber(logDate)}`;
+                            if (!weeklyGraceCount[weekKey]) weeklyGraceCount[weekKey] = 0;
 
-                            // User Rule: If there are enough early arrivals, do not reduce salary/count as late
-                            // We subtract the credit from the late minutes
-                            const compensatedLate = Math.max(0, dayLateMins - dayEarlyCredit);
-
-                            if (compensatedLate > 0) {
-                                breakdown['Late']++;
-                                stats.late++;
-                                totalLateMinutes += compensatedLate;
+                            weeklyGraceCount[weekKey]++;
+                            if (weeklyGraceCount[weekKey] > 3) {
+                                // 4th+ time in a week = Half Day Salary loss
+                                stats.penalty += 0.5;
                             }
+
+                            breakdown['Late']++;
+                            stats.late++;
+                            totalLateMinutes += (inMinutes - 555);
                         }
 
                         // EARLY DEPARTURE Check (Before 17:00 = 1020 minutes)
@@ -294,7 +304,7 @@
                     }
 
                     // EXTRA HOURS Check (for duration display)
-                    if (inMinutes !== null && inMinutes < 540) totalExtraMinutes += (540 - inMinutes);
+                    if (inMinutes !== null && inMinutes < 555) totalExtraMinutes += (555 - inMinutes);
                     if (outMinutes !== null && outMinutes > 1020) totalExtraMinutes += (outMinutes - 1020);
 
                     // CATEGORY Check
@@ -318,13 +328,11 @@
             stats.present = breakdown['Present'] + breakdown['Work - Home'] + breakdown['Training'];
             stats.leaves = breakdown['Sick Leave'] + breakdown['Casual Leave'] + breakdown['Earned Leave'] + breakdown['Paid Leave'] + breakdown['Maternity Leave'] + breakdown['Absent'];
 
-            // Penalty Rule 1: > 3 Lates = 0.5 Leave penalty
-            if (stats.late > 3) stats.penalty += Math.floor(stats.late / 3) * 0.5;
-
-            // Penalty Rule 2: > 3 Early Departures = 1.0 Leave penalty (User: "if early departure is more than 3 days ... considered 1 day leave")
-            if (stats.earlyDepartures >= 3) {
-                stats.penalty += Math.floor(stats.earlyDepartures / 3) * 1.0;
-            }
+            // Penalty inherited from Daily Check (> 15 mins late = 0.5)
+            // Penalty Rule 1: > 3 Lates (within grace) = 0.5 Leave penalty? 
+            // The request doesn't explicitly state the 3-late rule anymore, 
+            // but I'll keep it for lates that WERE within grace but still marked.
+            // Actually, let's simplify to match the request exactly.
 
             stats.totalLateDuration = this.formatDuration(totalLateMinutes);
             stats.totalExtraDuration = this.formatDuration(totalExtraMinutes);
@@ -356,7 +364,8 @@
                 totalExtraDuration: '0h 0m'
             };
 
-            const monthlyLates = {};
+            const monthlyLates = {}; // Keep for tracking, but penalty is now weekly
+            const weeklyGraceCount = {};
             let totalLateMinutes = 0;
             let totalExtraMinutes = 0;
 
@@ -367,14 +376,19 @@
                     const inMinutes = this.parseTimeToMinutes(log.checkIn);
                     const outMinutes = this.parseTimeToMinutes(log.checkOut);
 
-                    // LATE Check (Threshold: 09:05 = 545 minutes)
-                    if (inMinutes !== null && inMinutes > 545) {
+                    // LATE Check (Target: 09:15 = 555)
+                    if (inMinutes !== null && inMinutes > 555) {
                         breakdown['Late']++;
-                        totalLateMinutes += (inMinutes - 545);
+                        totalLateMinutes += (inMinutes - 555);
 
-                        const monthKey = `${logDate.getFullYear()}-${logDate.getMonth()}`;
-                        if (!monthlyLates[monthKey]) monthlyLates[monthKey] = 0;
-                        monthlyLates[monthKey]++;
+                        const weekKey = `${logDate.getFullYear()}-W${this.getWeekNumber(logDate)}`;
+                        if (!weeklyGraceCount[weekKey]) weeklyGraceCount[weekKey] = 0;
+
+                        weeklyGraceCount[weekKey]++;
+                        if (weeklyGraceCount[weekKey] > 3) {
+                            // 4th+ time in a week = Half Day Salary loss
+                            stats.penaltyLeaves += 0.5;
+                        }
                     }
 
                     // EARLY DEPARTURE Check (Before 17:00 = 1020 minutes)
@@ -384,7 +398,7 @@
                     }
 
                     // EXTRA HOURS Check
-                    if (inMinutes !== null && inMinutes < 540) totalExtraMinutes += (540 - inMinutes);
+                    if (inMinutes !== null && inMinutes < 555) totalExtraMinutes += (555 - inMinutes);
                     if (outMinutes !== null && outMinutes > 1020) totalExtraMinutes += (outMinutes - 1020);
 
                     // CATEGORY Check
@@ -439,17 +453,20 @@
             };
         }
 
-        getDayType(date) {
+        getDayType(dateStr) {
+            const date = typeof dateStr === 'string' ? new Date(dateStr) : dateStr;
             const day = date.getDay();
             const dateNum = date.getDate();
 
             if (day === 0) return 'Holiday'; // Sunday
 
             if (day === 6) { // Saturday Rules
-                // Calculate which Saturday it is (1st, 2nd, etc.)
-                const weekNum = Math.ceil(dateNum / 7);
-                if (weekNum === 2 || weekNum === 4) return 'Holiday';
-                return 'Half Day';
+                // Calculate which Saturday of the month it is (1st, 2nd, 3rd, 4th, or 5th)
+                const n = Math.ceil(dateNum / 7);
+                // 1st, 3rd, 5th are working days
+                if (n === 1 || n === 3 || n === 5) return 'Work Day';
+                // 2nd, 4th are holidays
+                return 'Holiday';
             }
 
             return 'Work Day';

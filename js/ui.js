@@ -142,19 +142,51 @@
                                     <input type="date" name="endDate" required style="width:100%; padding:0.5rem; border:1px solid #ddd; border-radius:0.5rem;">
                                 </label>
                             </div>
+                            <div style="display: flex; gap: 1rem; margin-top: 0.5rem;">
+                                <label style="flex:1">Start Time (Optional)
+                                    <input type="time" name="startTime" style="width:100%; padding:0.5rem; border:1px solid #ddd; border-radius:0.5rem;">
+                                </label>
+                                <label style="flex:1">End Time (Optional)
+                                    <input type="time" name="endTime" style="width:100%; padding:0.5rem; border:1px solid #ddd; border-radius:0.5rem;">
+                                </label>
+                            </div>
                             <label>Type
                                 <select name="type" required style="width:100%; padding:0.5rem; border:1px solid #ddd; border-radius:0.5rem;">
+                                    <option value="Annual Leave">Annual Leave</option>
                                     <option value="Casual Leave">Casual Leave</option>
-                                    <option value="Sick Leave">Sick Leave</option>
-                                    <option value="Earned Leave">Earned Leave</option>
-                                    <option value="Paid Leave">Paid Leave</option>
+                                    <option value="Medical Leave">Medical Leave</option>
+                                    <option value="Short Leave">Short Leave (Emergency - 2h)</option>
                                     <option value="Maternity Leave">Maternity Leave</option>
-                                    <option value="Regional Holidays">Regional Holidays</option>
-                                    <option value="National Holiday">National Holiday</option>
-                                    <option value="Holiday">Holiday</option>
+                                    <option value="Paternity Leave">Paternity Leave</option>
+                                    <option value="Study Leave">Study Leave</option>
+                                    <option value="Compassionate Leave">Compassionate Leave</option>
+                                    <option value="Other Holiday">Holiday (Regional/National)</option>
                                     <option value="Absent">Absent</option>
                                 </select>
                             </label>
+                            <label id="short-leave-hours" style="display:none;">Duration (Hours)
+                                <input type="number" name="durationHours" min="0.5" max="2" step="0.5" style="width:100%; padding:0.5rem; border:1px solid #ddd; border-radius:0.5rem;">
+                                <span style="font-size:0.7rem; color:#6b7280;">Max 2 hours per month.</span>
+                            </label>
+                            <script>
+                                (function() {
+                                    const select = document.querySelector('#leave-form select[name="type"]');
+                                    if(select) {
+                                        select.addEventListener('change', function(e) {
+                                            const hourField = document.getElementById('short-leave-hours');
+                                            if(hourField) {
+                                                if(e.target.value === 'Short Leave') {
+                                                    hourField.style.display = 'block';
+                                                    hourField.querySelector('input').required = true;
+                                                } else {
+                                                    hourField.style.display = 'none';
+                                                    hourField.querySelector('input').required = false;
+                                                }
+                                            }
+                                        });
+                                    }
+                                })();
+                            </script>
                             <label>Reason
                                 <textarea name="reason" rows="3" required style="width:100%; padding:0.5rem; border:1px solid #ddd; border-radius:0.5rem;"></textarea>
                             </label>
@@ -403,21 +435,32 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                ${leaves.map(l => `
-                                    <tr style="border-bottom:1px solid #f9fafb;">
-                                        <td style="padding:0.5rem 0.25rem; font-weight:600; color:var(--primary);">${l.userName || 'Staff'}</td>
-                                        <td style="padding:0.5rem 0.25rem; font-size:0.75rem; color:#4b5563;">${l.startDate}<br>${l.endDate}</td>
-                                        <td style="padding:0.5rem 0.25rem;"><span style="background:#f3f4f6; padding:2px 6px; border-radius:4px; font-size:0.7rem;">${l.type}</span></td>
-                                        <td style="padding:0.5rem 0.25rem; font-size:0.75rem; color:#6b7280; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${l.reason}">${l.reason}</td>
-                                        <td style="padding:0.5rem 0.25rem; text-align:right;">
-                                            <div style="display:flex; gap:0.25rem; justify-content:flex-end;">
-                                                <button onclick="window.app_addLeaveComment('${l.id}')" title="Add Comment" style="background:#fefce8; color:#854d0e; border:none; border-radius:4px; padding:4px 6px; cursor:pointer;"><i class="fa-solid fa-comment-dots"></i></button>
-                                                <button onclick="window.app_approveLeave('${l.id}')" title="Approve" style="background:#f0fdf4; color:#166534; border:none; border-radius:4px; padding:4px 8px; cursor:pointer;"><i class="fa-solid fa-check"></i></button>
-                                                <button onclick="window.app_rejectLeave('${l.id}')" title="Reject" style="background:#fff1f2; color:#991b1b; border:none; border-radius:4px; padding:4px 8px; cursor:pointer;"><i class="fa-solid fa-xmark"></i></button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                `).join('')}
+                                ${leaves.map(l => {
+                const warningHtml = (l.policyWarnings && l.policyWarnings.length > 0)
+                    ? `<div style="margin-top:4px; font-size:0.65rem; color:#b91c1c; background:#fee2e2; padding:2px 4px; border-radius:4px;">
+                                            <i class="fa-solid fa-triangle-exclamation"></i> ${l.policyWarnings.join('<br>')}
+                                           </div>`
+                    : '';
+                return `
+                                        <tr style="border-bottom:1px solid #f9fafb;">
+                                            <td style="padding:0.5rem 0.25rem; font-weight:600; color:var(--primary);">${l.userName || 'Staff'}</td>
+                                            <td style="padding:0.5rem 0.25rem; font-size:0.75rem; color:#4b5563;">
+                                                ${l.startDate} ${l.startTime ? `(${l.startTime})` : ''}
+                                                <br>
+                                                ${l.endDate} ${l.endTime ? `(${l.endTime})` : ''}
+                                            </td>
+                                            <td style="padding:0.5rem 0.25rem;"><span style="background:#f3f4f6; padding:2px 6px; border-radius:4px; font-size:0.7rem;">${l.type}</span>${warningHtml}</td>
+                                            <td style="padding:0.5rem 0.25rem; font-size:0.75rem; color:#6b7280; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${l.reason}">${l.reason}</td>
+                                            <td style="padding:0.5rem 0.25rem; text-align:right;">
+                                                <div style="display:flex; gap:0.25rem; justify-content:flex-end;">
+                                                    <button onclick="window.app_addLeaveComment('${l.id}')" title="Add Comment" style="background:#fefce8; color:#854d0e; border:none; border-radius:4px; padding:4px 6px; cursor:pointer;"><i class="fa-solid fa-comment-dots"></i></button>
+                                                    <button onclick="window.app_approveLeave('${l.id}')" title="Approve" style="background:#f0fdf4; color:#166534; border:none; border-radius:4px; padding:4px 8px; cursor:pointer;"><i class="fa-solid fa-check"></i></button>
+                                                    <button onclick="window.app_rejectLeave('${l.id}')" title="Reject" style="background:#fff1f2; color:#991b1b; border:none; border-radius:4px; padding:4px 8px; cursor:pointer;"><i class="fa-solid fa-xmark"></i></button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    `;
+            }).join('')}
                             </tbody>
                         </table>
                     </div>
@@ -427,18 +470,23 @@
 
         async renderDashboard() {
             const user = window.AppAuth.getUser();
+            const isAdmin = user.role === 'Administrator' || user.isAdmin;
+
+            // Current Staff for Summary (Admins can select others)
+            const targetStaffId = (isAdmin && window.app_selectedSummaryStaffId) ? window.app_selectedSummaryStaffId : user.id;
 
             console.time('DashboardFetch');
             // Parallel Fetch
-            const [status, logs, monthlyStats, yearlyStats, heroData, calendarPlans, staffActivities, pendingLeaves] = await Promise.all([
+            const [status, logs, monthlyStats, yearlyStats, heroData, calendarPlans, staffActivities, pendingLeaves, allUsers] = await Promise.all([
                 window.AppAttendance.getStatus(),
-                window.AppAttendance.getLogs(),
-                window.AppAnalytics.getUserMonthlyStats(user.id),
-                window.AppAnalytics.getUserYearlyStats(user.id),
+                window.AppAttendance.getLogs(targetStaffId),
+                window.AppAnalytics.getUserMonthlyStats(targetStaffId),
+                window.AppAnalytics.getUserYearlyStats(targetStaffId),
                 window.AppAnalytics.getHeroOfTheWeek(),
                 window.AppCalendar ? window.AppCalendar.getPlans() : { leaves: [], events: [] },
                 window.AppAnalytics.getAllStaffActivities(7),
-                (user.role === 'Administrator' || user.isAdmin) ? window.AppLeaves.getPendingLeaves() : Promise.resolve([])
+                isAdmin ? window.AppLeaves.getPendingLeaves() : Promise.resolve([]),
+                isAdmin ? window.AppDB.getAll('users') : Promise.resolve([])
             ]);
             console.timeEnd('DashboardFetch');
 
@@ -554,6 +602,18 @@
                         </div>
                     </div>
                 `;
+            };
+
+            window.app_changeSummaryStaff = (staffId) => {
+                window.app_selectedSummaryStaffId = staffId;
+                this.renderDashboard().then(html => {
+                    const contentArea = document.getElementById('page-content');
+                    if (contentArea) {
+                        contentArea.innerHTML = html;
+                        if (typeof setupDashboardEvents === 'function') setupDashboardEvents();
+                        else if (window.setupDashboardEvents) window.setupDashboardEvents();
+                    }
+                });
             };
 
             // NEW: Activity Report Widget Helper
@@ -803,13 +863,24 @@
                     // Use LOCAL date construction
                     const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                     const evs = [];
+
+                    // 1. Add Automatic Day Types (Saturdays, Sundays)
+                    if (window.AppAnalytics) {
+                        const dayType = window.AppAnalytics.getDayType(new Date(year, month, d));
+                        if (dayType === 'Holiday') {
+                            evs.push({ title: 'Company Holiday (Weekend)', type: 'holiday' });
+                        } else if (dayType === 'Half Day') {
+                            evs.push({ title: 'Half Working Day (Sat)', type: 'event' });
+                        }
+                    }
+
                     plans.leaves.forEach(l => {
                         if (dStr >= l.startDate && dStr <= l.endDate) {
                             evs.push({ title: `${l.userName || 'Staff'} (Leave)`, type: 'leave', userId: l.userId });
                         }
                     });
                     plans.events.forEach(e => {
-                        if (e.date === dStr) evs.push({ title: e.title, type: 'event' });
+                        if (e.date === dStr) evs.push({ title: e.title, type: e.type || 'event' });
                     });
                     plans.workPlans.forEach(p => {
                         if (p.date === dStr) evs.push({ title: `${p.userName}: ${p.plan}`, type: 'work', userId: p.userId });
@@ -830,9 +901,12 @@
                     const isToday = d === today.getDate() && month === today.getMonth() && year === today.getFullYear();
                     const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 
+                    // Detect automatic day type
+                    const dayType = window.AppAnalytics ? window.AppAnalytics.getDayType(new Date(year, month, d)) : 'Work Day';
+
                     calendarHTML += `
-                        <div class="cal-day ${isToday ? 'today' : ''} ${hasLeave ? 'has-leave' : ''} ${hasEvent ? 'has-event' : ''} ${hasWork ? 'has-work' : ''}" 
-                             onclick="window.app_openDayPlan('${dStr}')" style="cursor:pointer;">
+                        <div class="cal-day ${isToday ? 'today' : ''} ${hasLeave ? 'has-leave' : ''} ${hasEvent ? 'has-event' : ''} ${hasWork ? 'has-work' : ''} ${dayType === 'Holiday' ? 'is-holiday' : ''} ${dayType === 'Half Day' ? 'is-half-day' : ''}" 
+                             onclick="window.app_openDayPlan('${dStr}')" style="cursor:pointer;" title="${dayType}">
                             ${d}
                         </div>
                     `;
@@ -844,7 +918,12 @@
 
                 return `
                     <div class="card" style="padding: 0.75rem; display:flex; flex-direction:column;">
-                        <div style="margin-bottom:0.6rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.4rem; display:flex; justify-content:space-between; align-items:center;">
+                        <div style="margin-bottom:0.75rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.4rem;">
+                             <h4 style="margin:0; color:#1f2937; font-size: 1rem;">Team Schedule</h4>
+                             <span style="font-size:0.7rem; color:#6b7280;">Planned Leaves & Events</span>
+                        </div>
+
+                        <div style="margin-bottom:0.6rem; padding-bottom:0.4rem; display:flex; justify-content:space-between; align-items:center;">
                              <div style="display:flex; align-items:center; gap:0.4rem;">
                                 <button onclick="window.app_changeCalMonth(-1)" style="background:none; border:none; color:#6b7280; cursor:pointer; padding:2px;"><i class="fa-solid fa-chevron-left"></i></button>
                                 <div style="text-align:center; min-width:70px;">
@@ -867,15 +946,18 @@
                         <div style="margin-top:0.6rem; display:flex; flex-wrap:wrap; gap:0.4rem; font-size:0.55rem; color:#6b7280; justify-content:center;">
                             <span style="display:flex; align-items:center; gap:2px;"><span style="width:5px; height:5px; background:#b91c1c; border-radius:50%;"></span> Leave</span>
                             <span style="display:flex; align-items:center; gap:2px;"><span style="width:5px; height:5px; background:#166534; border-radius:50%;"></span> Event</span>
-                            <span style="display:flex; align-items:center; gap:2px;"><span style="width:5px; height:5px; background:#4f46e5; border-radius:50%;"></span> Plan</span>
+                            <span style="display:flex; align-items:center; gap:2px;"><span style="width:5px; height:5px; background:#eee; border-radius:50%; border:0.5px solid #ccc;"></span> Holiday</span>
+                            <span style="display:flex; align-items:center; gap:2px;"><span style="width:5px; height:5px; background:#fffbeb; border-radius:50%; border:0.5px solid #d97706;"></span> Half</span>
                         </div>
                         <style>
-                            .cal-day { padding: 4px; border-radius: 4px; position: relative; transition: all 0.2s; }
+                            .cal-day { padding: 4px; border-radius: 4px; position: relative; transition: all 0.2s; border: 1px solid transparent; }
                             .cal-day:hover:not(.empty) { background: #f3f4f6; }
-                            .cal-day.today { background: var(--primary) !important; color: white !important; font-weight: 700; }
+                            .cal-day.today { background: var(--primary) !important; color: white !important; font-weight: 700; border-color: transparent !important; }
                             .cal-day.has-leave { background: #fee2e2; color: #b91c1c; }
                             .cal-day.has-event { background: #dcfce7; color: #166534; }
-                            .cal-day.has-work { border: 1px solid #818cf8; }
+                            .cal-day.has-work { border-color: #818cf8; }
+                            .cal-day.is-holiday { background: #f9fafb; color: #9ca3af; opacity: 0.8; }
+                            .cal-day.is-half-day { background: #fffbeb; color: #d97706; border-color: #fde68a; }
                             .cal-day.empty { visibility: hidden; }
                         </style>
                     </div>
@@ -884,11 +966,32 @@
 
             const heroHTML = this.renderHeroCard(heroData);
 
+            const staffSelectionHTML = isAdmin ? `
+                <div class="card full-width" style="padding: 1rem; margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: space-between; background: #f8fafc; border: 1px solid #e2e8f0; grid-column: 1 / -1;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <i class="fa-solid fa-users-viewfinder" style="color: var(--primary); font-size: 1.2rem;"></i>
+                        <div>
+                            <h4 style="margin: 0; font-size: 0.95rem;">Viewing Summary For</h4>
+                            <p style="margin: 0; font-size: 0.75rem; color: #64748b;">Select a staff member to see their stats</p>
+                        </div>
+                    </div>
+                    <select onchange="window.app_changeSummaryStaff(this.value)" style="padding: 0.5rem; border-radius: 8px; border: 1px solid #cbd5e1; min-width: 200px; font-weight: 500; cursor: pointer;">
+                        <option value="${user.id}">My Own Summary (Self)</option>
+                        <optgroup label="Staff Members">
+                            ${(allUsers || []).filter(u => u.id !== user.id).sort((a, b) => a.name.localeCompare(b.name)).map(u => `
+                                <option value="${u.id}" ${u.id === targetStaffId ? 'selected' : ''}>${u.name} (${u.dept || 'General'})</option>
+                            `).join('')}
+                        </optgroup>
+                    </select>
+                </div>
+            ` : '';
+
             const summaryHTML = `
                 ${this.renderLeaveRequests(pendingLeaves)}
+                ${staffSelectionHTML}
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; align-items: stretch; grid-column: 1 / -1;">
-                    ${renderStatsCard(monthlyStats.label, 'Monthly Stats', monthlyStats)}
-                    ${renderStatsCard('Yearly Summary', yearlyStats.label, yearlyStats)}
+                    ${renderStatsCard(targetStaffId === user.id ? monthlyStats.label : `${monthlyStats.label} (Staff)`, 'Monthly Stats', monthlyStats)}
+                    ${renderStatsCard('Yearly Summary', targetStaffId === user.id ? yearlyStats.label : `${yearlyStats.label} (Staff)`, yearlyStats)}
                     ${renderActivityReport(logs)}
                     <div style="display: flex; flex-direction: column; gap: 1rem;">
                         ${renderYearlyPlan(calendarPlans)}

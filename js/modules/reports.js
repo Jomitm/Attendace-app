@@ -181,7 +181,11 @@
                         const dayLogs = logs.filter(l => (l.userId === u.id || l.user_id === u.id) && l.date === dateStr);
                         if (dayLogs.length > 0) {
                             const l = dayLogs[0];
-                            row.push(`${l.type || 'P'} (${l.checkIn}-${l.checkOut || 'Active'})`);
+                            let display = l.type || 'P';
+                            if (display === 'Short Leave' && l.durationHours) {
+                                display = `SL(${l.durationHours}h)`;
+                            }
+                            row.push(`${display} (${l.checkIn}-${l.checkOut || 'Active'})`);
                         } else {
                             row.push('-');
                         }
@@ -205,10 +209,15 @@
          */
         async exportLeavesCSV(leaves) {
             try {
-                const headers = ['Applied On', 'Staff Name', 'Type', 'From', 'To', 'Reason', 'Status', 'Admin Comment'];
-                const keys = ['appliedOn', 'userName', 'type', 'startDate', 'endDate', 'reason', 'status', 'adminComment'];
+                const headers = ['Applied On', 'Staff Name', 'FY', 'Type', 'From', 'To', 'Days/Hrs', 'Reason', 'Status', 'Admin Comment'];
+                const keys = ['appliedOn', 'userName', 'financialYear', 'type', 'startDate', 'endDate', 'daysCount', 'reason', 'status', 'adminComment'];
 
-                const csvContent = this.convertToCSV(leaves, headers, keys);
+                const processedLeaves = leaves.map(l => ({
+                    ...l,
+                    daysCount: l.type === 'Short Leave' ? `${l.durationHours || 0}h` : l.daysCount
+                }));
+
+                const csvContent = this.convertToCSV(processedLeaves, headers, keys);
                 const fileName = `Leave_Requests_${new Date().toISOString().split('T')[0]}.csv`;
                 this.downloadFile(csvContent, fileName, 'text/csv');
                 return true;
