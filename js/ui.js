@@ -170,7 +170,7 @@
                             </label>
                             <script>
                                 (function() {
-                                    const select = document.querySelector('#leave-form select[name="type"]');
+                                    const select = document.querySelector('#leave-request-form select[name="type"]');
                                     if(select) {
                                         select.addEventListener('change', function(e) {
                                             const hourField = document.getElementById('short-leave-hours');

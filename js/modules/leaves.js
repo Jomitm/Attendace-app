@@ -97,7 +97,22 @@
             // Validation Rules (Collect Warnings)
             if (type === 'Short Leave') {
                 const usage = await this.getMonthlyShortLeaveUsage(userId, start);
-                const requestedHrs = parseFloat(durationHours || 0);
+                let requestedHrs = parseFloat(durationHours || 0);
+
+                // Auto-calculate duration from times if hours field is empty
+                if (requestedHrs <= 0 && leaveData.startTime && leaveData.endTime) {
+                    const parse = (t) => {
+                        const [h, m] = t.split(':').map(Number);
+                        return h * 60 + m;
+                    };
+                    const startMins = parse(leaveData.startTime);
+                    const endMins = parse(leaveData.endTime);
+                    if (endMins > startMins) {
+                        requestedHrs = (endMins - startMins) / 60;
+                        leaveData.durationHours = requestedHrs; // Sync back
+                    }
+                }
+
                 if (requestedHrs <= 0) throw new Error("Please specify duration in hours for Short Leave.");
                 if (usage.hours + requestedHrs > rule.maxHoursPerMonth) {
                     warnings.push(`Short Leave limit exceeded (${rule.maxHoursPerMonth}h/mo).`);
