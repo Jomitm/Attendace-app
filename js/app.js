@@ -598,8 +598,8 @@
 
                         if (checkInLoc && checkInLoc.lat && checkInLoc.lng) {
                             const dist = calculateDistance(currentPos.lat, currentPos.lng, checkInLoc.lat, checkInLoc.lng);
-                            // If more than 100 meters away, show mismatch warning
-                            if (dist > 100) {
+                            // If more than 500 meters away, show mismatch warning
+                            if (dist > 500) {
                                 if (mismatchDiv) mismatchDiv.style.display = 'block';
                             } else {
                                 if (mismatchDiv) mismatchDiv.style.display = 'none';
@@ -651,7 +651,7 @@
             const checkInLoc = window.AppAuth.getUser()?.currentLocation;
             if (checkInLoc && checkInLoc.lat && checkInLoc.lng && pos.lat && pos.lng) {
                 const dist = calculateDistance(pos.lat, pos.lng, checkInLoc.lat, checkInLoc.lng);
-                if (dist > 100) locationMismatched = true;
+                if (dist > 500) locationMismatched = true;
             }
 
             const explanation = form.locationExplanation ? form.locationExplanation.value : '';
