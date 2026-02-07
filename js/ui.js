@@ -58,6 +58,9 @@
                         </div>
 
                         <form onsubmit="window.app_submitCheckOut(event)">
+                            <div id="checkout-location-loading" style="display:none; margin-bottom: 1rem; padding: 0.5rem; background: #f3f4f6; border-radius: 8px; text-align: center; font-size: 0.8rem; color: #6b7280;">
+                                <i class="fa-solid fa-spinner fa-spin"></i> Verifying location...
+                            </div>
                             <div id="checkout-location-mismatch" style="display:none; margin-bottom: 1rem; padding: 0.75rem; background: #fff1f2; border: 1px solid #fda4af; border-radius: 8px;">
                                 <label style="display:block; font-size: 0.85rem; font-weight: 600; color: #991b1b; margin-bottom: 0.5rem;">
                                     <i class="fa-solid fa-triangle-exclamation"></i> Different Location Detected

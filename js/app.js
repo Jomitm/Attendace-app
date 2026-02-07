@@ -10,6 +10,9 @@
     // App State
     let timerInterval = null;
     let adminListenerUnsubscribe = null;
+    let cachedLocation = null;
+    let lastLocationFetch = 0;
+    const LOCATION_CACHE_TIME = 30000; // 30 seconds cache
 
     // DOM Elements - queried dynamically or once if available
     const contentArea = document.getElementById('page-content');
@@ -323,6 +326,14 @@
 
     function getLocation() {
         return new Promise(async (resolve, reject) => {
+            // Check Cache first
+            const now = Date.now();
+            if (cachedLocation && (now - lastLocationFetch < LOCATION_CACHE_TIME)) {
+                console.log("Using cached location (freshness: " + (now - lastLocationFetch) + "ms)");
+                resolve(cachedLocation);
+                return;
+            }
+
             if (!navigator.geolocation) {
                 reject('Geolocation is not supported by your browser.');
                 return;
@@ -336,18 +347,20 @@
 
             try {
                 // Attempt 1: High Accuracy (GPS)
-                // iOS often needs more than 5s for a cold GPS lock. 10s is safer.
                 console.log("Requesting Location: High Accuracy (GPS)...");
                 const p = await getPosition({
                     enableHighAccuracy: true,
                     timeout: 10000,
-                    maximumAge: 5000 // Allow a 5-second old cached location for speed
+                    maximumAge: 5000
                 });
-                resolve({ lat: p.coords.latitude, lng: p.coords.longitude });
+                const pos = { lat: p.coords.latitude, lng: p.coords.longitude };
+                cachedLocation = pos;
+                lastLocationFetch = Date.now();
+                resolve(pos);
             } catch (err) {
                 console.warn("High Accuracy Failed:", err.message);
 
-                // Attempt 2: Low Accuracy (WiFi/Cell/IP) - Fallback
+                // Attempt 2: Low Accuracy - Fallback
                 try {
                     console.log("Requesting Location: Low Accuracy (Fallback)...");
                     const p2 = await getPosition({
@@ -355,15 +368,16 @@
                         timeout: 15000,
                         maximumAge: 10000
                     });
-                    resolve({ lat: p2.coords.latitude, lng: p2.coords.longitude });
+                    const pos2 = { lat: p2.coords.latitude, lng: p2.coords.longitude };
+                    cachedLocation = pos2;
+                    lastLocationFetch = Date.now();
+                    resolve(pos2);
                 } catch (err2) {
                     console.error("Low Accuracy Failed:", err2.message);
-
                     let msg = 'Unable to retrieve location.';
-                    if (err2.code === 1) msg = 'Location permission denied. Please allow location access in your iOS Settings.';
-                    else if (err2.code === 2) msg = 'Location unavailable. Ensure GPS is enabled (Settings > Privacy > Location).';
-                    else if (err2.code === 3) msg = 'Location request timed out. Try moving near a window or outdoors.';
-
+                    if (err2.code === 1) msg = 'Location permission denied.';
+                    else if (err2.code === 2) msg = 'Location unavailable.';
+                    else if (err2.code === 3) msg = 'Location request timed out.';
                     reject(msg);
                 }
             }
@@ -590,27 +604,37 @@
                         if (planRef) planRef.style.display = 'none';
                     }
 
-                    // Location Verification
-                    const mismatchDiv = document.getElementById('checkout-location-mismatch');
-                    try {
-                        const currentPos = await getLocation();
-                        const checkInLoc = user.currentLocation || user.lastLocation;
-
-                        if (checkInLoc && checkInLoc.lat && checkInLoc.lng) {
-                            const dist = calculateDistance(currentPos.lat, currentPos.lng, checkInLoc.lat, checkInLoc.lng);
-                            // If more than 500 meters away, show mismatch warning
-                            if (dist > 500) {
-                                if (mismatchDiv) mismatchDiv.style.display = 'block';
-                            } else {
-                                if (mismatchDiv) mismatchDiv.style.display = 'none';
-                            }
-                        }
-                    } catch (locErr) {
-                        console.warn("Location check failed during checkout trigger:", locErr);
-                    }
-
                     modal.style.display = 'flex';
                     if (btn) btn.disabled = false;
+
+                    // Background Location Verification (Deferred)
+                    const mismatchDiv = document.getElementById('checkout-location-mismatch');
+                    const mismatchLoading = document.getElementById('checkout-location-loading');
+
+                    if (mismatchLoading) mismatchLoading.style.display = 'block';
+                    if (mismatchDiv) mismatchDiv.style.display = 'none';
+
+                    // Use an async IIFE to not block the UI from showing the modal
+                    (async () => {
+                        try {
+                            const currentPos = await getLocation();
+                            const checkInLoc = user.currentLocation || user.lastLocation;
+
+                            if (mismatchLoading) mismatchLoading.style.display = 'none';
+
+                            if (checkInLoc && checkInLoc.lat && checkInLoc.lng) {
+                                const dist = calculateDistance(currentPos.lat, currentPos.lng, checkInLoc.lat, checkInLoc.lng);
+                                if (dist > 500) {
+                                    if (mismatchDiv) mismatchDiv.style.display = 'block';
+                                } else {
+                                    if (mismatchDiv) mismatchDiv.style.display = 'none';
+                                }
+                            }
+                        } catch (locErr) {
+                            console.warn("Background location check failed:", locErr);
+                            if (mismatchLoading) mismatchLoading.style.display = 'none';
+                        }
+                    })();
                 } else {
                     await window.AppAttendance.checkOut();
                     const contentArea = document.getElementById('page-content');
@@ -649,9 +673,17 @@
             // Detect mismatch for saving
             let locationMismatched = false;
             const checkInLoc = window.AppAuth.getUser()?.currentLocation;
-            if (checkInLoc && checkInLoc.lat && checkInLoc.lng && pos.lat && pos.lng) {
-                const dist = calculateDistance(pos.lat, pos.lng, checkInLoc.lat, checkInLoc.lng);
+
+            // Try to use cached location first for speed, otherwise fetch (with cache inside getLocation)
+            const checkPos = (cachedLocation && (Date.now() - lastLocationFetch < LOCATION_CACHE_TIME))
+                ? cachedLocation
+                : await getLocation().catch(() => pos);
+
+            if (checkInLoc && checkInLoc.lat && checkInLoc.lng && checkPos.lat && checkPos.lng) {
+                const dist = calculateDistance(checkPos.lat, checkPos.lng, checkInLoc.lat, checkInLoc.lng);
                 if (dist > 500) locationMismatched = true;
+                // Update pos for final save if we used checkPos
+                pos = checkPos;
             }
 
             const explanation = form.locationExplanation ? form.locationExplanation.value : '';
