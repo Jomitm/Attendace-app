@@ -934,6 +934,114 @@
             }
         },
 
+        async renderMasterSheet() {
+            const users = await window.AppDB.getAll('users');
+            const logs = await window.AppDB.getAll('attendance');
+
+            const now = new Date();
+            const currentMonth = now.getMonth();
+            const currentYear = now.getFullYear();
+
+            // Days in selected month
+            const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+            const daysArray = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+
+            const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+            return `
+            <div class="dashboard-grid">
+                <div class="card full-width">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2rem;">
+                        <div>
+                            <h2 style="font-size:1.5rem; margin-bottom:0.25rem;">Attendance Sheet</h2>
+                            <p style="color:var(--text-muted); font-size:0.9rem;">Master grid view for all staff logs.</p>
+                        </div>
+                        <div style="display:flex; gap:0.75rem; align-items:center;">
+                            <select onchange="window.app_refreshMasterSheet()" id="sheet-month" style="padding:0.5rem; border-radius:8px; border:1px solid #ddd;">
+                                ${monthNames.map((m, i) => `<option value="${i}" ${i === currentMonth ? 'selected' : ''}>${m}</option>`).join('')}
+                            </select>
+                            <select onchange="window.app_refreshMasterSheet()" id="sheet-year" style="padding:0.5rem; border-radius:8px; border:1px solid #ddd;">
+                                <option value="${currentYear}" selected>${currentYear}</option>
+                                <option value="${currentYear - 1}">${currentYear - 1}</option>
+                            </select>
+                            <button onclick="window.app_exportMasterSheet()" class="action-btn secondary" style="padding:0.5rem 1rem; font-size:0.9rem;">
+                                <i class="fa-solid fa-file-excel"></i> Export Excel
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="table-container" style="max-height: 70vh; overflow: auto; border: 1px solid #eee; border-radius: 8px;">
+                        <table style="font-size:0.85rem; border-collapse: separate; border-spacing: 0;">
+                            <thead>
+                                <tr style="position: sticky; top: 0; z-index: 10; background: #f8fafc;">
+                                    <th style="border-right: 1px solid #eee; padding:12px; position: sticky; left: 0; background: #f8fafc; z-index: 20;">S.No</th>
+                                    <th style="border-right: 2px solid #ddd; padding:12px; position: sticky; left: 40px; background: #f8fafc; z-index: 20; min-width: 150px;">Staff Name</th>
+                                    ${daysArray.map(d => `<th style="text-align:center; min-width: 40px; border-right: 1px solid #eee;">${d}</th>`).join('')}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${users.sort((a, b) => a.name.localeCompare(b.name)).map((u, index) => {
+                return `
+                                        <tr>
+                                            <td style="text-align:center; border-right: 1px solid #eee; position: sticky; left: 0; background: #fff; z-index: 5;">${index + 1}</td>
+                                            <td style="border-right: 2px solid #ddd; position: sticky; left: 40px; background: #fff; z-index: 5; font-weight: 500;">
+                                                <div style="display:flex; flex-direction:column;">
+                                                    <span>${u.name}</span>
+                                                    <span style="font-size:0.7rem; color:#666; font-weight:400;">${u.dept || 'General'}</span>
+                                                </div>
+                                            </td>
+                                            ${daysArray.map(day => {
+                    const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                    const dayLogs = logs.filter(l => (l.userId === u.id || l.user_id === u.id) && l.date === dateStr);
+
+                    let cellContent = '-';
+                    let cellStyle = '';
+                    let tooltip = 'No log';
+
+                    if (dayLogs.length > 0) {
+                        const log = dayLogs[0];
+                        const type = log.type || 'Present';
+                        cellContent = type.charAt(0).toUpperCase();
+                        tooltip = `${log.checkIn} - ${log.checkOut || 'Active'}\n${type}`;
+
+                        if (type === 'Present') { cellStyle = 'color: #10b981; font-weight: bold; font-size: 0.9rem;'; }
+                        else if (type === 'Late') { cellStyle = 'color: #f59e0b; font-weight: bold;'; cellContent = 'L'; }
+                        else if (type === 'Absent') { cellStyle = 'color: #ef4444; font-weight: bold;'; cellContent = 'A'; }
+                        else if (type.includes('Leave')) { cellStyle = 'color: #8b5cf6; font-weight: bold;'; cellContent = 'C'; }
+                        else if (type === 'Work - Home') { cellStyle = 'color: #0ea5e9; font-weight: bold;'; cellContent = 'W'; }
+
+                        if (log.isManualOverride) {
+                            cellStyle += ' border-bottom: 2px solid #854d0e;';
+                        }
+                    }
+
+                    return `
+                                                    <td style="text-align:center; cursor:pointer; border-right: 1px solid #eee; ${cellStyle}" 
+                                                        title="${tooltip}"
+                                                        onclick="window.app_openCellOverride('${u.id}', '${dateStr}')">
+                                                        ${cellContent}
+                                                    </td>
+                                                `;
+                }).join('')}
+                                        </tr>
+                                    `;
+            }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div style="margin-top: 1rem; display: flex; gap: 1.5rem; font-size: 0.8rem; color: #666;">
+                        <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#10b981; font-weight:bold;">P</span> Present</div>
+                        <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#f59e0b; font-weight:bold;">L</span> Late</div>
+                        <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#ef4444; font-weight:bold;">A</span> Absent</div>
+                        <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#8b5cf6; font-weight:bold;">C</span> Leave</div>
+                        <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#0ea5e9; font-weight:bold;">W</span> WFH</div>
+                        <div style="display:flex; align-items:center; gap:0.5rem;"><span style="border-bottom: 2px solid #854d0e;">_</span> Manual Override</div>
+                    </div>
+                </div>
+            </div>
+        `;
+        },
+
         async renderAdmin() {
             let allUsers = [];
             let performance = { avgScore: 0, trendData: [0, 0, 0, 0, 0, 0, 0] };

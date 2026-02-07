@@ -248,30 +248,49 @@
                     let dayLateMins = 0;
                     let dayEarlyCredit = 0;
 
-                    // EARLY ARRIVAL Credit (Before 09:00 = 540)
-                    if (inMinutes !== null && inMinutes < 540) {
-                        dayEarlyCredit = 540 - inMinutes;
-                    }
+                    // Manual Override logic
+                    const isManual = log.isManualOverride === true;
 
-                    // LATE Check (Threshold: 09:05 = 545 minutes)
-                    if (inMinutes !== null && inMinutes > 545) {
-                        dayLateMins = inMinutes - 545;
-
-                        // User Rule: If there are enough early arrivals, do not reduce salary/count as late
-                        // We subtract the credit from the late minutes
-                        const compensatedLate = Math.max(0, dayLateMins - dayEarlyCredit);
-
-                        if (compensatedLate > 0) {
-                            breakdown['Late']++;
-                            stats.late++;
-                            totalLateMinutes += compensatedLate;
+                    if (!isManual) {
+                        // EARLY ARRIVAL Credit (Before 09:00 = 540)
+                        if (inMinutes !== null && inMinutes < 540) {
+                            dayEarlyCredit = 540 - inMinutes;
                         }
-                    }
 
-                    // EARLY DEPARTURE Check (Before 17:00 = 1020 minutes)
-                    if (outMinutes !== null && outMinutes < 1020 && !String(type).includes('Leave') && type !== 'Absent') {
-                        stats.earlyDepartures++;
-                        breakdown['Early Departure']++;
+                        // LATE Check (Threshold: 09:05 = 545 minutes)
+                        if (inMinutes !== null && inMinutes > 545) {
+                            dayLateMins = inMinutes - 545;
+
+                            // User Rule: If there are enough early arrivals, do not reduce salary/count as late
+                            // We subtract the credit from the late minutes
+                            const compensatedLate = Math.max(0, dayLateMins - dayEarlyCredit);
+
+                            if (compensatedLate > 0) {
+                                breakdown['Late']++;
+                                stats.late++;
+                                totalLateMinutes += compensatedLate;
+                            }
+                        }
+
+                        // EARLY DEPARTURE Check (Before 17:00 = 1020 minutes)
+                        if (outMinutes !== null && outMinutes < 1020 && !String(type).includes('Leave') && type !== 'Absent') {
+                            stats.earlyDepartures++;
+                            breakdown['Early Departure']++;
+                        }
+                    } else {
+                        // For manual logs, still track duration if needed, but skip penalties
+                        // Manual logs explicitly set their type (Present, Late, etc.)
+                        if (type === 'Late') {
+                            stats.late++;
+                            breakdown['Late']++;
+                            // We don't have a reliable late duration for manual logs unless we calculate it
+                            if (inMinutes !== null && inMinutes > 540) {
+                                totalLateMinutes += (inMinutes - 540);
+                            }
+                        } else if (type === 'Early Departure') {
+                            stats.earlyDepartures++;
+                            breakdown['Early Departure']++;
+                        }
                     }
 
                     // EXTRA HOURS Check (for duration display)

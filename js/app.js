@@ -189,11 +189,10 @@
         }
 
         // Admin Link logic
-        const adminLinks = document.querySelectorAll('a[data-page="admin"], a[data-page="salary"]');
+        const adminLinks = document.querySelectorAll('a[data-page="admin"], a[data-page="salary"], a[data-page="master-sheet"]');
         adminLinks.forEach(link => {
             if (user.role === 'Administrator' || user.isAdmin) {
-                if (window.innerWidth > 768) link.style.display = 'flex';
-                else link.style.display = 'flex'; // mobile bottom nav
+                link.style.display = 'flex';
             } else {
                 link.style.setProperty('display', 'none', 'important');
             }
@@ -232,7 +231,13 @@
                     window.location.hash = 'dashboard';
                     return;
                 }
-                contentArea.innerHTML = await window.AppUI.renderSalaryProcessing();
+                contentArea.innerHTML = await window.AppUI.renderSalaryProcessing ? await window.AppUI.renderSalaryProcessing() : await window.AppUI.renderSalary();
+            } else if (hash === 'master-sheet') {
+                if (user.role !== 'Administrator' && !user.isAdmin) {
+                    window.location.hash = 'dashboard';
+                    return;
+                }
+                contentArea.innerHTML = await window.AppUI.renderMasterSheet();
             } else if (hash === 'admin') {
                 if (user.role !== 'Administrator' && !user.isAdmin) {
                     window.location.hash = 'dashboard';
@@ -997,8 +1002,13 @@
                                 <td>${log.checkIn}</td>
                                 <td>${log.checkOut || '--'}</td>
                                 <td>${log.duration || '--'}</td>
-                                <td>${log.type || 'Office'}</td>
-                                <td style="font-size:0.85rem; color:#6b7280;">${locDisplay}</td>
+                                <td><span class="badge ${log.isManualOverride ? 'manual' : ''}" style="font-size:0.7rem; padding: 2px 6px;">${log.type || 'Office'}</span></td>
+                                <td style="font-size:0.85rem; color:#6b7280;">
+                                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                                        ${locDisplay}
+                                        <button onclick="window.app_deleteLog('${log.id}', '${userId}')" style="background:none; border:none; color:#ef4444; cursor:pointer;" title="Delete Log"><i class="fa-solid fa-trash"></i></button>
+                                    </div>
+                                </td>
                             </tr>`;
         }).join('')}
                     </tbody>
@@ -1011,14 +1021,268 @@
                      <h3>${user.name}</h3>
                      <p style="color:#6b7280; font-size:0.9rem;">${user.role} | ${user.dept || 'General'}</p>
                 </div>
-                <button onclick="window.AppReports.exportUserLogsCSV(window.currentViewedUser, window.currentViewedLogs)" class="action-btn" style="padding:0.5rem 1rem; font-size:0.9rem;">
-                    <i class="fa-solid fa-file-export"></i> Export Report
-                </button>
+                <div style="display:flex; gap:0.5rem;">
+                    <button onclick="window.app_openManualLogModal('${user.id}')" class="action-btn" style="padding:0.5rem 1rem; font-size:0.9rem; background:#10b981; border:none;">
+                        <i class="fa-solid fa-plus"></i> Add Manual Log
+                    </button>
+                    <button onclick="window.AppReports.exportUserLogsCSV(window.currentViewedUser, window.currentViewedLogs)" class="action-btn secondary" style="padding:0.5rem 1rem; font-size:0.9rem;">
+                        <i class="fa-solid fa-file-export"></i> Export Report
+                    </button>
+                </div>
             </div>
             ${logsHTML}
         `;
         document.getElementById('user-details-modal').style.display = 'flex';
     };
+
+    window.app_openManualLogModal = (userId) => {
+        const html = `
+            <div class="modal-overlay" id="manual-admin-log-modal" style="display:flex;">
+                <div class="modal-content">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+                        <h3>Add Manual Attendance</h3>
+                        <button onclick="this.closest('.modal-overlay').remove()" style="background:none; border:none; font-size:1.2rem; cursor:pointer;">&times;</button>
+                    </div>
+                    <form onsubmit="window.app_submitManualLog(event, '${userId}')">
+                        <div style="display:flex; flex-direction:column; gap:1rem;">
+                            <div>
+                                <label style="display:block; font-size:0.85rem; margin-bottom:0.25rem;">Date</label>
+                                <input type="date" name="date" required value="${new Date().toISOString().split('T')[0]}" style="width:100%; padding:0.75rem; border:1px solid #ddd; border-radius:8px;">
+                            </div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+                                <div>
+                                    <label style="display:block; font-size:0.85rem; margin-bottom:0.25rem;">Time In</label>
+                                    <input type="time" name="checkIn" required value="09:00" style="width:100%; padding:0.75rem; border:1px solid #ddd; border-radius:8px;">
+                                </div>
+                                <div>
+                                    <label style="display:block; font-size:0.85rem; margin-bottom:0.25rem;">Time Out</label>
+                                    <input type="time" name="checkOut" required value="17:00" style="width:100%; padding:0.75rem; border:1px solid #ddd; border-radius:8px;">
+                                </div>
+                            </div>
+                            <div>
+                                <label style="display:block; font-size:0.85rem; margin-bottom:0.25rem;">Category / Rule Override</label>
+                                <select name="type" required style="width:100%; padding:0.75rem; border:1px solid #ddd; border-radius:8px;">
+                                    <option value="Present">Present (Full Day)</option>
+                                    <option value="Work - Home">Work from Home</option>
+                                    <option value="Late">Late (Mark as Late)</option>
+                                    <option value="Early Departure">Early Departure</option>
+                                    <option value="Training">Training</option>
+                                    <option value="Absent">Absent</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="display:block; font-size:0.85rem; margin-bottom:0.25rem;">Admin Comment</label>
+                                <textarea name="description" placeholder="Reason for manual entry..." style="width:100%; padding:0.75rem; border:1px solid #ddd; border-radius:8px; height:60px;"></textarea>
+                            </div>
+                            <button type="submit" class="action-btn" style="width:100%; margin-top:1rem;">Save Manual Entry</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        `;
+        window.app_showModal(html, 'manual-admin-log-modal');
+    };
+
+    window.app_submitManualLog = async (e, userId) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const checkIn = fd.get('checkIn');
+        const checkOut = fd.get('checkOut');
+
+        const dur = calculateDuration(checkIn, checkOut);
+        if (dur === 'Invalid') {
+            alert('End time must be after Start time');
+            return;
+        }
+
+        // Convert 24h back to AM/PM for display consistency (optional, but better)
+        const formatTime = (timeStr) => {
+            const [h, m] = timeStr.split(':');
+            const hours = parseInt(h);
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            const displayH = hours % 12 || 12;
+            return `${String(displayH).padStart(2, '0')}:${m} ${ampm}`;
+        };
+
+        const logData = {
+            date: fd.get('date'),
+            checkIn: formatTime(checkIn),
+            checkOut: formatTime(checkOut),
+            duration: dur,
+            type: fd.get('type'),
+            workDescription: fd.get('description') || 'Manual Entry by Admin',
+            location: 'Office (Manual)',
+            durationMs: (new Date(`1970-01-01T${checkOut}:00`) - new Date(`1970-01-01T${checkIn}:00`))
+        };
+
+        try {
+            await window.AppAttendance.addAdminLog(userId, logData);
+            alert("Attendance added manually.");
+            document.getElementById('manual-admin-log-modal')?.remove();
+            // Refresh logs view
+            window.app_viewLogs(userId);
+        } catch (err) {
+            alert("Error: " + err.message);
+        }
+    };
+
+    window.app_deleteLog = async (logId, userId) => {
+        if (!confirm("Are you sure you want to delete this attendance record?")) return;
+        try {
+            await window.AppAttendance.deleteLog(logId);
+            alert("Record deleted.");
+            window.app_viewLogs(userId);
+        } catch (err) {
+            alert("Error: " + err.message);
+        }
+    };
+
+
+    window.app_refreshMasterSheet = async () => {
+        const contentArea = document.getElementById('page-content');
+        if (contentArea) {
+            contentArea.innerHTML = await window.AppUI.renderMasterSheet();
+        }
+    };
+
+    window.app_exportMasterSheet = async () => {
+        const month = parseInt(document.getElementById('sheet-month').value);
+        const year = parseInt(document.getElementById('sheet-year').value);
+        const users = await window.AppDB.getAll('users');
+        const logs = await window.AppDB.getAll('attendance');
+
+        // Filter logs for selected month/year
+        const start = new Date(year, month, 1);
+        const end = new Date(year, month + 1, 0);
+        const filteredLogs = logs.filter(l => {
+            const d = new Date(l.date);
+            return d >= start && d <= end;
+        });
+
+        await window.AppReports.exportMasterSheetCSV(month, year, users, filteredLogs);
+    };
+
+    window.app_openCellOverride = async (userId, dateStr) => {
+        const user = (await window.AppDB.getAll('users')).find(u => u.id === userId);
+        const logs = await window.AppDB.getAll('attendance');
+        const existingLog = logs.find(l => (l.userId === userId || l.user_id === userId) && l.date === dateStr);
+
+        const html = `
+            <div class="modal-overlay" id="cell-override-modal" style="display:flex;">
+                <div class="modal-content">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+                        <div>
+                            <h3 style="margin:0;">Override Attendance</h3>
+                            <p style="font-size:0.8rem; color:#666; margin:4px 0 0 0;">${user.name} | ${dateStr}</p>
+                        </div>
+                        <button onclick="this.closest('.modal-overlay').remove()" style="background:none; border:none; font-size:1.2rem; cursor:pointer;">&times;</button>
+                    </div>
+                    <form onsubmit="window.app_submitCellOverride(event, '${userId}', '${dateStr}', '${existingLog?.id || ''}')">
+                        <div style="display:flex; flex-direction:column; gap:1rem;">
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+                                <div>
+                                    <label style="display:block; font-size:0.85rem; margin-bottom:0.25rem;">Time In</label>
+                                    <input type="time" name="checkIn" required value="${existingLog ? convertTo24h(existingLog.checkIn) : '09:00'}" style="width:100%; padding:0.75rem; border:1px solid #ddd; border-radius:8px;">
+                                </div>
+                                <div>
+                                    <label style="display:block; font-size:0.85rem; margin-bottom:0.25rem;">Time Out</label>
+                                    <input type="time" name="checkOut" required value="${existingLog ? convertTo24h(existingLog.checkOut) : '17:00'}" style="width:100%; padding:0.75rem; border:1px solid #ddd; border-radius:8px;">
+                                </div>
+                            </div>
+                            <div>
+                                <label style="display:block; font-size:0.85rem; margin-bottom:0.25rem;">Entry Type</label>
+                                <select name="type" required style="width:100%; padding:0.75rem; border:1px solid #ddd; border-radius:8px;">
+                                    <option value="Present" ${existingLog?.type === 'Present' ? 'selected' : ''}>Present</option>
+                                    <option value="Work - Home" ${existingLog?.type === 'Work - Home' ? 'selected' : ''}>WFH</option>
+                                    <option value="Late" ${existingLog?.type === 'Late' ? 'selected' : ''}>Late</option>
+                                    <option value="Absent" ${existingLog?.type === 'Absent' ? 'selected' : ''}>Absent</option>
+                                    <option value="Casual Leave" ${existingLog?.type === 'Casual Leave' ? 'selected' : ''}>Leave</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="display:block; font-size:0.85rem; margin-bottom:0.25rem;">Admin Reason</label>
+                                <textarea name="description" placeholder="Override reason..." style="width:100%; padding:0.75rem; border:1px solid #ddd; border-radius:8px; height:60px;">${existingLog?.workDescription || ''}</textarea>
+                            </div>
+                            <div style="display:flex; gap:0.75rem;">
+                                <button type="submit" class="action-btn" style="flex:2;">${existingLog ? 'Update Override' : 'Create Override'}</button>
+                                ${existingLog ? `<button type="button" onclick="window.app_deleteCellLog('${existingLog.id}', '${userId}')" class="action-btn checkout" style="flex:1; padding:0;">Delete</button>` : ''}
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        `;
+        window.app_showModal(html, 'cell-override-modal');
+    };
+
+    window.app_submitCellOverride = async (e, userId, dateStr, logId) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const checkIn = fd.get('checkIn');
+        const checkOut = fd.get('checkOut');
+
+        const dur = calculateDuration(checkIn, checkOut);
+        if (dur === 'Invalid') {
+            alert('End time must be after Start time');
+            return;
+        }
+
+        const formatTime = (timeStr) => {
+            if (!timeStr || timeStr === '--') return '--';
+            const [h, m] = timeStr.split(':');
+            const hours = parseInt(h);
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            const displayH = hours % 12 || 12;
+            return `${String(displayH).padStart(2, '0')}:${m} ${ampm}`;
+        };
+
+        const logData = {
+            date: dateStr,
+            checkIn: formatTime(checkIn),
+            checkOut: formatTime(checkOut),
+            duration: dur,
+            type: fd.get('type'),
+            workDescription: fd.get('description') || 'Admin Override',
+            location: 'Office (Override)',
+            durationMs: (new Date(`1970-01-01T${checkOut}:00`) - new Date(`1970-01-01T${checkIn}:00`)),
+            isManualOverride: true
+        };
+
+        try {
+            if (logId) {
+                await window.AppAttendance.updateLog(logId, logData);
+            } else {
+                await window.AppAttendance.addAdminLog(userId, logData);
+            }
+            alert("Override successful.");
+            document.getElementById('cell-override-modal')?.remove();
+            window.app_refreshMasterSheet();
+        } catch (err) {
+            alert("Error: " + err.message);
+        }
+    };
+
+    window.app_deleteCellLog = async (logId, userId) => {
+        if (!confirm("Delete this attendance record?")) return;
+        try {
+            await window.AppAttendance.deleteLog(logId);
+            document.getElementById('cell-override-modal')?.remove();
+            window.app_refreshMasterSheet();
+        } catch (err) {
+            alert("Error: " + err.message);
+        }
+    };
+
+    function convertTo24h(timeStr) {
+        if (!timeStr || timeStr === '--' || timeStr === 'Active Now') return '09:00';
+        const [time, ampm] = timeStr.split(' ');
+        let [h, m] = time.split(':');
+        let hours = parseInt(h);
+        if (ampm === 'PM' && hours < 12) hours += 12;
+        if (ampm === 'AM' && hours === 12) hours = 0;
+        return `${String(hours).padStart(2, '0')}:${m}`;
+    }
+
 
     window.app_deleteUser = async (userId) => {
         if (confirm('Are you sure you want to delete this user? This action cannot be undone.')) {

@@ -168,6 +168,37 @@
                 alert("Failed to export logs: " + err.message);
             }
         }
+        async exportMasterSheetCSV(month, year, users, logs) {
+            try {
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                const headers = ['S.No', 'Staff Name', 'Department'];
+                for (let d = 1; d <= daysInMonth; d++) headers.push(String(d));
+
+                const rows = users.sort((a, b) => a.name.localeCompare(b.name)).map((u, idx) => {
+                    const row = [idx + 1, u.name, u.dept || 'General'];
+                    for (let d = 1; d <= daysInMonth; d++) {
+                        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                        const dayLogs = logs.filter(l => (l.userId === u.id || l.user_id === u.id) && l.date === dateStr);
+                        if (dayLogs.length > 0) {
+                            const l = dayLogs[0];
+                            row.push(`${l.type || 'P'} (${l.checkIn}-${l.checkOut || 'Active'})`);
+                        } else {
+                            row.push('-');
+                        }
+                    }
+                    return row;
+                });
+
+                const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+                const monthName = new Date(year, month).toLocaleString('default', { month: 'long' });
+                const fileName = `Attendance_Sheet_${monthName}_${year}.csv`;
+                this.downloadFile(csvContent, fileName, 'text/csv');
+                return true;
+            } catch (err) {
+                console.error("Export Failed:", err);
+                alert("Export Failed: " + err.message);
+            }
+        }
     }
 
     // Initialize

@@ -350,6 +350,19 @@ body {
     color: var(--accent);
 }
 
+.badge {
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.badge.manual {
+    background-color: #fefce8;
+    color: #854d0e;
+    border: 1px solid #fef08a;
+}
+
 .action-btn {
     background: linear-gradient(to right, var(--success), #059669);
     color: white;

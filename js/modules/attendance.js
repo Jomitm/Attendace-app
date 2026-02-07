@@ -85,6 +85,41 @@
             return true;
         }
 
+        async addAdminLog(userId, logData) {
+            const newLog = {
+                id: String(Date.now()),
+                user_id: userId,
+                ...logData,
+                isManualOverride: true,
+                synced: false
+            };
+
+            await window.AppDB.add('attendance', newLog);
+            return newLog;
+        }
+
+        async deleteLog(logId) {
+            if (!logId) return;
+            await window.AppDB.delete('attendance', logId);
+            return true;
+        }
+
+        async updateLog(logId, logData) {
+            if (!logId) return;
+            const existing = await window.AppDB.get('attendance', logId);
+            if (!existing) throw new Error("Log not found");
+
+            const updatedLog = {
+                ...existing,
+                ...logData,
+                isManualOverride: true,
+                id: logId
+            };
+
+            await window.AppDB.put('attendance', updatedLog);
+            return updatedLog;
+        }
+
         async addManualLog(logData) {
             const user = window.AppAuth.getUser();
             if (!user) return;
