@@ -708,37 +708,7 @@
                 // Initialize auto-scroll after render
                 setTimeout(() => {
                     const container = document.getElementById('staff-activity-list');
-                    if (!container) return;
-
-                    let scrollInterval;
-                    let isPaused = false;
-
-                    const startAutoScroll = () => {
-                        if (scrollInterval) clearInterval(scrollInterval);
-                        scrollInterval = setInterval(() => {
-                            if (!isPaused && container) {
-                                container.scrollTop += 1;
-                                // Reset to top when reaching bottom
-                                if (container.scrollTop >= container.scrollHeight - container.clientHeight) {
-                                    container.scrollTop = 0;
-                                }
-                            }
-                        }, 50); // Scroll speed: lower = faster
-                    };
-
-                    // Pause on hover
-                    container.addEventListener('mouseenter', () => {
-                        isPaused = true;
-                    });
-
-                    container.addEventListener('mouseleave', () => {
-                        isPaused = false;
-                    });
-
-                    startAutoScroll();
-
-                    // Store interval ID for cleanup
-                    window.staffActivityScrollInterval = scrollInterval;
+                    if (container) this.initStaffActivityScroll(container);
                 }, 500);
 
                 return `
@@ -768,47 +738,69 @@
                 const list = document.getElementById('staff-activity-list');
                 if (!list) return;
 
+                window.AppAnalytics.getAllStaffActivities(daysBack).then(logs => {
+                    list.innerHTML = renderStaffActivityList(logs, daysBack);
+                    this.initStaffActivityScroll(list);
+                });
+            };
+
+            // NEW: Unified Scroll Helper (Ping-Pong behavior)
+            this.initStaffActivityScroll = (container) => {
+                if (!container) return;
+
                 // Clear existing scroll interval
                 if (window.staffActivityScrollInterval) {
                     clearInterval(window.staffActivityScrollInterval);
+                    window.staffActivityScrollInterval = null;
                 }
 
-                window.AppAnalytics.getAllStaffActivities(daysBack).then(logs => {
-                    list.innerHTML = renderStaffActivityList(logs, daysBack);
+                let scrollInterval;
+                let isPaused = false;
+                let direction = 1; // 1 = down, -1 = up
+                let isWaiting = false;
 
-                    // Restart auto-scroll
-                    setTimeout(() => {
-                        let scrollInterval;
-                        let isPaused = false;
+                const startAutoScroll = () => {
+                    scrollInterval = setInterval(() => {
+                        if (!isPaused && !isWaiting && container) {
+                            const maxScroll = container.scrollHeight - container.clientHeight;
 
-                        const startAutoScroll = () => {
-                            if (scrollInterval) clearInterval(scrollInterval);
-                            scrollInterval = setInterval(() => {
-                                if (!isPaused && list) {
-                                    list.scrollTop += 1;
-                                    if (list.scrollTop >= list.scrollHeight - list.clientHeight) {
-                                        list.scrollTop = 0;
-                                    }
-                                }
-                            }, 50);
-                        };
+                            if (maxScroll <= 0) return; // Nothing to scroll
 
-                        // Re-attach hover listeners
-                        list.removeEventListener('mouseenter', () => { });
-                        list.removeEventListener('mouseleave', () => { });
+                            container.scrollTop += direction;
 
-                        list.addEventListener('mouseenter', () => {
-                            isPaused = true;
-                        });
+                            // Bottom hit
+                            if (direction === 1 && container.scrollTop >= maxScroll) {
+                                isWaiting = true;
+                                setTimeout(() => {
+                                    direction = -1;
+                                    isWaiting = false;
+                                }, 2000); // Wait 2s at bottom
+                            }
+                            // Top hit
+                            else if (direction === -1 && container.scrollTop <= 0) {
+                                isWaiting = true;
+                                setTimeout(() => {
+                                    direction = 1;
+                                    isWaiting = false;
+                                }, 1500); // Wait 1.5s at top
+                            }
+                        }
+                    }, 50);
+                };
 
-                        list.addEventListener('mouseleave', () => {
-                            isPaused = false;
-                        });
+                // Pause on hover
+                const onMouseEnter = () => isPaused = true;
+                const onMouseLeave = () => isPaused = false;
 
-                        startAutoScroll();
-                        window.staffActivityScrollInterval = scrollInterval;
-                    }, 100);
-                });
+                // Clean up listeners if re-initializing on the same element
+                container.removeEventListener('mouseenter', onMouseEnter);
+                container.removeEventListener('mouseleave', onMouseLeave);
+
+                container.addEventListener('mouseenter', onMouseEnter);
+                container.addEventListener('mouseleave', onMouseLeave);
+
+                startAutoScroll();
+                window.staffActivityScrollInterval = scrollInterval;
             };
 
             // Internal Helper to render staff activity list
