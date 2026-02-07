@@ -103,6 +103,16 @@
             }
         }
 
+        async query(collectionName, field, operator, value) {
+            try {
+                const snapshot = await this.db.collection(collectionName).where(field, operator, value).get();
+                return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+            } catch (error) {
+                console.error(`Error querying ${collectionName}:`, error);
+                throw error;
+            }
+        }
+
         listen(collectionName, callback) {
             if (!this.db) return null;
             return this.db.collection(collectionName).onSnapshot((snapshot) => {

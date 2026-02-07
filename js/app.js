@@ -1141,7 +1141,9 @@
     window.app_refreshMasterSheet = async () => {
         const contentArea = document.getElementById('page-content');
         if (contentArea) {
-            contentArea.innerHTML = await window.AppUI.renderMasterSheet();
+            const m = document.getElementById('sheet-month')?.value;
+            const y = document.getElementById('sheet-year')?.value;
+            contentArea.innerHTML = await window.AppUI.renderMasterSheet(m, y);
         }
     };
 
@@ -1149,15 +1151,12 @@
         const month = parseInt(document.getElementById('sheet-month').value);
         const year = parseInt(document.getElementById('sheet-year').value);
         const users = await window.AppDB.getAll('users');
-        const logs = await window.AppDB.getAll('attendance');
 
-        // Filter logs for selected month/year
-        const start = new Date(year, month, 1);
-        const end = new Date(year, month + 1, 0);
-        const filteredLogs = logs.filter(l => {
-            const d = new Date(l.date);
-            return d >= start && d <= end;
-        });
+        // Filtered Query for Logs (Optimization)
+        const startDateStr = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+        const endDateStr = `${year}-${String(month + 1).padStart(2, '0')}-31`;
+        const logs = await window.AppDB.query('attendance', 'date', '>=', startDateStr);
+        const filteredLogs = logs.filter(l => l.date <= endDateStr);
 
         await window.AppReports.exportMasterSheetCSV(month, year, users, filteredLogs);
     };

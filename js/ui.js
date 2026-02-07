@@ -934,13 +934,19 @@
             }
         },
 
-        async renderMasterSheet() {
+        async renderMasterSheet(month = null, year = null) {
             const users = await window.AppDB.getAll('users');
-            const logs = await window.AppDB.getAll('attendance');
 
             const now = new Date();
-            const currentMonth = now.getMonth();
-            const currentYear = now.getFullYear();
+            const currentMonth = month !== null ? parseInt(month) : now.getMonth();
+            const currentYear = year !== null ? parseInt(year) : now.getFullYear();
+
+            // Filtered Query for Logs (Optimization)
+            const startDateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
+            const endDateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-31`;
+            const logs = await window.AppDB.query('attendance', 'date', '>=', startDateStr);
+            // Further filter in memory for end date (or add another query param if we had a complex query method)
+            const filteredLogs = logs.filter(l => l.date <= endDateStr);
 
             // Days in selected month
             const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
