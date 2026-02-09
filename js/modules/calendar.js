@@ -44,8 +44,9 @@
 
         /**
          * Set/Add a work plan for a specific day
+         * Updated to handle multiple plans and tagged coworkers
          */
-        async setWorkPlan(date, plan, subPlans = []) {
+        async setWorkPlan(date, plans = []) {
             const user = window.AppAuth.getUser();
             if (!user) throw new Error("Not authenticated");
 
@@ -54,8 +55,7 @@
                 userId: user.id,
                 userName: user.name,
                 date: date,
-                plan: plan,
-                subPlans: subPlans,
+                plans: plans, // Array of { task, subPlans, tags: [{id, name}] }
                 updatedAt: new Date().toISOString()
             };
             return await this.db.put('work_plans', workPlan);
@@ -121,16 +121,38 @@
             });
 
             // Format work plans
-            const workEvents = plans.workPlans.map(p => ({
-                date: p.date,
-                title: p.subPlans && p.subPlans.length > 0
-                    ? `${p.userName}: ${p.plan}\n- ${p.subPlans.join('\n- ')}`
-                    : `${p.userName}: ${p.plan}`,
-                type: 'work',
-                userId: p.userId,
-                plan: p.plan,
-                subPlans: p.subPlans || []
-            }));
+            const workEvents = plans.workPlans.map(p => {
+                let titleParts = [];
+                if (p.plans && p.plans.length > 0) {
+                    p.plans.forEach(plan => {
+                        let text = plan.task;
+                        if (plan.subPlans && plan.subPlans.length > 0) {
+                            text += ' (' + plan.subPlans.join(', ') + ')';
+                        }
+                        if (plan.tags && plan.tags.length > 0) {
+                            text += ' with ' + plan.tags.map(t => t.name).join(', ');
+                        }
+                        titleParts.push(text);
+                    });
+                } else if (p.plan) {
+                    // Legacy support
+                    let text = p.plan;
+                    if (p.subPlans && p.subPlans.length > 0) {
+                        text += ' (' + p.subPlans.join(', ') + ')';
+                    }
+                    titleParts.push(text);
+                }
+
+                return {
+                    date: p.date,
+                    title: `${p.userName}: ${titleParts.join('; ')}`,
+                    type: 'work',
+                    userId: p.userId,
+                    plans: p.plans || [],
+                    plan: p.plan || '',
+                    subPlans: p.subPlans || []
+                };
+            });
 
             // Merge
             const all = [...leaveEvents, ...plans.events, ...workEvents];

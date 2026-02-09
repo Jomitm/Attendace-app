@@ -878,7 +878,15 @@
                         if (e.date === dStr) evs.push({ title: e.title, type: e.type || 'event' });
                     });
                     plans.workPlans.forEach(p => {
-                        if (p.date === dStr) evs.push({ title: `${p.userName}: ${p.plan}`, type: 'work', userId: p.userId });
+                        if (p.date === dStr) {
+                            let title = '';
+                            if (p.plans && p.plans.length > 0) {
+                                title = `${p.userName}: ${p.plans.map(pl => pl.task).join('; ')}`;
+                            } else {
+                                title = `${p.userName}: ${p.plan || 'Work Plan'}`;
+                            }
+                            evs.push({ title: title, type: 'work', userId: p.userId, plans: p.plans });
+                        }
                     });
                     return evs;
                 };
@@ -1295,20 +1303,20 @@
                         <table style="font-size:0.85rem; border-collapse: separate; border-spacing: 0;">
                             <thead>
                                 <tr style="position: sticky; top: 0; z-index: 10; background: #f8fafc;">
-                                    <th style="border-right: 1px solid #eee; padding:12px; position: sticky; left: 0; background: #f8fafc; z-index: 20;">S.No</th>
-                                    <th style="border-right: 2px solid #ddd; padding:12px; position: sticky; left: 40px; background: #f8fafc; z-index: 20; min-width: 150px;">Staff Name</th>
-                                    ${daysArray.map(d => `<th style="text-align:center; min-width: 40px; border-right: 1px solid #eee;">${d}</th>`).join('')}
+                                    <th style="border-right: 1px solid #eee; padding:6px; position: sticky; left: 0; background: #f8fafc; z-index: 20; font-size:0.75rem;">S.No</th>
+                                    <th style="border-right: 2px solid #ddd; padding:6px; position: sticky; left: 35px; background: #f8fafc; z-index: 20; min-width: 120px; font-size:0.75rem;">Staff Name</th>
+                                    ${daysArray.map(d => `<th style="text-align:center; min-width: 28px; padding:4px; border-right: 1px solid #eee; font-size:0.75rem;">${d}</th>`).join('')}
                                 </tr>
                             </thead>
                             <tbody>
                                 ${users.sort((a, b) => a.name.localeCompare(b.name)).map((u, index) => {
                 return `
                                         <tr>
-                                            <td style="text-align:center; border-right: 1px solid #eee; position: sticky; left: 0; background: #fff; z-index: 5;">${index + 1}</td>
-                                            <td style="border-right: 2px solid #ddd; position: sticky; left: 40px; background: #fff; z-index: 5; font-weight: 500;">
+                                            <td style="text-align:center; border-right: 1px solid #eee; position: sticky; left: 0; background: #fff; z-index: 5; padding:4px; font-size:0.75rem;">${index + 1}</td>
+                                            <td style="border-right: 2px solid #ddd; position: sticky; left: 35px; background: #fff; z-index: 5; font-weight: 500; padding:4px;">
                                                 <div style="display:flex; flex-direction:column;">
-                                                    <span>${u.name}</span>
-                                                    <span style="font-size:0.7rem; color:#666; font-weight:400;">${u.dept || 'General'}</span>
+                                                    <span style="font-size:0.75rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:110px;">${u.name}</span>
+                                                    <span style="font-size:0.65rem; color:#666; font-weight:400;">${u.dept || 'General'}</span>
                                                 </div>
                                             </td>
                                             ${daysArray.map(day => {
@@ -1332,12 +1340,13 @@
                         else if (type === 'Work - Home') { cellStyle = 'color: #0ea5e9; font-weight: bold;'; cellContent = 'W'; }
 
                         if (log.isManualOverride) {
-                            cellStyle += ' border-bottom: 2px solid #854d0e;';
+                            // Override: Show status but with distinct color (e.g. Purple/Pink) and maybe an indicator
+                            cellStyle = 'color: #be185d; font-weight: bold; background: #fdf2f8;'; // Distinct override style
                         }
                     }
 
                     return `
-                                                    <td style="text-align:center; cursor:pointer; border-right: 1px solid #eee; ${cellStyle}" 
+                                                    <td style="text-align:center; cursor:pointer; border-right: 1px solid #eee; padding:2px; font-size:0.75rem; ${cellStyle}" 
                                                         title="${tooltip}"
                                                         onclick="window.app_openCellOverride('${u.id}', '${dateStr}')">
                                                         ${cellContent}
@@ -1356,7 +1365,8 @@
                         <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#ef4444; font-weight:bold;">A</span> Absent</div>
                         <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#8b5cf6; font-weight:bold;">C</span> Leave</div>
                         <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#0ea5e9; font-weight:bold;">W</span> WFH</div>
-                        <div style="display:flex; align-items:center; gap:0.5rem;"><span style="border-bottom: 2px solid #854d0e;">_</span> Manual Override</div>
+                        <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#0ea5e9; font-weight:bold;">W</span> WFH</div>
+                        <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#be185d; font-weight:bold; background:#fdf2f8; padding:0 3px;">P/A</span> Manual Override</div>
                     </div>
                 </div>
             </div>

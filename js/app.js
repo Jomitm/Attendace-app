@@ -390,24 +390,27 @@
         const d = new Date(date).getDate();
         const evs = window._getDayEvents ? window._getDayEvents(d) : [];
         const plans = window._currentPlans;
-        const myPlan = plans && plans.workPlans ? plans.workPlans.find(p => p.date === date && p.userId === currentUser.id) : null;
+        const myWorkPlan = plans && plans.workPlans ? plans.workPlans.find(p => p.date === date && p.userId === currentUser.id) : null;
 
         // Grouping logic for multi-user visibility
         const teamActivity = evs.filter(e => e.type === 'leave' || e.type === 'event');
         const otherStaffPlans = evs.filter(e => e.type === 'work' && e.userId !== currentUser.id);
 
+        // Fetch all users for tagging
+        const allUsers = await window.AppDB.getAll('users');
+
         const html = `
             <div class="modal-overlay" id="day-plan-modal" style="display:flex;">
-                <div class="modal-content" style="max-width: 500px;">
+                <div class="modal-content" style="max-width: 600px; width: 95%;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
                         <h3 style="font-size: 1.1rem;">Plan for ${date}</h3>
                         <div style="display:flex; gap:0.4rem; align-items:center;">
-                            ${myPlan ? `<button onclick="window.app_deleteDayPlan('${date}')" title="Delete Plan" style="background:none; border:none; color:#ef4444; font-size:0.9rem; cursor:pointer;"><i class="fa-solid fa-trash-can"></i></button>` : ''}
+                            ${myWorkPlan ? `<button onclick="window.app_deleteDayPlan('${date}')" title="Delete Plan" style="background:none; border:none; color:#ef4444; font-size:0.9rem; cursor:pointer;"><i class="fa-solid fa-trash-can"></i></button>` : ''}
                             <button onclick="this.closest('.modal-overlay').remove()" style="background:none; border:none; font-size:1.1rem; cursor:pointer;">&times;</button>
                         </div>
                     </div>
 
-                    <div style="margin: 0.4rem 0 1rem 0; max-height: 200px; overflow-y: auto; background:#f9fafb; padding:0.75rem; border-radius:8px;">
+                    <div style="margin: 0.4rem 0 1rem 0; max-height: 150px; overflow-y: auto; background:#f9fafb; padding:0.75rem; border-radius:8px; border:1px solid #f3f4f6;">
                         <!-- Team Activity (Leaves/Shared Events) -->
                         <div style="margin-bottom: 1rem;">
                             <label style="font-size: 0.65rem; font-weight:700; color: #9ca3af; display: block; margin-bottom: 0.4rem; text-transform:uppercase; letter-spacing:0.5px;">Team Leaves & Events</label>
@@ -429,7 +432,7 @@
             return `
                                 <div style="font-size: 0.8rem; padding: 8px; border: 1px solid #e5e7eb; background:white; border-radius:8px; margin-bottom:6px; display:flex; flex-direction:column; gap:3px;">
                                     <div style="font-weight:600; font-size:0.7rem; color:var(--primary);">${name}</div>
-                                    <div style="color:#374151; line-height:1.3;">${planText}</div>
+                                    <div style="color:#374151; line-height:1.3; white-space: pre-wrap;">${planText}</div>
                                 </div>
                             `;
         }).join('') : '<div style="color:#9ca3af; font-size:0.75rem;">No staff plans yet.</div>'}
@@ -437,46 +440,168 @@
                     </div>
                     
                     <form onsubmit="window.app_saveDayPlan(event, '${date}')">
-                        <div style="padding-top:0.75rem; border-top:1px solid #f3f4f6;">
-                            <label style="display:block; font-size:0.8rem; font-weight:600; margin-bottom:0.4rem;">Main Task / Goal</label>
-                            <textarea id="my-work-plan" required placeholder="What are you working on today?" style="width:100%; height:70px; padding:0.6rem; border:1px solid #ddd; border-radius:8px; font-family:inherit; resize:none; margin-bottom:0.75rem; font-size:0.9rem;">${myPlan ? myPlan.plan : ''}</textarea>
-                            
-                            <label style="display:block; font-size:0.8rem; font-weight:600; margin-bottom:0.4rem;">Sub-plans / Steps</label>
-                            <div id="sub-plans-container" style="display:flex; flex-direction:column; gap:0.4rem; margin-bottom:0.75rem;">
-                                ${myPlan && myPlan.subPlans ? myPlan.subPlans.map((sub, i) => `
-                                    <div class="sub-plan-row" style="display:flex; gap:0.4rem; align-items:center;">
-                                        <input type="text" value="${sub}" class="sub-plan-input" placeholder="e.g. Design UI" style="flex:1; padding:0.4rem; border:1px solid #ddd; border-radius:6px; font-size:0.8rem;">
-                                        <button type="button" onclick="this.parentElement.remove()" style="background:none; border:none; color:#9ca3af; cursor:pointer;"><i class="fa-solid fa-circle-xmark"></i></button>
-                                    </div>
-                                `).join('') : ''}
-                            </div>
-                            <button type="button" onclick="window.app_addSubPlanUI()" style="background:#f3f4f6; border:1px dashed #d1d5db; border-radius:6px; padding:0.4rem; width:100%; font-size:0.75rem; color:#4b5563; cursor:pointer;">
-                                <i class="fa-solid fa-plus"></i> Add Sub-plan
-                            </button>
+                        <div id="plans-container" style="max-height: 400px; overflow-y: auto; padding-right: 5px;">
+                            ${(myWorkPlan && myWorkPlan.plans && myWorkPlan.plans.length > 0)
+                ? myWorkPlan.plans.map((p, idx) => renderPlanBlock(p, idx, allUsers)).join('')
+                : (myWorkPlan && myWorkPlan.plan)
+                    ? renderPlanBlock({ task: myWorkPlan.plan, subPlans: myWorkPlan.subPlans || [], tags: [] }, 0, allUsers)
+                    : renderPlanBlock({ task: '', subPlans: [], tags: [] }, 0, allUsers)
+            }
                         </div>
-                        <div style="display:flex; gap:0.75rem; margin-top:1rem;">
+
+                        <button type="button" onclick="window.app_addPlanBlockUI()" style="background:#fff; border:1px dashed var(--primary); border-radius:8px; padding:0.6rem; width:100%; font-size:0.85rem; color:var(--primary); cursor:pointer; margin-top:0.5rem; font-weight:600;">
+                            <i class="fa-solid fa-plus-circle"></i> Add Another Plan / Task
+                        </button>
+
+                        <div style="display:flex; gap:0.75rem; margin-top:1.5rem; border-top:1px solid #f3f4f6; padding-top:1rem;">
                              <button type="button" onclick="this.closest('.modal-overlay').remove()" style="flex:1; padding:0.6rem; background:#fff; border:1px solid #ddd; border-radius:8px; cursor:pointer; font-weight:500; font-size:0.9rem;">Cancel</button>
-                             <button type="submit" class="action-btn" style="flex:2; padding:0.6rem; font-size:0.9rem;">Save Plan</button>
+                             <button type="submit" class="action-btn" style="flex:2; padding:0.6rem; font-size:0.9rem;">Save All Plans</button>
                         </div>
                     </form>
                 </div>
             </div>
         `;
         window.app_showModal(html, 'day-plan-modal');
+
+        function renderPlanBlock(plan, index, users) {
+            return `
+                <div class="plan-block" data-index="${index}" style="background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:1rem; margin-bottom:1rem; position:relative;">
+                    ${index > 0 ? `<button type="button" onclick="this.closest('.plan-block').remove()" style="position:absolute; top:8px; right:8px; background:none; border:none; color:#9ca3af; cursor:pointer;"><i class="fa-solid fa-trash"></i></button>` : ''}
+                    
+                    <label style="display:block; font-size:0.75rem; font-weight:700; color:#4b5563; margin-bottom:0.4rem; text-transform:uppercase;">Main Task / Goal</label>
+                    <textarea class="plan-task" required placeholder="What are you working on?" style="width:100%; height:60px; padding:0.6rem; border:1px solid #ddd; border-radius:8px; font-family:inherit; resize:none; margin-bottom:0.75rem; font-size:0.9rem;">${plan.task || ''}</textarea>
+                    
+                    <label style="display:block; font-size:0.75rem; font-weight:700; color:#4b5563; margin-bottom:0.4rem; text-transform:uppercase;">Sub-plans / Steps</label>
+                    <div class="sub-plans-list" style="display:flex; flex-direction:column; gap:0.4rem; margin-bottom:0.75rem;">
+                        ${plan.subPlans ? plan.subPlans.map(sub => `
+                            <div class="sub-plan-row" style="display:flex; gap:0.4rem; align-items:center;">
+                                <input type="text" value="${sub}" class="sub-plan-input" placeholder="e.g. Design UI" style="flex:1; padding:0.4rem; border:1px solid #ddd; border-radius:6px; font-size:0.8rem;">
+                                <button type="button" onclick="this.parentElement.remove()" style="background:none; border:none; color:#9ca3af; cursor:pointer;"><i class="fa-solid fa-circle-xmark"></i></button>
+                            </div>
+                        `).join('') : ''}
+                    </div>
+                    <button type="button" onclick="window.app_addSubPlanRow(this)" style="background:#f9fafb; border:1px dashed #d1d5db; border-radius:6px; padding:0.35rem; width:100%; font-size:0.75rem; color:#6b7280; cursor:pointer; margin-bottom:0.75rem;">
+                        <i class="fa-solid fa-plus"></i> Add Step
+                    </button>
+
+                    <label style="display:block; font-size:0.75rem; font-weight:700; color:#4b5563; margin-bottom:0.4rem; text-transform:uppercase;">Co-workers / Collaboration</label>
+                    <div class="tags-container" style="display:flex; flex-wrap:wrap; gap:0.4rem; margin-bottom:0.5rem;">
+                        ${plan.tags ? plan.tags.map(t => `
+                            <span class="tag-chip" data-id="${t.id}" data-name="${t.name}" style="background:#e0f2fe; color:#0369a1; padding:2px 8px; border-radius:12px; font-size:0.75rem; display:flex; align-items:center; gap:4px; font-weight:500; border:1px solid #bae6fd;">
+                                ${t.name}
+                                <i class="fa-solid fa-xmark" onclick="this.parentElement.remove()" style="cursor:pointer; font-size:0.65rem;"></i>
+                            </span>
+                        `).join('') : ''}
+                    </div>
+                    <div style="position:relative;">
+                        <button type="button" onclick="window.app_toggleTagUI(this)" style="background:#f0fdf4; border:1px solid #bcf0da; border-radius:6px; padding:0.35rem; font-size:0.75rem; color:#166534; cursor:pointer; font-weight:500;">
+                            <i class="fa-solid fa-user-plus"></i> Tag Co-worker
+                        </button>
+                        <div class="tag-picker" style="display:none; position:absolute; top:100%; left:0; z-index:10; background:white; border:1px solid #ddd; border-radius:8px; box-shadow:0 4px 6px -1px rgb(0 0 0 / 0.1); width:200px; margin-top:4px; max-height:150px; overflow-y:auto;">
+                            ${users.filter(u => u.id !== currentUser.id).map(u => `
+                                <div onclick="window.app_addTagChip(this, '${u.id}', '${u.name}')" style="padding:0.5rem 0.75rem; font-size:0.8rem; cursor:pointer; border-bottom:1px solid #f3f4f6;" class="tag-option">${u.name}</div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
     };
 
-    window.app_addSubPlanUI = () => {
-        const container = document.getElementById('sub-plans-container');
+    window.app_addPlanBlockUI = async () => {
+        const container = document.getElementById('plans-container');
         if (!container) return;
+        const allUsers = await window.AppDB.getAll('users');
+        const currentUser = window.AppAuth.getUser();
+        const index = container.querySelectorAll('.plan-block').length;
+
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = `
+            <div class="plan-block" data-index="${index}" style="background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:1rem; margin-bottom:1rem; position:relative; animation: fadeIn 0.3s ease;">
+                <button type="button" onclick="this.closest('.plan-block').remove()" style="position:absolute; top:8px; right:8px; background:none; border:none; color:#9ca3af; cursor:pointer;"><i class="fa-solid fa-trash"></i></button>
+                
+                <label style="display:block; font-size:0.75rem; font-weight:700; color:#4b5563; margin-bottom:0.4rem; text-transform:uppercase;">Main Task / Goal</label>
+                <textarea class="plan-task" required placeholder="What are you working on?" style="width:100%; height:60px; padding:0.6rem; border:1px solid #ddd; border-radius:8px; font-family:inherit; resize:none; margin-bottom:0.75rem; font-size:0.9rem;"></textarea>
+                
+                <label style="display:block; font-size:0.75rem; font-weight:700; color:#4b5563; margin-bottom:0.4rem; text-transform:uppercase;">Sub-plans / Steps</label>
+                <div class="sub-plans-list" style="display:flex; flex-direction:column; gap:0.4rem; margin-bottom:0.75rem;"></div>
+                <button type="button" onclick="window.app_addSubPlanRow(this)" style="background:#f9fafb; border:1px dashed #d1d5db; border-radius:6px; padding:0.35rem; width:100%; font-size:0.75rem; color:#6b7280; cursor:pointer; margin-bottom:0.75rem;">
+                    <i class="fa-solid fa-plus"></i> Add Step
+                </button>
+
+                <label style="display:block; font-size:0.75rem; font-weight:700; color:#4b5563; margin-bottom:0.4rem; text-transform:uppercase;">Co-workers / Collaboration</label>
+                <div class="tags-container" style="display:flex; flex-wrap:wrap; gap:0.4rem; margin-bottom:0.5rem;"></div>
+                <div style="position:relative;">
+                    <button type="button" onclick="window.app_toggleTagUI(this)" style="background:#f0fdf4; border:1px solid #bcf0da; border-radius:6px; padding:0.35rem; font-size:0.75rem; color:#166534; cursor:pointer; font-weight:500;">
+                        <i class="fa-solid fa-user-plus"></i> Tag Co-worker
+                    </button>
+                    <div class="tag-picker" style="display:none; position:absolute; top:100%; left:0; z-index:10; background:white; border:1px solid #ddd; border-radius:8px; box-shadow:0 4px 6px -1px rgb(0 0 0 / 0.1); width:200px; margin-top:4px; max-height:150px; overflow-y:auto;">
+                        ${allUsers.filter(u => u.id !== currentUser.id).map(u => `
+                            <div onclick="window.app_addTagChip(this, '${u.id}', '${u.name}')" style="padding:0.5rem 0.75rem; font-size:0.8rem; cursor:pointer; border-bottom:1px solid #f3f4f6;" class="tag-option">${u.name}</div>
+                        `).join('')}
+                    </div>
+                </div>
+            </div>
+        `;
+        const newBlock = tempDiv.firstElementChild;
+        container.appendChild(newBlock);
+        newBlock.querySelector('textarea').focus();
+    };
+
+    window.app_addSubPlanRow = (btn) => {
+        const block = btn.closest('.plan-block');
+        const list = block.querySelector('.sub-plans-list');
         const row = document.createElement('div');
         row.className = 'sub-plan-row';
-        row.style.cssText = 'display:flex; gap:0.5rem; align-items:center;';
+        row.style.cssText = 'display:flex; gap:0.4rem; align-items:center;';
         row.innerHTML = `
-            <input type="text" class="sub-plan-input" placeholder="e.g. Design UI" style="flex:1; padding:0.5rem; border:1px solid #ddd; border-radius:6px; font-size:0.85rem;">
+            <input type="text" class="sub-plan-input" placeholder="e.g. Design UI" style="flex:1; padding:0.4rem; border:1px solid #ddd; border-radius:6px; font-size:0.8rem;">
             <button type="button" onclick="this.parentElement.remove()" style="background:none; border:none; color:#9ca3af; cursor:pointer;"><i class="fa-solid fa-circle-xmark"></i></button>
         `;
-        container.appendChild(row);
+        list.appendChild(row);
         row.querySelector('input').focus();
+    };
+
+    window.app_toggleTagUI = (btn) => {
+        const picker = btn.nextElementSibling;
+        picker.style.display = picker.style.display === 'none' ? 'block' : 'none';
+
+        // Close when clicking outside
+        const closePicker = (e) => {
+            if (!picker.contains(e.target) && e.target !== btn && !btn.contains(e.target)) {
+                picker.style.display = 'none';
+                document.removeEventListener('click', closePicker);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', closePicker), 0);
+    };
+
+    window.app_addTagChip = (option, id, name) => {
+        const block = option.closest('.plan-block');
+        const container = block.querySelector('.tags-container');
+        const picker = block.querySelector('.tag-picker');
+
+        // Check if already tagged
+        if (container.querySelector(`[data-id="${id}"]`)) {
+            picker.style.display = 'none';
+            return;
+        }
+
+        const chip = document.createElement('span');
+        chip.className = 'tag-chip';
+        chip.dataset.id = id;
+        chip.dataset.name = name;
+        chip.style.cssText = 'background:#e0f2fe; color:#0369a1; padding:2px 8px; border-radius:12px; font-size:0.75rem; display:flex; align-items:center; gap:4px; font-weight:500; border:1px solid #bae6fd;';
+        chip.innerHTML = `${name} <i class="fa-solid fa-xmark" onclick="this.parentElement.remove()" style="cursor:pointer; font-size:0.65rem;"></i>`;
+
+        container.appendChild(chip);
+        picker.style.display = 'none';
+    };
+
+
+    window.app_addSubPlanUI = () => {
+        // Obsolete but kept for safety if needed by other components temporarily
+        console.warn("app_addSubPlanUI is obsolete.");
     };
 
     window.app_deleteDayPlan = async (date) => {
@@ -496,13 +621,61 @@
 
     window.app_saveDayPlan = async (e, date) => {
         e.preventDefault();
-        const plan = document.getElementById('my-work-plan').value;
-        const subPlanInputs = document.querySelectorAll('.sub-plan-input');
-        const subPlans = Array.from(subPlanInputs).map(input => input.value.trim()).filter(v => v !== '');
+        const planBlocks = document.querySelectorAll('.plan-block');
+        const plans = [];
+
+        planBlocks.forEach(block => {
+            const task = block.querySelector('.plan-task').value.trim();
+            const subPlanInputs = block.querySelectorAll('.sub-plan-input');
+            const subPlans = Array.from(subPlanInputs).map(input => input.value.trim()).filter(v => v !== '');
+            const tagChips = block.querySelectorAll('.tag-chip');
+            const tags = Array.from(tagChips).map(chip => ({
+                id: chip.dataset.id,
+                name: chip.dataset.name
+            }));
+
+            if (task) {
+                plans.push({ task, subPlans, tags });
+            }
+        });
+
+        if (plans.length === 0) {
+            alert("Please add at least one task.");
+            return;
+        }
 
         try {
-            await window.AppCalendar.setWorkPlan(date, plan, subPlans);
-            alert("Plan saved! This will now pre-fill your checkout summary for this day.");
+            await window.AppCalendar.setWorkPlan(date, plans);
+
+            // Send Notifications to newly tagged users
+            const distinctTaggedUsers = new Set();
+            plans.forEach(p => {
+                if (p.tags) {
+                    p.tags.forEach(t => distinctTaggedUsers.add(t.id));
+                }
+            });
+
+            if (distinctTaggedUsers.size > 0) {
+                const currentUser = window.AppAuth.getUser();
+                // We use an async IIFE or just don't await the loop to not block UI, 
+                // but since it's just a few DB writes, one await block is fine.
+                // We'll iterate and update.
+                const allUsers = await window.AppDB.getAll('users');
+
+                for (const uid of distinctTaggedUsers) {
+                    const targetUser = allUsers.find(u => u.id === uid);
+                    if (targetUser) {
+                        if (!targetUser.notifications) targetUser.notifications = [];
+                        targetUser.notifications.push({
+                            message: `${currentUser.name} tagged you in a plan for ${date}`,
+                            date: new Date().toLocaleString(),
+                            read: false
+                        });
+                        await window.AppDB.put('users', targetUser);
+                    }
+                }
+            }
+            alert("Plans saved! They will now pre-fill your checkout summary for this day.");
             document.getElementById('day-plan-modal')?.remove();
             // Refresh
             const contentArea = document.getElementById('page-content');
@@ -565,7 +738,10 @@
                 const pos = await getLocation();
                 if (locationText) locationText.innerHTML = `<i class="fa-solid fa-location-dot"></i> Lat: ${pos.lat.toFixed(4)}, Lng: ${pos.lng.toFixed(4)}`;
 
-                await window.AppAttendance.checkIn(pos.lat, pos.lng);
+                if (locationText) locationText.innerHTML = `<i class="fa-solid fa-location-dot"></i> Lat: ${pos.lat.toFixed(4)}, Lng: ${pos.lng.toFixed(4)}`;
+
+                const address = `Lat: ${pos.lat.toFixed(4)}, Lng: ${pos.lng.toFixed(4)}`;
+                await window.AppAttendance.checkIn(pos.lat, pos.lng, address);
                 contentArea.innerHTML = await window.AppUI.renderDashboard();
                 setupDashboardEvents();
             } else {
@@ -587,12 +763,27 @@
                     const planTextEl = document.getElementById('checkout-plan-text');
                     const descArea = modal.querySelector('textarea[name="description"]');
 
-                    if (workPlan && workPlan.plan) {
+                    if (workPlan && (workPlan.plans || workPlan.plan)) {
                         if (planRef) planRef.style.display = 'block';
 
-                        let displayPlan = workPlan.plan;
-                        if (workPlan.subPlans && workPlan.subPlans.length > 0) {
-                            displayPlan += '\n- ' + workPlan.subPlans.join('\n- ');
+                        let displayPlan = "";
+                        if (workPlan.plans && workPlan.plans.length > 0) {
+                            displayPlan = workPlan.plans.map(p => {
+                                let txt = `- ${p.task}`;
+                                if (p.subPlans && p.subPlans.length > 0) {
+                                    txt += '\n  Steps: ' + p.subPlans.join(', ');
+                                }
+                                if (p.tags && p.tags.length > 0) {
+                                    txt += '\n  With: ' + p.tags.map(t => t.name).join(', ');
+                                }
+                                return txt;
+                            }).join('\n\n');
+                        } else if (workPlan.plan) {
+                            // Legacy
+                            displayPlan = workPlan.plan;
+                            if (workPlan.subPlans && workPlan.subPlans.length > 0) {
+                                displayPlan += '\n- ' + workPlan.subPlans.join('\n- ');
+                            }
                         }
 
                         if (planTextEl) planTextEl.innerText = displayPlan;
@@ -662,33 +853,32 @@
             submitBtn.disabled = true;
             submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Locating & Saving...`;
 
-            // Fetch location during checkout
-            let pos = { lat: 0, lng: 0 };
-            try {
-                pos = await getLocation();
-            } catch (locErr) {
-                console.warn("Checkout Location Failed:", locErr);
-            }
+            // Fetch location during checkout - STRICT MODE
+            let pos = await getLocation(); // Will throw if failed/denied
 
             // Detect mismatch for saving
             let locationMismatched = false;
             const checkInLoc = window.AppAuth.getUser()?.currentLocation;
 
-            // Try to use cached location first for speed, otherwise fetch (with cache inside getLocation)
+            // Try to use cached location first for speed, otherwise use fetched pos
             const checkPos = (cachedLocation && (Date.now() - lastLocationFetch < LOCATION_CACHE_TIME))
                 ? cachedLocation
-                : await getLocation().catch(() => pos);
+                : pos;
 
-            if (checkInLoc && checkInLoc.lat && checkInLoc.lng && checkPos.lat && checkPos.lng) {
-                const dist = calculateDistance(checkPos.lat, checkPos.lng, checkInLoc.lat, checkInLoc.lng);
+            // Standardize pos to the one we are using for calculation/saving
+            pos = checkPos;
+
+            if (checkInLoc && checkInLoc.lat && checkInLoc.lng && pos.lat && pos.lng) {
+                const dist = calculateDistance(pos.lat, pos.lng, checkInLoc.lat, checkInLoc.lng);
                 if (dist > 500) locationMismatched = true;
-                // Update pos for final save if we used checkPos
-                pos = checkPos;
             }
+
+            // Create formatted address string if no address available
+            const formattedAddress = `Lat: ${Number(pos.lat).toFixed(4)}, Lng: ${Number(pos.lng).toFixed(4)}`;
 
             const explanation = form.locationExplanation ? form.locationExplanation.value : '';
 
-            await window.AppAttendance.checkOut(description, pos.lat, pos.lng, 'Detected Location', locationMismatched, explanation);
+            await window.AppAttendance.checkOut(description, pos.lat, pos.lng, formattedAddress, locationMismatched, explanation);
 
             // Hide modal
             document.getElementById('checkout-modal').style.display = 'none';
@@ -890,7 +1080,6 @@
     });
 
     async function handleLeaveRequest(e) {
-        e.preventDefault();
         const fd = new FormData(e.target);
         const user = window.AppAuth.getUser();
         await window.AppLeaves.requestLeave({
@@ -903,12 +1092,14 @@
             reason: fd.get('reason'),
             durationHours: fd.get('durationHours') || ''
         });
+
         alert('Leave requested successfully!');
         document.getElementById('leave-modal').style.display = 'none';
         e.target.reset();
     }
 
     async function handleNotifyUser(e) {
+
         e.preventDefault();
         const formData = new FormData(e.target);
         const toUserId = formData.get('toUserId');
@@ -1283,7 +1474,7 @@
                 <div class="modal-content">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
                         <div>
-                            <h3 style="margin:0;">Override Attendance</h3>
+                            <h3 style="margin:0;">Edit Attendance</h3>
                             <p style="font-size:0.8rem; color:#666; margin:4px 0 0 0;">${user.name} | ${dateStr}</p>
                         </div>
                         <button onclick="this.closest('.modal-overlay').remove()" style="background:none; border:none; font-size:1.2rem; cursor:pointer;">&times;</button>
@@ -1315,8 +1506,12 @@
                                 <textarea name="description" placeholder="Override reason..." style="width:100%; padding:0.75rem; border:1px solid #ddd; border-radius:8px; height:60px;">${existingLog?.workDescription || ''}</textarea>
                             </div>
                             <div style="display:flex; gap:0.75rem;">
-                                <button type="submit" class="action-btn" style="flex:2;">${existingLog ? 'Update Override' : 'Create Override'}</button>
+                                <button type="submit" class="action-btn" style="flex:2;">${existingLog ? 'Update Log' : 'Create Log'}</button>
                                 ${existingLog ? `<button type="button" onclick="window.app_deleteCellLog('${existingLog.id}', '${userId}')" class="action-btn checkout" style="flex:1; padding:0;">Delete</button>` : ''}
+                            </div>
+                            <div style="display:flex; align-items:center; gap:0.5rem; margin-top:0.5rem;">
+                                <input type="checkbox" name="isManualOverride" id="override-check" ${existingLog?.isManualOverride ? 'checked' : ''}>
+                                <label for="override-check" style="font-size:0.8rem; color:#666; cursor:pointer;">Mark as Manual Override</label>
                             </div>
                         </div>
                     </form>
@@ -1356,7 +1551,7 @@
             workDescription: fd.get('description') || 'Admin Override',
             location: 'Office (Override)',
             durationMs: (new Date(`1970-01-01T${checkOut}:00`) - new Date(`1970-01-01T${checkIn}:00`)),
-            isManualOverride: true
+            isManualOverride: fd.get('isManualOverride') === 'on'
         };
 
         try {

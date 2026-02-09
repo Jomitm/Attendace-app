@@ -23,7 +23,11 @@
             // Update User State
             user.status = 'in';
             user.lastCheckIn = Date.now();
-            user.currentLocation = { lat: latitude, lng: longitude, address };
+            const locationString = address && address !== 'Unknown Location'
+                ? address
+                : (latitude && longitude ? `Lat: ${Number(latitude).toFixed(4)}, Lng: ${Number(longitude).toFixed(4)}` : 'Unknown Location');
+
+            user.currentLocation = { lat: latitude, lng: longitude, address: locationString };
 
             await window.AppDB.put('users', user);
             return true;
@@ -49,11 +53,11 @@
                 checkOut: checkOutTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 duration: this.msToTime(durationMs),
                 durationMs: durationMs, // Store raw ms for calculations
-                type: 'Office',
+                type: this.calculateStatus(checkInTime),
                 location: user.currentLocation?.address || 'Checked In Location',
                 lat: user.currentLocation?.lat,
                 lng: user.currentLocation?.lng,
-                checkOutLocation: address,
+                checkOutLocation: address || (lat && lng ? `Lat: ${Number(lat).toFixed(4)}, Lng: ${Number(lng).toFixed(4)}` : 'Detected Location'),
                 outLat: lat,
                 outLng: lng,
                 workDescription: description || '',
@@ -159,7 +163,14 @@
                 const userLogs = snapshot.docs.map(doc => doc.data());
 
                 // Client-side sort (but dataset is now much smaller, only this user's logs)
-                const sortedLogs = userLogs.sort((a, b) => b.id - a.id);
+                // Client-side sort (but dataset is now much smaller, only this user's logs)
+                const sortedLogs = userLogs.sort((a, b) => b.id - a.id).map(log => {
+                    // Fix display for logs with missing address but valid coordinates
+                    if ((!log.location || log.location === 'Unknown Location') && log.lat && log.lng) {
+                        log.location = `Lat: ${Number(log.lat).toFixed(4)}, Lng: ${Number(log.lng).toFixed(4)}`;
+                    }
+                    return log;
+                });
 
                 // Check for ACTIVE session (Virtual Log)
                 try {
@@ -173,7 +184,11 @@
                             checkOut: 'Active Now',
                             duration: 'Working...',
                             type: 'Office',
-                            location: currentUserState.currentLocation?.address || 'Current Session'
+                            location: currentUserState.currentLocation?.address && currentUserState.currentLocation.address !== 'Unknown Location'
+                                ? currentUserState.currentLocation.address
+                                : (currentUserState.currentLocation?.lat && currentUserState.currentLocation?.lng
+                                    ? `Lat: ${Number(currentUserState.currentLocation.lat).toFixed(4)}, Lng: ${Number(currentUserState.currentLocation.lng).toFixed(4)}`
+                                    : 'Current Session')
                         };
                         sortedLogs.unshift(virtualLog); // Add to top
                     }
@@ -198,6 +213,28 @@
             let minutes = Math.floor((duration / (1000 * 60)) % 60);
             let hours = Math.floor((duration / (1000 * 60 * 60)) % 24);
             return `${hours}h ${minutes}m`;
+        }
+
+        calculateStatus(checkInDateObj) {
+            const day = checkInDateObj.getDay(); // 0=Sun, 6=Sat
+            const hours = checkInDateObj.getHours();
+            const minutes = checkInDateObj.getMinutes();
+
+            // Logic: Mon(1) - Fri(5)
+            // If before or at 9:15 AM -> Present
+            // If after 9:15 AM -> Late
+            // Sat/Sun -> default Present (or specific weekend logic if needed, user said 'except saturdays')
+
+            if (day >= 1 && day <= 5) {
+                // Check if late (after 9:15)
+                if (hours > 9 || (hours === 9 && minutes > 15)) {
+                    return 'Late';
+                }
+                return 'Present';
+            }
+
+            // Default for weekends
+            return 'Present';
         }
     }
 
