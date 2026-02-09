@@ -613,8 +613,7 @@
                     const contentArea = document.getElementById('page-content');
                     if (contentArea) {
                         contentArea.innerHTML = html;
-                        if (typeof setupDashboardEvents === 'function') setupDashboardEvents();
-                        else if (window.setupDashboardEvents) window.setupDashboardEvents();
+                        if (window.setupDashboardEvents) window.setupDashboardEvents();
                     }
                 });
             };
@@ -1098,65 +1097,153 @@
                         </div>
                          <div style="margin-top: 1rem; text-align: center;">
                             <a href="#timesheet" onclick="window.location.hash = 'timesheet'; return false;" style="color: var(--primary); text-decoration: none; font-weight: 500;">View All</a>
-                        </div>
                     </div>
 
                     ${renderStaffActivityWidget(staffActivities)}
-                </div>
-
-                        </button>
-                        </form>
-                    </div>
                 </div>
             `;
         },
 
         async renderTimesheet() {
+            const user = window.AppAuth.getUser();
             const logs = await window.AppAttendance.getLogs();
+
+            // Calculate Monthly Summary Stats (from logs shown)
+            let totalMins = 0;
+            let lateCount = 0;
+            const uniqueDays = new Set();
+
+            logs.forEach(log => {
+                if (log.durationMs) totalMins += (log.durationMs / (1000 * 60));
+                if (log.type === 'Late') lateCount++;
+                if (log.date) uniqueDays.add(log.date);
+            });
+
+            const totalHoursFormatted = `${Math.floor(totalMins / 60)}h ${Math.round(totalMins % 60)}m`;
+
+            // Helper for updating descriptions
+            window.app_editWorkSummary = async (logId, currentDesc) => {
+                const newDesc = prompt("Update Work Summary:", currentDesc || "");
+                if (newDesc !== null) {
+                    await window.AppAttendance.updateLog(logId, { workDescription: newDesc });
+                    window.location.reload(); // Refresh to show update
+                }
+            };
+
             return `
-                <div class="card full-width">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 0.75rem;">
-                        <h3 style="margin: 0;">Timesheet Log</h3>
-                        <div style="display:flex; gap:0.5rem; width: 100%; justify-content: space-between;">
-                            <button class="action-btn secondary" style="flex: 1; padding: 0.5rem; font-size: 0.8rem; background: #fff1f2; color: #be123c; border: 1px solid #fda4af;" onclick="document.getElementById('leave-modal').style.display = 'flex'">
-                                <i class="fa-solid fa-calendar-xmark"></i> Leave
+                <div class="card full-width" style="border: none; box-shadow: var(--shadow-md);">
+                    <!-- Header Actions -->
+                    <div class="timesheet-controls">
+                        <div>
+                            <h3 style="margin: 0; font-size: 1.25rem;">My Timesheet</h3>
+                            <p style="margin: 4px 0 0; font-size: 0.8rem; color: var(--text-muted);">View and manage your attendance logs</p>
+                        </div>
+                        <div style="display: flex; gap: 0.75rem;">
+                            <button class="action-btn secondary" style="padding: 0.5rem 1rem; font-size: 0.8rem; border-color: #fda4af; color: #be123c; background: #fff1f2;" onclick="document.getElementById('leave-modal').style.display = 'flex'">
+                                <i class="fa-solid fa-calendar-xmark"></i> Request Leave
                             </button>
-                            <button class="action-btn" style="flex: 1; padding: 0.5rem; font-size: 0.8rem;" onclick="document.dispatchEvent(new CustomEvent('open-log-modal'))">
-                                <i class="fa-solid fa-plus"></i> Add log
+                            <button class="action-btn" style="padding: 0.5rem 1rem; font-size: 0.8rem;" onclick="document.dispatchEvent(new CustomEvent('open-log-modal'))">
+                                <i class="fa-solid fa-plus"></i> Manual Log
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Monthly Quick Stats -->
+                    <div class="stat-grid" style="margin-top: 1rem;">
+                        <div class="stat-card">
+                            <div class="label">Total Hours</div>
+                            <div class="value">${totalHoursFormatted}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="label">Days Present</div>
+                            <div class="value">${uniqueDays.size} <span style="font-size: 0.7rem; color: #6b7280;">Days</span></div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="label">Late Entries</div>
+                            <div class="value" style="color: ${lateCount > 2 ? 'var(--accent)' : 'var(--text-main)'}">${lateCount}</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="label">Grace Used</div>
+                            <div class="value">${lateCount}/3 <span style="font-size: 0.7rem; color: #6b7280;">Lates</span></div>
+                        </div>
+                    </div>
+
+                    <!-- Workflow Filter Bar -->
+                    <div style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; border: 1px solid #e2e8f0;">
+                        <div class="filter-group">
+                            <i class="fa-solid fa-filter" style="color: #64748b; font-size: 0.8rem;"></i>
+                            <select style="border: none; background: transparent; font-weight: 600; color: #1e293b; font-size: 0.85rem; outline: none; cursor: pointer;">
+                                <option>February 2026</option>
+                                <option>January 2026</option>
+                            </select>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button onclick="window.AppReports?.exportUserLogs('${user.id}')" style="background: white; border: 1px solid #cbd5e1; padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; color: #475569; cursor: pointer;">
+                                <i class="fa-solid fa-download"></i> Export CSV
                             </button>
                         </div>
                     </div>
                     
                     <div class="table-container mobile-table-card">
-                        <table>
-                            <thead>
+                        <table class="compact-table">
+                            <thead style="background: #f1f5f9;">
                                     <tr>
-                                        <th>Date</th>
-                                        <th>In / Out</th>
-                                        <th>Duration</th>
+                                        <th style="border-radius: 8px 0 0 0;">Date</th>
+                                        <th>Timings</th>
+                                        <th>In/Out Status</th>
                                         <th>Work Summary</th>
-                                        <th>Location</th>
+                                        <th style="text-align: right; border-radius: 0 8px 0 0;">Detail</th>
                                     </tr>
                             </thead>
                             <tbody>
                                     ${logs.length ? logs.map(log => `
-                                        <tr>
-                                            <td data-label="Date" style="font-weight: 500;">${log.date}</td>
-                                            <td data-label="In / Out" style="font-size: 0.85rem;">
-                                                <span style="color: #10b981;">In:</span> ${log.checkIn}<br>
-                                                <span style="color: #ef4444;">Out:</span> ${log.checkOut || '--'}
+                                        <tr style="border-bottom: 1px solid #f1f5f9;">
+                                            <td data-label="Date" style="white-space: nowrap;">
+                                                <div style="font-weight: 700;">${log.date || 'Active Session'}</div>
+                                                <div style="font-size: 0.7rem; color: #94a3b8;">Log ID: ${log.id === 'active_now' ? 'N/A' : log.id.slice(-4)}</div>
                                             </td>
-                                            <td data-label="Duration"><span style="background: #eef2ff; color: var(--primary); padding: 0.25rem 0.5rem; border-radius: 4px; font-weight: 600;">${log.duration || '--'}</span></td>
-                                            <td data-label="Work Summary" style="font-size: 0.85rem; color: #4b5563; max-width: 250px;">${log.workDescription || '<span style="color:#9ca3af; font-style:italic;">No summary</span>'}</td>
-                                            <td data-label="Location" style="font-size: 0.75rem; color: #6b7280;">${log.location}</td>
+                                            <td data-label="Timings">
+                                                <div class="time-badge">
+                                                    <span class="in"><i class="fa-solid fa-caret-right" style="font-size: 0.6rem;"></i> ${log.checkIn}</span>
+                                                    <span class="out"><i class="fa-solid fa-caret-left" style="font-size: 0.6rem;"></i> ${log.checkOut || '--:--'}</span>
+                                                </div>
+                                            </td>
+                                            <td data-label="Status">
+                                                <div style="display: flex; flex-direction: column; gap: 4px;">
+                                                    <span class="badge" style="background: ${log.type === 'Late' ? '#fff1f2' : '#f0fdf4'}; color: ${log.type === 'Late' ? '#be123c' : '#15803d'}; font-size: 0.7rem; padding: 2px 6px; width: fit-content; border: 1px solid ${log.type === 'Late' ? '#fecaca' : '#dcfce7'};">${log.type || 'Present'}</span>
+                                                    <div style="font-size: 0.65rem; font-weight: 700; color: var(--primary);">${log.duration || '--'}</div>
+                                                </div>
+                                            </td>
+                                            <td data-label="Work Summary" style="max-width: 300px;">
+                                                <div style="display: flex; gap: 8px; align-items: flex-start;">
+                                                    <div style="flex: 1;">
+                                                        <div style="font-size: 0.8rem; color: #334155; line-height: 1.4; white-space: pre-wrap;">${log.workDescription || '<span style="color:#94a3b8; font-style:italic;">No summary provided</span>'}</div>
+                                                        ${log.location ? `<div style="font-size: 0.65rem; color: #94a3b8; margin-top: 4px;"><i class="fa-solid fa-location-dot"></i> ${log.location}</div>` : ''}
+                                                    </div>
+                                                    ${log.id !== 'active_now' ? `<button onclick="window.app_editWorkSummary('${log.id}', '${(log.workDescription || '').replace(/'/g, "\\'")}')" style="background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px; transition: color 0.2s;" onmouseover="this.style.color='var(--primary)'" onmouseout="this.style.color='#94a3b8'"><i class="fa-solid fa-pen-to-square"></i></button>` : ''}
+                                                </div>
+                                            </td>
+                                            <td data-label="Detail" style="text-align: right;">
+                                                ${log.id !== 'active_now' ? `
+                                                    <button class="icon-btn" style="background: #f8fafc; color: #64748b; width: 32px; height: 32px; border-radius: 8px; border: 1px solid #e2e8f0; display: inline-flex; justify-content: center; align-items: center;" title="View Detailed Log" onclick="alert('Detailed analysis for log ${log.id} coming soon!')">
+                                                        <i class="fa-solid fa-circle-info"></i>
+                                                    </button>
+                                                ` : '<span style="font-size: 0.7rem; color: var(--success); font-weight: 700; animation: pulse 2s infinite;">SESSION LIVE</span>'}
+                                            </td>
                                         </tr>
-                                    `).join('') : `<tr><td colspan="5" style="text-align:center; padding: 2rem;">No logs found</td></tr>`}
+                                    `).join('') : `<tr><td colspan="5" style="text-align:center; padding: 3rem; color: #94a3b8;">No attendance records found for this period.</td></tr>`}
                             </tbody>
                         </table>
                     </div>
                 </div>
-
-                </div>
+                
+                <style>
+                    @keyframes pulse {
+                        0% { opacity: 1; }
+                        50% { opacity: 0.4; }
+                        100% { opacity: 1; }
+                    }
+                </style>
             `;
         },
 
@@ -1165,11 +1252,15 @@
                 const user = window.AppAuth.getUser();
                 if (!user) return '<div class="card">User state lost. Please <a href="#" onclick="window.AppAuth.logout()">Login Again</a></div>';
 
-                const leaves = await window.AppLeaves.getUserLeaves(user.id);
+                // Fetch Stats concurrently
+                const [monthlyStats, yearlyStats, leaves] = await Promise.all([
+                    window.AppAnalytics.getUserMonthlyStats(user.id),
+                    window.AppAnalytics.getUserYearlyStats(user.id),
+                    window.AppLeaves.getUserLeaves(user.id)
+                ]);
 
-                // Helper functions (attached to window for gloabl access from onclick)
+                // Helper functions (attached to window)
                 window.app_triggerUpload = () => document.getElementById('profile-upload').click();
-
                 window.app_handlePhotoUpload = async (input) => {
                     if (input.files && input.files[0]) {
                         const file = input.files[0];
@@ -1190,95 +1281,148 @@
 
                 return `
                     <div class="dashboard-grid">
-                        <div class="card full-width" style="padding: 0; overflow: hidden; position: relative;">
-                            <!-- Banner -->
-                            <div style="height: 120px; background: linear-gradient(to right, #4f46e5, #818cf8); position: relative;"></div>
-                            
-                            <!-- Profile Info -->
-                            <div style="padding: 0 1.5rem 1.5rem 1.5rem; display: flex; flex-direction: column; align-items: center; margin-top: -40px;">
-                                <div style="position: relative;">
-                                    <div class="logo-circle" style="width: 80px; height: 80px; border: 3px solid white; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
-                                        <img src="${user.avatar}" alt="Profile" style="background:#fff;">
-                                    </div>
-                                    <button onclick="window.app_triggerUpload()" style="position: absolute; bottom: 0; right: 0; background: var(--primary); color: white; border: none; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.2);" title="Change Photo">
+                        <div class="card full-width" style="padding: 0; overflow: hidden; border: none; box-shadow: var(--shadow-lg);">
+                            <!-- Compact Header -->
+                            <div class="profile-header-compact">
+                                <div class="profile-avatar-container">
+                                    <img src="${user.avatar}" alt="Profile">
+                                    <button onclick="window.app_triggerUpload()" style="position: absolute; bottom: 0; right: 0; background: var(--primary); color: white; border: 2px solid #1E1B4B; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.2);" title="Change Photo">
                                         <i class="fa-solid fa-camera" style="font-size: 0.7rem;"></i>
                                     </button>
                                     <input type="file" id="profile-upload" accept="image/*" style="display: none;" onchange="window.app_handlePhotoUpload(this)">
                                 </div>
-                                
-                                <h2 style="margin-top: 0.75rem; margin-bottom: 0.15rem; font-size: 1.5rem;">${user.name}</h2>
-                                <p class="text-muted" style="font-weight: 500; font-size: 0.9rem;">${user.role} <span style="margin: 0 0.5rem; color: #d1d5db;">|</span> ${user.dept || 'General'}</p>
-                                
-                                <span class="badge ${user.status === 'in' ? 'in' : 'out'}" style="margin-top: 0.75rem; font-size: 0.75rem;">
-                                    ${user.status === 'in' ? '● Currently Online' : '○ Currently Offline'}
-                                </span>
-                            </div>
-
-                            <!-- Details Grid -->
-                            <div style="padding: 1.5rem; border-top: 1px solid #f3f4f6;">
-                                <h3 style="margin-bottom: 1rem; font-size: 1rem; color: var(--text-main);">Personal Information</h3>
-                                <div class="grid-2" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;">
-                                    <div>
-                                        <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">Login ID</label>
-                                        <div style="font-weight: 500; font-family: monospace; background: #f9fafb; padding: 0.5rem; border-radius: 0.375rem; border: 1px solid #e5e7eb;">${user.username}</div>
-                                    </div>
-                                    <div>
-                                        <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">Joining Date</label>
-                                        <div style="font-weight: 500;">${user.joinDate || '--'}</div>
-                                    </div>
-                                    <div>
-                                        <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">Email Address</label>
-                                        <div style="font-weight: 500;">${user.email || '--'}</div>
-                                    </div>
-                                    <div>
-                                        <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">Phone Number</label>
-                                        <div style="font-weight: 500;">${user.phone || '--'}</div>
+                                <div>
+                                    <h2 style="margin: 0; font-size: 1.5rem; font-weight: 700;">${user.name}</h2>
+                                    <p style="margin: 4px 0 0; opacity: 0.8; font-size: 0.9rem; font-weight: 500;">
+                                        ${user.role} <span style="margin: 0 0.5rem; opacity: 0.5;">|</span> ${user.dept || 'General'}
+                                    </p>
+                                    <div style="margin-top: 10px; display: flex; gap: 8px;">
+                                        <span class="badge ${user.status === 'in' ? 'in' : 'out'}" style="background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.2); font-size: 0.7rem;">
+                                            ${user.status === 'in' ? '● Online' : '○ Offline'}
+                                        </span>
                                     </div>
                                 </div>
-
-                                <div style="margin-top: 1.5rem; display: flex; gap: 1rem; justify-content: flex-end;">
-                                    <button class="action-btn" onclick="window.AppTour.resetTour('${user.id}')" style="background: white; color: var(--primary); border: 1px solid #c7d2fe; box-shadow: none; padding: 0.6rem 1.5rem; font-size: 0.9rem;">
-                                        <i class="fa-solid fa-circle-question"></i> Replay Tour
-                                    </button>
-                                    <button class="action-btn" onclick="document.dispatchEvent(new CustomEvent('auth-logout'))" style="background: white; color: #991b1b; border: 1px solid #fecaca; box-shadow: none; padding: 0.6rem 1.5rem; font-size: 0.9rem;">
-                                        <i class="fa-solid fa-arrow-right-from-bracket"></i> Sign Out
-                                    </button>
+                            </div>
+                            
+                            <!-- Information Grid -->
+                            <div style="padding: 1.5rem; display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+                                <!-- Left: Stats -->
+                                <div style="border-right: 1px solid #f3f4f6; padding-right: 2rem;">
+                                    <h3 style="font-size: 0.9rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 1rem;">Performance Stats</h3>
+                                    <div class="stat-grid" style="grid-template-columns: repeat(2, 1fr);">
+                                        <div class="stat-card">
+                                            <div class="label">Monthly Attendance</div>
+                                            <div class="value">${monthlyStats.present} <span style="font-size: 0.7rem; color: #6b7280;">Days</span></div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="label">Total Leaves (FY)</div>
+                                            <div class="value">${yearlyStats.leaves} <span style="font-size: 0.7rem; color: #6b7280;">Days</span></div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="label">Monthly Lates</div>
+                                            <div class="value" style="color: ${monthlyStats.late > 2 ? 'var(--accent)' : 'var(--text-main)'}">${monthlyStats.late}</div>
+                                        </div>
+                                        <div class="stat-card">
+                                            <div class="label">Work Intensity</div>
+                                            <div class="value">${monthlyStats.totalExtraDuration.split(' ')[0]} <span style="font-size: 0.7rem; color: #6b7280;">Extra</span></div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div style="margin-top: 1rem; padding: 1rem; background: #f0fdf4; border-radius: var(--radius-md); border: 1px solid #dcfce7; display: flex; align-items: center; gap: 1rem;">
+                                        <div style="width: 40px; height: 40px; border-radius: 50%; background: var(--success); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+                                            <i class="fa-solid fa-trophy"></i>
+                                        </div>
+                                        <div>
+                                            <div style="font-weight: 700; color: #065f46; font-size: 0.9rem;">Excellent Consistency!</div>
+                                            <div style="font-size: 0.75rem; color: #047857;">You are in the top 10% of active staff this month.</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Right: Details & Actions -->
+                                <div>
+                                    <h3 style="font-size: 0.9rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 1rem;">Work Details</h3>
+                                    <div style="display: flex; flex-direction: column; gap: 1rem;">
+                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #f3f4f6; padding-bottom: 8px;">
+                                            <span style="color: #6b7280; font-size: 0.85rem;">Login ID</span>
+                                            <span style="font-weight: 600; font-family: monospace;">${user.username}</span>
+                                        </div>
+                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #f3f4f6; padding-bottom: 8px;">
+                                            <span style="color: #6b7280; font-size: 0.85rem;">Email</span>
+                                            <span style="font-weight: 600;">${user.email || '--'}</span>
+                                        </div>
+                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #f3f4f6; padding-bottom: 8px;">
+                                            <span style="color: #6b7280; font-size: 0.85rem;">Phone</span>
+                                            <span style="font-weight: 600;">${user.phone || '--'}</span>
+                                        </div>
+                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #f3f4f6; padding-bottom: 8px;">
+                                            <span style="color: #6b7280; font-size: 0.85rem;">Joining Date</span>
+                                            <span style="font-weight: 600;">${user.joinDate || '--'}</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div style="margin-top: 2rem; display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                                        <button class="action-btn" onclick="window.AppTour.resetTour('${user.id}')" style="background: white; color: var(--primary); border: 1px solid #c7d2fe; box-shadow: none; padding: 0.5rem; font-size: 0.8rem; width: 100%;">
+                                            <i class="fa-solid fa-circle-question"></i> Replay Tour
+                                        </button>
+                                        <button class="action-btn" onclick="document.dispatchEvent(new CustomEvent('auth-logout'))" style="background: white; color: #991b1b; border: 1px solid #fecaca; box-shadow: none; padding: 0.5rem; font-size: 0.8rem; width: 100%;">
+                                            <i class="fa-solid fa-arrow-right-from-bracket"></i> Sign Out
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
+                            
+                            <!-- Mobile View Adjustment -->
+                            <style>
+                                @media (max-width: 768px) {
+                                    .profile-header-compact { flex-direction: column; text-align: center; gap: 1rem; }
+                                    .dashboard-grid > .full-width > div:nth-child(2) { grid-template-columns: 1fr !important; gap: 2rem; }
+                                    .dashboard-grid > .full-width > div:nth-child(2) > div:first-child { border-right: none !important; padding-right: 0 !important; border-bottom: 1px solid #f3f4f6; padding-bottom: 2rem; }
+                                }
+                            </style>
                         </div>
 
-                        <!-- Leave History Section -->
-                        <div class="card full-width" style="margin-top: 1.5rem;">
-                            <h3>My Leave History</h3>
+                        <!-- Leave History (More Compact) -->
+                        <div class="card full-width" style="margin-top: 1rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                                <h3 style="margin: 0; font-size: 1.1rem;">My Leave History</h3>
+                                <button class="action-btn secondary" style="padding: 0.4rem 0.8rem; font-size: 0.75rem;" onclick="document.getElementById('leave-modal').style.display='flex'">
+                                    <i class="fa-solid fa-plus"></i> Request Leave
+                                </button>
+                            </div>
                             <div class="table-container mobile-table-card">
-                                <table>
+                                <table class="compact-table">
                                     <thead>
-                                        <tr>
-                                            <th style="padding: 12px 8px;">Dates</th>
-                                            <th style="padding: 12px 8px;">Type</th>
-                                            <th style="padding: 12px 8px;">Reason</th>
-                                            <th style="padding: 12px 8px;">Status</th>
-                                            <th style="padding: 12px 8px;">Admin Feedback</th>
+                                        <tr style="background: #f9fafb;">
+                                            <th>Date Range</th>
+                                            <th>Type</th>
+                                            <th>Reason</th>
+                                            <th>Status</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        ${leaves.length ? leaves.map(l => {
-                    let badgeColor = '#f3f4f6'; // Pending (Gray)
-                    let textColor = '#374151';
+                                        ${leaves.length ? leaves.slice(0, 5).map(l => {
+                    let badgeColor = '#f3f4f6'; let textColor = '#374151';
                     if (l.status === 'Approved') { badgeColor = '#dcfce7'; textColor = '#166534'; }
                     if (l.status === 'Rejected') { badgeColor = '#fee2e2'; textColor = '#991b1b'; }
 
                     return `
                                                 <tr style="border-bottom: 1px solid #f3f4f6;">
-                                                    <td data-label="Dates" style="padding: 12px 8px;">${l.startDate} <span style="color:#9ca3af">to</span> ${l.endDate}</td>
-                                                    <td data-label="Type" style="padding: 12px 8px;">${l.type}</td>
-                                                    <td data-label="Reason" style="padding: 12px 8px; color:#6b7280; font-size:0.9rem;">${l.reason}</td>
-                                                    <td data-label="Status" style="padding: 12px 8px;"><span style="background:${badgeColor}; color:${textColor}; padding:0.25rem 0.5rem; border-radius:4px; font-size:0.8rem; font-weight:600;">${l.status}</span></td>
-                                                    <td data-label="Feedback" style="padding: 12px 8px; font-style: italic; color: #4338ca; font-size: 0.85rem;">${l.adminComment || '<span style="color:#9ca3af; font-style:normal;">No feedback yet</span>'}</td>
+                                                    <td data-label="Dates">
+                                                        <div style="font-weight: 600; font-size: 0.85rem;">${l.startDate}</div>
+                                                        <div style="font-size: 0.75rem; color: #9ca3af;">to ${l.endDate}</div>
+                                                    </td>
+                                                    <td data-label="Type" style="font-size: 0.85rem;">${l.type}</td>
+                                                    <td data-label="Reason" style="font-size: 0.8rem; color: #6b7280; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${l.reason}">${l.reason}</td>
+                                                    <td data-label="Status">
+                                                        <span style="background:${badgeColor}; color:${textColor}; padding:4px 8px; border-radius:4px; font-size:0.75rem; font-weight:700;">${l.status}</span>
+                                                        ${l.adminComment ? `<div style="font-size: 0.7rem; color: #4338ca; margin-top: 2px; font-style: italic;">Note: ${l.adminComment}</div>` : ''}
+                                                    </td>
                                                 </tr>`;
-                }).join('') : '<tr><td colspan="5" style="text-align:center; padding:1.5rem; color:#6b7280;">No leave requests found.</td></tr>'}
+                }).join('') : '<tr><td colspan="4" style="text-align:center; padding:1.5rem; color:#9ca3af;">No leave history found.</td></tr>'}
                                     </tbody>
                                 </table>
+                                ${leaves.length > 5 ? `<div style="text-align: center; margin-top: 0.75rem;"><a href="#" style="font-size: 0.8rem; color: var(--primary); font-weight: 600;">View All Requests</a></div>` : ''}
                             </div>
                         </div>
                     </div>

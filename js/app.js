@@ -1144,6 +1144,7 @@
         if (btn) btn.addEventListener('click', handleAttendance);
         startTimer();
     }
+    window.setupDashboardEvents = setupDashboardEvents;
 
     // --- Global Event Delegation ---
 
