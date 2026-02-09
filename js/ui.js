@@ -1122,7 +1122,11 @@
             const totalHoursFormatted = `${Math.floor(totalMins / 60)}h ${Math.round(totalMins % 60)}m`;
 
             // Helper for updating descriptions
-            window.app_editWorkSummary = async (logId, currentDesc) => {
+            window.app_editWorkSummary = async (logId) => {
+                const logs = await window.AppAttendance.getLogs();
+                const log = logs.find(l => l.id === logId);
+                const currentDesc = log ? log.workDescription : "";
+
                 const newDesc = prompt("Update Work Summary:", currentDesc || "");
                 if (newDesc !== null) {
                     await window.AppAttendance.updateLog(logId, { workDescription: newDesc });
@@ -1220,7 +1224,7 @@
                                                         <div style="font-size: 0.8rem; color: #334155; line-height: 1.4; white-space: pre-wrap;">${log.workDescription || '<span style="color:#94a3b8; font-style:italic;">No summary provided</span>'}</div>
                                                         ${log.location ? `<div style="font-size: 0.65rem; color: #94a3b8; margin-top: 4px;"><i class="fa-solid fa-location-dot"></i> ${log.location}</div>` : ''}
                                                     </div>
-                                                    ${log.id !== 'active_now' ? `<button onclick="window.app_editWorkSummary('${log.id}', '${(log.workDescription || '').replace(/'/g, "\\'")}')" style="background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px; transition: color 0.2s;" onmouseover="this.style.color='var(--primary)'" onmouseout="this.style.color='#94a3b8'"><i class="fa-solid fa-pen-to-square"></i></button>` : ''}
+                                                    ${log.id !== 'active_now' ? `<button onclick="window.app_editWorkSummary('${log.id}')" style="background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px; transition: color 0.2s;" onmouseover="this.style.color='var(--primary)'" onmouseout="this.style.color='#94a3b8'"><i class="fa-solid fa-pen-to-square"></i></button>` : ''}
                                                 </div>
                                             </td>
                                             <td data-label="Detail" style="text-align: right;">
