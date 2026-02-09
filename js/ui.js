@@ -988,29 +988,62 @@
                 </div>
             ` : '';
 
-            const summaryHTML = `
-                <!-- Admin Top Section: Leave Requests + Team Schedule/Hero -->
-                <div style="display: flex; flex-wrap: wrap; gap: 1rem; grid-column: 1 / -1; margin-bottom: 1rem;">
-                    <!-- Left Column: Leave Requests (Flex 2 = ~66%) -->
-                    <div style="flex: 2; min-width: 350px; display: flex; flex-direction: column;">
-                        ${this.renderLeaveRequests(pendingLeaves)}
+            let summaryHTML = '';
+
+            if (isAdmin) {
+                summaryHTML = `
+                    <!-- Admin Top Section: Leave Requests + Team Schedule/Hero -->
+                    <div style="display: flex; flex-wrap: wrap; gap: 1rem; grid-column: 1 / -1; margin-bottom: 1rem;">
+                        <!-- Left Column: Leave Requests (Flex 2 = ~66%) -->
+                        <div style="flex: 2; min-width: 350px; display: flex; flex-direction: column;">
+                            ${this.renderLeaveRequests(pendingLeaves)}
+                        </div>
+
+                        <!-- Right Column: Team Schedule & Hero (Flex 1 = ~33%, same as widgets below) -->
+                        <div style="flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 1rem;">
+                            ${renderYearlyPlan(calendarPlans)}
+                            ${heroHTML}
+                        </div>
                     </div>
 
-                    <!-- Right Column: Team Schedule & Hero (Flex 1 = ~33%, same as widgets below) -->
-                    <div style="flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 1rem;">
-                        ${renderYearlyPlan(calendarPlans)}
-                        ${heroHTML}
+                    ${staffSelectionHTML}
+
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; align-items: start; grid-column: 1 / -1;">
+                        ${renderStatsCard(targetStaffId === user.id ? monthlyStats.label : `${monthlyStats.label} (Staff)`, 'Monthly Stats', monthlyStats)}
+                        ${renderStatsCard('Yearly Summary', targetStaffId === user.id ? yearlyStats.label : `${yearlyStats.label} (Staff)`, yearlyStats)}
                     </div>
-                </div>
+                `;
+            } else {
+                // STAFF SPECIFIC LAYOUT: 3-Column Row
+                summaryHTML = `
+                    <!-- Staff Section: Summary, Team Activities, and Schedule side-by-side -->
+                    <div style="display: flex; flex-wrap: wrap; gap: 1rem; grid-column: 1 / -1; margin-bottom: 2rem; align-items: stretch;">
+                        
+                        <!-- Column 1: Summaries -->
+                        <div style="flex: 1; min-width: 250px; display: flex; flex-direction: column; gap: 1rem;">
+                            <div style="flex: 1; display: flex; flex-direction: column;">
+                                ${renderStatsCard(monthlyStats.label, 'Monthly Stats', monthlyStats)}
+                            </div>
+                            <div style="flex: 1; display: flex; flex-direction: column;">
+                                ${renderStatsCard('Yearly Summary', yearlyStats.label, yearlyStats)}
+                            </div>
+                        </div>
 
-                ${staffSelectionHTML}
+                        <!-- Column 2: Team Activities (Middle) -->
+                        <div style="flex: 1.1; min-width: 300px; display: flex; flex-direction: column;">
+                            ${renderStaffActivityWidget(staffActivities)}
+                        </div>
 
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; align-items: start; grid-column: 1 / -1;">
-                    ${renderStatsCard(targetStaffId === user.id ? monthlyStats.label : `${monthlyStats.label} (Staff)`, 'Monthly Stats', monthlyStats)}
-                    ${renderStatsCard('Yearly Summary', targetStaffId === user.id ? yearlyStats.label : `${yearlyStats.label} (Staff)`, yearlyStats)}
-                    ${renderActivityReport(logs)}
-                </div>
-            `;
+                        <!-- Column 3: Team Schedule (Calendar) + Hero -->
+                        <div style="flex: 1.2; min-width: 320px; display: flex; flex-direction: column;">
+                            ${renderYearlyPlan(calendarPlans)}
+                            <div style="margin-top: 1rem;">
+                                ${heroHTML}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
 
             return `
                 <div class="dashboard-grid">
@@ -1028,78 +1061,101 @@
                         </div>
                     </div>
 
+
                     ${notifHTML}
-                    ${summaryHTML}
 
-                    <div class="card check-in-widget" style="padding: 1rem; gap: 1rem;">
-                        <div class="user-mini-profile" style="flex-direction: column; text-align: center; gap: 0.5rem;">
-                            <img src="${user.avatar}" alt="Profile" style="width: 60px; height: 60px;">
-                            <div>
-                                <h4 style="font-size: 1rem;">${user.name}</h4>
-                                <p class="text-muted" style="font-size: 0.8rem;">${user.role}</p>
+                    <!-- Top Widgets Row: Timer, Recent Activity, Activity Log -->
+                    <div style="display: flex; flex-wrap: wrap; gap: 1rem; grid-column: 1 / -1; margin-bottom: 1rem; align-items: stretch;">
+                        
+                        <!-- 1. Check-in Timer Widget -->
+                        <div class="card check-in-widget" style="flex: 1; min-width: 280px; padding: 1.25rem; display: flex; flex-direction: column; justify-content: space-between; margin-bottom: 0; background: white; border: 1px solid #eef2ff;">
+                            <div style="display: flex; align-items: center; justify-content: center; gap: 1rem; margin-bottom: 0.75rem;">
+                                <div style="position: relative;">
+                                    <img src="${user.avatar}" alt="Profile" style="width: 48px; height: 48px; border-radius: 50%; border: 2px solid #e0e7ff;">
+                                    <div style="position: absolute; bottom: 0; right: 0; width: 12px; height: 12px; border-radius: 50%; background: ${isCheckedIn ? '#10b981' : '#94a3b8'}; border: 2px solid white;"></div>
+                                </div>
+                                <div style="text-align: left;">
+                                    <h4 style="font-size: 0.95rem; margin: 0; color: #1e1b4b;">${user.name}</h4>
+                                    <p class="text-muted" style="font-size: 0.75rem; margin: 0;">${user.role}</p>
+                                </div>
                             </div>
-                        </div>
 
-                        <div class="status-badge ${statusClass}" id="status-badge">
-                            ${statusText}
-                        </div>
-
-                        <!-- Enhanced Timer Display -->
-                        <div style="text-align:center; margin: 0.5rem 0;">
-                            <div class="timer-display" id="timer-display" style="font-size: 2.5rem; font-weight: 800; color: #1f2937; line-height: 1;">${timerHTML}</div>
-                            <div id="timer-label" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: #6b7280; margin-top: 4px;">Elapsed Time</div>
-                        </div>
-
-                        <!-- Progress / Countdown Area -->
-                        <div id="countdown-container" style="display: none; margin-bottom: 1rem; width: 100%;">
-                             <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #4b5563; margin-bottom: 4px;">
-                                <span id="countdown-label">Time to checkout</span>
-                                <span id="countdown-value" style="font-weight: 600;">--:--:--</span>
+                            <div style="text-align:center; padding: 0.5rem 0;">
+                                <div class="timer-display" id="timer-display" style="font-size: 2.25rem; font-weight: 800; color: #1e1b4b; line-height: 1; letter-spacing: -1px;">${timerHTML}</div>
+                                <div id="timer-label" style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; color: #64748b; margin-top: 6px; font-weight: 600;">Elapsed Time Today</div>
                             </div>
-                            <div style="width: 100%; height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden;">
-                                <div id="countdown-progress" style="width: 0%; height: 100%; background: var(--primary); transition: width 1s linear;"></div>
+
+                            <!-- Progress / Countdown Area -->
+                            <div id="countdown-container" style="display: none; margin-bottom: 0.75rem; width: 100%;">
+                                 <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: #4b5563; margin-bottom: 4px;">
+                                    <span id="countdown-label">Time to checkout</span>
+                                    <span id="countdown-value" style="font-weight: 600;">--:--:--</span>
+                                </div>
+                                <div style="width: 100%; height: 4px; background: #e5e7eb; border-radius: 2px; overflow: hidden;">
+                                    <div id="countdown-progress" style="width: 0%; height: 100%; background: var(--primary); transition: width 1s linear;"></div>
+                                </div>
                             </div>
-                        </div>
 
-                        <!-- Overtime Alert Area -->
-                        <div id="overtime-container" style="display: none; background: #fff7ed; border: 1px solid #ffedd5; padding: 0.75rem; border-radius: 8px; margin-bottom: 1rem; text-align: center;">
-                             <div style="color: #c2410c; font-weight: 700; font-size: 0.9rem; margin-bottom: 2px;">OVERTIME</div>
-                             <div id="overtime-value" style="color: #ea580c; font-size: 1.25rem; font-weight: 800; font-family: monospace;">00:00:00</div>
-                             <div style="font-size: 0.65rem; color: #9a3412;">Extra working hours</div>
-                        </div>
+                            <!-- Overtime Alert Area -->
+                            <div id="overtime-container" style="display: none; background: #fff7ed; border: 1px solid #ffedd5; padding: 0.5rem; border-radius: 8px; margin-bottom: 0.75rem; text-align: center;">
+                                 <div style="color: #c2410c; font-weight: 700; font-size: 0.8rem; margin-bottom: 2px;">OVERTIME</div>
+                                 <div id="overtime-value" style="color: #ea580c; font-size: 1.1rem; font-weight: 800; font-family: monospace;">00:00:00</div>
+                            </div>
 
-                        <button class="${btnClass}" id="attendance-btn">
-                            ${btnText} <i class="fa-solid fa-fingerprint"></i>
-                        </button>
+                            <button class="${btnClass}" id="attendance-btn" style="width: 100%; padding: 0.75rem; font-size: 0.9rem; border-radius: 10px; margin-top: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; transition: all 0.3s ease;">
+                                ${btnText} <i class="fa-solid fa-fingerprint"></i>
+                            </button>
 
-                        <div class="location-text" id="location-text">
-                            <i class="fa-solid fa-location-dot"></i> 
-                            <span>
-                                ${user.status === 'in' && user.currentLocation
+                            <div class="location-text" id="location-text" style="font-size: 0.65rem; color: #94a3b8; text-align: center; margin-top: 0.5rem;">
+                                <i class="fa-solid fa-location-dot"></i> 
+                                <span>
+                                    ${isCheckedIn && user.currentLocation
                     ? `Lat: ${Number(user.currentLocation.lat).toFixed(4)}, Lng: ${Number(user.currentLocation.lng).toFixed(4)}`
                     : 'Waiting for location...'}
-                            </span>
+                                </span>
+                            </div>
                         </div>
-                    </div>
 
-                    <div class="card">
-                        <h4>Recent Activity</h4>
-                        <div style="margin-top: 1rem; display: flex; flex-direction: column; gap: 1rem;">
-                            ${recentLogs.slice(0, 3).map(log => `
-                                <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.5rem; border-bottom: 1px solid #f3f4f6;">
-                                    <div>
-                                        <div style="font-weight: 500;">${log.date}</div>
-                                        <div style="font-size: 0.8rem; color: #6b7280;">${log.checkIn} - ${log.checkOut || 'Working...'}</div>
+                        <!-- 2. Recent Activity -->
+                        <div class="card" style="flex: 1; min-width: 280px; padding: 1.25rem; margin-bottom: 0; display: flex; flex-direction: column; background: white;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;">
+                                <h4 style="margin: 0; font-size: 0.95rem; color: #1e1b4b;"><i class="fa-solid fa-history" style="color: #6366f1; margin-right: 6px;"></i> Recent Activity</h4>
+                                <a href="#timesheet" onclick="window.location.hash = 'timesheet'; return false;" style="font-size: 0.7rem; color: #4338ca; text-decoration: none; font-weight: 600;">View All</a>
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 0.75rem; flex: 1; overflow-y: auto; max-height: 300px; padding-right: 4px;">
+                                ${recentLogs.length > 0 ? recentLogs.slice(0, 3).map(log => `
+                                    <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.5rem; border-bottom: 1px solid #f8fafc;">
+                                        <div>
+                                            <div style="font-size: 0.8rem; font-weight: 600; color: #334155;">${log.date}</div>
+                                            <div style="font-size: 0.7rem; color: #64748b;">${log.checkIn} - ${log.checkOut || '<span style="color:#10b981;">Active</span>'}</div>
+                                        </div>
+                                        <div style="font-size: 0.8rem; font-weight: 700; color: #4338ca; background: #eef2ff; padding: 2px 8px; border-radius: 6px;">${log.duration || '--'}</div>
                                     </div>
-                                    <div style="font-weight: 600; color: var(--primary);">${log.duration || '--'}</div>
-                                </div>
-                            `).join('')}
+                                `).join('') : '<p style="font-size: 0.8rem; color: #94a3b8; text-align: center; margin-top: 1rem;">No recent sessions</p>'}
+                            </div>
                         </div>
-                         <div style="margin-top: 1rem; text-align: center;">
-                            <a href="#timesheet" onclick="window.location.hash = 'timesheet'; return false;" style="color: var(--primary); text-decoration: none; font-weight: 500;">View All</a>
+
+                        <!-- 3. Activity Log (Compact) -->
+                        <div class="card" style="flex: 1; min-width: 280px; padding: 1.25rem; margin-bottom: 0; display: flex; flex-direction: column; background: white;">
+                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;">
+                                <h4 style="margin: 0; font-size: 0.95rem; color: #1e1b4b;"><i class="fa-solid fa-clipboard-list" style="color: #6366f1; margin-right: 6px;"></i> Work Log</h4>
+                                <div style="display: flex; gap: 4px;">
+                                    <input type="date" id="act-start" value="${new Date().toISOString().split('T')[0]}" style="border: 1px solid #e2e8f0; border-radius: 4px; padding: 2px 4px; font-size: 0.65rem; width: 85px; outline: none;">
+                                    <button onclick="window.app_filterActivity()" style="background: #4338ca; color: white; border: none; border-radius: 4px; padding: 2px 6px; font-size: 0.65rem; cursor: pointer;"><i class="fa-solid fa-sync"></i></button>
+                                </div>
+                            </div>
+                            <div id="activity-list" style="flex: 1; overflow-y: auto; max-height: 300px; font-size: 0.75rem; padding-right: 4px;">
+                                ${renderActivityList(logs, new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], new Date().toISOString().split('T')[0])}
+                            </div>
+                        </div>
                     </div>
 
-                    ${renderStaffActivityWidget(staffActivities)}
+                    ${summaryHTML}
+
+                    <!-- Full Width Area (If needed for future content) -->
+                    <div style="grid-column: 1 / -1; display: grid; gap: 1rem;">
+                        <!-- Any future bottom widgets -->
+                    </div>
                 </div>
             `;
         },
