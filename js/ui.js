@@ -642,7 +642,7 @@
                         </div>
 
                         <!-- Report Content (Scrollable) -->
-                        <div id="activity-list" style="flex:1; overflow-y:auto; min-height: 250px; font-size:0.8rem; padding-right:5px;">
+                        <div id="activity-list" style="flex:1; overflow-y:auto; min-height: 150px; max-height: 300px; font-size:0.8rem; padding-right:5px;">
                             ${renderActivityList(logs, startDefault, endDefault)}
                         </div>
                     </div>
@@ -992,7 +992,7 @@
             const summaryHTML = `
                 ${this.renderLeaveRequests(pendingLeaves)}
                 ${staffSelectionHTML}
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; align-items: stretch; grid-column: 1 / -1;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; align-items: start; grid-column: 1 / -1;">
                     ${renderStatsCard(targetStaffId === user.id ? monthlyStats.label : `${monthlyStats.label} (Staff)`, 'Monthly Stats', monthlyStats)}
                     ${renderStatsCard('Yearly Summary', targetStaffId === user.id ? yearlyStats.label : `${yearlyStats.label} (Staff)`, yearlyStats)}
                     ${renderActivityReport(logs)}
