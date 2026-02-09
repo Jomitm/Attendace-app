@@ -415,7 +415,7 @@
             if (!leaves || leaves.length === 0) return '';
 
             return `
-                <div class="card full-width" style="padding: 0.75rem; display:flex; flex-direction:column; margin-bottom: 1rem;">
+                <div class="card" style="padding: 0.75rem; display:flex; flex-direction:column; margin-bottom: 0; height: 100%;">
                     <div style="margin-bottom:0.75rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.4rem; display:flex; justify-content:space-between; align-items:center;">
                         <div>
                             <h4 style="margin:0; color:#1f2937; font-size: 1rem;">Leave Requests</h4>
@@ -990,16 +990,26 @@
             ` : '';
 
             const summaryHTML = `
-                ${this.renderLeaveRequests(pendingLeaves)}
+                <!-- Admin Top Section: Leave Requests + Team Schedule/Hero -->
+                <div style="display: flex; flex-wrap: wrap; gap: 1rem; grid-column: 1 / -1; margin-bottom: 1rem;">
+                    <!-- Left Column: Leave Requests (Flex 2 = ~66%) -->
+                    <div style="flex: 2; min-width: 350px; display: flex; flex-direction: column;">
+                        ${this.renderLeaveRequests(pendingLeaves)}
+                    </div>
+
+                    <!-- Right Column: Team Schedule & Hero (Flex 1 = ~33%, same as widgets below) -->
+                    <div style="flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 1rem;">
+                        ${renderYearlyPlan(calendarPlans)}
+                        ${heroHTML}
+                    </div>
+                </div>
+
                 ${staffSelectionHTML}
+
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; align-items: start; grid-column: 1 / -1;">
                     ${renderStatsCard(targetStaffId === user.id ? monthlyStats.label : `${monthlyStats.label} (Staff)`, 'Monthly Stats', monthlyStats)}
                     ${renderStatsCard('Yearly Summary', targetStaffId === user.id ? yearlyStats.label : `${yearlyStats.label} (Staff)`, yearlyStats)}
                     ${renderActivityReport(logs)}
-                    <div style="display: flex; flex-direction: column; gap: 1rem;">
-                        ${renderYearlyPlan(calendarPlans)}
-                        ${heroHTML}
-                    </div>
                 </div>
             `;
 
