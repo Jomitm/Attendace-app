@@ -304,24 +304,120 @@
 
     function startTimer() {
         if (timerInterval) clearInterval(timerInterval);
-        window.AppAttendance.getStatus().then(({ status, lastCheckIn }) => {
+
+        const updateTimerUI = async () => {
+            const { status, lastCheckIn } = await window.AppAttendance.getStatus();
             const display = document.getElementById('timer-display');
-            if (status === 'in' && lastCheckIn && display) {
+            const countdownContainer = document.getElementById('countdown-container');
+            const overtimeContainer = document.getElementById('overtime-container');
+            const countdownValue = document.getElementById('countdown-value');
+            const countdownProgress = document.getElementById('countdown-progress');
+            const overtimeValue = document.getElementById('overtime-value');
+            const timerLabel = document.getElementById('timer-label');
+
+            if (status === 'in' && lastCheckIn) {
+                // Determine Target Time (Example: 5:00 PM if Weekday)
+                const checkInDate = new Date(lastCheckIn);
+                const targetTime = new Date(checkInDate); // Clone date
+                targetTime.setHours(17, 0, 0, 0); // 5:00 PM default
+
+                const day = checkInDate.getDay();
+                if (day === 6) targetTime.setHours(13, 0, 0, 0); // Saturday 1 PM target
+                if (day === 0) targetTime.setHours(17, 0, 0, 0); // Sunday (Default 5pm if working)
+
+                // Timer Interval
                 timerInterval = setInterval(() => {
                     const now = Date.now();
-                    const diff = now - lastCheckIn;
-                    const hrs = Math.floor((diff / (1000 * 60 * 60)) % 24).toString().padStart(2, '0');
-                    const mins = Math.floor((diff / (1000 * 60)) % 60).toString().padStart(2, '0');
-                    const secs = Math.floor((diff / 1000) % 60).toString().padStart(2, '0');
-                    display.textContent = `${hrs} : ${mins} : ${secs}`;
+                    const diff = now - lastCheckIn; // Total Worked (Elapsed)
+
+                    // Format Elapsed (Main Timer)
+                    if (display) {
+                        let hrs = Math.floor((diff / (1000 * 60 * 60)) % 24);
+                        let mins = Math.floor((diff / (1000 * 60)) % 60);
+                        let secs = Math.floor((diff / 1000) % 60);
+
+                        hrs = (hrs < 10) ? "0" + hrs : hrs;
+                        mins = (mins < 10) ? "0" + mins : mins;
+                        secs = (secs < 10) ? "0" + secs : secs;
+                        display.textContent = `${hrs} : ${mins} : ${secs}`;
+                    }
+
+                    // Countdown / Overtime Logic
+                    const timeToTarget = targetTime.getTime() - now;
+
+                    if (timeToTarget > 0) {
+                        // Regular Work Time
+                        if (countdownContainer) countdownContainer.style.display = 'block';
+                        if (overtimeContainer) overtimeContainer.style.display = 'none';
+                        if (timerLabel) {
+                            timerLabel.textContent = 'Elapsed Time';
+                            timerLabel.style.color = '#6b7280';
+                        }
+                        if (display) display.style.color = '#1f2937';
+
+                        // Calculate Remaining
+                        let rHrs = Math.floor((timeToTarget / (1000 * 60 * 60)) % 24);
+                        let rMins = Math.floor((timeToTarget / (1000 * 60)) % 60);
+                        let rSecs = Math.floor((timeToTarget / 1000) % 60);
+
+                        rHrs = (rHrs < 10) ? "0" + rHrs : rHrs;
+                        rMins = (rMins < 10) ? "0" + rMins : rMins;
+                        rSecs = (rSecs < 10) ? "0" + rSecs : rSecs;
+
+                        // Progress Bar calculation (Target is fixed duration from checkin or fixed time?)
+                        // Let's use CheckIn -> Target as the full bar.
+                        const totalShiftDuration = targetTime.getTime() - lastCheckIn;
+                        // Avoid division by zero
+                        const progress = totalShiftDuration > 0 ? Math.min(100, (diff / totalShiftDuration) * 100) : 100;
+
+                        if (countdownValue) countdownValue.textContent = `${rHrs}:${rMins}:${rSecs}`;
+                        if (countdownProgress) countdownProgress.style.width = `${progress}%`;
+                        if (countdownProgress) countdownProgress.style.background = 'var(--primary)'; // Normal Color
+
+                    } else {
+                        // Overtime
+                        if (countdownContainer) countdownContainer.style.display = 'none';
+                        if (overtimeContainer) overtimeContainer.style.display = 'block';
+
+                        // Calculate Overtime Duration
+                        const otDiff = Math.abs(now - targetTime.getTime());
+                        let oHrs = Math.floor((otDiff / (1000 * 60 * 60)) % 24);
+                        let oMins = Math.floor((otDiff / (1000 * 60)) % 60);
+                        let oSecs = Math.floor((otDiff / 1000) % 60);
+
+                        oHrs = (oHrs < 10) ? "0" + oHrs : oHrs;
+                        oMins = (oMins < 10) ? "0" + oMins : oMins;
+                        oSecs = (oSecs < 10) ? "0" + oSecs : oSecs;
+
+                        if (overtimeValue) overtimeValue.textContent = `+ ${oHrs}:${oMins}:${oSecs}`;
+
+                        // Change Main Timer Color
+                        if (display) display.style.color = '#c2410c'; // Dark Orange
+                        if (timerLabel) {
+                            timerLabel.textContent = 'Total Elapsed (Overtime)';
+                            timerLabel.style.color = '#c2410c';
+                        }
+                    }
+
                 }, 1000);
 
                 // Start Activity Monitor
-                if (window.AppActivity) window.AppActivity.start();
-            } else if (display) {
-                display.textContent = '00 : 00 : 00';
+                if (window.AppActivity && window.AppActivity.start) window.AppActivity.start();
+
+            } else {
+                if (display) {
+                    display.textContent = "00 : 00 : 00";
+                    display.style.color = ''; // Reset
+                }
+                if (timerLabel) {
+                    timerLabel.textContent = 'Elapsed Time';
+                    timerLabel.style.color = '';
+                }
+                if (countdownContainer) countdownContainer.style.display = 'none';
+                if (overtimeContainer) overtimeContainer.style.display = 'none';
             }
-        });
+        };
+        updateTimerUI();
     }
 
     function getLocation() {

@@ -1035,7 +1035,29 @@
                             ${statusText}
                         </div>
 
-                        <div class="timer-display" id="timer-display">${timerHTML}</div>
+                        <!-- Enhanced Timer Display -->
+                        <div style="text-align:center; margin: 0.5rem 0;">
+                            <div class="timer-display" id="timer-display" style="font-size: 2.5rem; font-weight: 800; color: #1f2937; line-height: 1;">${timerHTML}</div>
+                            <div id="timer-label" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: #6b7280; margin-top: 4px;">Elapsed Time</div>
+                        </div>
+
+                        <!-- Progress / Countdown Area -->
+                        <div id="countdown-container" style="display: none; margin-bottom: 1rem; width: 100%;">
+                             <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #4b5563; margin-bottom: 4px;">
+                                <span id="countdown-label">Time to checkout</span>
+                                <span id="countdown-value" style="font-weight: 600;">--:--:--</span>
+                            </div>
+                            <div style="width: 100%; height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden;">
+                                <div id="countdown-progress" style="width: 0%; height: 100%; background: var(--primary); transition: width 1s linear;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Overtime Alert Area -->
+                        <div id="overtime-container" style="display: none; background: #fff7ed; border: 1px solid #ffedd5; padding: 0.75rem; border-radius: 8px; margin-bottom: 1rem; text-align: center;">
+                             <div style="color: #c2410c; font-weight: 700; font-size: 0.9rem; margin-bottom: 2px;">OVERTIME</div>
+                             <div id="overtime-value" style="color: #ea580c; font-size: 1.25rem; font-weight: 800; font-family: monospace;">00:00:00</div>
+                             <div style="font-size: 0.65rem; color: #9a3412;">Extra working hours</div>
+                        </div>
 
                         <button class="${btnClass}" id="attendance-btn">
                             ${btnText} <i class="fa-solid fa-fingerprint"></i>
