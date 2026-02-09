@@ -714,7 +714,7 @@
                 }, 500);
 
                 return `
-                <div class="card" style="padding: 0.75rem; display:flex; flex-direction:column; max-height: 400px;">
+                <div class="card" style="padding: 1.25rem; display:flex; flex-direction:column; height: 100%;">
                     <div style="margin-bottom:0.75rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.4rem;">
                          <h4 style="margin:0; color:#1f2937; font-size: 1rem;">Team Activities</h4>
                          <span style="font-size:0.7rem; color:#6b7280;">Previous Day's Work</span>
@@ -728,7 +728,7 @@
                     </div>
 
                     <!-- Scrollable List with Auto-Scroll -->
-                    <div id="staff-activity-list" style="flex:1; overflow-y:auto; font-size:0.8rem; padding-right:5px; scroll-behavior: smooth;">
+                    <div id="staff-activity-list" style="flex:1; overflow-y:auto; font-size:0.8rem; padding-right:5px; scroll-behavior: smooth; max-height: 250px;">
                         ${renderStaffActivityList(allStaffLogs, 1)}
                     </div>
                 </div>
@@ -968,26 +968,6 @@
 
             const heroHTML = this.renderHeroCard(heroData);
 
-            const staffSelectionHTML = isAdmin ? `
-                <div class="card full-width" style="padding: 1rem; margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: space-between; background: #f8fafc; border: 1px solid #e2e8f0; grid-column: 1 / -1;">
-                    <div style="display: flex; align-items: center; gap: 0.75rem;">
-                        <i class="fa-solid fa-users-viewfinder" style="color: var(--primary); font-size: 1.2rem;"></i>
-                        <div>
-                            <h4 style="margin: 0; font-size: 0.95rem;">Viewing Summary For</h4>
-                            <p style="margin: 0; font-size: 0.75rem; color: #64748b;">Select a staff member to see their stats</p>
-                        </div>
-                    </div>
-                    <select onchange="window.app_changeSummaryStaff(this.value)" style="padding: 0.5rem; border-radius: 8px; border: 1px solid #cbd5e1; min-width: 200px; font-weight: 500; cursor: pointer;">
-                        <option value="${user.id}">My Own Summary (Self)</option>
-                        <optgroup label="Staff Members">
-                            ${(allUsers || []).filter(u => u.id !== user.id).sort((a, b) => a.name.localeCompare(b.name)).map(u => `
-                                <option value="${u.id}" ${u.id === targetStaffId ? 'selected' : ''}>${u.name} (${u.dept || 'General'})</option>
-                            `).join('')}
-                        </optgroup>
-                    </select>
-                </div>
-            ` : '';
-
             let summaryHTML = '';
 
             if (isAdmin) {
@@ -1006,8 +986,6 @@
                         </div>
                     </div>
 
-                    ${staffSelectionHTML}
-
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; align-items: start; grid-column: 1 / -1;">
                         ${renderStatsCard(targetStaffId === user.id ? monthlyStats.label : `${monthlyStats.label} (Staff)`, 'Monthly Stats', monthlyStats)}
                         ${renderStatsCard('Yearly Summary', targetStaffId === user.id ? yearlyStats.label : `${yearlyStats.label} (Staff)`, yearlyStats)}
@@ -1016,9 +994,9 @@
             } else {
                 // STAFF SPECIFIC LAYOUT: 3-Column Row
                 summaryHTML = `
-                    <!-- Staff Section: Summary, Team Activities, and Schedule side-by-side -->
+                <!--Staff Section: Summary, Team Activities, and Schedule side - by - side-->
                     <div style="display: flex; flex-wrap: wrap; gap: 1rem; grid-column: 1 / -1; margin-bottom: 2rem; align-items: stretch;">
-                        
+
                         <!-- Column 1: Summaries -->
                         <div style="flex: 1; min-width: 250px; display: flex; flex-direction: column; gap: 1rem;">
                             <div style="flex: 1; display: flex; flex-direction: column;">
@@ -1042,20 +1020,43 @@
                             </div>
                         </div>
                     </div>
-                `;
+            `;
             }
 
             return `
-                <div class="dashboard-grid">
-                    <div class="card welcome-card full-width" style="background: linear-gradient(135deg, #1e1b4b 0%, #4338ca 100%); position: relative; overflow: hidden; min-height: 120px; display: flex; align-items: center; padding: 1.25rem;">
+                <div class="dashboard-grid" >
+                    <div class="card welcome-card full-width" style="background: linear-gradient(135deg, #1e1b4b 0%, #4338ca 100%); position: relative; overflow: hidden; min-height: 120px; display: flex; align-items: center; padding: 1.25rem; gap: 1.5rem;">
                         <!-- Premium Background Decorations -->
                         <div style="position: absolute; top: -30px; right: -30px; width: 180px; height: 180px; background: rgba(255,255,255,0.05); border-radius: 50%;"></div>
                         <div style="position: absolute; bottom: -50px; left: -20px; width: 120px; height: 120px; background: rgba(255,255,255,0.03); border-radius: 50%;"></div>
-                        
-                        <div style="position: relative; z-index: 1; flex: 1;">
+
+                        <!-- Left: Welcome Text -->
+                        <div style="position: relative; z-index: 1; flex: 1; min-width: 200px;">
                             <h2 style="font-size: 1.5rem; font-weight: 700; margin: 0; letter-spacing: -0.5px;">Good Afternoon, ${user.name}</h2>
                             <p style="opacity: 0.9; margin-top: 0.35rem; font-size: 0.9rem;">Welcome back! Ready to start your productive day?</p>
                         </div>
+
+                        <!-- Middle: Staff Selector (Admin Only) -->
+                        ${isAdmin ? `
+                            <div style="position: relative; z-index: 10; flex: 1.2; display: flex; justify-content: center; min-width: 250px;">
+                                <div style="background: #f1f5f9; padding: 0.6rem 1rem; border-radius: 12px; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 0.75rem; width: 100%; max-width: 320px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+                                    <i class="fa-solid fa-users-viewfinder" style="color: #4f46e5; font-size: 1.1rem;"></i>
+                                    <div style="flex: 1;">
+                                        <div style="font-size: 0.65rem; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">Viewing Summary For</div>
+                                        <select onchange="window.app_changeSummaryStaff(this.value)" style="width: 100%; background: transparent; color: #1e1b4b; border: none; font-size: 0.85rem; font-weight: 700; outline: none; cursor: pointer; padding: 0;">
+                                            <option value="${user.id}">My Own Summary</option>
+                                            <optgroup label="Staff Members">
+                                                ${(allUsers || []).filter(u => u.id !== user.id).sort((a, b) => a.name.localeCompare(b.name)).map(u => `
+                                                    <option value="${u.id}" ${u.id === targetStaffId ? 'selected' : ''}>${u.name}</option>
+                                                `).join('')}
+                                            </optgroup>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        ` : ''}
+
+                        <!-- Right: Icon -->
                         <div class="welcome-icon" style="position: relative; z-index: 1;">
                             <i class="fa-solid fa-cloud-sun" style="font-size: 3rem; color: #fbbf24; filter: drop-shadow(0 0 10px rgba(251, 191, 36, 0.4));"></i>
                         </div>
@@ -1064,66 +1065,66 @@
 
                     ${notifHTML}
 
-                    <!-- Top Widgets Row: Timer, Recent Activity, Activity Log -->
-                    <div style="display: flex; flex-wrap: wrap; gap: 1rem; grid-column: 1 / -1; margin-bottom: 1rem; align-items: stretch;">
-                        
-                        <!-- 1. Check-in Timer Widget -->
-                        <div class="card check-in-widget" style="flex: 1; min-width: 280px; padding: 1.25rem; display: flex; flex-direction: column; justify-content: space-between; margin-bottom: 0; background: white; border: 1px solid #eef2ff;">
-                            <div style="display: flex; align-items: center; justify-content: center; gap: 1rem; margin-bottom: 0.75rem;">
-                                <div style="position: relative;">
-                                    <img src="${user.avatar}" alt="Profile" style="width: 48px; height: 48px; border-radius: 50%; border: 2px solid #e0e7ff;">
+                    <!-- Top Widgets Row: Timer, Recent Activity, Work Log, [Team Activities if Admin] -->
+                <div style="display: flex; flex-wrap: wrap; gap: 1rem; grid-column: 1 / -1; margin-bottom: 1rem; align-items: stretch;">
+
+                    <!-- 1. Check-in Timer Widget -->
+                    <div class="card check-in-widget" style="flex: 1; min-width: 240px; padding: 1.25rem; display: flex; flex-direction: column; justify-content: space-between; margin-bottom: 0; background: white; border: 1px solid #eef2ff;">
+                        <div style="display: flex; align-items: center; justify-content: center; gap: 1rem; margin-bottom: 0.75rem;">
+                            <div style="position: relative;">
+                                <img src="${user.avatar}" alt="Profile" style="width: 48px; height: 48px; border-radius: 50%; border: 2px solid #e0e7ff;">
                                     <div style="position: absolute; bottom: 0; right: 0; width: 12px; height: 12px; border-radius: 50%; background: ${isCheckedIn ? '#10b981' : '#94a3b8'}; border: 2px solid white;"></div>
-                                </div>
-                                <div style="text-align: left;">
-                                    <h4 style="font-size: 0.95rem; margin: 0; color: #1e1b4b;">${user.name}</h4>
-                                    <p class="text-muted" style="font-size: 0.75rem; margin: 0;">${user.role}</p>
-                                </div>
                             </div>
-
-                            <div style="text-align:center; padding: 0.5rem 0;">
-                                <div class="timer-display" id="timer-display" style="font-size: 2.25rem; font-weight: 800; color: #1e1b4b; line-height: 1; letter-spacing: -1px;">${timerHTML}</div>
-                                <div id="timer-label" style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; color: #64748b; margin-top: 6px; font-weight: 600;">Elapsed Time Today</div>
-                            </div>
-
-                            <!-- Progress / Countdown Area -->
-                            <div id="countdown-container" style="display: none; margin-bottom: 0.75rem; width: 100%;">
-                                 <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: #4b5563; margin-bottom: 4px;">
-                                    <span id="countdown-label">Time to checkout</span>
-                                    <span id="countdown-value" style="font-weight: 600;">--:--:--</span>
-                                </div>
-                                <div style="width: 100%; height: 4px; background: #e5e7eb; border-radius: 2px; overflow: hidden;">
-                                    <div id="countdown-progress" style="width: 0%; height: 100%; background: var(--primary); transition: width 1s linear;"></div>
-                                </div>
-                            </div>
-
-                            <!-- Overtime Alert Area -->
-                            <div id="overtime-container" style="display: none; background: #fff7ed; border: 1px solid #ffedd5; padding: 0.5rem; border-radius: 8px; margin-bottom: 0.75rem; text-align: center;">
-                                 <div style="color: #c2410c; font-weight: 700; font-size: 0.8rem; margin-bottom: 2px;">OVERTIME</div>
-                                 <div id="overtime-value" style="color: #ea580c; font-size: 1.1rem; font-weight: 800; font-family: monospace;">00:00:00</div>
-                            </div>
-
-                            <button class="${btnClass}" id="attendance-btn" style="width: 100%; padding: 0.75rem; font-size: 0.9rem; border-radius: 10px; margin-top: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; transition: all 0.3s ease;">
-                                ${btnText} <i class="fa-solid fa-fingerprint"></i>
-                            </button>
-
-                            <div class="location-text" id="location-text" style="font-size: 0.65rem; color: #94a3b8; text-align: center; margin-top: 0.5rem;">
-                                <i class="fa-solid fa-location-dot"></i> 
-                                <span>
-                                    ${isCheckedIn && user.currentLocation
-                    ? `Lat: ${Number(user.currentLocation.lat).toFixed(4)}, Lng: ${Number(user.currentLocation.lng).toFixed(4)}`
-                    : 'Waiting for location...'}
-                                </span>
+                            <div style="text-align: left;">
+                                <h4 style="font-size: 0.95rem; margin: 0; color: #1e1b4b;">${user.name}</h4>
+                                <p class="text-muted" style="font-size: 0.75rem; margin: 0;">${user.role}</p>
                             </div>
                         </div>
 
-                        <!-- 2. Recent Activity -->
-                        <div class="card" style="flex: 1; min-width: 280px; padding: 1.25rem; margin-bottom: 0; display: flex; flex-direction: column; background: white;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;">
-                                <h4 style="margin: 0; font-size: 0.95rem; color: #1e1b4b;"><i class="fa-solid fa-history" style="color: #6366f1; margin-right: 6px;"></i> Recent Activity</h4>
-                                <a href="#timesheet" onclick="window.location.hash = 'timesheet'; return false;" style="font-size: 0.7rem; color: #4338ca; text-decoration: none; font-weight: 600;">View All</a>
+                        <div style="text-align:center; padding: 0.5rem 0;">
+                            <div class="timer-display" id="timer-display" style="font-size: 2.25rem; font-weight: 800; color: #1e1b4b; line-height: 1; letter-spacing: -1px;">${timerHTML}</div>
+                            <div id="timer-label" style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; color: #64748b; margin-top: 6px; font-weight: 600;">Elapsed Time Today</div>
+                        </div>
+
+                        <!-- Progress / Countdown Area -->
+                        <div id="countdown-container" style="display: none; margin-bottom: 0.75rem; width: 100%;">
+                            <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: #4b5563; margin-bottom: 4px;">
+                                <span id="countdown-label">Time to checkout</span>
+                                <span id="countdown-value" style="font-weight: 600;">--:--:--</span>
                             </div>
-                            <div style="display: flex; flex-direction: column; gap: 0.75rem; flex: 1; overflow-y: auto; max-height: 300px; padding-right: 4px;">
-                                ${recentLogs.length > 0 ? recentLogs.slice(0, 3).map(log => `
+                            <div style="width: 100%; height: 4px; background: #e5e7eb; border-radius: 2px; overflow: hidden;">
+                                <div id="countdown-progress" style="width: 0%; height: 100%; background: var(--primary); transition: width 1s linear;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Overtime Alert Area -->
+                        <div id="overtime-container" style="display: none; background: #fff7ed; border: 1px solid #ffedd5; padding: 0.5rem; border-radius: 8px; margin-bottom: 0.75rem; text-align: center;">
+                            <div style="color: #c2410c; font-weight: 700; font-size: 0.8rem; margin-bottom: 2px;">OVERTIME</div>
+                            <div id="overtime-value" style="color: #ea580c; font-size: 1.1rem; font-weight: 800; font-family: monospace;">00:00:00</div>
+                        </div>
+
+                        <button class="${btnClass}" id="attendance-btn" style="width: 100%; padding: 0.75rem; font-size: 0.9rem; border-radius: 10px; margin-top: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; transition: all 0.3s ease;">
+                            ${btnText} <i class="fa-solid fa-fingerprint"></i>
+                        </button>
+
+                        <div class="location-text" id="location-text" style="font-size: 0.65rem; color: #94a3b8; text-align: center; margin-top: 0.5rem;">
+                            <i class="fa-solid fa-location-dot"></i>
+                            <span>
+                                ${isCheckedIn && user.currentLocation
+                    ? `Lat: ${Number(user.currentLocation.lat).toFixed(4)}, Lng: ${Number(user.currentLocation.lng).toFixed(4)}`
+                    : 'Waiting for location...'}
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- 2. Recent Activity -->
+                    <div class="card" style="flex: 1; min-width: 240px; padding: 1.25rem; margin-bottom: 0; display: flex; flex-direction: column; background: white;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;">
+                            <h4 style="margin: 0; font-size: 0.95rem; color: #1e1b4b;"><i class="fa-solid fa-history" style="color: #6366f1; margin-right: 6px;"></i> Recent Activity</h4>
+                            <a href="#timesheet" onclick="window.location.hash = 'timesheet'; return false;" style="font-size: 0.7rem; color: #4338ca; text-decoration: none; font-weight: 600;">View All</a>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 0.75rem; flex: 1; overflow-y: auto; max-height: 250px; padding-right: 4px;">
+                            ${recentLogs.length > 0 ? recentLogs.slice(0, 3).map(log => `
                                     <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.5rem; border-bottom: 1px solid #f8fafc;">
                                         <div>
                                             <div style="font-size: 0.8rem; font-weight: 600; color: #334155;">${log.date}</div>
@@ -1132,32 +1133,39 @@
                                         <div style="font-size: 0.8rem; font-weight: 700; color: #4338ca; background: #eef2ff; padding: 2px 8px; border-radius: 6px;">${log.duration || '--'}</div>
                                     </div>
                                 `).join('') : '<p style="font-size: 0.8rem; color: #94a3b8; text-align: center; margin-top: 1rem;">No recent sessions</p>'}
-                            </div>
-                        </div>
-
-                        <!-- 3. Activity Log (Compact) -->
-                        <div class="card" style="flex: 1; min-width: 280px; padding: 1.25rem; margin-bottom: 0; display: flex; flex-direction: column; background: white;">
-                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;">
-                                <h4 style="margin: 0; font-size: 0.95rem; color: #1e1b4b;"><i class="fa-solid fa-clipboard-list" style="color: #6366f1; margin-right: 6px;"></i> Work Log</h4>
-                                <div style="display: flex; gap: 4px;">
-                                    <input type="date" id="act-start" value="${new Date().toISOString().split('T')[0]}" style="border: 1px solid #e2e8f0; border-radius: 4px; padding: 2px 4px; font-size: 0.65rem; width: 85px; outline: none;">
-                                    <button onclick="window.app_filterActivity()" style="background: #4338ca; color: white; border: none; border-radius: 4px; padding: 2px 6px; font-size: 0.65rem; cursor: pointer;"><i class="fa-solid fa-sync"></i></button>
-                                </div>
-                            </div>
-                            <div id="activity-list" style="flex: 1; overflow-y: auto; max-height: 300px; font-size: 0.75rem; padding-right: 4px;">
-                                ${renderActivityList(logs, new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], new Date().toISOString().split('T')[0])}
-                            </div>
                         </div>
                     </div>
+
+                    <!-- 3. Activity Log (Compact) -->
+                    <div class="card" style="flex: 1; min-width: 240px; padding: 1.25rem; margin-bottom: 0; display: flex; flex-direction: column; background: white;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;">
+                            <h4 style="margin: 0; font-size: 0.95rem; color: #1e1b4b;"><i class="fa-solid fa-clipboard-list" style="color: #6366f1; margin-right: 6px;"></i> Work Log</h4>
+                            <div style="display: flex; gap: 4px;">
+                                <input type="date" id="act-start" value="${new Date().toISOString().split('T')[0]}" style="border: 1px solid #e2e8f0; border-radius: 4px; padding: 2px 4px; font-size: 0.65rem; width: 85px; outline: none;">
+                                    <button onclick="window.app_filterActivity()" style="background: #4338ca; color: white; border: none; border-radius: 4px; padding: 2px 6px; font-size: 0.65rem; cursor: pointer;"><i class="fa-solid fa-sync"></i></button>
+                            </div>
+                        </div>
+                        <div id="activity-list" style="flex: 1; overflow-y: auto; max-height: 250px; font-size: 0.75rem; padding-right: 4px;">
+                            ${renderActivityList(logs, new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], new Date().toISOString().split('T')[0])}
+                        </div>
+                    </div>
+
+                    <!-- 4. Team Activities (Admin Only) -->
+                    ${isAdmin ? `
+                        <div style="flex: 1; min-width: 240px; display: flex; flex-direction: column;">
+                            ${renderStaffActivityWidget(staffActivities)}
+                        </div>
+                    ` : ''}
+                </div>
 
                     ${summaryHTML}
 
-                    <!-- Full Width Area (If needed for future content) -->
-                    <div style="grid-column: 1 / -1; display: grid; gap: 1rem;">
-                        <!-- Any future bottom widgets -->
-                    </div>
+                    <!--Full Width Area(If needed for future content) -->
+                <div style="grid-column: 1 / -1; display: grid; gap: 1rem;">
+                    <!-- Any future bottom widgets -->
                 </div>
-            `;
+                </div >
+                `;
         },
 
         async renderTimesheet() {
@@ -1175,7 +1183,7 @@
                 if (log.date) uniqueDays.add(log.date);
             });
 
-            const totalHoursFormatted = `${Math.floor(totalMins / 60)}h ${Math.round(totalMins % 60)}m`;
+            const totalHoursFormatted = `${Math.floor(totalMins / 60)}h ${Math.round(totalMins % 60)} m`;
 
             // Helper for updating descriptions
             window.app_editWorkSummary = async (logId) => {
@@ -1191,8 +1199,8 @@
             };
 
             return `
-                <div class="card full-width" style="border: none; box-shadow: var(--shadow-md);">
-                    <!-- Header Actions -->
+                <div class="card full-width" style = "border: none; box-shadow: var(--shadow-md);" >
+                    <!--Header Actions-->
                     <div class="timesheet-controls">
                         <div>
                             <h3 style="margin: 0; font-size: 1.25rem;">My Timesheet</h3>
@@ -1208,7 +1216,7 @@
                         </div>
                     </div>
 
-                    <!-- Monthly Quick Stats -->
+                    <!--Monthly Quick Stats-->
                     <div class="stat-grid" style="margin-top: 1rem;">
                         <div class="stat-card">
                             <div class="label">Total Hours</div>
@@ -1228,7 +1236,7 @@
                         </div>
                     </div>
 
-                    <!-- Workflow Filter Bar -->
+                    <!--Workflow Filter Bar-->
                     <div style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; border: 1px solid #e2e8f0;">
                         <div class="filter-group">
                             <i class="fa-solid fa-filter" style="color: #64748b; font-size: 0.8rem;"></i>
@@ -1295,13 +1303,13 @@
                             </tbody>
                         </table>
                     </div>
-                </div>
-                
+                </div >
+
                 <style>
                     @keyframes pulse {
-                        0% { opacity: 1; }
-                        50% { opacity: 0.4; }
-                        100% { opacity: 1; }
+                        0 % { opacity: 1; }
+                        50% {opacity: 0.4; }
+                    100% {opacity: 1; }
                     }
                 </style>
             `;
@@ -1340,30 +1348,30 @@
                 };
 
                 return `
-                    <div class="dashboard-grid">
-                        <div class="card full-width" style="padding: 0; overflow: hidden; border: none; box-shadow: var(--shadow-lg);">
-                            <!-- Compact Header -->
-                            <div class="profile-header-compact">
-                                <div class="profile-avatar-container">
-                                    <img src="${user.avatar}" alt="Profile">
+                <div class="dashboard-grid" >
+                    <div class="card full-width" style="padding: 0; overflow: hidden; border: none; box-shadow: var(--shadow-lg);">
+                        <!-- Compact Header -->
+                        <div class="profile-header-compact">
+                            <div class="profile-avatar-container">
+                                <img src="${user.avatar}" alt="Profile">
                                     <button onclick="window.app_triggerUpload()" style="position: absolute; bottom: 0; right: 0; background: var(--primary); color: white; border: 2px solid #1E1B4B; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.2);" title="Change Photo">
                                         <i class="fa-solid fa-camera" style="font-size: 0.7rem;"></i>
                                     </button>
                                     <input type="file" id="profile-upload" accept="image/*" style="display: none;" onchange="window.app_handlePhotoUpload(this)">
-                                </div>
-                                <div>
-                                    <h2 style="margin: 0; font-size: 1.5rem; font-weight: 700;">${user.name}</h2>
-                                    <p style="margin: 4px 0 0; opacity: 0.8; font-size: 0.9rem; font-weight: 500;">
-                                        ${user.role} <span style="margin: 0 0.5rem; opacity: 0.5;">|</span> ${user.dept || 'General'}
-                                    </p>
-                                    <div style="margin-top: 10px; display: flex; gap: 8px;">
-                                        <span class="badge ${user.status === 'in' ? 'in' : 'out'}" style="background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.2); font-size: 0.7rem;">
-                                            ${user.status === 'in' ? '● Online' : '○ Offline'}
-                                        </span>
                                     </div>
-                                </div>
+                                    <div>
+                                        <h2 style="margin: 0; font-size: 1.5rem; font-weight: 700;">${user.name}</h2>
+                                        <p style="margin: 4px 0 0; opacity: 0.8; font-size: 0.9rem; font-weight: 500;">
+                                            ${user.role} <span style="margin: 0 0.5rem; opacity: 0.5;">|</span> ${user.dept || 'General'}
+                                        </p>
+                                        <div style="margin-top: 10px; display: flex; gap: 8px;">
+                                            <span class="badge ${user.status === 'in' ? 'in' : 'out'}" style="background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.2); font-size: 0.7rem;">
+                                                ${user.status === 'in' ? '● Online' : '○ Offline'}
+                                            </span>
+                                        </div>
+                                    </div>
                             </div>
-                            
+
                             <!-- Information Grid -->
                             <div style="padding: 1.5rem; display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
                                 <!-- Left: Stats -->
@@ -1387,7 +1395,7 @@
                                             <div class="value">${monthlyStats.totalExtraDuration.split(' ')[0]} <span style="font-size: 0.7rem; color: #6b7280;">Extra</span></div>
                                         </div>
                                     </div>
-                                    
+
                                     <div style="margin-top: 1rem; padding: 1rem; background: #f0fdf4; border-radius: var(--radius-md); border: 1px solid #dcfce7; display: flex; align-items: center; gap: 1rem;">
                                         <div style="width: 40px; height: 40px; border-radius: 50%; background: var(--success); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
                                             <i class="fa-solid fa-trophy"></i>
@@ -1398,7 +1406,7 @@
                                         </div>
                                     </div>
                                 </div>
-                                
+
                                 <!-- Right: Details & Actions -->
                                 <div>
                                     <h3 style="font-size: 0.9rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 1rem;">Work Details</h3>
@@ -1420,7 +1428,7 @@
                                             <span style="font-weight: 600;">${user.joinDate || '--'}</span>
                                         </div>
                                     </div>
-                                    
+
                                     <div style="margin-top: 2rem; display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
                                         <button class="action-btn" onclick="window.AppTour.resetTour('${user.id}')" style="background: white; color: var(--primary); border: 1px solid #c7d2fe; box-shadow: none; padding: 0.5rem; font-size: 0.8rem; width: 100%;">
                                             <i class="fa-solid fa-circle-question"></i> Replay Tour
@@ -1431,13 +1439,13 @@
                                     </div>
                                 </div>
                             </div>
-                            
+
                             <!-- Mobile View Adjustment -->
                             <style>
                                 @media (max-width: 768px) {
-                                    .profile-header-compact { flex-direction: column; text-align: center; gap: 1rem; }
-                                    .dashboard-grid > .full-width > div:nth-child(2) { grid-template-columns: 1fr !important; gap: 2rem; }
-                                    .dashboard-grid > .full-width > div:nth-child(2) > div:first-child { border-right: none !important; padding-right: 0 !important; border-bottom: 1px solid #f3f4f6; padding-bottom: 2rem; }
+                                    .profile - header - compact {flex - direction: column; text-align: center; gap: 1rem; }
+                                    .dashboard-grid > .full-width > div:nth-child(2) {grid - template - columns: 1fr !important; gap: 2rem; }
+                                    .dashboard-grid > .full-width > div:nth-child(2) > div:first-child {border - right: none !important; padding-right: 0 !important; border-bottom: 1px solid #f3f4f6; padding-bottom: 2rem; }
                                 }
                             </style>
                         </div>
@@ -1486,10 +1494,10 @@
                             </div>
                         </div>
                     </div>
-                `;
+            `;
             } catch (e) {
                 console.error("Profile Render Error", e);
-                return `<div style="padding: 2rem; color: red;">Error loading profile: ${e.message}</div>`;
+                return `<div style = "padding: 2rem; color: red;" > Error loading profile: ${e.message}</div > `;
             }
         },
 
@@ -1501,8 +1509,8 @@
             const currentYear = year !== null ? parseInt(year) : now.getFullYear();
 
             // Filtered Query for Logs (Optimization)
-            const startDateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
-            const endDateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-31`;
+            const startDateStr = `${currentYear} -${String(currentMonth + 1).padStart(2, '0')}-01`;
+            const endDateStr = `${currentYear} -${String(currentMonth + 1).padStart(2, '0')} -31`;
             const logs = await window.AppDB.query('attendance', 'date', '>=', startDateStr);
             // Further filter in memory for end date (or add another query param if we had a complex query method)
             const filteredLogs = logs.filter(l => l.date <= endDateStr);
@@ -1514,38 +1522,38 @@
             const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
             return `
-            <div class="dashboard-grid">
-                <div class="card full-width">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-                        <div>
-                            <h2 style="font-size:1.25rem; margin-bottom:0.15rem;">Attendance Sheet</h2>
-                            <p style="color:var(--text-muted); font-size:0.85rem;">Master grid view for all staff logs.</p>
+                <div class="dashboard-grid" >
+                    <div class="card full-width">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                            <div>
+                                <h2 style="font-size:1.25rem; margin-bottom:0.15rem;">Attendance Sheet</h2>
+                                <p style="color:var(--text-muted); font-size:0.85rem;">Master grid view for all staff logs.</p>
+                            </div>
+                            <div style="display:flex; gap:0.75rem; align-items:center;">
+                                <select onchange="window.app_refreshMasterSheet()" id="sheet-month" style="padding:0.5rem; border-radius:8px; border:1px solid #ddd;">
+                                    ${monthNames.map((m, i) => `<option value="${i}" ${i === currentMonth ? 'selected' : ''}>${m}</option>`).join('')}
+                                </select>
+                                <select onchange="window.app_refreshMasterSheet()" id="sheet-year" style="padding:0.5rem; border-radius:8px; border:1px solid #ddd;">
+                                    <option value="${currentYear}" selected>${currentYear}</option>
+                                    <option value="${currentYear - 1}">${currentYear - 1}</option>
+                                </select>
+                                <button onclick="window.app_exportMasterSheet()" class="action-btn secondary" style="padding:0.5rem 1rem; font-size:0.9rem;">
+                                    <i class="fa-solid fa-file-excel"></i> Export Excel
+                                </button>
+                            </div>
                         </div>
-                        <div style="display:flex; gap:0.75rem; align-items:center;">
-                            <select onchange="window.app_refreshMasterSheet()" id="sheet-month" style="padding:0.5rem; border-radius:8px; border:1px solid #ddd;">
-                                ${monthNames.map((m, i) => `<option value="${i}" ${i === currentMonth ? 'selected' : ''}>${m}</option>`).join('')}
-                            </select>
-                            <select onchange="window.app_refreshMasterSheet()" id="sheet-year" style="padding:0.5rem; border-radius:8px; border:1px solid #ddd;">
-                                <option value="${currentYear}" selected>${currentYear}</option>
-                                <option value="${currentYear - 1}">${currentYear - 1}</option>
-                            </select>
-                            <button onclick="window.app_exportMasterSheet()" class="action-btn secondary" style="padding:0.5rem 1rem; font-size:0.9rem;">
-                                <i class="fa-solid fa-file-excel"></i> Export Excel
-                            </button>
-                        </div>
-                    </div>
 
-                    <div class="table-container" style="max-height: 70vh; overflow: auto; border: 1px solid #eee; border-radius: 8px;">
-                        <table style="font-size:0.85rem; border-collapse: separate; border-spacing: 0;">
-                            <thead>
-                                <tr style="position: sticky; top: 0; z-index: 10; background: #f8fafc;">
-                                    <th style="border-right: 1px solid #eee; padding:6px; position: sticky; left: 0; background: #f8fafc; z-index: 20; font-size:0.75rem;">S.No</th>
-                                    <th style="border-right: 2px solid #ddd; padding:6px; position: sticky; left: 35px; background: #f8fafc; z-index: 20; min-width: 120px; font-size:0.75rem;">Staff Name</th>
-                                    ${daysArray.map(d => `<th style="text-align:center; min-width: 28px; padding:4px; border-right: 1px solid #eee; font-size:0.75rem;">${d}</th>`).join('')}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${users.sort((a, b) => a.name.localeCompare(b.name)).map((u, index) => {
+                        <div class="table-container" style="max-height: 70vh; overflow: auto; border: 1px solid #eee; border-radius: 8px;">
+                            <table style="font-size:0.85rem; border-collapse: separate; border-spacing: 0;">
+                                <thead>
+                                    <tr style="position: sticky; top: 0; z-index: 10; background: #f8fafc;">
+                                        <th style="border-right: 1px solid #eee; padding:6px; position: sticky; left: 0; background: #f8fafc; z-index: 20; font-size:0.75rem;">S.No</th>
+                                        <th style="border-right: 2px solid #ddd; padding:6px; position: sticky; left: 35px; background: #f8fafc; z-index: 20; min-width: 120px; font-size:0.75rem;">Staff Name</th>
+                                        ${daysArray.map(d => `<th style="text-align:center; min-width: 28px; padding:4px; border-right: 1px solid #eee; font-size:0.75rem;">${d}</th>`).join('')}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${users.sort((a, b) => a.name.localeCompare(b.name)).map((u, index) => {
                 return `
                                         <tr>
                                             <td style="text-align:center; border-right: 1px solid #eee; position: sticky; left: 0; background: #fff; z-index: 5; padding:4px; font-size:0.75rem;">${index + 1}</td>
@@ -1592,21 +1600,21 @@
                                         </tr>
                                     `;
             }).join('')}
-                            </tbody>
-                        </table>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div style="margin-top: 1rem; display: flex; gap: 1.5rem; font-size: 0.8rem; color: #666;">
+                            <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#10b981; font-weight:bold;">P</span> Present</div>
+                            <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#f59e0b; font-weight:bold;">L</span> Late</div>
+                            <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#ef4444; font-weight:bold;">A</span> Absent</div>
+                            <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#8b5cf6; font-weight:bold;">C</span> Leave</div>
+                            <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#0ea5e9; font-weight:bold;">W</span> WFH</div>
+                            <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#0ea5e9; font-weight:bold;">W</span> WFH</div>
+                            <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#be185d; font-weight:bold; background:#fdf2f8; padding:0 3px;">P/A</span> Manual Override</div>
+                        </div>
                     </div>
-                    <div style="margin-top: 1rem; display: flex; gap: 1.5rem; font-size: 0.8rem; color: #666;">
-                        <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#10b981; font-weight:bold;">P</span> Present</div>
-                        <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#f59e0b; font-weight:bold;">L</span> Late</div>
-                        <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#ef4444; font-weight:bold;">A</span> Absent</div>
-                        <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#8b5cf6; font-weight:bold;">C</span> Leave</div>
-                        <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#0ea5e9; font-weight:bold;">W</span> WFH</div>
-                        <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#0ea5e9; font-weight:bold;">W</span> WFH</div>
-                        <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#be185d; font-weight:bold; background:#fdf2f8; padding:0 3px;">P/A</span> Manual Override</div>
-                    </div>
-                </div>
-            </div>
-        `;
+            </div >
+                `;
         },
 
         async renderAdmin() {
@@ -1629,8 +1637,8 @@
             const perfBg = performance.avgScore > 70 ? '#f0fdf4' : (performance.avgScore > 40 ? '#fefce8' : '#fef2f2');
 
             return `
-                <div class="dashboard-grid">
-                    <!-- Stats Overview -->
+                <div class="dashboard-grid" >
+                    <!--Stats Overview-->
                      <div class="card" style="background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); color: white; border: none; padding: 1.25rem;">
                         <span style="font-size: 0.75rem; opacity: 0.8; font-weight: 500;">Total Registered Staff</span>
                         <h2 style="font-size: 2rem; margin: 0.25rem 0;">${allUsers.length}</h2>
@@ -1801,15 +1809,15 @@
                         </div>
                     </div>
 
-                    <!-- Chart Section -->
-                    <div class="card full-width">
-                        <h3>Attendance Trends</h3>
-                        <div style="height: 300px; width: 100%; margin-top: 1rem;">
-                            <canvas id="admin-stats-chart"></canvas>
-                        </div>
+                    <!--Chart Section-->
+                <div class="card full-width">
+                    <h3>Attendance Trends</h3>
+                    <div style="height: 300px; width: 100%; margin-top: 1rem;">
+                        <canvas id="admin-stats-chart"></canvas>
                     </div>
                 </div>
-            `;
+                </div >
+                `;
         },
 
         async renderSalaryProcessing() {
@@ -1818,7 +1826,7 @@
             const monthLabel = today.toLocaleDateString('default', { month: 'long', year: 'numeric' });
 
             return `
-                <div class="card full-width">
+                <div class="card full-width" >
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
                         <div>
                             <h3 style="font-size: 1.15rem;">Salary Processing</h3>
@@ -1903,8 +1911,8 @@
                             </tbody>
                         </table>
                     </div>
-                </div>
-            `;
+                </div >
+                `;
         }
     };
 })();
