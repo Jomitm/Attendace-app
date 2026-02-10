@@ -632,18 +632,24 @@
         async getAllStaffActivities(daysBack = 7) {
             try {
                 // Calculate date range
+                const todayStr = new Date().toISOString().split('T')[0];
                 const endDate = new Date();
                 endDate.setHours(23, 59, 59, 999);
                 const startDate = new Date();
                 startDate.setDate(startDate.getDate() - daysBack);
                 startDate.setHours(0, 0, 0, 0);
 
-                // Fetch all attendance logs
                 const db = window.AppFirestore;
-                const snapshot = await db.collection('attendance').get();
-                const allLogs = snapshot.docs.map(doc => doc.data());
 
-                // Fetch all users to get names
+                // 1. Fetch all attendance logs
+                const attendanceSnapshot = await db.collection('attendance').get();
+                const attendanceLogs = attendanceSnapshot.docs.map(doc => doc.data());
+
+                // 2. Fetch all work plans
+                const plansSnapshot = await db.collection('work_plans').get();
+                const workPlans = plansSnapshot.docs.map(doc => doc.data());
+
+                // 3. Fetch all users to get names
                 const usersSnapshot = await db.collection('users').get();
                 const usersMap = {};
                 usersSnapshot.docs.forEach(doc => {
@@ -651,25 +657,48 @@
                     usersMap[userData.id] = userData.name;
                 });
 
-                // Filter logs by date range and add staff names
-                const filteredLogs = allLogs
-                    .filter(log => {
-                        const logDate = new Date(log.date);
-                        return logDate >= startDate && logDate <= endDate && log.workDescription;
-                    })
-                    .map(log => ({
-                        ...log,
-                        staffName: usersMap[log.user_id] || 'Unknown Staff',
-                        _displayDesc: log.workDescription || 'No description'
-                    }))
-                    .sort((a, b) => {
-                        // Sort by date descending, then by checkout time descending
-                        const dateCompare = new Date(b.date) - new Date(a.date);
-                        if (dateCompare !== 0) return dateCompare;
-                        return (b.checkOut || '').localeCompare(a.checkOut || '');
-                    });
+                const mergedActivities = [];
 
-                return filteredLogs;
+                // Process Attendance Logs
+                attendanceLogs.forEach(log => {
+                    const logDate = new Date(log.date);
+                    if (logDate >= startDate && logDate <= endDate && log.workDescription) {
+                        mergedActivities.push({
+                            ...log,
+                            type: 'attendance',
+                            staffName: usersMap[log.user_id || log.userId] || 'Unknown Staff',
+                            _displayDesc: log.workDescription,
+                            _sortTime: log.checkOut || '00:00'
+                        });
+                    }
+                });
+
+                // Process Work Plans
+                workPlans.forEach(wp => {
+                    const wpDate = new Date(wp.date);
+                    if (wpDate >= startDate && wpDate <= endDate && wp.plans) {
+                        wp.plans.forEach(plan => {
+                            mergedActivities.push({
+                                ...plan,
+                                date: wp.date,
+                                id: wp.id, // work_plan document id
+                                type: 'work',
+                                staffName: usersMap[wp.userId] || 'Unknown Staff',
+                                _displayDesc: plan.task,
+                                _sortTime: '09:00' // Default sort time for plans
+                            });
+                        });
+                    }
+                });
+
+                // Sort by date descending, then by sort time descending
+                mergedActivities.sort((a, b) => {
+                    const dateCompare = new Date(b.date) - new Date(a.date);
+                    if (dateCompare !== 0) return dateCompare;
+                    return b._sortTime.localeCompare(a._sortTime);
+                });
+
+                return mergedActivities;
             } catch (err) {
                 console.error("Error fetching all staff activities:", err);
                 return [];

@@ -79,16 +79,21 @@
         <!-- Desktop Sidebar -->
         <aside class="sidebar">
             <div class="sidebar-header">
-                <div class="logo-circle">
-                    <img src="https://ui-avatars.com/api/?name=CRWI&background=random" alt="Logo">
-                </div>
                 <h2>CRWI Attendance</h2>
+                <button class="desktop-toggle-btn" id="desktop-sidebar-toggle" onclick="window.app_toggleSidebar()"
+                    title="Toggle Sidebar">
+                    <i class="fa-solid fa-angles-left"></i>
+                </button>
             </div>
 
             <nav class="sidebar-nav">
                 <a href="#dashboard" class="nav-item active" data-page="dashboard">
                     <i class="fa-solid fa-house"></i>
                     <span>Dashboard</span>
+                </a>
+                <a href="#annual-plan" class="nav-item" data-page="annual-plan">
+                    <i class="fa-solid fa-calendar-check"></i>
+                    <span>Annual Plan</span>
                 </a>
                 <a href="#timesheet" class="nav-item" data-page="timesheet">
                     <i class="fa-solid fa-calendar-days"></i>
@@ -166,6 +171,10 @@
                 <i class="fa-solid fa-house"></i>
                 <span>Home</span>
             </a>
+            <a href="#annual-plan" class="mobile-nav-item" data-page="annual-plan">
+                <i class="fa-solid fa-calendar-days"></i>
+                <span>Annual</span>
+            </a>
             <a href="#timesheet" class="mobile-nav-item" data-page="timesheet">
                 <i class="fa-solid fa-calendar-check"></i>
                 <span>Timesheet</span>
@@ -241,6 +250,7 @@
     <script src="js/modules/calendar.js"></script>
     <script src="js/modules/analytics.js"></script>
     <script src="js/modules/activity.js"></script>
+    <script src="js/modules/rating.js"></script>
     <script src="js/modules/simulation.js"></script>
     <script src="js/modules/tour.js"></script>
     <script src="js/ui.js"></script>

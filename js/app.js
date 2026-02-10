@@ -56,6 +56,28 @@
         }
     }
 
+    window.app_toggleSidebar = (forceCollapse = null) => {
+        const sidebar = document.querySelector('.sidebar');
+        const icon = document.querySelector('#desktop-sidebar-toggle i');
+        if (!sidebar) return;
+
+        const isCollapsing = forceCollapse !== null ? forceCollapse : !sidebar.classList.contains('collapsed');
+
+        if (isCollapsing) {
+            sidebar.classList.add('collapsed');
+            if (icon) {
+                icon.classList.remove('fa-angles-left');
+                icon.classList.add('fa-angles-right');
+            }
+        } else {
+            sidebar.classList.remove('collapsed');
+            if (icon) {
+                icon.classList.remove('fa-angles-right');
+                icon.classList.add('fa-angles-left');
+            }
+        }
+    };
+
     // Modal Helper to avoid overwriting modal-container
     window.app_showModal = (html, id) => {
         const container = document.getElementById('modal-container');
@@ -229,6 +251,10 @@
             if (hash === 'dashboard') {
                 contentArea.innerHTML = await window.AppUI.renderDashboard();
                 setupDashboardEvents();
+            } else if (hash === 'annual-plan') {
+                // Auto-hide sidebar for better view
+                window.app_toggleSidebar(true);
+                contentArea.innerHTML = await window.AppUI.renderAnnualPlan();
             } else if (hash === 'timesheet') {
                 contentArea.innerHTML = await window.AppUI.renderTimesheet();
             } else if (hash === 'profile') {
@@ -483,27 +509,33 @@
     }
 
     // --- Work Plan Logic ---
-    window.app_openDayPlan = async (date) => {
+    window.app_openDayPlan = async (date, targetUserId = null) => {
         const currentUser = window.AppAuth.getUser();
+        const isAdmin = currentUser.role === 'Administrator' || currentUser.isAdmin;
+        const targetId = targetUserId || currentUser.id;
+
         const d = new Date(date).getDate();
         const evs = window._getDayEvents ? window._getDayEvents(d) : [];
         const plans = window._currentPlans;
-        const myWorkPlan = plans && plans.workPlans ? plans.workPlans.find(p => p.date === date && p.userId === currentUser.id) : null;
+
+        // Find work plan for the target user
+        const myWorkPlan = plans && plans.workPlans ? plans.workPlans.find(p => p.date === date && p.userId === targetId) : null;
 
         const teamActivity = evs.filter(e => e.type === 'leave' || e.type === 'event');
-        const otherStaffPlans = evs.filter(e => e.type === 'work' && e.userId !== currentUser.id);
+        const otherStaffPlans = evs.filter(e => e.type === 'work' && e.userId !== targetId);
         const allUsers = await window.AppDB.getAll('users');
+        const targetStaff = allUsers.find(u => u.id === targetId);
 
         const html = `
             <div class="modal-overlay" id="day-plan-modal" style="display:flex; align-items:flex-start; padding-top:2rem;">
                 <div class="modal-content" style="max-width: 800px; width: 95%; padding: 1.25rem; border-radius: 16px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
                         <div>
-                            <h3 style="font-size: 1.1rem; margin:0;">Daily Work Plan</h3>
-                            <span style="font-size:0.75rem; color:#64748b;">${date} • Set your goals & tag collaborators</span>
+                            <h3 style="font-size: 1.1rem; margin:0;">Daily Work Plan ${targetId !== currentUser.id ? `- For ${targetStaff?.name || 'Staff'}` : ''}</h3>
+                            <span style="font-size:0.75rem; color:#64748b;">${date} • Set goals & tag collaborators</span>
                         </div>
                         <div style="display:flex; gap:0.5rem; align-items:center;">
-                            ${myWorkPlan ? `<button onclick="window.app_deleteDayPlan('${date}')" title="Delete Plan" style="background:#fff1f2; border:1px solid #fecaca; color:#ef4444; width:32px; height:32px; border-radius:8px; cursor:pointer; display:flex; align-items:center; justify-content:center;"><i class="fa-solid fa-trash-can" style="font-size:0.85rem;"></i></button>` : ''}
+                            ${myWorkPlan ? `<button onclick="window.app_deleteDayPlan('${date}', '${targetId}')" title="Delete Plan" style="background:#fff1f2; border:1px solid #fecaca; color:#ef4444; width:32px; height:32px; border-radius:8px; cursor:pointer; display:flex; align-items:center; justify-content:center;"><i class="fa-solid fa-trash-can" style="font-size:0.85rem;"></i></button>` : ''}
                             <button onclick="this.closest('.modal-overlay').remove()" style="background:#f1f5f9; border:none; width:32px; height:32px; border-radius:8px; font-size:1.2rem; cursor:pointer; display:flex; align-items:center; justify-content:center;">&times;</button>
                         </div>
                     </div>
@@ -532,7 +564,7 @@
                          </div>
                     </div>
                     
-                    <form onsubmit="window.app_saveDayPlan(event, '${date}')">
+                    <form onsubmit="window.app_saveDayPlan(event, '${date}', '${targetId}')">
                         <div id="plans-container" style="max-height: 50vh; overflow-y: auto; padding-right: 5px;">
                             ${(myWorkPlan && myWorkPlan.plans && myWorkPlan.plans.length > 0)
                 ? myWorkPlan.plans.map((p, idx) => renderPlanBlock(p, idx, allUsers)).join('')
@@ -568,7 +600,7 @@
         if (container) {
             container.addEventListener('input', (e) => {
                 if (e.target.classList.contains('plan-task')) {
-                    window.app_checkMentions(e.target, allUsers.filter(u => u.id !== currentUser.id));
+                    window.app_checkMentions(e.target, allUsers.filter(u => u.id !== targetId));
                 }
             });
             // Close dropdown on focus out or click away
@@ -581,41 +613,71 @@
         }
 
         function renderPlanBlock(plan, index, users) {
-            return `
-                <div class="plan-block" data-index="${index}" style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:0; margin-bottom:1.25rem; position:relative; overflow:hidden; display:flex; min-height:160px;">
-                    ${index > 0 ? `<button type="button" onclick="this.closest('.plan-block').remove()" style="position:absolute; top:8px; right:8px; background:#fff1f2; border:none; color:#ef4444; width:24px; height:24px; border-radius:6px; cursor:pointer; display:flex; align-items:center; justify-content:center; z-index:5;"><i class="fa-solid fa-times" style="font-size:0.7rem;"></i></button>` : ''}
-                    
-                    <!-- Left: Self Plan (65%) -->
-                    <div style="flex: 1.8; padding: 1rem; border-right: 1px solid #f1f5f9;">
-                         <label style="display:block; font-size:0.65rem; font-weight:800; color:#94a3b8; margin-bottom:0.5rem; text-transform:uppercase; letter-spacing:0.5px;">1. My Tasks & Steps</label>
-                         <textarea class="plan-task" required placeholder="Type task... use @ to tag staff" style="width:100%; height:70px; padding:0.75rem; border:1px solid #e2e8f0; border-radius:10px; font-family:inherit; resize:none; margin-bottom:0.75rem; font-size:0.9rem; line-height:1.4; background:#fcfdfe;">${plan.task || ''}</textarea>
-                         
-                         <div class="sub-plans-list" style="display:flex; flex-direction:column; gap:0.4rem;">
-                            ${plan.subPlans ? plan.subPlans.map(sub => `
-                                <div class="sub-plan-row" style="display:flex; gap:0.4rem; align-items:center;">
-                                    <div style="width:6px; height:6px; background:#cbd5e1; border-radius:50%;"></div>
-                                    <input type="text" value="${sub}" class="sub-plan-input" placeholder="Sub-task..." style="flex:1; padding:0.4rem; border:1px solid transparent; border-bottom:1px solid #f1f5f9; font-size:0.8rem; background:transparent; outline:none;">
-                                    <button type="button" onclick="this.parentElement.remove()" style="background:none; border:none; color:#cbd5e1; cursor:pointer;"><i class="fa-solid fa-circle-xmark"></i></button>
-                                </div>
-                            `).join('') : ''}
-                         </div>
-                         <button type="button" onclick="window.app_addSubPlanRow(this)" style="background:none; border:none; padding:4px 0; font-size:0.75rem; color:var(--primary); cursor:pointer; margin-top:0.4rem; display:flex; align-items:center; gap:4px; font-weight:600;">
-                            <i class="fa-solid fa-plus"></i> Add Sub-task
-                         </button>
-                    </div>
+            const calculatedStatus = window.AppCalendar.getSmartTaskStatus(date, plan.status);
+            const isAdmin = currentUser.role === 'Administrator' || currentUser.isAdmin;
 
-                    <!-- Right: Tagged Staff (35%) -->
-                    <div style="flex: 1; padding: 1rem; background: #f8fafc; display:flex; flex-direction:column;">
-                        <label style="display:block; font-size:0.65rem; font-weight:800; color:#94a3b8; margin-bottom:0.75rem; text-transform:uppercase; letter-spacing:0.5px;">2. Collaborators</label>
-                        <div class="tags-container" style="display:flex; flex-direction:column; gap:0.5rem; flex:1;">
-                            ${plan.tags ? plan.tags.map(t => `
-                                <div class="tag-chip" data-id="${t.id}" data-name="${t.name}" data-status="${t.status || 'pending'}" style="background:white; color:#334155; padding:6px 10px; border-radius:10px; font-size:0.75rem; display:flex; align-items:center; justify-content:space-between; font-weight:600; border:1px solid #e2e8f0; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
-                                    <span><i class="fa-solid fa-at" style="color:#6366f1; font-size:0.65rem; margin-right:4px;"></i>${t.name} <span style="font-size:0.6rem; color:${t.status === 'accepted' ? '#10b981' : (t.status === 'rejected' ? '#ef4444' : '#f59e0b')};">(${t.status ? t.status.charAt(0).toUpperCase() + t.status.slice(1) : 'Pending'})</span></span>
-                                    <i class="fa-solid fa-times" onclick="this.parentElement.remove()" style="cursor:pointer; font-size:0.7rem; color:#94a3b8;"></i>
-                                </div>
-                            `).join('') : ''}
-                            ${(!plan.tags || plan.tags.length === 0) ? '<div class="no-tags-placeholder" style="font-size:0.7rem; color:#cbd5e1; text-align:center; padding-top:1rem; border:1px dashed #e2e8f0; border-radius:10px; flex:1;">Use @ in task text to tag</div>' : ''}
+            return `
+                <div class="plan-block" data-index="${index}" style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:0; margin-bottom:1.25rem; position:relative; overflow:hidden; display:flex; min-height:160px; flex-direction: column;">
+                    <div style="display: flex; flex: 1; min-height: 160px;">
+                        ${index > 0 ? `<button type="button" onclick="this.closest('.plan-block').remove()" style="position:absolute; top:8px; right:8px; background:#fff1f2; border:none; color:#ef4444; width:24px; height:24px; border-radius:6px; cursor:pointer; display:flex; align-items:center; justify-content:center; z-index:5;"><i class="fa-solid fa-times" style="font-size:0.7rem;"></i></button>` : ''}
+                        
+                        <!-- Left: Self Plan (65%) -->
+                        <div style="flex: 1.8; padding: 1rem; border-right: 1px solid #f1f5f9;">
+                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                <label style="font-size:0.65rem; font-weight:800; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px;">1. Tasks & Steps</label>
+                                ${window.AppUI.renderTaskStatusBadge ? window.AppUI.renderTaskStatusBadge(calculatedStatus) : ''}
+                             </div>
+                             <textarea class="plan-task" required placeholder="Type task... use @ to tag staff" style="width:100%; height:70px; padding:0.75rem; border:1px solid #e2e8f0; border-radius:10px; font-family:inherit; resize:none; margin-bottom:0.75rem; font-size:0.9rem; line-height:1.4; background:#fcfdfe;">${plan.task || ''}</textarea>
+                             
+                             <div class="sub-plans-list" style="display:flex; flex-direction:column; gap:0.4rem;">
+                                ${plan.subPlans ? plan.subPlans.map(sub => `
+                                    <div class="sub-plan-row" style="display:flex; gap:0.4rem; align-items:center;">
+                                        <div style="width:6px; height:6px; background:#cbd5e1; border-radius:50%;"></div>
+                                        <input type="text" value="${sub}" class="sub-plan-input" placeholder="Sub-task..." style="flex:1; padding:0.4rem; border:1px solid transparent; border-bottom:1px solid #f1f5f9; font-size:0.8rem; background:transparent; outline:none;">
+                                        <button type="button" onclick="this.parentElement.remove()" style="background:none; border:none; color:#cbd5e1; cursor:pointer;"><i class="fa-solid fa-circle-xmark"></i></button>
+                                    </div>
+                                `).join('') : ''}
+                             </div>
+                             <button type="button" onclick="window.app_addSubPlanRow(this)" style="background:none; border:none; padding:4px 0; font-size:0.75rem; color:var(--primary); cursor:pointer; margin-top:0.4rem; display:flex; align-items:center; gap:4px; font-weight:600;">
+                                <i class="fa-solid fa-plus"></i> Add Sub-task
+                             </button>
                         </div>
+    
+                        <!-- Right: Tagged Staff (35%) -->
+                        <div style="flex: 1; padding: 1rem; background: #f8fafc; display:flex; flex-direction:column;">
+                            <label style="display:block; font-size:0.65rem; font-weight:800; color:#94a3b8; margin-bottom:0.75rem; text-transform:uppercase; letter-spacing:0.5px;">2. Collaborators</label>
+                            <div class="tags-container" style="display:flex; flex-direction:column; gap:0.5rem; flex:1;">
+                                ${plan.tags ? plan.tags.map(t => `
+                                    <div class="tag-chip" data-id="${t.id}" data-name="${t.name}" data-status="${t.status || 'pending'}" style="background:white; color:#334155; padding:6px 10px; border-radius:10px; font-size:0.75rem; display:flex; align-items:center; justify-content:space-between; font-weight:600; border:1px solid #e2e8f0; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
+                                        <span><i class="fa-solid fa-at" style="color:#6366f1; font-size:0.65rem; margin-right:4px;"></i>${t.name} <span style="font-size:0.6rem; color:${t.status === 'accepted' ? '#10b981' : (t.status === 'rejected' ? '#ef4444' : '#f59e0b')};">(${t.status ? t.status.charAt(0).toUpperCase() + t.status.slice(1) : 'Pending'})</span></span>
+                                        <i class="fa-solid fa-times" onclick="this.parentElement.remove()" style="cursor:pointer; font-size:0.7rem; color:#94a3b8;"></i>
+                                    </div>
+                                `).join('') : ''}
+                                ${(!plan.tags || plan.tags.length === 0) ? '<div class="no-tags-placeholder" style="font-size:0.7rem; color:#cbd5e1; text-align:center; padding-top:1rem; border:1px dashed #e2e8f0; border-radius:10px; flex:1;">Use @ in task text to tag</div>' : ''}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Bottom Controls: Status and Admin Reassign -->
+                    <div style="background: #f1f5f9; padding: 0.5rem 1rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <label style="font-size: 0.7rem; font-weight: 700; color: #64748b;">STATUS:</label>
+                            <select class="plan-status" style="padding: 4px 8px; border-radius: 6px; border: 1px solid #d1d5db; font-size: 0.75rem; background: white; color: #374151;">
+                                <option value="" ${!plan.status ? 'selected' : ''}>Auto (Smart Status)</option>
+                                <option value="completed" ${plan.status === 'completed' ? 'selected' : ''}>✅ Completed</option>
+                                <option value="not-completed" ${plan.status === 'not-completed' ? 'selected' : ''}>❌ Not Completed</option>
+                                <option value="in-process" ${plan.status === 'in-process' ? 'selected' : ''}>🟡 In Process</option>
+                            </select>
+                        </div>
+                        
+                        ${isAdmin ? `
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <label style="font-size: 0.7rem; font-weight: 700; color: #64748b;">ASSIGN TO:</label>
+                                <select class="plan-assignee" style="padding: 4px 8px; border-radius: 6px; border: 1px solid #d1d5db; font-size: 0.75rem; background: white; color: #374151;">
+                                    ${users.map(u => `<option value="${u.id}" ${u.id === (plan.assignedTo || currentUser.id) ? 'selected' : ''}>${u.name}</option>`).join('')}
+                                </select>
+                            </div>
+                        ` : ''}
                     </div>
                 </div>
             `;
@@ -764,10 +826,13 @@
         console.warn("app_addSubPlanUI is obsolete.");
     };
 
-    window.app_deleteDayPlan = async (date) => {
-        if (!confirm("Are you sure you want to delete your work plan for this day?")) return;
+    window.app_deleteDayPlan = async (date, targetUserId = null) => {
+        if (!confirm("Are you sure you want to delete this work plan?")) return;
+        const currentUser = window.AppAuth.getUser();
+        const targetId = targetUserId || currentUser.id;
+
         try {
-            await window.AppCalendar.deleteWorkPlan(date);
+            await window.AppCalendar.deleteWorkPlan(date, targetId);
             alert("Plan deleted!");
             document.getElementById('day-plan-modal')?.remove();
             // Refresh
@@ -779,8 +844,11 @@
         }
     };
 
-    window.app_saveDayPlan = async (e, date) => {
+    window.app_saveDayPlan = async (e, date, targetUserId = null) => {
         e.preventDefault();
+        const currentUser = window.AppAuth.getUser();
+        const targetId = targetUserId || currentUser.id;
+
         const planBlocks = document.querySelectorAll('.plan-block');
         const plans = [];
 
@@ -794,9 +862,19 @@
                 name: chip.dataset.name,
                 status: chip.dataset.status || 'pending'
             }));
+            const status = block.querySelector('.plan-status').value;
+            const assigneeSelect = block.querySelector('.plan-assignee');
+            const assignedTo = assigneeSelect ? assigneeSelect.value : targetId;
 
             if (task) {
-                plans.push({ task, subPlans, tags });
+                plans.push({
+                    task,
+                    subPlans,
+                    tags,
+                    status: status || null,
+                    assignedTo: assignedTo || null,
+                    completedDate: status === 'completed' ? new Date().toISOString().split('T')[0] : null
+                });
             }
         });
 
@@ -806,9 +884,30 @@
         }
 
         try {
-            await window.AppCalendar.setWorkPlan(date, plans);
+            await window.AppCalendar.setWorkPlan(date, plans, targetId);
 
-            // Send Notifications to newly tagged users
+            const allUsers = await window.AppDB.getAll('users');
+
+            // 1. Notify the owner if edited by an admin
+            if (targetId !== currentUser.id && (currentUser.role === 'Administrator' || currentUser.isAdmin)) {
+                const owner = allUsers.find(u => u.id === targetId);
+                if (owner) {
+                    if (!owner.notifications) owner.notifications = [];
+                    // Avoid duplicate notifications for same day/admin
+                    const lastNotif = owner.notifications[owner.notifications.length - 1];
+                    if (!lastNotif || lastNotif.message !== `Admin ${currentUser.name} has edited your Work Plan for ${date}`) {
+                        owner.notifications.push({
+                            type: 'admin_edit',
+                            message: `Admin ${currentUser.name} has edited your Work Plan for ${date}`,
+                            date: new Date().toLocaleString(),
+                            read: false
+                        });
+                        await window.AppDB.put('users', owner);
+                    }
+                }
+            }
+
+            // 2. Send Notifications to newly tagged users
             const distinctTaggedUsers = new Set();
             plans.forEach(p => {
                 if (p.tags) {
@@ -817,20 +916,16 @@
             });
 
             if (distinctTaggedUsers.size > 0) {
-                const currentUser = window.AppAuth.getUser();
-                const allUsers = await window.AppDB.getAll('users');
-                const planId = `plan_${currentUser.id}_${date}`;
+                const planId = `plan_${targetId}_${date}`;
 
                 for (const uid of distinctTaggedUsers) {
                     const targetUser = allUsers.find(u => u.id === uid);
-                    if (targetUser) {
+                    if (targetUser && uid !== currentUser.id) { // Don't notify self if tagged self (unlikely but safe)
                         if (!targetUser.notifications) targetUser.notifications = [];
 
                         // Find which tasks this user is tagged in to provide context
                         plans.forEach((p, idx) => {
                             if (p.tags && p.tags.some(t => t.id === uid)) {
-                                // Check if a notification for this specific plan/task already exists 
-                                // (To avoid spamming on every save)
                                 const alreadyNotified = targetUser.notifications.some(n =>
                                     n.type === 'mention' && n.planId === planId && n.taskIndex === idx
                                 );
@@ -851,7 +946,7 @@
                     }
                 }
             }
-            alert("Plans saved! They will now pre-fill your checkout summary for this day.");
+            alert("Plans saved successfully!");
             document.getElementById('day-plan-modal')?.remove();
             // Refresh
             const contentArea = document.getElementById('page-content');
@@ -2117,6 +2212,164 @@
         a.setAttribute('href', url);
         a.setAttribute('download', `Salaries_${month.replace(' ', '_')}.csv`);
         a.click();
+    };
+
+    // --- Admin Task Management Functions ---
+
+    /**
+     * Edit task status (admin or user)
+     */
+    window.app_editTaskStatus = async function (planId, taskIndex, newStatus) {
+        try {
+            const user = window.AppAuth.getUser();
+            const completedDate = newStatus === 'completed' ? new Date().toISOString().split('T')[0] : null;
+
+            await window.AppCalendar.updateTaskStatus(planId, taskIndex, newStatus, completedDate);
+
+            // Refresh dashboard
+            const contentArea = document.getElementById('page-content');
+            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            alert(`Task status updated to: ${newStatus}`);
+        } catch (err) {
+            console.error('Failed to update task status:', err);
+            alert('Failed to update task status. Please try again.');
+        }
+    };
+
+    /**
+     * Reassign task to another user (admin only)
+     */
+    window.app_reassignTask = async function (planId, taskIndex, newUserId) {
+        try {
+            const user = window.AppAuth.getUser();
+            if (user.role !== 'Administrator' && !user.isAdmin) {
+                alert('Only administrators can reassign tasks.');
+                return;
+            }
+
+            await window.AppCalendar.reassignTask(planId, taskIndex, newUserId);
+
+            // Refresh dashboard
+            const contentArea = document.getElementById('page-content');
+            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            alert('Task reassigned successfully!');
+        } catch (err) {
+            console.error('Failed to reassign task:', err);
+            alert('Failed to reassign task. Please try again.');
+        }
+    };
+
+    /**
+     * View task details modal
+     */
+    window.app_viewTaskDetails = async function (planId, taskIndex) {
+        try {
+            const plan = await window.AppDB.get('work_plans', planId);
+            if (!plan || !plan.plans || !plan.plans[taskIndex]) {
+                alert('Task not found.');
+                return;
+            }
+
+            const task = plan.plans[taskIndex];
+            const status = window.AppCalendar.getSmartTaskStatus(plan.date, task.status);
+
+            const statusColors = {
+                'to-be-started': '#3b82f6',
+                'in-process': '#eab308',
+                'completed': '#22c55e',
+                'overdue': '#ef4444',
+                'not-completed': '#6b7280'
+            };
+
+            const statusLabels = {
+                'to-be-started': '🔵 To Be Started',
+                'in-process': '🟡 In Process',
+                'completed': '🟢 Completed',
+                'overdue': '🔴 Overdue',
+                'not-completed': '⚫ Not Completed'
+            };
+
+            const modalHTML = `
+                <div class="modal-overlay" id="task-details-modal" style="display: flex;">
+                    <div class="modal-content" style="max-width: 500px;">
+                        <h2 style="margin-bottom: 1rem;">Task Details</h2>
+                        
+                        <div style="background: #f9fafb; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem;">
+                            <div style="margin-bottom: 0.75rem;">
+                                <label style="font-size: 0.75rem; color: #6b7280; text-transform: uppercase; font-weight: 600;">Task</label>
+                                <p style="margin: 0.25rem 0 0 0; font-weight: 500;">${task.task}</p>
+                            </div>
+                            
+                            <div style="margin-bottom: 0.75rem;">
+                                <label style="font-size: 0.75rem; color: #6b7280; text-transform: uppercase; font-weight: 600;">Planned Date</label>
+                                <p style="margin: 0.25rem 0 0 0;">${plan.date}</p>
+                            </div>
+                            
+                            <div style="margin-bottom: 0.75rem;">
+                                <label style="font-size: 0.75rem; color: #6b7280; text-transform: uppercase; font-weight: 600;">Status</label>
+                                <p style="margin: 0.25rem 0 0 0;">
+                                    <span style="background: ${statusColors[status]}; color: white; padding: 4px 12px; border-radius: 20px; font-size: 0.875rem; font-weight: 600;">
+                                        ${statusLabels[status]}
+                                    </span>
+                                </p>
+                            </div>
+                            
+                            ${task.completedDate ? `
+                                <div style="margin-bottom: 0.75rem;">
+                                    <label style="font-size: 0.75rem; color: #6b7280; text-transform: uppercase; font-weight: 600;">Completed Date</label>
+                                    <p style="margin: 0.25rem 0 0 0;">${task.completedDate}</p>
+                                </div>
+                            ` : ''}
+                            
+                            ${task.subPlans && task.subPlans.length > 0 ? `
+                                <div>
+                                    <label style="font-size: 0.75rem; color: #6b7280; text-transform: uppercase; font-weight: 600;">Sub-tasks</label>
+                                    <ul style="margin: 0.25rem 0 0 0; padding-left: 1.5rem;">
+                                        ${task.subPlans.map(sub => `<li>${sub}</li>`).join('')}
+                                    </ul>
+                                </div>
+                            ` : ''}
+                        </div>
+                        
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button onclick="document.getElementById('task-details-modal').remove()" class="action-btn" style="flex: 1;">Close</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('modal-container').innerHTML = modalHTML;
+        } catch (err) {
+            console.error('Failed to view task details:', err);
+            alert('Failed to load task details.');
+        }
+    };
+
+    /**
+     * Recalculate all user ratings (admin only)
+     */
+    window.app_recalculateRatings = async function () {
+        try {
+            const user = window.AppAuth.getUser();
+            if (user.role !== 'Administrator' && !user.isAdmin) {
+                alert('Only administrators can recalculate ratings.');
+                return;
+            }
+
+            if (!confirm('This will recalculate ratings for all users. Continue?')) {
+                return;
+            }
+
+            const updatedUsers = await window.AppRating.updateAllRatings();
+            alert(`Successfully updated ratings for ${updatedUsers.length} users!`);
+
+            // Refresh dashboard
+            const contentArea = document.getElementById('page-content');
+            contentArea.innerHTML = await window.AppUI.renderDashboard();
+        } catch (err) {
+            console.error('Failed to recalculate ratings:', err);
+            alert('Failed to recalculate ratings. Please try again.');
+        }
     };
 
     // Listeners for Modal Events 

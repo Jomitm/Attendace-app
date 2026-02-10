@@ -4,6 +4,372 @@
  * (Converted to IIFE for file:// support)
  */
 (function () {
+    // --- Helper Functions (Local to IIFE) ---
+    const renderWorkLog = (logs, collabs = []) => {
+        const today = new Date();
+        const startDefault = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+        const endDefault = today.toISOString().split('T')[0];
+
+        return `
+                <div class="card" style="padding: 0.6rem; display:flex; flex-direction:column; height:100%;">
+                    <div style="margin-bottom:0.5rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.3rem;">
+                         <h4 style="margin:0; color:#1f2937; font-size: 0.9rem;">Work Log</h4>
+                         <span style="font-size:0.65rem; color:#6b7280;">Ongoing & Historical Tasks</span>
+                    </div>
+                     <div style="display:flex; gap:0.4rem; margin-bottom:0.75rem; align-items:center;">
+                        <input type="date" id="act-start" value="${startDefault}" style="border:1px solid #e5e7eb; border-radius:4px; padding:3px; font-size:0.75rem; width:100px;">
+                        <span style="color:#9ca3af; font-size:0.75rem;">to</span>
+                        <input type="date" id="act-end" value="${endDefault}" style="border:1px solid #e5e7eb; border-radius:4px; padding:3px; font-size:0.75rem; width:100px;">
+                        <button onclick="window.app_filterActivity()" style="background:var(--primary); color:white; border:none; border-radius:4px; padding:3px 6px; font-size:0.75rem; cursor:pointer;">Go</button>
+                    </div>
+                    <div id="activity-list" style="flex:1; overflow-y:auto; min-height: 120px; max-height: 180px; font-size:0.75rem; padding-right:5px;">
+                        ${renderActivityList(logs, startDefault, endDefault, collabs)}
+                    </div>
+                </div>
+            `;
+    };
+
+    window.app_filterActivity = () => {
+        const s = document.getElementById('act-start').value;
+        const e = document.getElementById('act-end').value;
+        const list = document.getElementById('activity-list');
+        const staffId = window.app_selectedSummaryStaffId || window.AppAuth.getUser().id;
+
+        Promise.all([
+            window.AppAttendance.getLogs(staffId),
+            window.AppCalendar ? window.AppCalendar.getCollaborations(staffId) : Promise.resolve([])
+        ]).then(([logs, collabs]) => {
+            list.innerHTML = renderActivityList(logs, s, e, collabs);
+        });
+    };
+
+    const renderActivityList = (allLogs, startStr, endStr, targetStaffId, collabs = []) => {
+        const start = new Date(startStr);
+        const end = new Date(endStr);
+        end.setHours(23, 59, 59, 999);
+
+        const logEntries = allLogs.filter(l => {
+            const d = new Date(l.date);
+            const desc = l.workDescription || (l.location && !l.location.startsWith('Lat:') ? l.location : 'Standard Activity');
+            l._displayDesc = desc;
+            l._isCollab = false;
+            l._sortTime = l.checkOut || '00:00';
+            return d >= start && d <= end;
+        });
+
+        const collabEntries = [];
+        collabs.forEach(cp => {
+            const cpDate = new Date(cp.date);
+            if (cpDate < start || cpDate > end) return;
+            const dailyCollabPlans = cp.plans.filter(p => p.tags && p.tags.some(t => t.id === targetStaffId && t.status === 'accepted'));
+            dailyCollabPlans.forEach(p => {
+                collabEntries.push({
+                    date: cp.date,
+                    workDescription: `🤝 Collaborated with ${cp.userName}: ${p.task}${p.subPlans && p.subPlans.length > 0 ? ` (Sub-tasks: ${p.subPlans.join(', ')})` : ''}`,
+                    checkOut: 'Planned / Accepted',
+                    _displayDesc: `🤝 Collaborated with ${cp.userName}: ${p.task}${p.subPlans && p.subPlans.length > 0 ? ` (Sub-tasks: ${p.subPlans.join(', ')})` : ''}`,
+                    _isCollab: true,
+                    _sortTime: '23:59'
+                });
+            });
+        });
+
+        const merged = [...logEntries, ...collabEntries].sort((a, b) => {
+            const dateDiff = new Date(b.date) - new Date(a.date);
+            if (dateDiff !== 0) return dateDiff;
+            return b._sortTime.localeCompare(a._sortTime);
+        });
+
+        if (merged.length === 0) return '<div style="color:#9ca3af; text-align:center; padding:1rem;">No activity descriptions found.</div>';
+
+        let html = '';
+        let lastDate = '';
+        const currentUser = window.AppAuth.getUser();
+        const isAdminUser = currentUser && (currentUser.role === 'Administrator' || currentUser.isAdmin);
+
+        merged.forEach(log => {
+            const showDate = log.date !== lastDate;
+            if (showDate) {
+                html += `<div style="font-weight:600; color:#374151; background:#f9fafb; padding:4px 8px; border-radius:4px; margin-top:0.75rem; margin-bottom:0.25rem; font-size:0.8rem;">${log.date}</div>`;
+                lastDate = log.date;
+            }
+            const borderColor = log._isCollab ? '#10b981' : '#e5e7eb';
+            const bgStyle = log._isCollab ? 'background: #f0fdf4;' : '';
+            let statusBadge = '';
+            if (log._isCollab || log.status) {
+                const status = window.AppCalendar.getSmartTaskStatus(log.date, log.status);
+                statusBadge = `<div style="margin-top: 4px; display:flex; align-items:center; gap:8px;">${window.AppUI.renderTaskStatusBadge(status)}${isAdminUser ? `<div style="display:flex; gap:4px;"><button onclick="window.app_openDayPlan('${log.date}', '${targetStaffId}')" style="background:none; border:1px solid #e2e8f0; border-radius:4px; padding:2px 4px; font-size:0.6rem; color:#64748b; cursor:pointer;" title="Edit/Reassign"><i class="fa-solid fa-pen-to-square"></i></button></div>` : ''}</div>`;
+            }
+            html += `<div style="margin-left:0.5rem; padding-left:0.75rem; border-left:3px solid ${borderColor}; margin-bottom:0.5rem; ${bgStyle} padding-top:4px; padding-bottom:4px; border-radius:0 4px 4px 0;"><div style="white-space: pre-wrap; color:#4b5563; font-size:0.85rem;">${log._displayDesc}</div>${statusBadge}<div style="font-size:0.7rem; color:#9ca3af; margin-top:2px;">${log.checkOut || (log.status === 'completed' ? 'Completed' : 'Planned Activity')}</div></div>`;
+        });
+        return html;
+    };
+
+    const renderActivityLog = (allStaffLogs) => {
+        setTimeout(() => {
+            const container = document.getElementById('staff-activity-list');
+            if (container) initStaffActivityScroll(container);
+        }, 500);
+        return `
+            <div class="card" style="padding: 0.75rem; display:flex; flex-direction:column; height: 100%;">
+                <div style="margin-bottom:0.5rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.3rem;"><h4 style="margin:0; color:#1f2937; font-size: 0.9rem;">Activity Log</h4><span style="font-size:0.65rem; color:#6b7280;">Team Activities (Weekly Roll)</span></div>
+                <div style="display:flex; gap:0.4rem; margin-bottom:0.75rem;"><button onclick="window.app_filterStaffActivity(7)" class="chip-btn" style="font-size:0.7rem; padding:0.3rem 0.6rem;">Last 7 Days</button><button onclick="window.app_filterStaffActivity(30)" class="chip-btn" style="font-size:0.7rem; padding:0.3rem 0.6rem;">Monthly</button></div>
+                <div id="staff-activity-list" style="flex:1; overflow-y:auto; font-size:0.75rem; padding-right:5px; scroll-behavior: smooth; max-height: 180px;">${renderStaffActivityList(allStaffLogs, 7)}</div>
+            </div>`;
+    };
+
+    window.app_filterStaffActivity = (daysBack) => {
+        const list = document.getElementById('staff-activity-list');
+        if (!list) return;
+        window.AppAnalytics.getAllStaffActivities(daysBack).then(logs => {
+            list.innerHTML = renderStaffActivityList(logs, daysBack);
+            initStaffActivityScroll(list);
+        });
+    };
+
+    const initStaffActivityScroll = (container) => {
+        if (!container) return;
+        if (window.staffActivityScrollInterval) { clearInterval(window.staffActivityScrollInterval); window.staffActivityScrollInterval = null; }
+        let scrollInterval;
+        let isPaused = false;
+        let direction = 1;
+        let isWaiting = false;
+        const startAutoScroll = () => {
+            scrollInterval = setInterval(() => {
+                if (!isPaused && !isWaiting && container) {
+                    const maxScroll = container.scrollHeight - container.clientHeight;
+                    if (maxScroll <= 0) return;
+                    container.scrollTop += direction;
+                    if (direction === 1 && container.scrollTop >= maxScroll) { isWaiting = true; setTimeout(() => { direction = -1; isWaiting = false; }, 2000); }
+                    else if (direction === -1 && container.scrollTop <= 0) { isWaiting = true; setTimeout(() => { direction = 1; isWaiting = false; }, 1500); }
+                }
+            }, 50);
+        };
+        const onMouseEnter = () => isPaused = true;
+        const onMouseLeave = () => isPaused = false;
+        container.removeEventListener('mouseenter', onMouseEnter);
+        container.removeEventListener('mouseleave', onMouseLeave);
+        container.addEventListener('mouseenter', onMouseEnter);
+        container.addEventListener('mouseleave', onMouseLeave);
+        startAutoScroll();
+        window.staffActivityScrollInterval = scrollInterval;
+    };
+
+    const renderStaffActivityList = (allLogs, daysBack) => {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - daysBack);
+        cutoffDate.setHours(0, 0, 0, 0);
+        const filtered = allLogs.filter(log => {
+            const logDate = new Date(log.date);
+            return log.date !== todayStr && logDate >= cutoffDate;
+        });
+        if (filtered.length === 0) return '<div style="color:#9ca3af; text-align:center; padding:1rem;">No team activities found for the requested period.</div>';
+        let html = '';
+        let lastDate = '';
+        const currentUser = window.AppAuth.getUser();
+        const isAdminUser = currentUser && (currentUser.role === 'Administrator' || currentUser.isAdmin);
+        filtered.sort((a, b) => new Date(b.date) - new Date(a.date)).forEach(log => {
+            const showDate = log.date !== lastDate;
+            if (showDate) { html += `<div style="font-weight:600; color:#374151; background:#f9fafb; padding:4px 8px; border-radius:4px; margin-top:0.75rem; margin-bottom:0.25rem; font-size:0.8rem;">${log.date}</div>`; lastDate = log.date; }
+            let statusBadge = '';
+            if (log.status || log.type === 'work') {
+                const status = window.AppCalendar.getSmartTaskStatus(log.date, log.status);
+                statusBadge = `<div style="margin-top: 4px; display:flex; align-items:center; gap:8px;">${window.AppUI.renderTaskStatusBadge(status)}${isAdminUser ? `<div style="display:flex; gap:4px;"><button onclick="window.app_openDayPlan('${log.date}', '${log.userId}')" style="background:none; border:1px solid #e2e8f0; border-radius:4px; padding:2px 4px; font-size:0.6rem; color:#64748b; cursor:pointer;" title="Edit/Reassign"><i class="fa-solid fa-pen-to-square"></i></button></div>` : ''}</div>`;
+            }
+            html += `<div style="margin-left:0.5rem; padding-left:0.75rem; border-left:2px solid #e5e7eb; margin-bottom:0.5rem;"><div style="font-weight:600; color:var(--primary); font-size:0.8rem;">${log.staffName}</div><div style="white-space: pre-wrap; color:#4b5563; font-size:0.85rem; margin-top:2px;">${log._displayDesc}</div>${statusBadge}<div style="font-size:0.7rem; color:#9ca3af; margin-top:2px;">${log.checkOut || (log.status === 'completed' ? 'Completed' : 'Work Plan')}</div></div>`;
+        });
+        return html;
+    };
+
+    const renderBreakdown = (breakdown) => {
+        const items = Object.entries(breakdown);
+        const meta = {
+            'Present': { color: '#166534', bg: '#f0fdf4', label: 'Office' },
+            'Work - Home': { color: '#0369a1', bg: '#e0f2fe', label: 'WFH' },
+            'Training': { color: '#4338ca', bg: '#eef2ff', label: 'Training' },
+            'Late': { color: '#c2410c', bg: '#fff7ed', label: 'Late' },
+            'Sick Leave': { color: '#991b1b', bg: '#fef2f2', label: 'Sick' },
+            'Casual Leave': { color: '#9d174d', bg: '#fce7f3', label: 'Casual' },
+            'Earned Leave': { color: '#be185d', bg: '#fdf2f8', label: 'Earned' },
+            'Paid Leave': { color: '#be123c', bg: '#ffe4e6', label: 'Paid' },
+            'Maternity Leave': { color: '#a21caf', bg: '#fae8ff', label: 'Maternity' },
+            'Absent': { color: '#7f1d1d', bg: '#fee2e2', label: 'Absent' },
+            'Early Departure': { color: '#991b1b', bg: '#fff1f2', label: 'Early Exit' },
+            'Holiday': { color: '#1e293b', bg: '#f1f5f9', label: 'Holiday' },
+            'National Holiday': { color: '#334155', bg: '#f8fafc', label: 'Nat. Hol' },
+            'Regional Holidays': { color: '#475569', bg: '#f8fafc', label: 'Reg. Hol' }
+        };
+
+        return items.map(([key, count]) => {
+            const style = meta[key] || { color: '#374151', bg: '#f3f4f6', label: key };
+            if (count === 0 && !['Present', 'Late', 'Absent', 'Early Departure'].includes(key)) return '';
+
+            return `
+                <div style="display:flex; flex-direction:column; align-items:center; justifyContent:center; padding:0.4rem; background:${style.bg}; border-radius:8px; min-width:60px; text-align:center;">
+                    <span style="font-weight:700; font-size:1rem; color:${style.color}">${count}</span>
+                    <span style="font-size:0.6rem; color:${style.color}; font-weight:500; line-height:1.2; margin-top:1px;">${style.label}</span>
+                </div>
+             `;
+        }).join('');
+    };
+
+    const renderStatsCard = (title, subtitle, statsObj) => {
+        const penaltyBadge = statsObj.penalty > 0
+            ? `<span style="font-size:0.65rem; background:#fee2e2; color:#991b1b; padding:2px 8px; border-radius:12px; font-weight:600;">Penalty Applies</span>`
+            : '';
+
+        return `
+            <div class="card" style="padding: 1rem; display:flex; flex-direction:column; gap:0.75rem;">
+                <div style="display:flex; justify-content:space-between; align-items:start;">
+                    <div>
+                        <h4 style="margin:0; font-size:1rem; color:#1f2937;">${title}</h4>
+                        <span style="font-size:0.7rem; color:#6b7280; margin-top:0.15rem; display:block;">${subtitle}</span>
+                    </div>
+                    ${penaltyBadge}
+                </div>
+
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.5rem;">
+                     <div style="background:#fef2f2; padding:0.6rem; border-radius:8px; text-align:center; border:1px solid #fee2e2;">
+                        <div style="color:#b91c1c; font-weight:700; font-size:1rem;">${statsObj.totalLateDuration}</div>
+                        <div style="color:#7f1d1d; font-size:0.6rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Late</div>
+                     </div>
+                     <div style="background:#ecfdf5; padding:0.6rem; border-radius:8px; text-align:center; border:1px solid #d1fae5;">
+                        <div style="color:#047857; font-weight:700; font-size:1rem;">${statsObj.totalExtraDuration}</div>
+                        <div style="color:#064e3b; font-size:0.6rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Extra</div>
+                     </div>
+                </div>
+
+                <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; justify-content: start;">
+                    ${renderBreakdown(statsObj.breakdown)}
+                </div>
+            </div>
+        `;
+    };
+
+    const renderYearlyPlan = (plans) => {
+        const today = new Date();
+        const currentUser = window.AppAuth.getUser();
+        if (window.app_calMonth === undefined) window.app_calMonth = today.getMonth();
+        if (window.app_calYear === undefined) window.app_calYear = today.getFullYear();
+
+        const year = window.app_calYear;
+        const month = window.app_calMonth;
+        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+        const getDayEvents = (d) => {
+            // Use LOCAL date construction
+            const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            const evs = [];
+
+            // 1. Add Automatic Day Types (Saturdays, Sundays)
+            if (window.AppAnalytics) {
+                const dayType = window.AppAnalytics.getDayType(new Date(year, month, d));
+                if (dayType === 'Holiday') {
+                    evs.push({ title: 'Company Holiday (Weekend)', type: 'holiday' });
+                } else if (dayType === 'Half Day') {
+                    evs.push({ title: 'Half Working Day (Sat)', type: 'event' });
+                }
+            }
+
+            plans.leaves.forEach(l => {
+                if (dStr >= l.startDate && dStr <= l.endDate) {
+                    evs.push({ title: `${l.userName || 'Staff'} (Leave)`, type: 'leave', userId: l.userId });
+                }
+            });
+            plans.events.forEach(e => {
+                if (e.date === dStr) evs.push({ title: e.title, type: e.type || 'event' });
+            });
+            plans.workPlans.forEach(p => {
+                if (p.date === dStr) {
+                    let title = '';
+                    if (p.plans && p.plans.length > 0) {
+                        title = `${p.userName}: ${p.plans.map(pl => pl.task).join('; ')}`;
+                    } else {
+                        title = `${p.userName}: ${p.plan || 'Work Plan'}`;
+                    }
+                    evs.push({ title: title, type: 'work', userId: p.userId, plans: p.plans });
+                }
+            });
+            return evs;
+        };
+
+        const firstDay = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+        let calendarHTML = '';
+        for (let i = 0; i < firstDay; i++) calendarHTML += '<div class="cal-day empty"></div>';
+        for (let d = 1; d <= daysInMonth; d++) {
+            const evs = getDayEvents(d);
+            const hasLeave = evs.some(e => e.type === 'leave');
+            const hasEvent = evs.some(e => e.type === 'event');
+            const hasWork = evs.some(e => e.type === 'work');
+            const isToday = d === today.getDate() && month === today.getMonth() && year === today.getFullYear();
+            const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+            // Detect automatic day type
+            const dayType = window.AppAnalytics ? window.AppAnalytics.getDayType(new Date(year, month, d)) : 'Work Day';
+
+            calendarHTML += `
+                <div class="cal-day ${isToday ? 'today' : ''} ${hasLeave ? 'has-leave' : ''} ${hasEvent ? 'has-event' : ''} ${hasWork ? 'has-work' : ''} ${dayType === 'Holiday' ? 'is-holiday' : ''} ${dayType === 'Half Day' ? 'is-half-day' : ''}" 
+                        onclick="window.app_openDayPlan('${dStr}')" style="cursor:pointer;" title="${dayType}">
+                    ${d}
+                </div>
+            `;
+        }
+
+        // Global data for the handlers in app.js
+        window._currentPlans = plans;
+        window._getDayEvents = getDayEvents; // Helper for modal
+
+        return `
+            <div class="card" style="padding: 0.75rem; display:flex; flex-direction:column;">
+                <div style="margin-bottom:0.75rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.4rem;">
+                        <h4 style="margin:0; color:#1f2937; font-size: 1rem;">Team Schedule</h4>
+                        <span style="font-size:0.7rem; color:#6b7280;">Planned Leaves & Events</span>
+                </div>
+
+                <div style="margin-bottom:0.6rem; padding-bottom:0.4rem; display:flex; justify-content:space-between; align-items:center;">
+                        <div style="display:flex; align-items:center; gap:0.4rem;">
+                        <button onclick="window.app_changeCalMonth(-1)" style="background:none; border:none; color:#6b7280; cursor:pointer; padding:2px;"><i class="fa-solid fa-chevron-left"></i></button>
+                        <div style="text-align:center; min-width:70px;">
+                            <h4 style="margin:0; color:#1f2937; font-size:0.9rem;">${monthNames[month]} ${year}</h4>
+                        </div>
+                        <button onclick="window.app_changeCalMonth(1)" style="background:none; border:none; color:#6b7280; cursor:pointer; padding:2px;"><i class="fa-solid fa-chevron-right"></i></button>
+                        </div>
+                        ${currentUser && (currentUser.role === 'Administrator' || currentUser.isAdmin) ? `<button onclick="window.app_openEventModal()" style="background:none; border:none; color:var(--primary); cursor:pointer;"><i class="fa-solid fa-plus-circle"></i></button>` : ''}
+                </div>
+                <div class="calendar-grid-mini" style="display:grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align:center; font-size: 0.65rem;">
+                    <div style="font-weight:700; color:#9ca3af;">S</div>
+                    <div style="font-weight:700; color:#9ca3af;">M</div>
+                    <div style="font-weight:700; color:#9ca3af;">T</div>
+                    <div style="font-weight:700; color:#9ca3af;">W</div>
+                    <div style="font-weight:700; color:#9ca3af;">T</div>
+                    <div style="font-weight:700; color:#9ca3af;">F</div>
+                    <div style="font-weight:700; color:#9ca3af;">S</div>
+                    ${calendarHTML}
+                </div>
+                <div style="margin-top:0.6rem; display:flex; flex-wrap:wrap; gap:0.4rem; font-size:0.55rem; color:#6b7280; justify-content:center;">
+                    <span style="display:flex; align-items:center; gap:2px;"><span style="width:5px; height:5px; background:#b91c1c; border-radius:50%;"></span> Leave</span>
+                    <span style="display:flex; align-items:center; gap:2px;"><span style="width:5px; height:5px; background:#166534; border-radius:50%;"></span> Event</span>
+                    <span style="display:flex; align-items:center; gap:2px;"><span style="width:5px; height:5px; background:#eee; border-radius:50%; border:0.5px solid #ccc;"></span> Holiday</span>
+                    <span style="display:flex; align-items:center; gap:2px;"><span style="width:5px; height:5px; background:#fffbeb; border-radius:50%; border:0.5px solid #d97706;"></span> Half</span>
+                </div>
+                <style>
+                    .cal-day { padding: 4px; border-radius: 4px; position: relative; transition: all 0.2s; border: 1px solid transparent; }
+                    .cal-day:hover:not(.empty) { background: #f3f4f6; }
+                    .cal-day.today { background: var(--primary) !important; color: white !important; font-weight: 700; border-color: transparent !important; }
+                    .cal-day.has-leave { background: #fee2e2; color: #b91c1c; }
+                    .cal-day.has-event { background: #dcfce7; color: #166534; }
+                    .cal-day.has-work { border-color: #818cf8; }
+                    .cal-day.is-holiday { background: #f9fafb; color: #9ca3af; opacity: 0.8; }
+                    .cal-day.is-half-day { background: #fffbeb; color: #d97706; border-color: #fde68a; }
+                    .cal-day.empty { visibility: hidden; }
+                </style>
+            </div>
+        `;
+    };
+
     window.AppUI = {
         renderLogin: () => {
             return `
@@ -362,13 +728,95 @@
                             
                             <div style="display: flex; gap: 1rem; margin-top: 1rem;">
                                 <button type="button" onclick="document.getElementById('add-user-modal').style.display = 'none'" style="flex: 1; padding: 0.75rem; border: 1px solid #ddd; background: white; border-radius: 0.5rem; cursor: pointer;">Cancel</button>
-                                <button type="submit" class="action-btn" style="flex: 1; padding: 0.75rem; border-radius: 0.5rem;">Create Account</button>
+                            <button type="submit" class="action-btn" style="flex: 1; padding: 0.75rem; border-radius: 0.5rem;">Create Account</button>
                             </div>
                         </form>
                     </div>
                 </div>
             `;
         },
+
+        /**
+         * Render star rating display (1-5 stars)
+         * @param {number} rating - Rating value (1-5)
+         * @param {boolean} showNumber - Whether to show numeric rating
+         * @returns {string} - HTML for star rating
+         */
+        renderStarRating: (rating, showNumber = true) => {
+            const fullStars = Math.floor(rating);
+            const hasHalfStar = rating % 1 >= 0.5;
+            const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
+
+            let starsHTML = '';
+
+            // Full stars
+            for (let i = 0; i < fullStars; i++) {
+                starsHTML += '<i class="fa-solid fa-star" style="color:#fbbf24; font-size:0.9rem;"></i>';
+            }
+
+            // Half star
+            if (hasHalfStar) {
+                starsHTML += '<i class="fa-solid fa-star-half-stroke" style="color:#fbbf24; font-size:0.9rem;"></i>';
+            }
+
+            // Empty stars
+            for (let i = 0; i < emptyStars; i++) {
+                starsHTML += '<i class="fa-regular fa-star" style="color:#d1d5db; font-size:0.9rem;"></i>';
+            }
+
+            if (showNumber) {
+                starsHTML += ` <span style="font-size:0.75rem; color:#6b7280; font-weight:600; margin-left:4px;">${rating.toFixed(1)}</span>`;
+            }
+
+            return starsHTML;
+        },
+
+        /**
+         * Render task status badge with color coding
+         * @param {string} status - Task status (to-be-started, in-process, completed, overdue, not-completed)
+         * @param {boolean} showIcon - Whether to show status icon
+         * @returns {string} - HTML for status badge
+         */
+        renderTaskStatusBadge: (status, showIcon = true) => {
+            const statusConfig = {
+                'to-be-started': {
+                    color: '#3b82f6',
+                    bg: '#dbeafe',
+                    icon: '📅',
+                    label: 'To Be Started'
+                },
+                'in-process': {
+                    color: '#eab308',
+                    bg: '#fef3c7',
+                    icon: '⏳',
+                    label: 'In Process'
+                },
+                'completed': {
+                    color: '#22c55e',
+                    bg: '#dcfce7',
+                    icon: '✅',
+                    label: 'Completed'
+                },
+                'overdue': {
+                    color: '#ef4444',
+                    bg: '#fee2e2',
+                    icon: '⚠️',
+                    label: 'Overdue'
+                },
+                'not-completed': {
+                    color: '#6b7280',
+                    bg: '#f3f4f6',
+                    icon: '❌',
+                    label: 'Not Completed'
+                }
+            };
+
+            const config = statusConfig[status] || statusConfig['in-process'];
+            const icon = showIcon ? config.icon + ' ' : '';
+
+            return `<span style="background: ${config.bg}; color: ${config.color}; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; display: inline-block;">${icon}${config.label}</span>`;
+        },
+
         renderHeroCard: (heroData) => {
             if (!heroData) return '';
             const { user, stats, reason } = heroData;
@@ -471,6 +919,8 @@
             `;
         },
 
+
+
         async renderDashboard() {
             const user = window.AppAuth.getUser();
             const isAdmin = user.role === 'Administrator' || user.isAdmin;
@@ -493,6 +943,18 @@
                 window.AppCalendar ? window.AppCalendar.getCollaborations(targetStaffId) : Promise.resolve([])
             ]);
             console.timeEnd('DashboardFetch');
+            const heroHTML = this.renderHeroCard(heroData);
+
+            // Auto-calculate rating if not exists (run in background)
+            if (window.AppRating && user.rating === undefined) {
+                window.AppRating.updateUserRating(user.id).then(updatedUser => {
+                    // Update the user object with the new rating
+                    Object.assign(user, updatedUser);
+                    console.log('Rating calculated:', user.rating);
+                }).catch(err => {
+                    console.error('Failed to calculate rating:', err);
+                });
+            }
 
             const isCheckedIn = status.status === 'in';
             const notifications = user.notifications || [];
@@ -552,687 +1014,145 @@
 
             // Stats fetched in parallel above, variables ready.
 
-            // Helper to generate breakdown HTML
-            const renderBreakdown = (breakdown) => {
-                const items = Object.entries(breakdown);
-                const meta = {
-                    'Present': { color: '#166534', bg: '#f0fdf4', label: 'Office' },
-                    'Work - Home': { color: '#0369a1', bg: '#e0f2fe', label: 'WFH' },
-                    'Training': { color: '#4338ca', bg: '#eef2ff', label: 'Training' },
-                    'Late': { color: '#c2410c', bg: '#fff7ed', label: 'Late' },
-                    'Sick Leave': { color: '#991b1b', bg: '#fef2f2', label: 'Sick' },
-                    'Casual Leave': { color: '#9d174d', bg: '#fce7f3', label: 'Casual' },
-                    'Earned Leave': { color: '#be185d', bg: '#fdf2f8', label: 'Earned' },
-                    'Paid Leave': { color: '#be123c', bg: '#ffe4e6', label: 'Paid' },
-                    'Maternity Leave': { color: '#a21caf', bg: '#fae8ff', label: 'Maternity' },
-                    'Absent': { color: '#7f1d1d', bg: '#fee2e2', label: 'Absent' },
-                    'Early Departure': { color: '#991b1b', bg: '#fff1f2', label: 'Early Exit' },
-                    'Holiday': { color: '#1e293b', bg: '#f1f5f9', label: 'Holiday' },
-                    'National Holiday': { color: '#334155', bg: '#f8fafc', label: 'Nat. Hol' },
-                    'Regional Holidays': { color: '#475569', bg: '#f8fafc', label: 'Reg. Hol' }
-                };
-
-                return items.map(([key, count]) => {
-                    const style = meta[key] || { color: '#374151', bg: '#f3f4f6', label: key };
-                    if (count === 0 && !['Present', 'Late', 'Absent', 'Early Departure'].includes(key)) return '';
-
-                    return `
-                        <div style="display:flex; flex-direction:column; align-items:center; justifyContent:center; padding:0.4rem; background:${style.bg}; border-radius:8px; min-width:60px; text-align:center;">
-                            <span style="font-weight:700; font-size:1rem; color:${style.color}">${count}</span>
-                            <span style="font-size:0.6rem; color:${style.color}; font-weight:500; line-height:1.2; margin-top:1px;">${style.label}</span>
-                        </div>
-                     `;
-                }).join('');
-            };
-
-            const renderStatsCard = (title, subtitle, statsObj) => {
-                const penaltyBadge = statsObj.penalty > 0
-                    ? `<span style="font-size:0.65rem; background:#fee2e2; color:#991b1b; padding:2px 8px; border-radius:12px; font-weight:600;">Penalty Applies</span>`
-                    : '';
-
-                return `
-                    <div class="card" style="padding: 1rem; display:flex; flex-direction:column; gap:0.75rem;">
-                        <!-- Header -->
-                        <div style="display:flex; justify-content:space-between; align-items:start;">
-                            <div>
-                                <h4 style="margin:0; font-size:1rem; color:#1f2937;">${title}</h4>
-                                <span style="font-size:0.7rem; color:#6b7280; margin-top:0.15rem; display:block;">${subtitle}</span>
-                            </div>
-                            ${penaltyBadge}
-                        </div>
-
-                        <!-- Time Stats -->
-                        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.5rem;">
-                             <div style="background:#fef2f2; padding:0.6rem; border-radius:8px; text-align:center; border:1px solid #fee2e2;">
-                                <div style="color:#b91c1c; font-weight:700; font-size:1rem;">${statsObj.totalLateDuration}</div>
-                                <div style="color:#7f1d1d; font-size:0.6rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Late</div>
-                             </div>
-                             <div style="background:#ecfdf5; padding:0.6rem; border-radius:8px; text-align:center; border:1px solid #d1fae5;">
-                                <div style="color:#047857; font-weight:700; font-size:1rem;">${statsObj.totalExtraDuration}</div>
-                                <div style="color:#064e3b; font-size:0.6rem; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">Extra</div>
-                             </div>
-                        </div>
-
-                        <!-- Breakdown -->
-                        <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; justify-content: start;">
-                            ${renderBreakdown(statsObj.breakdown)}
-                        </div>
-                    </div>
-                `;
-            };
-
-            window.app_changeSummaryStaff = (staffId) => {
-                window.app_selectedSummaryStaffId = staffId;
-                this.renderDashboard().then(html => {
-                    const contentArea = document.getElementById('page-content');
-                    if (contentArea) {
-                        contentArea.innerHTML = html;
-                        if (window.setupDashboardEvents) window.setupDashboardEvents();
-                    }
-                });
-            };
-
-            // NEW: Activity Report Widget Helper
-            const renderActivityReport = (logs, collabs = []) => {
-                // Default: Current Month
-                const today = new Date();
-                const startDefault = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
-                const endDefault = today.toISOString().split('T')[0];
-
-                return `
-                    <div class="card" style="padding: 0.75rem; display:flex; flex-direction:column; height:100%;">
-                        <div style="margin-bottom:0.75rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.4rem;">
-                             <h4 style="margin:0; color:#1f2937; font-size: 1rem;">Activity Log</h4>
-                             <span style="font-size:0.7rem; color:#6b7280;">Work Descriptions & Collaborations</span>
-                        </div>
-
-                        <!-- Filters -->
-                         <div style="display:flex; gap:0.4rem; margin-bottom:0.75rem; align-items:center;">
-                            <input type="date" id="act-start" value="${startDefault}" style="border:1px solid #e5e7eb; border-radius:4px; padding:3px; font-size:0.75rem; width:100px;">
-                            <span style="color:#9ca3af; font-size:0.75rem;">to</span>
-                            <input type="date" id="act-end" value="${endDefault}" style="border:1px solid #e5e7eb; border-radius:4px; padding:3px; font-size:0.75rem; width:100px;">
-                            <button onclick="window.app_filterActivity()" style="background:var(--primary); color:white; border:none; border-radius:4px; padding:3px 6px; font-size:0.75rem; cursor:pointer;">Go</button>
-                        </div>
-
-                        <!-- Report Content (Scrollable) -->
-                        <div id="activity-list" style="flex:1; overflow-y:auto; min-height: 150px; max-height: 250px; font-size:0.8rem; padding-right:5px;">
-                            ${renderActivityList(logs, startDefault, endDefault, collabs)}
-                        </div>
-                    </div>
-                `;
-            };
-
-            // Global Helper for filtering (attached to window since it's called onclick)
-            // We define it inside but assign to window to access closure or just re-run logic separately
-            window.app_filterActivity = () => {
-                const s = document.getElementById('act-start').value;
-                const e = document.getElementById('act-end').value;
-                const list = document.getElementById('activity-list');
-                const staffId = window.app_selectedSummaryStaffId || window.AppAuth.getUser().id;
-
-                Promise.all([
-                    window.AppAttendance.getLogs(staffId),
-                    window.AppCalendar ? window.AppCalendar.getCollaborations(staffId) : Promise.resolve([])
-                ]).then(([logs, collabs]) => {
-                    list.innerHTML = renderActivityList(logs, s, e, collabs);
-                });
-            };
-
-            // Internal Helper to render the list HTML
-            const renderActivityList = (allLogs, startStr, endStr, collabs = []) => {
-                const start = new Date(startStr);
-                const end = new Date(endStr);
-                end.setHours(23, 59, 59, 999); // End of day
-
-                // 1. Process Logs
-                const logEntries = allLogs.filter(l => {
-                    const d = new Date(l.date);
-                    const desc = l.workDescription || (l.location && !l.location.startsWith('Lat:') ? l.location : 'Standard Activity');
-                    l._displayDesc = desc;
-                    l._isCollab = false;
-                    l._sortTime = l.checkOut || '00:00';
-                    return d >= start && d <= end;
-                });
-
-                // 2. Process Collaborations (Convert to list items)
-                const collabEntries = [];
-                collabs.forEach(cp => {
-                    const cpDate = new Date(cp.date);
-                    if (cpDate < start || cpDate > end) return;
-
-                    const dailyCollabPlans = cp.plans.filter(p =>
-                        p.tags && p.tags.some(t => t.id === targetStaffId && t.status === 'accepted')
-                    );
-
-                    dailyCollabPlans.forEach(p => {
-                        collabEntries.push({
-                            date: cp.date,
-                            workDescription: `🤝 Collaborated with ${cp.userName}: ${p.task}${p.subPlans && p.subPlans.length > 0 ? ` (Sub-tasks: ${p.subPlans.join(', ')})` : ''}`,
-                            checkOut: 'Planned / Accepted',
-                            _displayDesc: `🤝 Collaborated with ${cp.userName}: ${p.task}${p.subPlans && p.subPlans.length > 0 ? ` (Sub-tasks: ${p.subPlans.join(', ')})` : ''}`,
-                            _isCollab: true,
-                            _sortTime: '23:59' // Put collaborations at top of the day usually
-                        });
-                    });
-                });
-
-                // 3. Merge & Sort
-                const merged = [...logEntries, ...collabEntries].sort((a, b) => {
-                    const dateDiff = new Date(b.date) - new Date(a.date);
-                    if (dateDiff !== 0) return dateDiff;
-                    return b._sortTime.localeCompare(a._sortTime);
-                });
-
-                if (merged.length === 0) return '<div style="color:#9ca3af; text-align:center; padding:1rem;">No activity descriptions found.</div>';
-
-                let html = '';
-                let lastDate = '';
-
-                merged.forEach(log => {
-                    const showDate = log.date !== lastDate;
-                    if (showDate) {
-                        html += `<div style="font-weight:600; color:#374151; background:#f9fafb; padding:4px 8px; border-radius:4px; margin-top:0.75rem; margin-bottom:0.25rem; font-size:0.8rem;">${log.date}</div>`;
-                        lastDate = log.date;
-                    }
-
-                    const borderColor = log._isCollab ? '#10b981' : '#e5e7eb';
-                    const bgStyle = log._isCollab ? 'background: #f0fdf4;' : '';
-
-                    html += `
-                        <div style="margin-left:0.5rem; padding-left:0.75rem; border-left:3px solid ${borderColor}; margin-bottom:0.5rem; ${bgStyle} padding-top:4px; padding-bottom:4px; border-radius:0 4px 4px 0;">
-                            <div style="white-space: pre-wrap; color:#4b5563; font-size:0.85rem;">${log._displayDesc}</div>
-                            <div style="font-size:0.7rem; color:#9ca3af; margin-top:2px;">${log.checkOut || 'Checked Out'}</div>
-                        </div>
-                     `;
-                });
-                return html;
-            };
-
-            // Get logs for the widget (Already fetched above as 'logs')
-
-            // NEW: Staff Activity Widget Helper
-            const renderStaffActivityWidget = (allStaffLogs) => {
-                // Calculate yesterday's date
-                const yesterday = new Date();
-                yesterday.setDate(yesterday.getDate() - 1);
-                const yesterdayStr = yesterday.toISOString().split('T')[0];
-
-                // Initialize auto-scroll after render
-                setTimeout(() => {
-                    const container = document.getElementById('staff-activity-list');
-                    if (container) this.initStaffActivityScroll(container);
-                }, 500);
-
-                return `
-                <div class="card" style="padding: 1.25rem; display:flex; flex-direction:column; height: 100%;">
-                    <div style="margin-bottom:0.75rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.4rem;">
-                         <h4 style="margin:0; color:#1f2937; font-size: 1rem;">Team Activities</h4>
-                         <span style="font-size:0.7rem; color:#6b7280;">Previous Day's Work</span>
-                    </div>
-
-                    <!-- Filter Buttons -->
-                    <div style="display:flex; gap:0.4rem; margin-bottom:0.75rem;">
-                        <button onclick="window.app_filterStaffActivity(1)" class="chip-btn" style="font-size:0.7rem; padding:0.3rem 0.6rem;">Yesterday</button>
-                        <button onclick="window.app_filterStaffActivity(3)" class="chip-btn" style="font-size:0.7rem; padding:0.3rem 0.6rem;">Last 3 Days</button>
-                        <button onclick="window.app_filterStaffActivity(7)" class="chip-btn" style="font-size:0.7rem; padding:0.3rem 0.6rem;">Last Week</button>
-                    </div>
-
-                    <!-- Scrollable List with Auto-Scroll -->
-                    <div id="staff-activity-list" style="flex:1; overflow-y:auto; font-size:0.8rem; padding-right:5px; scroll-behavior: smooth; max-height: 250px;">
-                        ${renderStaffActivityList(allStaffLogs, 1)}
-                    </div>
-                </div>
-            `;
-            };
-
-            // Global Helper for filtering staff activities
-            window.app_filterStaffActivity = (daysBack) => {
-                const list = document.getElementById('staff-activity-list');
-                if (!list) return;
-
-                window.AppAnalytics.getAllStaffActivities(daysBack).then(logs => {
-                    list.innerHTML = renderStaffActivityList(logs, daysBack);
-                    this.initStaffActivityScroll(list);
-                });
-            };
-
-            // NEW: Unified Scroll Helper (Ping-Pong behavior)
-            this.initStaffActivityScroll = (container) => {
-                if (!container) return;
-
-                // Clear existing scroll interval
-                if (window.staffActivityScrollInterval) {
-                    clearInterval(window.staffActivityScrollInterval);
-                    window.staffActivityScrollInterval = null;
-                }
-
-                let scrollInterval;
-                let isPaused = false;
-                let direction = 1; // 1 = down, -1 = up
-                let isWaiting = false;
-
-                const startAutoScroll = () => {
-                    scrollInterval = setInterval(() => {
-                        if (!isPaused && !isWaiting && container) {
-                            const maxScroll = container.scrollHeight - container.clientHeight;
-
-                            if (maxScroll <= 0) return; // Nothing to scroll
-
-                            container.scrollTop += direction;
-
-                            // Bottom hit
-                            if (direction === 1 && container.scrollTop >= maxScroll) {
-                                isWaiting = true;
-                                setTimeout(() => {
-                                    direction = -1;
-                                    isWaiting = false;
-                                }, 2000); // Wait 2s at bottom
-                            }
-                            // Top hit
-                            else if (direction === -1 && container.scrollTop <= 0) {
-                                isWaiting = true;
-                                setTimeout(() => {
-                                    direction = 1;
-                                    isWaiting = false;
-                                }, 1500); // Wait 1.5s at top
-                            }
-                        }
-                    }, 50);
-                };
-
-                // Pause on hover
-                const onMouseEnter = () => isPaused = true;
-                const onMouseLeave = () => isPaused = false;
-
-                // Clean up listeners if re-initializing on the same element
-                container.removeEventListener('mouseenter', onMouseEnter);
-                container.removeEventListener('mouseleave', onMouseLeave);
-
-                container.addEventListener('mouseenter', onMouseEnter);
-                container.addEventListener('mouseleave', onMouseLeave);
-
-                startAutoScroll();
-                window.staffActivityScrollInterval = scrollInterval;
-            };
-
-            // Internal Helper to render staff activity list
-            const renderStaffActivityList = (allLogs, daysBack) => {
-                // Filter by days back
-                const cutoffDate = new Date();
-                cutoffDate.setDate(cutoffDate.getDate() - daysBack);
-                cutoffDate.setHours(0, 0, 0, 0);
-
-                const filtered = allLogs.filter(log => {
-                    const logDate = new Date(log.date);
-                    return logDate >= cutoffDate;
-                });
-
-                if (filtered.length === 0) {
-                    return '<div style="color:#9ca3af; text-align:center; padding:1rem;">No team activities found.</div>';
-                }
-
-                let html = '';
-                let lastDate = '';
-
-                filtered.forEach(log => {
-                    const showDate = log.date !== lastDate;
-                    if (showDate) {
-                        html += `<div style="font-weight:600; color:#374151; background:#f9fafb; padding:4px 8px; border-radius:4px; margin-top:0.75rem; margin-bottom:0.25rem; font-size:0.8rem;">${log.date}</div>`;
-                        lastDate = log.date;
-                    }
-
-                    html += `
-                    <div style="margin-left:0.5rem; padding-left:0.75rem; border-left:2px solid #e5e7eb; margin-bottom:0.5rem;">
-                        <div style="font-weight:600; color:var(--primary); font-size:0.8rem;">${log.staffName}</div>
-                        <div style="white-space: pre-wrap; color:#4b5563; font-size:0.85rem; margin-top:2px;">${log._displayDesc}</div>
-                        <div style="font-size:0.7rem; color:#9ca3af; margin-top:2px;">${log.checkOut || 'Checked Out'}</div>
-                    </div>
-                 `;
-                });
-                return html;
-            };
-
-            // NEW: Work Plan Calendar Widget (Shared)
-            const renderYearlyPlan = (plans) => {
-                const today = new Date();
-                const currentUser = window.AppAuth.getUser();
-                if (window.app_calMonth === undefined) window.app_calMonth = today.getMonth();
-                if (window.app_calYear === undefined) window.app_calYear = today.getFullYear();
-
-                const year = window.app_calYear;
-                const month = window.app_calMonth;
-                const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-                const getDayEvents = (d) => {
-                    // Use LOCAL date construction
-                    const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                    const evs = [];
-
-                    // 1. Add Automatic Day Types (Saturdays, Sundays)
-                    if (window.AppAnalytics) {
-                        const dayType = window.AppAnalytics.getDayType(new Date(year, month, d));
-                        if (dayType === 'Holiday') {
-                            evs.push({ title: 'Company Holiday (Weekend)', type: 'holiday' });
-                        } else if (dayType === 'Half Day') {
-                            evs.push({ title: 'Half Working Day (Sat)', type: 'event' });
-                        }
-                    }
-
-                    plans.leaves.forEach(l => {
-                        if (dStr >= l.startDate && dStr <= l.endDate) {
-                            evs.push({ title: `${l.userName || 'Staff'} (Leave)`, type: 'leave', userId: l.userId });
-                        }
-                    });
-                    plans.events.forEach(e => {
-                        if (e.date === dStr) evs.push({ title: e.title, type: e.type || 'event' });
-                    });
-                    plans.workPlans.forEach(p => {
-                        if (p.date === dStr) {
-                            let title = '';
-                            if (p.plans && p.plans.length > 0) {
-                                title = `${p.userName}: ${p.plans.map(pl => pl.task).join('; ')}`;
-                            } else {
-                                title = `${p.userName}: ${p.plan || 'Work Plan'}`;
-                            }
-                            evs.push({ title: title, type: 'work', userId: p.userId, plans: p.plans });
-                        }
-                    });
-                    return evs;
-                };
-
-                const firstDay = new Date(year, month, 1).getDay();
-                const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-                let calendarHTML = '';
-                for (let i = 0; i < firstDay; i++) calendarHTML += '<div class="cal-day empty"></div>';
-                for (let d = 1; d <= daysInMonth; d++) {
-                    const evs = getDayEvents(d);
-                    const hasLeave = evs.some(e => e.type === 'leave');
-                    const hasEvent = evs.some(e => e.type === 'event');
-                    const hasWork = evs.some(e => e.type === 'work');
-                    const isToday = d === today.getDate() && month === today.getMonth() && year === today.getFullYear();
-                    const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-
-                    // Detect automatic day type
-                    const dayType = window.AppAnalytics ? window.AppAnalytics.getDayType(new Date(year, month, d)) : 'Work Day';
-
-                    calendarHTML += `
-                        <div class="cal-day ${isToday ? 'today' : ''} ${hasLeave ? 'has-leave' : ''} ${hasEvent ? 'has-event' : ''} ${hasWork ? 'has-work' : ''} ${dayType === 'Holiday' ? 'is-holiday' : ''} ${dayType === 'Half Day' ? 'is-half-day' : ''}" 
-                             onclick="window.app_openDayPlan('${dStr}')" style="cursor:pointer;" title="${dayType}">
-                            ${d}
-                        </div>
-                    `;
-                }
-
-                // Global data for the handlers in app.js
-                window._currentPlans = plans;
-                window._getDayEvents = getDayEvents; // Helper for modal
-
-                return `
-                    <div class="card" style="padding: 0.75rem; display:flex; flex-direction:column;">
-                        <div style="margin-bottom:0.75rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.4rem;">
-                             <h4 style="margin:0; color:#1f2937; font-size: 1rem;">Team Schedule</h4>
-                             <span style="font-size:0.7rem; color:#6b7280;">Planned Leaves & Events</span>
-                        </div>
-
-                        <div style="margin-bottom:0.6rem; padding-bottom:0.4rem; display:flex; justify-content:space-between; align-items:center;">
-                             <div style="display:flex; align-items:center; gap:0.4rem;">
-                                <button onclick="window.app_changeCalMonth(-1)" style="background:none; border:none; color:#6b7280; cursor:pointer; padding:2px;"><i class="fa-solid fa-chevron-left"></i></button>
-                                <div style="text-align:center; min-width:70px;">
-                                    <h4 style="margin:0; color:#1f2937; font-size:0.9rem;">${monthNames[month]} ${year}</h4>
-                                </div>
-                                <button onclick="window.app_changeCalMonth(1)" style="background:none; border:none; color:#6b7280; cursor:pointer; padding:2px;"><i class="fa-solid fa-chevron-right"></i></button>
-                             </div>
-                             <div style="display:flex; align-items:center; gap:0.4rem;">
-                                 <button onclick="window.app_exportCalendar()" title="Export Excel" style="background:none; border:none; color:#64748b; cursor:pointer; font-size: 0.85rem;"><i class="fa-solid fa-file-excel"></i></button>
-                                 ${user.role === 'Administrator' || user.isAdmin ? `<button onclick="window.app_openEventModal()" title="Add Event" style="background:none; border:none; color:var(--primary); cursor:pointer;"><i class="fa-solid fa-plus-circle"></i></button>` : ''}
-                             </div>
-                        </div>
-                        <div class="calendar-grid-mini" style="display:grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align:center; font-size: 0.65rem;">
-                            <div style="font-weight:700; color:#9ca3af;">S</div>
-                            <div style="font-weight:700; color:#9ca3af;">M</div>
-                            <div style="font-weight:700; color:#9ca3af;">T</div>
-                            <div style="font-weight:700; color:#9ca3af;">W</div>
-                            <div style="font-weight:700; color:#9ca3af;">T</div>
-                            <div style="font-weight:700; color:#9ca3af;">F</div>
-                            <div style="font-weight:700; color:#9ca3af;">S</div>
-                            ${calendarHTML}
-                        </div>
-                        <div style="margin-top:0.6rem; display:flex; flex-wrap:wrap; gap:0.4rem; font-size:0.55rem; color:#6b7280; justify-content:center;">
-                            <span style="display:flex; align-items:center; gap:2px;"><span style="width:5px; height:5px; background:#b91c1c; border-radius:50%;"></span> Leave</span>
-                            <span style="display:flex; align-items:center; gap:2px;"><span style="width:5px; height:5px; background:#166534; border-radius:50%;"></span> Event</span>
-                            <span style="display:flex; align-items:center; gap:2px;"><span style="width:5px; height:5px; background:#eee; border-radius:50%; border:0.5px solid #ccc;"></span> Holiday</span>
-                            <span style="display:flex; align-items:center; gap:2px;"><span style="width:5px; height:5px; background:#fffbeb; border-radius:50%; border:0.5px solid #d97706;"></span> Half</span>
-                        </div>
-                        <style>
-                            .cal-day { padding: 4px; border-radius: 4px; position: relative; transition: all 0.2s; border: 1px solid transparent; }
-                            .cal-day:hover:not(.empty) { background: #f3f4f6; }
-                            .cal-day.today { background: var(--primary) !important; color: white !important; font-weight: 700; border-color: transparent !important; }
-                            .cal-day.has-leave { background: #fee2e2; color: #b91c1c; }
-                            .cal-day.has-event { background: #dcfce7; color: #166534; }
-                            .cal-day.has-work { border-color: #818cf8; }
-                            .cal-day.is-holiday { background: #f9fafb; color: #9ca3af; opacity: 0.8; }
-                            .cal-day.is-half-day { background: #fffbeb; color: #d97706; border-color: #fde68a; }
-                            .cal-day.empty { visibility: hidden; }
-                        </style>
-                    </div>
-                `;
-            };
-
-            const heroHTML = this.renderHeroCard(heroData);
-
             let summaryHTML = '';
-
             if (isAdmin) {
                 summaryHTML = `
-                    <!-- Admin Top Section: Leave Requests + Team Schedule/Hero -->
-                    <div style="display: flex; flex-wrap: wrap; gap: 1rem; grid-column: 1 / -1; margin-bottom: 1rem;">
-                        <!-- Left Column: Leave Requests (Flex 2 = ~66%) -->
-                        <div style="flex: 2; min-width: 350px; display: flex; flex-direction: column;">
-                            ${this.renderLeaveRequests(pendingLeaves)}
-                        </div>
-
-                        <!-- Right Column: Team Schedule & Hero (Flex 1 = ~33%, same as widgets below) -->
-                        <div style="flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 1rem;">
-                            ${renderYearlyPlan(calendarPlans)}
-                            ${heroHTML}
-                        </div>
-                    </div>
-
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; align-items: start; grid-column: 1 / -1;">
-                        ${renderStatsCard(isViewingSelf ? monthlyStats.label : `${monthlyStats.label} - ${targetStaff?.name || 'Staff'}`, isViewingSelf ? 'Monthly Stats' : 'Viewing Staff Monthly Stats', monthlyStats)}
-                        ${renderStatsCard('Yearly Summary', isViewingSelf ? yearlyStats.label : `${yearlyStats.label} for ${targetStaff?.name || 'Staff'}`, yearlyStats)}
-                    </div>
-                `;
+                <div style="display: flex; flex-wrap: wrap; gap: 1rem; grid-column: 1 / -1; margin-bottom: 1rem;">
+                    <div style="flex: 2; min-width: 350px; display: flex; flex-direction: column;">${this.renderLeaveRequests(pendingLeaves)}</div>
+                    <div style="flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 1rem;">${renderYearlyPlan(calendarPlans)}${heroHTML}</div>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; align-items: start; grid-column: 1 / -1;">
+                    ${renderStatsCard(isViewingSelf ? monthlyStats.label : `${monthlyStats.label} - ${targetStaff?.name || 'Staff'}`, isViewingSelf ? 'Monthly Stats' : 'Viewing Staff Monthly Stats', monthlyStats)}
+                    ${renderStatsCard('Yearly Summary', isViewingSelf ? yearlyStats.label : `${yearlyStats.label} for ${targetStaff?.name || 'Staff'}`, yearlyStats)}
+                </div>`;
             } else {
-                // STAFF SPECIFIC LAYOUT: 3-Column Row
-                summaryHTML = `
-                <!--Staff Section: Summary, Team Activities, and Schedule side - by - side-->
-                    <div style="display: flex; flex-wrap: wrap; gap: 1rem; grid-column: 1 / -1; margin-bottom: 2rem; align-items: stretch;">
-
-                        <!-- Column 1: Summaries -->
-                        <div style="flex: 1; min-width: 250px; display: flex; flex-direction: column; gap: 1rem;">
-                            <div style="flex: 1; display: flex; flex-direction: column;">
-                                ${renderStatsCard(monthlyStats.label, 'Monthly Stats', monthlyStats)}
-                            </div>
-                            <div style="flex: 1; display: flex; flex-direction: column;">
-                                ${renderStatsCard('Yearly Summary', yearlyStats.label, yearlyStats)}
-                            </div>
-                        </div>
-
-                        <!-- 3. Work Log (Current User) -->
-                    <div style="flex: 1.5; min-width: 320px; display: flex; flex-direction: column;">
-                        ${renderActivityReport(logs, collaborations)}
+                summaryHTML = `<div style="display: flex; flex-wrap: wrap; gap: 1rem; grid-column: 1 / -1; margin-bottom: 2rem; align-items: stretch;"><div style="flex: 1; min-width: 250px; display: flex; flex-direction: column; gap: 1rem;"><div style="flex: 1; display: flex; flex-direction: column;">${renderStatsCard(monthlyStats.label, 'Monthly Stats', monthlyStats)}</div><div style="flex: 1; display: flex; flex-direction: column;">${renderStatsCard('Yearly Summary', yearlyStats.label, yearlyStats)}</div></div><div style="flex: 1.5; min-width: 320px; display: flex; flex-direction: column;">${renderWorkLog(logs, collaborations)}</div><div style="flex: 1.2; min-width: 320px; display: flex; flex-direction: column;">${renderYearlyPlan(calendarPlans)}<div style="margin-top: 1rem;">${heroHTML}</div></div></div>`;
+            }
+            return `
+                <div class="dashboard-grid">
+                    ${notifHTML}
+                    <div class="card full-width" style="background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%); color: white; padding: 1.5rem; position: relative; overflow: hidden;">
+                        <div style="position: absolute; top: -40px; right: -40px; width: 200px; height: 200px; background: rgba(255,255,255,0.05); border-radius: 50%;"></div>
+                        <div style="position: absolute; bottom: -30px; left: -20px; width: 150px; height: 150px; background: rgba(255,255,255,0.03); border-radius: 50%;"></div>
+                        <div style="position: relative; z-index: 1;"><div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem;"><div style="flex: 1; min-width: 200px;"><h2 style="margin: 0; font-size: 1.75rem; font-weight: 700; letter-spacing: -0.5px;">Welcome back, ${user.name.split(' ')[0]}! 👋</h2><p style="margin: 0.5rem 0 0 0; opacity: 0.9; font-size: 0.95rem;">${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>${user.rating !== undefined ? `<div style="margin-top: 0.75rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;"><div style="display: flex; align-items: center; gap: 0.5rem; background: rgba(255,255,255,0.15); padding: 6px 12px; border-radius: 20px; backdrop-filter: blur(10px);"><span style="font-size: 0.75rem; font-weight: 600; opacity: 0.9;">Your Rating:</span>${window.AppUI.renderStarRating(user.rating, true)}</div>${user.completionStats ? `<div style="display: flex; align-items: center; gap: 0.5rem; background: rgba(255,255,255,0.15); padding: 6px 12px; border-radius: 20px; backdrop-filter: blur(10px);"><i class="fa-solid fa-check-circle" style="color: #86efac; font-size: 0.9rem;"></i><span style="font-size: 0.85rem; font-weight: 600;">${(user.completionStats.completionRate * 100).toFixed(0)}% Complete</span></div>` : ''}</div>` : ''}</div>${isAdmin ? `<div style="position: relative; z-index: 10; flex: 1.2; display: flex; justify-content: center; min-width: 250px;"><div style="background: #f1f5f9; padding: 0.6rem 1rem; border-radius: 12px; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 0.75rem; width: 100%; max-width: 320px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);"><i class="fa-solid fa-users-viewfinder" style="color: #4f46e5; font-size: 1.1rem;"></i><div style="flex: 1;"><div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px;"><div style="font-size: 0.65rem; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Viewing Summary For</div>${targetStaffId !== user.id ? '<span style="font-size:0.55rem; color:#c2410c; background:#fff7ed; padding:1px 6px; border-radius:10px; font-weight:800; border:1px solid #ffedd5;">STAFF VIEW ACTIVE</span>' : ''}</div><select onchange="window.app_changeSummaryStaff(this.value)" style="width: 100%; background: transparent; color: #1e1b4b; border: none; font-size: 0.85rem; font-weight: 700; outline: none; cursor: pointer; padding: 0;"><option value="${user.id}">My Own Summary</option><optgroup label="Staff Members">${(allUsers || []).filter(u => u.id !== user.id).sort((a, b) => a.name.localeCompare(b.name)).map(u => `<option value="${u.id}" ${u.id === targetStaffId ? 'selected' : ''}>${u.name}</option>`).join('')}</optgroup></select></div></div></div>` : ''}<div class="welcome-icon" style="position: relative; z-index: 1;"><i class="fa-solid fa-cloud-sun" style="font-size: 3rem; color: #fbbf24; filter: drop-shadow(0 0 10px rgba(251, 191, 36, 0.4));"></i></div></div></div>
                     </div>
-
-                        <!-- Column 3: Team Schedule (Calendar) + Hero -->
-                        <div style="flex: 1.2; min-width: 320px; display: flex; flex-direction: column;">
-                            ${renderYearlyPlan(calendarPlans)}
-                            <div style="margin-top: 1rem;">
-                                ${heroHTML}
-                            </div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; grid-column: 1 / -1; margin-bottom: 0.75rem; align-items: stretch;">
+                        <div class="card check-in-widget" style="flex: 1; min-width: 210px; padding: 1rem; display: flex; flex-direction: column; justify-content: space-between; margin-bottom: 0; background: white; border: 1px solid #eef2ff;">
+                            <div style="display: flex; align-items: center; justify-content: center; gap: 1rem; margin-bottom: 0.75rem;"><div style="position: relative;"><img src="${user.avatar}" alt="Profile" style="width: 48px; height: 48px; border-radius: 50%; border: 2px solid #e0e7ff;"><div style="position: absolute; bottom: 0; right: 0; width: 12px; height: 12px; border-radius: 50%; background: ${isCheckedIn ? '#10b981' : '#94a3b8'}; border: 2px solid white;"></div></div><div style="text-align: left;"><h4 style="font-size: 0.95rem; margin: 0; color: #1e1b4b;">${user.name}</h4><p class="text-muted" style="font-size: 0.75rem; margin: 0;">${user.role}</p></div></div>
+                            <div style="text-align:center; padding: 0.5rem 0;"><div class="timer-display" id="timer-display" style="font-size: 2.25rem; font-weight: 800; color: #1e1b4b; line-height: 1; letter-spacing: -1px;">${timerHTML}</div><div id="timer-label" style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; color: #64748b; margin-top: 6px; font-weight: 600;">Elapsed Time Today</div></div>
+                            <div id="countdown-container" style="display: none; margin-bottom: 0.75rem; width: 100%;"><div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: #4b5563; margin-bottom: 4px;"><span id="countdown-label">Time to checkout</span><span id="countdown-value" style="font-weight: 600;">--:--:--</span></div><div style="width: 100%; height: 4px; background: #e5e7eb; border-radius: 2px; overflow: hidden;"><div id="countdown-progress" style="width: 0%; height: 100%; background: var(--primary); transition: width 1s linear;"></div></div></div>
+                            <div id="overtime-container" style="display: none; background: #fff7ed; border: 1px solid #ffedd5; padding: 0.5rem; border-radius: 8px; margin-bottom: 0.75rem; text-align: center;"><div style="color: #c2410c; font-weight: 700; font-size: 0.8rem; margin-bottom: 2px;">OVERTIME</div><div id="overtime-value" style="color: #ea580c; font-size: 1.1rem; font-weight: 800; font-family: monospace;">00:00:00</div></div>
+                            <button class="${btnClass}" id="attendance-btn" style="width: 100%; padding: 0.75rem; font-size: 0.9rem; border-radius: 10px; margin-top: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; transition: all 0.3s ease;">${btnText} <i class="fa-solid fa-fingerprint"></i></button>
+                            <div class="location-text" id="location-text" style="font-size: 0.65rem; color: #94a3b8; text-align: center; margin-top: 0.5rem;"><i class="fa-solid fa-location-dot"></i><span>${isCheckedIn && user.currentLocation ? `Lat: ${Number(user.currentLocation.lat).toFixed(4)}, Lng: ${Number(user.currentLocation.lng).toFixed(4)}` : 'Waiting for location...'}</span></div>
                         </div>
+                        <div class="card" style="flex: 1; min-width: 210px; padding: 1rem; margin-bottom: 0; display: flex; flex-direction: column; background: white; position: relative;">${!isViewingSelf ? `<div style="position: absolute; top: -8px; right: 10px; background: #fff7ed; color: #c2410c; padding: 2px 8px; border-radius: 10px; font-size: 0.6rem; font-weight: 800; border: 1px solid #ffedd5; box-shadow: 0 2px 4px rgba(0,0,0,0.05); z-index: 5;"><i class="fa-solid fa-user-clock"></i> ${targetStaff?.name || 'Staff'}'s Activity</div>` : ''}<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;"><h4 style="margin: 0; font-size: 0.95rem; color: #1e1b4b;"><i class="fa-solid fa-history" style="color: #6366f1; margin-right: 6px;"></i> Recent Activity</h4><a href="#timesheet" onclick="window.location.hash = 'timesheet'; return false;" style="font-size: 0.7rem; color: #4338ca; text-decoration: none; font-weight: 600;">View All</a></div><div style="display: flex; flex-direction: column; gap: 0.75rem; flex: 1; overflow-y: auto; max-height: 250px; padding-right: 4px;">${recentLogs.length > 0 ? recentLogs.slice(0, 3).map(log => `<div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.5rem; border-bottom: 1px solid #f8fafc;"><div><div style="font-size: 0.8rem; font-weight: 600; color: #334155;">${log.date}</div><div style="font-size: 0.7rem; color: #64748b;">${log.checkIn} - ${log.checkOut || '<span style="color:#10b981;">Active</span>'}</div></div><div style="font-size: 0.8rem; font-weight: 700; color: #4338ca; background: #eef2ff; padding: 2px 8px; border-radius: 6px;">${log.duration || '--'}</div></div>`).join('') : '<p style="font-size: 0.8rem; color: #94a3b8; text-align: center; margin-top: 1rem;">No recent sessions</p>'}</div></div>
+                        <div style="flex: 1.2; min-width: 210px; display: flex; flex-direction: column;">${renderWorkLog(logs, collaborations)}</div>
+                        ${isAdmin ? `<div style="flex: 1.2; min-width: 210px; display: flex; flex-direction: column;">${renderActivityLog(staffActivities)}</div>` : ''}
                     </div>
-            `;
+                    ${summaryHTML}
+                </div>`;
+        },
+
+        async renderAnnualPlan() {
+            const today = new Date();
+            const year = window.app_annualYear || today.getFullYear();
+            const user = window.AppAuth.getUser();
+            const plans = await window.AppCalendar.getPlans();
+            const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+            const getDayMarkers = (d, m, y) => {
+                const dateStr = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const hasLeave = (plans.leaves || []).some(l => dateStr >= l.startDate && dateStr <= l.endDate);
+                const hasEvent = (plans.events || []).some(e => e.date === dateStr);
+                const hasWork = (plans.workPlans || []).some(p => p.date === dateStr);
+                let workStatus = '';
+                if (hasWork) {
+                    const daily = plans.workPlans.filter(p => p.date === dateStr);
+                    let worst = 'to-be-started';
+                    daily.forEach(p => {
+                        (p.plans || []).forEach(task => {
+                            const s = window.AppCalendar.getSmartTaskStatus(dateStr, task.status);
+                            if (s === 'overdue') worst = 'overdue';
+                            else if (s === 'in-process' && worst !== 'overdue') worst = 'in-process';
+                            else if (s === 'completed' && worst !== 'overdue' && worst !== 'in-process') worst = 'completed';
+                        });
+                    });
+                    workStatus = worst;
+                }
+                return { hasLeave, hasEvent, hasWork, workStatus };
+            };
+
+            let monthsHTML = '';
+            for (let m = 0; m < 12; m++) {
+                const firstDay = new Date(year, m, 1).getDay();
+                const daysInMonth = new Date(year, m + 1, 0).getDate();
+                let daysHTML = '';
+                for (let i = 0; i < firstDay; i++) daysHTML += '<div class="annual-day empty"></div>';
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const markers = getDayMarkers(d, m, year);
+                    const isToday = d === today.getDate() && m === today.getMonth() && year === today.getFullYear();
+                    const dateStr = `${year}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                    let bgClass = markers.hasWork ? `has-work work-${markers.workStatus}` : '';
+                    daysHTML += `
+                        <div class="annual-day ${isToday ? 'today' : ''} ${bgClass}" onclick="window.app_openDayPlan('${dateStr}')">
+                            ${d}
+                            <div class="dot-container">
+                                ${markers.hasLeave ? '<span class="status-dot dot-leave"></span>' : ''}
+                                ${markers.hasEvent ? '<span class="status-dot dot-event"></span>' : ''}
+                                ${markers.hasWork ? '<span class="status-dot dot-work"></span>' : ''}
+                            </div>
+                        </div>`;
+                }
+                monthsHTML += `
+                    <div class="annual-month-card">
+                        <h4 style="margin-top:0; margin-bottom:1rem; color:var(--primary); font-size:1rem; border-bottom:1px solid #f1f5f9; padding-bottom:0.5rem; display:flex; justify-content:space-between;">
+                            ${monthNames[m]}
+                            <span style="font-size:0.7rem; color:#94a3b8; font-weight:400;">${year}</span>
+                        </h4>
+                        <div class="annual-cal-mini">
+                            <div style="font-weight:700; color:#9ca3af; text-align:center;">S</div>
+                            <div style="font-weight:700; color:#9ca3af; text-align:center;">M</div>
+                            <div style="font-weight:700; color:#9ca3af; text-align:center;">T</div>
+                            <div style="font-weight:700; color:#9ca3af; text-align:center;">W</div>
+                            <div style="font-weight:700; color:#9ca3af; text-align:center;">T</div>
+                            <div style="font-weight:700; color:#9ca3af; text-align:center;">F</div>
+                            <div style="font-weight:700; color:#9ca3af; text-align:center;">S</div>
+                            ${daysHTML}
+                        </div>
+                    </div>`;
             }
 
             return `
-                <div class="dashboard-grid" >
-                    <div class="card welcome-card full-width" style="background: linear-gradient(135deg, #1e1b4b 0%, #4338ca 100%); position: relative; overflow: hidden; min-height: 120px; display: flex; align-items: center; padding: 1.25rem; gap: 1.5rem;">
-                        <!-- Premium Background Decorations -->
-                        <div style="position: absolute; top: -30px; right: -30px; width: 180px; height: 180px; background: rgba(255,255,255,0.05); border-radius: 50%;"></div>
-                        <div style="position: absolute; bottom: -50px; left: -20px; width: 120px; height: 120px; background: rgba(255,255,255,0.03); border-radius: 50%;"></div>
-
-                        <!-- Left: Welcome Text -->
-                        <div style="position: relative; z-index: 1; flex: 1; min-width: 200px;">
-                            <h2 style="font-size: 1.5rem; font-weight: 700; margin: 0; letter-spacing: -0.5px;">Good Afternoon, ${user.name}</h2>
-                            <p style="opacity: 0.9; margin-top: 0.35rem; font-size: 0.9rem;">Welcome back! Ready to start your productive day?</p>
+                <div style="display:flex; flex-direction:column; gap:1.5rem;">
+                    <div class="card" style="padding:1.5rem; display:flex; justify-content:space-between; align-items:center;">
+                        <div>
+                            <h2 style="margin:0; color:#1e1b4b; font-size:1.5rem;">NGO Annual Planning</h2>
+                            <p style="margin:0.25rem 0 0 0; color:#64748b; font-size:0.9rem;">Overview of all staff activities, leaves, and shared events for ${year}.</p>
                         </div>
-
-                        <!-- Middle: Staff Selector (Admin Only) -->
-                        ${isAdmin ? `
-                            <div style="position: relative; z-index: 10; flex: 1.2; display: flex; justify-content: center; min-width: 250px;">
-                                <div style="background: #f1f5f9; padding: 0.6rem 1rem; border-radius: 12px; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 0.75rem; width: 100%; max-width: 320px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
-                                    <i class="fa-solid fa-users-viewfinder" style="color: #4f46e5; font-size: 1.1rem;"></i>
-                                    <div style="flex: 1;">
-                                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px;">
-                                            <div style="font-size: 0.65rem; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Viewing Summary For</div>
-                                            ${targetStaffId !== user.id ? '<span style="font-size:0.55rem; color:#c2410c; background:#fff7ed; padding:1px 6px; border-radius:10px; font-weight:800; border:1px solid #ffedd5;">STAFF VIEW ACTIVE</span>' : ''}
-                                        </div>
-                                        <select onchange="window.app_changeSummaryStaff(this.value)" style="width: 100%; background: transparent; color: #1e1b4b; border: none; font-size: 0.85rem; font-weight: 700; outline: none; cursor: pointer; padding: 0;">
-                                            <option value="${user.id}">My Own Summary</option>
-                                            <optgroup label="Staff Members">
-                                                ${(allUsers || []).filter(u => u.id !== user.id).sort((a, b) => a.name.localeCompare(b.name)).map(u => `
-                                                    <option value="${u.id}" ${u.id === targetStaffId ? 'selected' : ''}>${u.name}</option>
-                                                `).join('')}
-                                            </optgroup>
-                                        </select>
-                                    </div>
-                                </div>
+                        <div style="display:flex; gap:1rem; align-items:center;">
+                            <div style="display:flex; background:#f1f5f9; border-radius:10px; padding:4px;">
+                                <button onclick="window.app_changeAnnualYear(-1)" style="border:none; background:none; padding:8px 12px; cursor:pointer; color:#475569;"><i class="fa-solid fa-chevron-left"></i></button>
+                                <div style="display:flex; align-items:center; padding:0 1rem; font-weight:700; color:#1e1b4b;">${year}</div>
+                                <button onclick="window.app_changeAnnualYear(1)" style="border:none; background:none; padding:8px 12px; cursor:pointer; color:#475569;"><i class="fa-solid fa-chevron-right"></i></button>
                             </div>
-                        ` : ''}
-
-                        <!-- Right: Icon -->
-                        <div class="welcome-icon" style="position: relative; z-index: 1;">
-                            <i class="fa-solid fa-cloud-sun" style="font-size: 3rem; color: #fbbf24; filter: drop-shadow(0 0 10px rgba(251, 191, 36, 0.4));"></i>
                         </div>
                     </div>
-
-
-                    ${notifHTML}
-
-                    <!-- Top Widgets Row: Timer, Recent Activity, Work Log, [Team Activities if Admin] -->
-                <div style="display: flex; flex-wrap: wrap; gap: 1rem; grid-column: 1 / -1; margin-bottom: 1rem; align-items: stretch;">
-
-                    <!-- 1. Check-in Timer Widget -->
-                    <div class="card check-in-widget" style="flex: 1; min-width: 240px; padding: 1.25rem; display: flex; flex-direction: column; justify-content: space-between; margin-bottom: 0; background: white; border: 1px solid #eef2ff;">
-                        <div style="display: flex; align-items: center; justify-content: center; gap: 1rem; margin-bottom: 0.75rem;">
-                            <div style="position: relative;">
-                                <img src="${user.avatar}" alt="Profile" style="width: 48px; height: 48px; border-radius: 50%; border: 2px solid #e0e7ff;">
-                                    <div style="position: absolute; bottom: 0; right: 0; width: 12px; height: 12px; border-radius: 50%; background: ${isCheckedIn ? '#10b981' : '#94a3b8'}; border: 2px solid white;"></div>
-                            </div>
-                            <div style="text-align: left;">
-                                <h4 style="font-size: 0.95rem; margin: 0; color: #1e1b4b;">${user.name}</h4>
-                                <p class="text-muted" style="font-size: 0.75rem; margin: 0;">${user.role}</p>
-                            </div>
-                        </div>
-
-                        <div style="text-align:center; padding: 0.5rem 0;">
-                            <div class="timer-display" id="timer-display" style="font-size: 2.25rem; font-weight: 800; color: #1e1b4b; line-height: 1; letter-spacing: -1px;">${timerHTML}</div>
-                            <div id="timer-label" style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; color: #64748b; margin-top: 6px; font-weight: 600;">Elapsed Time Today</div>
-                        </div>
-
-                        <!-- Progress / Countdown Area -->
-                        <div id="countdown-container" style="display: none; margin-bottom: 0.75rem; width: 100%;">
-                            <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: #4b5563; margin-bottom: 4px;">
-                                <span id="countdown-label">Time to checkout</span>
-                                <span id="countdown-value" style="font-weight: 600;">--:--:--</span>
-                            </div>
-                            <div style="width: 100%; height: 4px; background: #e5e7eb; border-radius: 2px; overflow: hidden;">
-                                <div id="countdown-progress" style="width: 0%; height: 100%; background: var(--primary); transition: width 1s linear;"></div>
-                            </div>
-                        </div>
-
-                        <!-- Overtime Alert Area -->
-                        <div id="overtime-container" style="display: none; background: #fff7ed; border: 1px solid #ffedd5; padding: 0.5rem; border-radius: 8px; margin-bottom: 0.75rem; text-align: center;">
-                            <div style="color: #c2410c; font-weight: 700; font-size: 0.8rem; margin-bottom: 2px;">OVERTIME</div>
-                            <div id="overtime-value" style="color: #ea580c; font-size: 1.1rem; font-weight: 800; font-family: monospace;">00:00:00</div>
-                        </div>
-
-                        <button class="${btnClass}" id="attendance-btn" style="width: 100%; padding: 0.75rem; font-size: 0.9rem; border-radius: 10px; margin-top: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; transition: all 0.3s ease;">
-                            ${btnText} <i class="fa-solid fa-fingerprint"></i>
-                        </button>
-
-                        <div class="location-text" id="location-text" style="font-size: 0.65rem; color: #94a3b8; text-align: center; margin-top: 0.5rem;">
-                            <i class="fa-solid fa-location-dot"></i>
-                            <span>
-                                ${isCheckedIn && user.currentLocation
-                    ? `Lat: ${Number(user.currentLocation.lat).toFixed(4)}, Lng: ${Number(user.currentLocation.lng).toFixed(4)}`
-                    : 'Waiting for location...'}
-                            </span>
-                        </div>
+                    <div class="card" style="padding:1rem; display:flex; gap:2rem; flex-wrap:wrap; font-size:0.8rem; color:#475569; justify-content:center; background:#f8fafc; border:none; box-shadow:none;">
+                        <span style="display:flex; align-items:center; gap:6px;"><span style="width:8px; height:8px; border-radius:50%; background:#ef4444;"></span> Staff Leave</span>
+                        <span style="display:flex; align-items:center; gap:6px;"><span style="width:8px; height:8px; border-radius:50%; background:#10b981;"></span> Company Event</span>
+                        <span style="display:flex; align-items:center; gap:6px;"><span style="width:8px; height:8px; border-radius:50%; background:#6366f1;"></span> Work Plan</span>
+                        <span style="display:flex; align-items:center; gap:6px; margin-left:1rem; border-left:1px solid #e2e8f0; padding-left:1rem;">
+                            <span style="font-weight:700; color:#94a3b8; margin-right:4px;">BORDERS:</span>
+                            <span style="display:flex; align-items:center; gap:4px; padding:2px 8px; border:1.5px solid #fecaca; border-radius:4px; font-size:0.7rem;">Overdue</span>
+                            <span style="display:flex; align-items:center; gap:4px; padding:2px 8px; border:1.5px solid #bbf7d0; border-radius:4px; font-size:0.7rem;">Completed</span>
+                        </span>
                     </div>
-
-                        <!-- 2. Recent Activity -->
-                        <div class="card" style="flex: 1; min-width: 240px; padding: 1.25rem; margin-bottom: 0; display: flex; flex-direction: column; background: white; position: relative;">
-                            ${!isViewingSelf ? `
-                                <div style="position: absolute; top: -8px; right: 10px; background: #fff7ed; color: #c2410c; padding: 2px 8px; border-radius: 10px; font-size: 0.6rem; font-weight: 800; border: 1px solid #ffedd5; box-shadow: 0 2px 4px rgba(0,0,0,0.05); z-index: 5;">
-                                    <i class="fa-solid fa-user-clock"></i> ${targetStaff?.name || 'Staff'}'s Activity
-                                </div>
-                            ` : ''}
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;">
-                                <h4 style="margin: 0; font-size: 0.95rem; color: #1e1b4b;"><i class="fa-solid fa-history" style="color: #6366f1; margin-right: 6px;"></i> Recent Activity</h4>
-                                <a href="#timesheet" onclick="window.location.hash = 'timesheet'; return false;" style="font-size: 0.7rem; color: #4338ca; text-decoration: none; font-weight: 600;">View All</a>
-                            </div>
-                        <div style="display: flex; flex-direction: column; gap: 0.75rem; flex: 1; overflow-y: auto; max-height: 250px; padding-right: 4px;">
-                            ${recentLogs.length > 0 ? recentLogs.slice(0, 3).map(log => `
-                                    <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.5rem; border-bottom: 1px solid #f8fafc;">
-                                        <div>
-                                            <div style="font-size: 0.8rem; font-weight: 600; color: #334155;">${log.date}</div>
-                                            <div style="font-size: 0.7rem; color: #64748b;">${log.checkIn} - ${log.checkOut || '<span style="color:#10b981;">Active</span>'}</div>
-                                        </div>
-                                        <div style="font-size: 0.8rem; font-weight: 700; color: #4338ca; background: #eef2ff; padding: 2px 8px; border-radius: 6px;">${log.duration || '--'}</div>
-                                    </div>
-                                `).join('') : '<p style="font-size: 0.8rem; color: #94a3b8; text-align: center; margin-top: 1rem;">No recent sessions</p>'}
-                        </div>
+                    <div class="annual-plan-grid">
+                        ${monthsHTML}
                     </div>
-
-                        <!-- 3. Activity Log (Compact) -->
-                        <div class="card" style="flex: 1; min-width: 240px; padding: 1.25rem; margin-bottom: 0; display: flex; flex-direction: column; background: white; position: relative;">
-                            ${!isViewingSelf ? `
-                                <div style="position: absolute; top: -8px; right: 10px; background: #fff7ed; color: #c2410c; padding: 2px 8px; border-radius: 10px; font-size: 0.6rem; font-weight: 800; border: 1px solid #ffedd5; box-shadow: 0 2px 4px rgba(0,0,0,0.05); z-index: 5;">
-                                    <i class="fa-solid fa-clipboard-user"></i> ${targetStaff?.name || 'Staff'}'s Log
-                                </div>
-                            ` : ''}
-                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;">
-                                <h4 style="margin: 0; font-size: 0.95rem; color: #1e1b4b;"><i class="fa-solid fa-clipboard-list" style="color: #6366f1; margin-right: 6px;"></i> Work Log</h4>
-                            <div style="display: flex; gap: 4px;">
-                                <input type="date" id="act-start" value="${new Date().toISOString().split('T')[0]}" style="border: 1px solid #e2e8f0; border-radius: 4px; padding: 2px 4px; font-size: 0.65rem; width: 85px; outline: none;">
-                                    <button onclick="window.app_filterActivity()" style="background: #4338ca; color: white; border: none; border-radius: 4px; padding: 2px 6px; font-size: 0.65rem; cursor: pointer;"><i class="fa-solid fa-sync"></i></button>
-                            </div>
-                        </div>
-                        <div id="activity-list" style="flex: 1; overflow-y: auto; max-height: 250px; font-size: 0.75rem; padding-right: 4px;">
-                            ${renderActivityList(logs, new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], new Date().toISOString().split('T')[0], collaborations)}
-                        </div>
-                    </div>
-
-                    <!-- 4. Team Activities (Admin Only) -->
-                    ${isAdmin ? `
-                        <div style="flex: 1; min-width: 240px; display: flex; flex-direction: column;">
-                            ${renderStaffActivityWidget(staffActivities)}
-                        </div>
-                    ` : ''}
-                </div>
-
-                    ${summaryHTML}
-
-                    <!--Full Width Area(If needed for future content) -->
-                <div style="grid-column: 1 / -1; display: grid; gap: 1rem;">
-                    <!-- Any future bottom widgets -->
-                </div>
-                </div >
-                `;
+                </div>`;
         },
+
 
         async renderTimesheet() {
             const user = window.AppAuth.getUser();
@@ -1249,7 +1169,7 @@
                 if (log.date) uniqueDays.add(log.date);
             });
 
-            const totalHoursFormatted = `${Math.floor(totalMins / 60)}h ${Math.round(totalMins % 60)} m`;
+            const totalHoursFormatted = `${Math.floor(totalMins / 60)}h ${Math.round(totalMins % 60)}m`;
 
             // Helper for updating descriptions
             window.app_editWorkSummary = async (logId) => {
@@ -1265,8 +1185,8 @@
             };
 
             return `
-                <div class="card full-width" style = "border: none; box-shadow: var(--shadow-md);" >
-                    <!--Header Actions-->
+                <div class="card full-width" style="border: none; box-shadow: var(--shadow-md);">
+                    <!-- Header Actions -->
                     <div class="timesheet-controls">
                         <div>
                             <h3 style="margin: 0; font-size: 1.25rem;">My Timesheet</h3>
@@ -1282,7 +1202,7 @@
                         </div>
                     </div>
 
-                    <!--Monthly Quick Stats-->
+                    <!-- Monthly Quick Stats -->
                     <div class="stat-grid" style="margin-top: 1rem;">
                         <div class="stat-card">
                             <div class="label">Total Hours</div>
@@ -1302,7 +1222,7 @@
                         </div>
                     </div>
 
-                    <!--Workflow Filter Bar-->
+                    <!-- Workflow Filter Bar -->
                     <div style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc; padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; border: 1px solid #e2e8f0;">
                         <div class="filter-group">
                             <i class="fa-solid fa-filter" style="color: #64748b; font-size: 0.8rem;"></i>
@@ -1369,18 +1289,17 @@
                             </tbody>
                         </table>
                     </div>
-                </div >
+                </div>
 
                 <style>
                     @keyframes pulse {
-                        0 % { opacity: 1; }
-                        50% {opacity: 0.4; }
-                    100% {opacity: 1; }
+                        0% { opacity: 1; }
+                        50% { opacity: 0.4; }
+                        100% { opacity: 1; }
                     }
                 </style>
             `;
         },
-
         async renderProfile() {
             try {
                 const user = window.AppAuth.getUser();
@@ -1414,156 +1333,132 @@
                 };
 
                 return `
-                <div class="dashboard-grid" >
+                <div class="dashboard-grid">
                     <div class="card full-width" style="padding: 0; overflow: hidden; border: none; box-shadow: var(--shadow-lg);">
                         <!-- Compact Header -->
                         <div class="profile-header-compact">
                             <div class="profile-avatar-container">
                                 <img src="${user.avatar}" alt="Profile">
-                                    <button onclick="window.app_triggerUpload()" style="position: absolute; bottom: 0; right: 0; background: var(--primary); color: white; border: 2px solid #1E1B4B; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.2);" title="Change Photo">
-                                        <i class="fa-solid fa-camera" style="font-size: 0.7rem;"></i>
-                                    </button>
-                                    <input type="file" id="profile-upload" accept="image/*" style="display: none;" onchange="window.app_handlePhotoUpload(this)">
-                                    </div>
-                                    <div>
-                                        <h2 style="margin: 0; font-size: 1.5rem; font-weight: 700;">${user.name}</h2>
-                                        <p style="margin: 4px 0 0; opacity: 0.8; font-size: 0.9rem; font-weight: 500;">
-                                            ${user.role} <span style="margin: 0 0.5rem; opacity: 0.5;">|</span> ${user.dept || 'General'}
-                                        </p>
-                                        <div style="margin-top: 10px; display: flex; gap: 8px;">
-                                            <span class="badge ${user.status === 'in' ? 'in' : 'out'}" style="background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.2); font-size: 0.7rem;">
-                                                ${user.status === 'in' ? '● Online' : '○ Offline'}
-                                            </span>
-                                        </div>
-                                    </div>
+                                <button onclick="window.app_triggerUpload()" style="position: absolute; bottom: 0; right: 0; background: var(--primary); color: white; border: 2px solid #1E1B4B; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.2);" title="Change Photo">
+                                    <i class="fa-solid fa-camera" style="font-size: 0.7rem;"></i>
+                                </button>
+                                <input type="file" id="profile-upload" accept="image/*" style="display: none;" onchange="window.app_handlePhotoUpload(this)">
                             </div>
-
-                            <!-- Information Grid -->
-                            <div style="padding: 1.5rem; display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
-                                <!-- Left: Stats -->
-                                <div style="border-right: 1px solid #f3f4f6; padding-right: 2rem;">
-                                    <h3 style="font-size: 0.9rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 1rem;">Performance Stats</h3>
-                                    <div class="stat-grid" style="grid-template-columns: repeat(2, 1fr);">
-                                        <div class="stat-card">
-                                            <div class="label">Monthly Attendance</div>
-                                            <div class="value">${monthlyStats.present} <span style="font-size: 0.7rem; color: #6b7280;">Days</span></div>
-                                        </div>
-                                        <div class="stat-card">
-                                            <div class="label">Total Leaves (FY)</div>
-                                            <div class="value">${yearlyStats.leaves} <span style="font-size: 0.7rem; color: #6b7280;">Days</span></div>
-                                        </div>
-                                        <div class="stat-card">
-                                            <div class="label">Monthly Lates</div>
-                                            <div class="value" style="color: ${monthlyStats.late > 2 ? 'var(--accent)' : 'var(--text-main)'}">${monthlyStats.late}</div>
-                                        </div>
-                                        <div class="stat-card">
-                                            <div class="label">Work Intensity</div>
-                                            <div class="value">${monthlyStats.totalExtraDuration.split(' ')[0]} <span style="font-size: 0.7rem; color: #6b7280;">Extra</span></div>
-                                        </div>
-                                    </div>
-
-                                    <div style="margin-top: 1rem; padding: 1rem; background: #f0fdf4; border-radius: var(--radius-md); border: 1px solid #dcfce7; display: flex; align-items: center; gap: 1rem;">
-                                        <div style="width: 40px; height: 40px; border-radius: 50%; background: var(--success); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
-                                            <i class="fa-solid fa-trophy"></i>
-                                        </div>
-                                        <div>
-                                            <div style="font-weight: 700; color: #065f46; font-size: 0.9rem;">Excellent Consistency!</div>
-                                            <div style="font-size: 0.75rem; color: #047857;">You are in the top 10% of active staff this month.</div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- Right: Details & Actions -->
-                                <div>
-                                    <h3 style="font-size: 0.9rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 1rem;">Work Details</h3>
-                                    <div style="display: flex; flex-direction: column; gap: 1rem;">
-                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #f3f4f6; padding-bottom: 8px;">
-                                            <span style="color: #6b7280; font-size: 0.85rem;">Login ID</span>
-                                            <span style="font-weight: 600; font-family: monospace;">${user.username}</span>
-                                        </div>
-                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #f3f4f6; padding-bottom: 8px;">
-                                            <span style="color: #6b7280; font-size: 0.85rem;">Email</span>
-                                            <span style="font-weight: 600;">${user.email || '--'}</span>
-                                        </div>
-                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #f3f4f6; padding-bottom: 8px;">
-                                            <span style="color: #6b7280; font-size: 0.85rem;">Phone</span>
-                                            <span style="font-weight: 600;">${user.phone || '--'}</span>
-                                        </div>
-                                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #f3f4f6; padding-bottom: 8px;">
-                                            <span style="color: #6b7280; font-size: 0.85rem;">Joining Date</span>
-                                            <span style="font-weight: 600;">${user.joinDate || '--'}</span>
-                                        </div>
-                                    </div>
-
-                                    <div style="margin-top: 2rem; display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
-                                        <button class="action-btn" onclick="window.AppTour.resetTour('${user.id}')" style="background: white; color: var(--primary); border: 1px solid #c7d2fe; box-shadow: none; padding: 0.5rem; font-size: 0.8rem; width: 100%;">
-                                            <i class="fa-solid fa-circle-question"></i> Replay Tour
-                                        </button>
-                                        <button class="action-btn" onclick="document.dispatchEvent(new CustomEvent('auth-logout'))" style="background: white; color: #991b1b; border: 1px solid #fecaca; box-shadow: none; padding: 0.5rem; font-size: 0.8rem; width: 100%;">
-                                            <i class="fa-solid fa-arrow-right-from-bracket"></i> Sign Out
-                                        </button>
-                                    </div>
+                            <div>
+                                <h2 style="margin: 0; font-size: 1.5rem; font-weight: 700;">${user.name}</h2>
+                                <p style="margin: 4px 0 0; opacity: 0.8; font-size: 0.9rem; font-weight: 500;">
+                                    ${user.role} <span style="margin: 0 0.5rem; opacity: 0.5;">|</span> ${user.dept || 'General'}
+                                </p>
+                                <div style="margin-top: 10px; display: flex; gap: 8px;">
+                                    <span class="badge ${user.status === 'in' ? 'in' : 'out'}" style="background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.2); font-size: 0.7rem;">
+                                        ${user.status === 'in' ? '● Online' : '○ Offline'}
+                                    </span>
                                 </div>
                             </div>
-
-                            <!-- Mobile View Adjustment -->
-                            <style>
-                                @media (max-width: 768px) {
-                                    .profile - header - compact {flex - direction: column; text-align: center; gap: 1rem; }
-                                    .dashboard-grid > .full-width > div:nth-child(2) {grid - template - columns: 1fr !important; gap: 2rem; }
-                                    .dashboard-grid > .full-width > div:nth-child(2) > div:first-child {border - right: none !important; padding-right: 0 !important; border-bottom: 1px solid #f3f4f6; padding-bottom: 2rem; }
-                                }
-                            </style>
                         </div>
 
-                        <!-- Leave History (More Compact) -->
-                        <div class="card full-width" style="margin-top: 1rem;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                                <h3 style="margin: 0; font-size: 1.1rem;">My Leave History</h3>
-                                <button class="action-btn secondary" style="padding: 0.4rem 0.8rem; font-size: 0.75rem;" onclick="document.getElementById('leave-modal').style.display='flex'">
-                                    <i class="fa-solid fa-plus"></i> Request Leave
-                                </button>
+                        <!-- Information Grid -->
+                        <div style="padding: 1rem; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <!-- Left: Stats -->
+                            <div style="border-right: 1px solid #f3f4f6; padding-right: 1rem;">
+                                <h3 style="font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.75rem;">Performance Stats</h3>
+                                <div class="stat-grid" style="grid-template-columns: repeat(2, 1fr); gap: 0.5rem;">
+                                    <div class="stat-card">
+                                        <div class="label">Monthly Attendance</div>
+                                        <div class="value">${monthlyStats.present} <span style="font-size: 0.7rem; color: #6b7280;">Days</span></div>
+                                    </div>
+                                    <div class="stat-card">
+                                        <div class="label">Total Leaves (FY)</div>
+                                        <div class="value">${yearlyStats.leaves} <span style="font-size: 0.7rem; color: #6b7280;">Days</span></div>
+                                    </div>
+                                    <div class="stat-card">
+                                        <div class="label">Late Arrivals</div>
+                                        <div class="value">${monthlyStats.late}</div>
+                                    </div>
+                                    <div class="stat-card">
+                                        <div class="label">Policy Rating</div>
+                                        <div class="value">${(user.rating || 5.0).toFixed(1)} <i class="fa-solid fa-star" style="color: #eab308; font-size: 0.7rem;"></i></div>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="table-container mobile-table-card">
-                                <table class="compact-table">
-                                    <thead>
-                                        <tr style="background: #f9fafb;">
-                                            <th>Date Range</th>
-                                            <th>Type</th>
-                                            <th>Reason</th>
-                                            <th>Status</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        ${leaves.length ? leaves.slice(0, 5).map(l => {
-                    let badgeColor = '#f3f4f6'; let textColor = '#374151';
-                    if (l.status === 'Approved') { badgeColor = '#dcfce7'; textColor = '#166534'; }
-                    if (l.status === 'Rejected') { badgeColor = '#fee2e2'; textColor = '#991b1b'; }
 
-                    return `
-                                                <tr style="border-bottom: 1px solid #f3f4f6;">
-                                                    <td data-label="Dates">
-                                                        <div style="font-weight: 600; font-size: 0.85rem;">${l.startDate}</div>
-                                                        <div style="font-size: 0.75rem; color: #9ca3af;">to ${l.endDate}</div>
-                                                    </td>
-                                                    <td data-label="Type" style="font-size: 0.85rem;">${l.type}</td>
-                                                    <td data-label="Reason" style="font-size: 0.8rem; color: #6b7280; max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${l.reason}">${l.reason}</td>
-                                                    <td data-label="Status">
-                                                        <span style="background:${badgeColor}; color:${textColor}; padding:4px 8px; border-radius:4px; font-size:0.75rem; font-weight:700;">${l.status}</span>
-                                                        ${l.adminComment ? `<div style="font-size: 0.7rem; color: #4338ca; margin-top: 2px; font-style: italic;">Note: ${l.adminComment}</div>` : ''}
-                                                    </td>
-                                                </tr>`;
-                }).join('') : '<tr><td colspan="4" style="text-align:center; padding:1.5rem; color:#9ca3af;">No leave history found.</td></tr>'}
-                                    </tbody>
-                                </table>
-                                ${leaves.length > 5 ? `<div style="text-align: center; margin-top: 0.75rem;"><a href="#" style="font-size: 0.8rem; color: var(--primary); font-weight: 600;">View All Requests</a></div>` : ''}
+                            <!-- Right: Contact / Bio -->
+                            <div>
+                                <h3 style="font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.75rem;">Employment Details</h3>
+                                <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                        <div style="width: 32px; height: 32px; border-radius: 8px; background: #f1f5f9; display: flex; align-items: center; justify-content: center; color: #64748b;">
+                                            <i class="fa-solid fa-envelope"></i>
+                                        </div>
+                                        <div>
+                                            <div style="font-size: 0.65rem; color: #94a3b8; font-weight: 600;">EMAIL ADDRESS</div>
+                                            <div style="font-size: 0.85rem; color: #1e293b; font-weight: 500;">${user.username || 'N/A'}</div>
+                                        </div>
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                        <div style="width: 32px; height: 32px; border-radius: 8px; background: #f1f5f9; display: flex; align-items: center; justify-content: center; color: #64748b;">
+                                            <i class="fa-solid fa-id-card"></i>
+                                        </div>
+                                        <div>
+                                            <div style="font-size: 0.65rem; color: #94a3b8; font-weight: 600;">STAFF ID</div>
+                                            <div style="font-size: 0.85rem; color: #1e293b; font-weight: 500;">${user.id.toUpperCase()}</div>
+                                        </div>
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                        <div style="width: 32px; height: 32px; border-radius: 8px; background: #f1f5f9; display: flex; align-items: center; justify-content: center; color: #64748b;">
+                                            <i class="fa-solid fa-calendar-check"></i>
+                                        </div>
+                                        <div>
+                                            <div style="font-size: 0.65rem; color: #94a3b8; font-weight: 600;">JOINING DATE</div>
+                                            <div style="font-size: 0.85rem; color: #1e293b; font-weight: 500;">${user.joinDate || 'Jan 01, 2024'}</div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
-            `;
+
+                    <!-- Leaves Overview -->
+                    <div class="card full-width" style="padding: 1.25rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                            <h3 style="margin: 0; font-size: 1rem;">Leave History</h3>
+                            <button onclick="document.getElementById('leave-modal').style.display='flex'" class="action-btn secondary" style="font-size: 0.75rem; padding: 4px 12px;">Request New</button>
+                        </div>
+                        <div class="table-container" style="max-height: 200px; overflow-y: auto;">
+                            <table class="compact-table">
+                                <thead style="background: #f8fafc; position: sticky; top: 0; z-index: 1;">
+                                    <tr>
+                                        <th>Date Range</th>
+                                        <th>Type</th>
+                                        <th>Status</th>
+                                        <th>Reason</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${leaves.length ? leaves.map(l => `
+                                        <tr>
+                                            <td style="font-size: 0.8rem; font-weight: 500;">${l.startDate} ${l.endDate !== l.startDate ? `to ${l.endDate}` : ''}</td>
+                                            <td><span style="font-size: 0.75rem; color: #475569; background: #f1f5f9; padding: 2px 6px; border-radius: 4px;">${l.type}</span></td>
+                                            <td>
+                                                <span class="badge" style="
+                                                    background: ${l.status === 'approved' ? '#f0fdf4' : (l.status === 'rejected' ? '#fff1f2' : '#fefce8')};
+                                                    color: ${l.status === 'approved' ? '#166534' : (l.status === 'rejected' ? '#991b1b' : '#854d0e')};
+                                                    border: 1px solid ${l.status === 'approved' ? '#dcfce7' : (l.status === 'rejected' ? '#fecaca' : '#fef08a')};
+                                                ">
+                                                    ${l.status.toUpperCase()}
+                                                </span>
+                                            </td>
+                                            <td style="font-size: 0.75rem; color: #64748b; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${l.reason}">${l.reason}</td>
+                                        </tr>
+                                    `).join('') : '<tr><td colspan="4" style="text-align: center; color: #94a3b8; padding: 2rem;">No leave requests yet.</td></tr>'}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>`;
             } catch (e) {
                 console.error("Profile Render Error", e);
-                return `<div style = "padding: 2rem; color: red;" > Error loading profile: ${e.message}</div > `;
+                return `<div style="padding: 2rem; color: red;">Error loading profile: ${e.message}</div>`;
             }
         },
 
@@ -1574,11 +1469,10 @@
             const currentMonth = month !== null ? parseInt(month) : now.getMonth();
             const currentYear = year !== null ? parseInt(year) : now.getFullYear();
 
-            // Filtered Query for Logs (Optimization)
-            const startDateStr = `${currentYear} -${String(currentMonth + 1).padStart(2, '0')}-01`;
-            const endDateStr = `${currentYear} -${String(currentMonth + 1).padStart(2, '0')} -31`;
+            // Filtered Query for Logs
+            const startDateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
+            const endDateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-31`;
             const logs = await window.AppDB.query('attendance', 'date', '>=', startDateStr);
-            // Further filter in memory for end date (or add another query param if we had a complex query method)
             const filteredLogs = logs.filter(l => l.date <= endDateStr);
 
             // Days in selected month
@@ -1588,22 +1482,22 @@
             const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
             return `
-                <div class="dashboard-grid" >
+                <div class="dashboard-grid">
                     <div class="card full-width">
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
                             <div>
-                                <h2 style="font-size:1.25rem; margin-bottom:0.15rem;">Attendance Sheet</h2>
-                                <p style="color:var(--text-muted); font-size:0.85rem;">Master grid view for all staff logs.</p>
+                                <h2 style="font-size:1.1rem; margin-bottom:0.1rem;">Attendance Sheet</h2>
+                                <p style="color:var(--text-muted); font-size:0.75rem;">Master grid view for all staff logs.</p>
                             </div>
-                            <div style="display:flex; gap:0.75rem; align-items:center;">
-                                <select onchange="window.app_refreshMasterSheet()" id="sheet-month" style="padding:0.5rem; border-radius:8px; border:1px solid #ddd;">
+                            <div style="display:flex; gap:0.5rem; align-items:center;">
+                                <select onchange="window.app_refreshMasterSheet()" id="sheet-month" style="padding:0.4rem; border-radius:6px; border:1px solid #ddd; font-size:0.8rem;">
                                     ${monthNames.map((m, i) => `<option value="${i}" ${i === currentMonth ? 'selected' : ''}>${m}</option>`).join('')}
                                 </select>
-                                <select onchange="window.app_refreshMasterSheet()" id="sheet-year" style="padding:0.5rem; border-radius:8px; border:1px solid #ddd;">
+                                <select onchange="window.app_refreshMasterSheet()" id="sheet-year" style="padding:0.4rem; border-radius:6px; border:1px solid #ddd; font-size:0.8rem;">
                                     <option value="${currentYear}" selected>${currentYear}</option>
                                     <option value="${currentYear - 1}">${currentYear - 1}</option>
                                 </select>
-                                <button onclick="window.app_exportMasterSheet()" class="action-btn secondary" style="padding:0.5rem 1rem; font-size:0.9rem;">
+                                <button onclick="window.app_exportMasterSheet()" class="action-btn secondary" style="padding:0.4rem 0.75rem; font-size:0.8rem;">
                                     <i class="fa-solid fa-file-excel"></i> Export Excel
                                 </button>
                             </div>
@@ -1631,7 +1525,7 @@
                                             </td>
                                             ${daysArray.map(day => {
                     const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                    const dayLogs = logs.filter(l => (l.userId === u.id || l.user_id === u.id) && l.date === dateStr);
+                    const dayLogs = filteredLogs.filter(l => (l.userId === u.id || l.user_id === u.id) && l.date === dateStr);
 
                     let cellContent = '-';
                     let cellStyle = '';
@@ -1650,8 +1544,7 @@
                         else if (type === 'Work - Home') { cellStyle = 'color: #0ea5e9; font-weight: bold;'; cellContent = 'W'; }
 
                         if (log.isManualOverride) {
-                            // Override: Show status but with distinct color (e.g. Purple/Pink) and maybe an indicator
-                            cellStyle = 'color: #be185d; font-weight: bold; background: #fdf2f8;'; // Distinct override style
+                            cellStyle = 'color: #be185d; font-weight: bold; background: #fdf2f8;';
                         }
                     }
 
@@ -1675,17 +1568,15 @@
                             <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#ef4444; font-weight:bold;">A</span> Absent</div>
                             <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#8b5cf6; font-weight:bold;">C</span> Leave</div>
                             <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#0ea5e9; font-weight:bold;">W</span> WFH</div>
-                            <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#0ea5e9; font-weight:bold;">W</span> WFH</div>
                             <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#be185d; font-weight:bold; background:#fdf2f8; padding:0 3px;">P/A</span> Manual Override</div>
                         </div>
                     </div>
-            </div >
-                `;
+                </div>`;
         },
 
         async renderAdmin() {
             let allUsers = [];
-            let performance = { avgScore: 0, trendData: [0, 0, 0, 0, 0, 0, 0] };
+            let performance = { avgScore: 0, trendData: [0, 0, 0, 0, 0, 0, 0], labels: [] };
 
             try {
                 [allUsers, performance] = await Promise.all([
@@ -1698,14 +1589,14 @@
 
             const activeCount = allUsers.filter(u => u.status === 'in').length;
             const adminCount = allUsers.filter(u => u.role === 'Administrator' || u.isAdmin).length;
-            const perfStatus = performance.avgScore > 70 ? 'Optimal' : (performance.avgScore > 40 ? 'Good' : 'low');
+            const perfStatus = performance.avgScore > 70 ? 'Optimal' : (performance.avgScore > 40 ? 'Good' : 'Low');
             const perfColor = performance.avgScore > 70 ? '#166534' : (performance.avgScore > 40 ? '#854d0e' : '#991b1b');
             const perfBg = performance.avgScore > 70 ? '#f0fdf4' : (performance.avgScore > 40 ? '#fefce8' : '#fef2f2');
 
             return `
-                <div class="dashboard-grid" >
-                    <!--Stats Overview-->
-                     <div class="card" style="background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); color: white; border: none; padding: 1.25rem;">
+                <div class="dashboard-grid">
+                    <!-- Stats Overview -->
+                    <div class="card" style="background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); color: white; border: none; padding: 1.25rem;">
                         <span style="font-size: 0.75rem; opacity: 0.8; font-weight: 500;">Total Registered Staff</span>
                         <h2 style="font-size: 2rem; margin: 0.25rem 0;">${allUsers.length}</h2>
                         <div style="display: flex; gap: 0.75rem; margin-top: 0.75rem;">
@@ -1729,11 +1620,9 @@
                             <div style="background: ${perfBg}; color: ${perfColor}; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 600;">${perfStatus}</div>
                         </div>
                         
-                        <!-- Chart Area -->
                         <div style="height: 80px; display: flex; align-items: flex-end; gap: 5px; margin-bottom: 6px;">
                             ${performance.trendData.map((h, i) => {
                 const barColor = h > 70 ? 'var(--primary)' : (h > 40 ? '#f59e0b' : '#ef4444');
-                const dayLabel = performance.labels ? performance.labels[i] : '';
                 return `
                                     <div style="flex: 1; display: flex; flex-direction: column; height: 100%; justify-content: flex-end; align-items: center; gap: 3px;">
                                         <div style="font-size: 0.55rem; font-weight: 700; color: ${barColor};">${h}%</div>
@@ -1743,12 +1632,10 @@
             }).join('')}
                         </div>
                         
-                        <!-- X-Axis Labels -->
                         <div style="display: flex; gap: 6px; border-top: 1px solid #f3f4f6; padding-top: 4px; margin-bottom: 1rem;">
                              ${(performance.labels || []).map(label => `<div style="flex: 1; text-align: center; font-size: 0.65rem; color: #9ca3af; font-weight: 600;">${label}</div>`).join('')}
                         </div>
 
-                        <!-- Legend -->
                         <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.65rem; color: #6b7280; font-weight: 500;">
                             <div style="display: flex; align-items: center; gap: 4px;">
                                 <span style="width: 8px; height: 8px; border-radius: 2px; background: var(--primary);"></span> Optimal (>70%)
@@ -1788,20 +1675,20 @@
                                 </thead>
                                 <tbody>
                                     ${allUsers.map(u => {
-                const isLive = u.lastSeen && (Date.now() - u.lastSeen < 120000); // 2 minutes window
+                const isLive = u.lastSeen && (Date.now() - u.lastSeen < 120000);
                 const lastIn = u.lastCheckIn ? new Date(u.lastCheckIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--';
                 const lastOut = u.lastCheckOut ? new Date(u.lastCheckOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--';
 
                 return `
                                         <tr>
                                             <td data-label="Staff">
-                                                <div style="display: flex; align-items: center; gap: 0.75rem; justify-content: flex-end;">
+                                                <div style="display: flex; align-items: center; gap: 0.75rem;">
                                                     <div style="position: relative;">
                                                         <img src="${u.avatar}" style="width: 32px; height: 32px; border-radius: 50%;">
-                                                        ${isLive ? `<div style="position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; background: #10b981; border: 2px solid white; border-radius: 50%;" title="Currently Online"></div>` : ''}
+                                                        ${isLive ? `<div style="position: absolute; bottom: 0; right: 0; width: 10px; height: 10px; background: #10b981; border: 2px solid white; border-radius: 50%;"></div>` : ''}
                                                     </div>
-                                                    <div style="text-align: right;">
-                                                        <div style="font-weight: 600; display: flex; align-items: center; gap: 4px; justify-content: flex-end;">
+                                                    <div>
+                                                        <div style="font-weight: 600; display: flex; align-items: center; gap: 4px;">
                                                             ${u.name}
                                                             ${isLive ? `<span style="font-size: 0.6rem; background: #f0fdf4; color: #166534; padding: 1px 4px; border-radius: 4px; font-weight: 700;">LIVE</span>` : ''}
                                                         </div>
@@ -1810,12 +1697,12 @@
                                                 </div>
                                             </td>
                                             <td data-label="Status">
-                                                <span class="status-badge ${u.status === 'in' ? 'in' : 'out'}" style="padding: 0.25rem 0.75rem; font-size: 0.75rem;">
+                                                <span class="status-badge ${u.status === 'in' ? 'in' : 'out'}">
                                                     ${u.status === 'in' ? 'In' : 'Out'}
                                                 </span>
                                             </td>
                                             <td data-label="Logged">
-                                                <div style="font-size: 0.85rem; color: #374151; display: flex; flex-direction: column; gap: 2px; align-items: flex-end;">
+                                                <div style="font-size: 0.85rem; color: #374151;">
                                                     <div style="display: flex; align-items: center; gap: 4px;">
                                                         <i class="fa-solid fa-arrow-right-to-bracket" style="color: #10b981; font-size: 0.7rem;"></i>
                                                         <span>${lastIn}</span>
@@ -1831,151 +1718,39 @@
                                                 <div style="font-size: 0.75rem; color: #6b7280;">${u.dept || '--'}</div>
                                             </td>
                                             <td data-label="Location">
-                                                <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; align-items: flex-end;">
-                                                    <div style="display: flex; align-items: center; gap: 4px;">
-                                                        <span style="color: #6b7280; font-weight: 500;">IN:</span>
-                                                        ${(() => {
+                                                <div style="font-size: 0.75rem;">
+                                                    ${(() => {
                         const loc = u.currentLocation || u.lastLocation;
                         if (loc && loc.lat && loc.lng) {
-                            return `<a href="https://www.google.com/maps?q=${loc.lat},${loc.lng}" target="_blank" style="color:var(--primary); text-decoration:none; display:flex; align-items:center; gap:2px;">
-                                             Map
-                                        </a>`;
+                            return `<a href="https://www.google.com/maps?q=${loc.lat},${loc.lng}" target="_blank" style="color:var(--primary); text-decoration:none;">Map</a>`;
                         }
-                        return loc?.address ? loc.address : `<span style="color:#9ca3af;">N/A</span>`;
-                    })()}
-                                                    </div>
-                                                    <div style="display: flex; align-items: center; gap: 4px;">
-                                                        <span style="color: #6b7280; font-weight: 500;">OUT:</span>
-                                                        ${(() => {
-                        const loc = u.lastCheckOutLocation;
-                        const isMismatched = u.locationMismatched === true;
-                        const color = isMismatched ? '#ef4444' : 'var(--primary)';
-                        if (loc && loc.lat && loc.lng) {
-                            return `<a href="https://www.google.com/maps?q=${loc.lat},${loc.lng}" target="_blank" style="color:${color}; text-decoration:none; display:flex; align-items:center; gap:2px; font-weight:${isMismatched ? '700' : '400'}">
-                                         Map ${isMismatched ? '(Mismatch)' : ''}
-                                    </a>`;
-                        }
-                        return loc?.address ? loc.address : `<span style="color:#9ca3af;">N/A</span>`;
+                        return loc?.address || 'N/A';
                     })()}
                                                 </div>
                                             </td>
                                              <td data-label="Actions">
-                                                 <div style="display: flex; gap: 0.4rem; justify-content: flex-end;">
-                                                      <button onclick="window.app_viewLogs('${u.id}')" style="padding: 0.3rem; background: #eef2ff; color: #4338ca; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;" title="Logs"><i class="fa-solid fa-list-check" style="font-size:0.8rem;"></i></button>
-                                                      <button onclick="window.app_notifyUser('${u.id}')" style="padding: 0.3rem; background: #fff7ed; color: #c2410c; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;" title="Notify"><i class="fa-solid fa-bell" style="font-size:0.8rem;"></i></button>
-                                                      <button onclick="window.app_editUser('${u.id}')" style="padding: 0.3rem; background: #f3f4f6; color: #374151; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;" title="Edit"><i class="fa-solid fa-pen" style="font-size:0.8rem;"></i></button>
-                                                      <button onclick="window.app_deleteUser('${u.id}')" style="padding: 0.3rem; background: #fef2f2; color: #b91c1c; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;" title="Delete"><i class="fa-solid fa-trash" style="font-size:0.8rem;"></i></button>
+                                                 <div style="display: flex; gap: 0.3rem;">
+                                                      <button onclick="window.app_viewLogs('${u.id}')" style="padding: 0.3rem; background: #eef2ff; color: #4338ca; border: none; border-radius: 6px; cursor: pointer;" title="Logs"><i class="fa-solid fa-list-check"></i></button>
+                                                      <button onclick="window.app_notifyUser('${u.id}')" style="padding: 0.3rem; background: #fff7ed; color: #c2410c; border: none; border-radius: 6px; cursor: pointer;" title="Notify"><i class="fa-solid fa-bell"></i></button>
+                                                      <button onclick="window.app_editUser('${u.id}')" style="padding: 0.3rem; background: #f3f4f6; color: #374151; border: none; border-radius: 6px; cursor: pointer;" title="Edit"><i class="fa-solid fa-pen"></i></button>
+                                                      <button onclick="window.app_deleteUser('${u.id}')" style="padding: 0.3rem; background: #fef2f2; color: #b91c1c; border: none; border-radius: 6px; cursor: pointer;" title="Delete"><i class="fa-solid fa-trash"></i></button>
                                                  </div>
                                              </td>
-                                        </tr>
-                                    `;
+                                         </tr>
+                                     `;
             }).join('')}
                                 </tbody>
                             </table>
                         </div>
                     </div>
 
-                    <!--Chart Section-->
-                <div class="card full-width">
-                    <h3>Attendance Trends</h3>
-                    <div style="height: 300px; width: 100%; margin-top: 1rem;">
-                        <canvas id="admin-stats-chart"></canvas>
-                    </div>
-                </div>
-                </div >
-                `;
-        },
-
-        async renderMinutes() {
-            const user = window.AppAuth.getUser();
-            const meetings = await window.AppDB.getAll('meetings');
-
-            // Sort by timestamp descending
-            meetings.sort((a, b) => {
-                const dateA = a.timestamp ? new Date(a.timestamp) : new Date(a.date);
-                const dateB = b.timestamp ? new Date(b.timestamp) : new Date(b.date);
-                return dateB - dateA;
-            });
-
-            const selectedId = window._selectedMeetingId || null;
-            const selectedMeeting = selectedId ? meetings.find(m => m.id === selectedId) : null;
-
-            return `
-                <div style="padding: 1.5rem; max-width: 1400px; margin: 0 auto;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                        <div>
-                            <h2 style="margin: 0; font-size: 1.5rem; color: #1e293b;">📝 Meeting Minutes</h2>
-                            <p style="margin: 0.25rem 0 0 0; color: #64748b; font-size: 0.9rem;">Shared notes for all team meetings</p>
-                        </div>
-                        <button onclick="window.app_newMeeting()" class="action-btn" style="padding: 0.75rem 1.5rem; border-radius: 10px;">
-                            <i class="fa-solid fa-plus"></i> New Meeting
-                        </button>
-                    </div>
-
-                    <div style="display: grid; grid-template-columns: 350px 1fr; gap: 1.5rem; height: calc(100vh - 200px); min-height: 500px;">
-                        <!-- Left: Meeting List -->
-                        <div class="card" style="padding: 0; display: flex; flex-direction: column; overflow: hidden;">
-                            <div style="padding: 1rem; border-bottom: 1px solid #e2e8f0;">
-                                <h3 style="margin: 0; font-size: 0.95rem; color: #334155;">Recent Meetings</h3>
-                            </div>
-                            <div style="flex: 1; overflow-y: auto; padding: 0.5rem;">
-                                ${meetings.length === 0 ? `
-                                    <div style="text-align: center; padding: 2rem; color: #94a3b8;">
-                                        <i class="fa-solid fa-inbox" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
-                                        <p style="margin: 0; font-size: 0.85rem;">No meetings yet</p>
-                                    </div>
-                                ` : meetings.map(m => `
-                                    <div onclick="window.app_selectMeeting('${m.id}')" 
-                                         style="padding: 0.75rem; margin-bottom: 0.5rem; border-radius: 8px; cursor: pointer; transition: all 0.2s; background: ${selectedId === m.id ? '#f0f9ff' : 'white'}; border: 1px solid ${selectedId === m.id ? '#0ea5e9' : '#e2e8f0'};"
-                                         onmouseover="if('${selectedId}' !== '${m.id}') this.style.background='#f8fafc'"
-                                         onmouseout="if('${selectedId}' !== '${m.id}') this.style.background='white'">
-                                        <div style="font-weight: 600; color: #1e293b; font-size: 0.9rem; margin-bottom: 0.25rem;">${m.title || 'Untitled Meeting'}</div>
-                                        <div style="font-size: 0.75rem; color: #64748b;">
-                                            <i class="fa-solid fa-calendar"></i> ${m.date || 'No date'}
-                                        </div>
-                                        <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 0.25rem;">
-                                            <i class="fa-solid fa-user"></i> ${m.author || 'Unknown'}
-                                        </div>
-                                    </div>
-                                `).join('')}
-                            </div>
-                        </div>
-
-                        <!-- Right: Editor -->
-                        <div class="card" style="padding: 0; display: flex; flex-direction: column; overflow: hidden;">
-                            ${selectedMeeting ? `
-                                <div style="padding: 1rem; border-bottom: 1px solid #e2e8f0; background: #f8fafc;">
-                                    <input type="text" id="meeting-title" value="${selectedMeeting.title || ''}" 
-                                           placeholder="Meeting Title" 
-                                           style="width: 100%; padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem;">
-                                    <input type="date" id="meeting-date" value="${selectedMeeting.date || new Date().toISOString().split('T')[0]}" 
-                                           style="padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
-                                </div>
-                                <div style="flex: 1; padding: 1.5rem; overflow-y: auto;">
-                                    <textarea id="meeting-minutes" 
-                                              placeholder="Type your meeting minutes here...&#10;&#10;• Attendees:&#10;• Agenda:&#10;• Discussion Points:&#10;• Action Items:&#10;• Next Steps:"
-                                              style="width: 100%; height: 100%; border: none; outline: none; resize: none; font-family: 'Courier New', monospace; font-size: 0.95rem; line-height: 1.6; color: #1e293b;">${selectedMeeting.minutes || ''}</textarea>
-                                </div>
-                                <div style="padding: 1rem; border-top: 1px solid #e2e8f0; display: flex; gap: 0.75rem; justify-content: flex-end; background: #f8fafc;">
-                                    <button onclick="window.app_deleteMeeting('${selectedMeeting.id}')" class="secondary-btn" style="padding: 0.75rem 1.25rem; border-radius: 8px; background: #fee2e2; color: #991b1b;">
-                                        <i class="fa-solid fa-trash"></i> Delete
-                                    </button>
-                                    <button onclick="window.app_saveMeeting()" class="action-btn" style="padding: 0.75rem 1.5rem; border-radius: 8px;">
-                                        <i class="fa-solid fa-save"></i> Save Changes
-                                    </button>
-                                </div>
-                            ` : `
-                                <div style="flex: 1; display: flex; align-items: center; justify-content: center; color: #94a3b8;">
-                                    <div style="text-align: center;">
-                                        <i class="fa-solid fa-arrow-left" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
-                                        <p style="margin: 0; font-size: 0.95rem;">Select a meeting or create a new one</p>
-                                    </div>
-                                </div>
-                            `}
+                    <div class="card full-width">
+                        <h3>Attendance Trends</h3>
+                        <div style="height: 300px; width: 100%; margin-top: 1rem;">
+                            <canvas id="admin-stats-chart"></canvas>
                         </div>
                     </div>
-                </div>
-            `;
+                </div>`;
         },
 
         async renderSalaryProcessing() {
@@ -1984,18 +1759,18 @@
             const monthLabel = today.toLocaleDateString('default', { month: 'long', year: 'numeric' });
 
             return `
-                <div class="card full-width" >
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
+                <div class="card full-width">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.75rem;">
                         <div>
                             <h3 style="font-size: 1.15rem;">Salary Processing</h3>
                             <p class="text-muted" style="font-size: 0.8rem;">Period: ${monthLabel}</p>
                         </div>
-                        <div style="display: flex; align-items: center; gap: 1rem;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
                             <div style="background: #f8fafc; padding: 0.5rem 1rem; border-radius: 0.5rem; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 0.5rem;">
                                 <label style="font-weight: 600; color: #64748b; font-size: 0.85rem;">Global TDS:</label>
                                 <input type="number" id="global-tds-percent" value="0" min="0" max="100" 
                                     style="width: 60px; padding: 4px; border: 1px solid #cbd5e1; border-radius: 4px;"
-                                    onchange="window.app_recalculateAllSalaries()">
+                                    onchange="window.app_recalculateAllSalaries()" />
                                 <span style="font-weight: 600; color: #64748b;">%</span>
                             </div>
                             <button class="action-btn" onclick="window.app_exportSalaryCSV()" style="background: #10b981; padding: 0.5rem 1rem; font-size: 0.85rem;">
@@ -2042,26 +1817,25 @@
                                             <td>
                                                 <input type="number" class="base-salary-input" value="${base}" 
                                                     style="width: 90px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;"
-                                                    onchange="window.app_recalculateRow(this.closest('tr'))">
+                                                    onchange="window.app_recalculateRow(this.closest('tr'))" />
                                             </td>
                                             <td style="font-size: 0.85rem;">
                                                 <span style="color: #10b981;">P: ${stats.present}</span> | 
                                                 <span style="color: #f59e0b;">L: ${stats.late}</span> | 
                                                 <span style="color: #991b1b;">ED: ${stats.earlyDepartures}</span> |
                                                 <span style="color: #ef4444;">UL: <span class="unpaid-leaves-count">${stats.unpaidLeaves}</span></span>
-                                                <span class="penalty-count" data-penalty="${stats.penalty}" style="display:none"></span>
                                             </td>
                                             <td style="color: #ef4444; font-weight: 600;" class="deduction-amount">-₹${deductionAmount.toLocaleString()}</td>
                                             <td>
                                                 <input type="number" class="salary-input" value="${calculatedSalary}" 
-                                                    style="width: 100px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;"
-                                                    onchange="this.dataset.manual = 'true'; window.app_recalculateRow(this.closest('tr'))">
+                                                    style="width: 100px; padding: 4px; border: 1px solid #ddd; border-radius: 10px;"
+                                                    onchange="this.dataset.manual = 'true'; window.app_recalculateRow(this.closest('tr'))" />
                                             </td>
                                             <td style="color: #64748b;" class="tds-amount">₹0</td>
                                             <td style="font-weight: 700; color: #1e40af;" class="final-net-salary">₹${calculatedSalary.toLocaleString()}</td>
                                             <td>
                                                 <input type="text" class="comment-input" placeholder="Required if adjusted..."
-                                                    style="width: 150px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;">
+                                                    style="width: 150px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;" />
                                             </td>
                                         </tr>
                                     `;
@@ -2069,8 +1843,7 @@
                             </tbody>
                         </table>
                     </div>
-                </div >
-                `;
+                </div>`;
         }
     };
 })();

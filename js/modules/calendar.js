@@ -46,14 +46,20 @@
          * Set/Add a work plan for a specific day
          * Updated to handle multiple plans and tagged coworkers
          */
-        async setWorkPlan(date, plans = []) {
-            const user = window.AppAuth.getUser();
-            if (!user) throw new Error("Not authenticated");
+        async setWorkPlan(date, plans = [], targetUserId = null) {
+            const currentUser = window.AppAuth.getUser();
+            if (!currentUser) throw new Error("Not authenticated");
+
+            const targetId = targetUserId || currentUser.id;
+            const allUsers = await this.db.getAll('users');
+            const targetUser = allUsers.find(u => u.id === targetId);
+
+            if (!targetUser) throw new Error("Target user not found");
 
             const workPlan = {
-                id: `plan_${user.id}_${date}`,
-                userId: user.id,
-                userName: user.name,
+                id: `plan_${targetId}_${date}`,
+                userId: targetId,
+                userName: targetUser.name,
                 date: date,
                 plans: plans, // Array of { task, subPlans, tags: [{id, name}] }
                 updatedAt: new Date().toISOString()
@@ -64,10 +70,11 @@
         /**
          * Delete a work plan for a specific day
          */
-        async deleteWorkPlan(date) {
-            const user = window.AppAuth.getUser();
-            if (!user) throw new Error("Not authenticated");
-            return await this.db.delete('work_plans', `plan_${user.id}_${date}`);
+        async deleteWorkPlan(date, targetUserId = null) {
+            const currentUser = window.AppAuth.getUser();
+            if (!currentUser) throw new Error("Not authenticated");
+            const targetId = targetUserId || currentUser.id;
+            return await this.db.delete('work_plans', `plan_${targetId}_${date}`);
         }
 
         /**
@@ -75,6 +82,118 @@
          */
         async getWorkPlan(userId, date) {
             return await this.db.get('work_plans', `plan_${userId}_${date}`);
+        }
+
+        /**
+         * Get smart task status based on date (uses AppRating if available)
+         */
+        getSmartTaskStatus(taskDate, currentStatus = null) {
+            if (window.AppRating) {
+                return window.AppRating.getSmartTaskStatus(taskDate, currentStatus);
+            }
+            // Fallback if rating module not loaded
+            if (currentStatus === 'completed' || currentStatus === 'not-completed') {
+                return currentStatus;
+            }
+            const today = new Date().toISOString().split('T')[0];
+            const taskDateStr = typeof taskDate === 'string' ? taskDate : taskDate.toISOString().split('T')[0];
+            if (taskDateStr > today) return 'to-be-started';
+            if (taskDateStr === today) return 'in-process';
+            if (taskDateStr < today) return 'overdue';
+            return 'in-process';
+        }
+
+        /**
+         * Update task status (admin or user can mark completed/not-completed)
+         */
+        async updateTaskStatus(planId, taskIndex, newStatus, completedDate = null) {
+            try {
+                const plan = await this.db.get('work_plans', planId);
+                if (!plan || !plan.plans || !plan.plans[taskIndex]) {
+                    throw new Error('Plan or task not found');
+                }
+
+                plan.plans[taskIndex].status = newStatus;
+                if (newStatus === 'completed' && !plan.plans[taskIndex].completedDate) {
+                    plan.plans[taskIndex].completedDate = completedDate || new Date().toISOString().split('T')[0];
+                }
+                plan.updatedAt = new Date().toISOString();
+
+                await this.db.put('work_plans', plan);
+
+                // Trigger rating recalculation
+                if (window.AppRating) {
+                    await window.AppRating.updateUserRating(plan.userId);
+                }
+
+                return plan;
+            } catch (err) {
+                console.error('Failed to update task status:', err);
+                throw err;
+            }
+        }
+
+        /**
+         * Reassign task to another user
+         */
+        async reassignTask(planId, taskIndex, newUserId) {
+            try {
+                const plan = await this.db.get('work_plans', planId);
+                if (!plan || !plan.plans || !plan.plans[taskIndex]) {
+                    throw new Error('Plan or task not found');
+                }
+
+                const users = await this.db.getAll('users');
+                const newUser = users.find(u => u.id === newUserId);
+                if (!newUser) {
+                    throw new Error('New user not found');
+                }
+
+                plan.plans[taskIndex].assignedTo = newUserId;
+                plan.updatedAt = new Date().toISOString();
+
+                await this.db.put('work_plans', plan);
+                return plan;
+            } catch (err) {
+                console.error('Failed to reassign task:', err);
+                throw err;
+            }
+        }
+
+        /**
+         * Get tasks by status for a user
+         */
+        async getTasksByStatus(userId, status, startDate = null, endDate = null) {
+            try {
+                const allPlans = await this.db.getAll('work_plans');
+                const userPlans = allPlans.filter(p => p.userId === userId);
+
+                const tasks = [];
+                userPlans.forEach(plan => {
+                    if (startDate && plan.date < startDate) return;
+                    if (endDate && plan.date > endDate) return;
+
+                    if (plan.plans && Array.isArray(plan.plans)) {
+                        plan.plans.forEach((task, idx) => {
+                            const taskStatus = this.getSmartTaskStatus(plan.date, task.status);
+                            if (taskStatus === status) {
+                                tasks.push({
+                                    ...task,
+                                    planId: plan.id,
+                                    taskIndex: idx,
+                                    planDate: plan.date,
+                                    calculatedStatus: taskStatus
+                                });
+                            }
+                        });
+                    }
+                });
+
+                return tasks;
+            } catch (err) {
+                console.error('Failed to get tasks by status:', err);
+                return [];
+            }
         }
 
         /**

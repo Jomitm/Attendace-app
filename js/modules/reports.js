@@ -67,7 +67,7 @@
                 const flattenedData = logs.map(log => {
                     // Handle schema inconsistency (user_id vs userId)
                     const uid = log.user_id || log.userId;
-                    const user = userMap[uid] || { name: 'Unknown', role: 'N/A' };
+                    const user = userMap[uid] || { name: 'Unknown', role: 'N/A', rating: 0, completionStats: {} };
 
                     // Format Location: Prefer raw coords if available (for Google Maps compatibility)
                     let locString = log.location || 'N/A';
@@ -79,6 +79,8 @@
                         date: log.date,
                         name: user.name,
                         role: user.role,
+                        rating: user.rating ? user.rating.toFixed(1) : 'N/A',
+                        completionRate: user.completionStats?.completionRate ? `${(user.completionStats.completionRate * 100).toFixed(0)}%` : 'N/A',
                         checkIn: log.checkIn,
                         checkOut: log.checkOut || '--',
                         duration: log.duration || '--',
@@ -112,8 +114,8 @@
                 flattenedData.sort((a, b) => new Date(b.date) - new Date(a.date));
 
                 // 4. Generate CSV
-                const headers = ['Date', 'Staff Name', 'Role', 'Check In', 'Check Out', 'Duration', 'Work Summary', 'Check-in Location', 'Check-out Location', 'Type'];
-                const keys = ['date', 'name', 'role', 'checkIn', 'checkOut', 'duration', 'workSummary', 'inLocation', 'outLocation', 'type'];
+                const headers = ['Date', 'Staff Name', 'Role', 'Star Rating', 'Completion Rate', 'Check In', 'Check Out', 'Duration', 'Work Summary', 'Check-in Location', 'Check-out Location', 'Type'];
+                const keys = ['date', 'name', 'role', 'rating', 'completionRate', 'checkIn', 'checkOut', 'duration', 'workSummary', 'inLocation', 'outLocation', 'type'];
 
                 const csvContent = this.convertToCSV(flattenedData, headers, keys);
 
