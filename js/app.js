@@ -245,6 +245,8 @@
                     return;
                 }
                 contentArea.innerHTML = await window.AppUI.renderMasterSheet();
+            } else if (hash === 'minutes') {
+                contentArea.innerHTML = await window.AppUI.renderMinutes();
             } else if (hash === 'admin') {
                 if (user.role !== 'Administrator' && !user.isAdmin) {
                     window.location.hash = 'dashboard';
@@ -928,6 +930,70 @@
         } catch (err) {
             alert("Export failed: " + err.message);
         }
+    };
+
+    // Meeting Minutes Handlers
+    window.app_newMeeting = async () => {
+        const user = window.AppAuth.getUser();
+        const newMeeting = {
+            id: 'meeting_' + Date.now(),
+            title: '',
+            date: new Date().toISOString().split('T')[0],
+            minutes: '',
+            author: user.name,
+            timestamp: new Date().toISOString()
+        };
+
+        await window.AppDB.put('meetings', newMeeting);
+        window._selectedMeetingId = newMeeting.id;
+
+        const contentArea = document.getElementById('page-content');
+        contentArea.innerHTML = await window.AppUI.renderMinutes();
+    };
+
+    window.app_selectMeeting = async (id) => {
+        window._selectedMeetingId = id;
+        const contentArea = document.getElementById('page-content');
+        contentArea.innerHTML = await window.AppUI.renderMinutes();
+    };
+
+    window.app_saveMeeting = async () => {
+        const title = document.getElementById('meeting-title')?.value;
+        const date = document.getElementById('meeting-date')?.value;
+        const minutes = document.getElementById('meeting-minutes')?.value;
+
+        if (!window._selectedMeetingId) {
+            alert('No meeting selected');
+            return;
+        }
+
+        const meeting = await window.AppDB.get('meetings', window._selectedMeetingId);
+        if (!meeting) {
+            alert('Meeting not found');
+            return;
+        }
+
+        meeting.title = title;
+        meeting.date = date;
+        meeting.minutes = minutes;
+        meeting.timestamp = new Date().toISOString();
+
+        await window.AppDB.put('meetings', meeting);
+
+        const contentArea = document.getElementById('page-content');
+        contentArea.innerHTML = await window.AppUI.renderMinutes();
+
+        alert('Meeting minutes saved successfully!');
+    };
+
+    window.app_deleteMeeting = async (id) => {
+        if (!confirm('Are you sure you want to delete this meeting?')) return;
+
+        await window.AppDB.delete('meetings', id);
+        window._selectedMeetingId = null;
+
+        const contentArea = document.getElementById('page-content');
+        contentArea.innerHTML = await window.AppUI.renderMinutes();
     };
 
     window.app_checkDailyPlanReminder = async () => {

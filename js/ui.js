@@ -1886,6 +1886,98 @@
                 `;
         },
 
+        async renderMinutes() {
+            const user = window.AppAuth.getUser();
+            const meetings = await window.AppDB.getAll('meetings');
+
+            // Sort by timestamp descending
+            meetings.sort((a, b) => {
+                const dateA = a.timestamp ? new Date(a.timestamp) : new Date(a.date);
+                const dateB = b.timestamp ? new Date(b.timestamp) : new Date(b.date);
+                return dateB - dateA;
+            });
+
+            const selectedId = window._selectedMeetingId || null;
+            const selectedMeeting = selectedId ? meetings.find(m => m.id === selectedId) : null;
+
+            return `
+                <div style="padding: 1.5rem; max-width: 1400px; margin: 0 auto;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                        <div>
+                            <h2 style="margin: 0; font-size: 1.5rem; color: #1e293b;">📝 Meeting Minutes</h2>
+                            <p style="margin: 0.25rem 0 0 0; color: #64748b; font-size: 0.9rem;">Shared notes for all team meetings</p>
+                        </div>
+                        <button onclick="window.app_newMeeting()" class="action-btn" style="padding: 0.75rem 1.5rem; border-radius: 10px;">
+                            <i class="fa-solid fa-plus"></i> New Meeting
+                        </button>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 350px 1fr; gap: 1.5rem; height: calc(100vh - 200px); min-height: 500px;">
+                        <!-- Left: Meeting List -->
+                        <div class="card" style="padding: 0; display: flex; flex-direction: column; overflow: hidden;">
+                            <div style="padding: 1rem; border-bottom: 1px solid #e2e8f0;">
+                                <h3 style="margin: 0; font-size: 0.95rem; color: #334155;">Recent Meetings</h3>
+                            </div>
+                            <div style="flex: 1; overflow-y: auto; padding: 0.5rem;">
+                                ${meetings.length === 0 ? `
+                                    <div style="text-align: center; padding: 2rem; color: #94a3b8;">
+                                        <i class="fa-solid fa-inbox" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                                        <p style="margin: 0; font-size: 0.85rem;">No meetings yet</p>
+                                    </div>
+                                ` : meetings.map(m => `
+                                    <div onclick="window.app_selectMeeting('${m.id}')" 
+                                         style="padding: 0.75rem; margin-bottom: 0.5rem; border-radius: 8px; cursor: pointer; transition: all 0.2s; background: ${selectedId === m.id ? '#f0f9ff' : 'white'}; border: 1px solid ${selectedId === m.id ? '#0ea5e9' : '#e2e8f0'};"
+                                         onmouseover="if('${selectedId}' !== '${m.id}') this.style.background='#f8fafc'"
+                                         onmouseout="if('${selectedId}' !== '${m.id}') this.style.background='white'">
+                                        <div style="font-weight: 600; color: #1e293b; font-size: 0.9rem; margin-bottom: 0.25rem;">${m.title || 'Untitled Meeting'}</div>
+                                        <div style="font-size: 0.75rem; color: #64748b;">
+                                            <i class="fa-solid fa-calendar"></i> ${m.date || 'No date'}
+                                        </div>
+                                        <div style="font-size: 0.7rem; color: #94a3b8; margin-top: 0.25rem;">
+                                            <i class="fa-solid fa-user"></i> ${m.author || 'Unknown'}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+
+                        <!-- Right: Editor -->
+                        <div class="card" style="padding: 0; display: flex; flex-direction: column; overflow: hidden;">
+                            ${selectedMeeting ? `
+                                <div style="padding: 1rem; border-bottom: 1px solid #e2e8f0; background: #f8fafc;">
+                                    <input type="text" id="meeting-title" value="${selectedMeeting.title || ''}" 
+                                           placeholder="Meeting Title" 
+                                           style="width: 100%; padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem;">
+                                    <input type="date" id="meeting-date" value="${selectedMeeting.date || new Date().toISOString().split('T')[0]}" 
+                                           style="padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
+                                </div>
+                                <div style="flex: 1; padding: 1.5rem; overflow-y: auto;">
+                                    <textarea id="meeting-minutes" 
+                                              placeholder="Type your meeting minutes here...&#10;&#10;• Attendees:&#10;• Agenda:&#10;• Discussion Points:&#10;• Action Items:&#10;• Next Steps:"
+                                              style="width: 100%; height: 100%; border: none; outline: none; resize: none; font-family: 'Courier New', monospace; font-size: 0.95rem; line-height: 1.6; color: #1e293b;">${selectedMeeting.minutes || ''}</textarea>
+                                </div>
+                                <div style="padding: 1rem; border-top: 1px solid #e2e8f0; display: flex; gap: 0.75rem; justify-content: flex-end; background: #f8fafc;">
+                                    <button onclick="window.app_deleteMeeting('${selectedMeeting.id}')" class="secondary-btn" style="padding: 0.75rem 1.25rem; border-radius: 8px; background: #fee2e2; color: #991b1b;">
+                                        <i class="fa-solid fa-trash"></i> Delete
+                                    </button>
+                                    <button onclick="window.app_saveMeeting()" class="action-btn" style="padding: 0.75rem 1.5rem; border-radius: 8px;">
+                                        <i class="fa-solid fa-save"></i> Save Changes
+                                    </button>
+                                </div>
+                            ` : `
+                                <div style="flex: 1; display: flex; align-items: center; justify-content: center; color: #94a3b8;">
+                                    <div style="text-align: center;">
+                                        <i class="fa-solid fa-arrow-left" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                                        <p style="margin: 0; font-size: 0.95rem;">Select a meeting or create a new one</p>
+                                    </div>
+                                </div>
+                            `}
+                        </div>
+                    </div>
+                </div>
+            `;
+        },
+
         async renderSalaryProcessing() {
             const summary = await window.AppAnalytics.getSystemMonthlySummary();
             const today = new Date();
