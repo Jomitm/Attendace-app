@@ -713,6 +713,29 @@
                             <div class="no-tags-placeholder" style="font-size:0.7rem; color:#cbd5e1; text-align:center; padding-top:1rem; border:1px dashed #e2e8f0; border-radius:10px; flex:1;">Use @ in task text to tag</div>
                         </div>
                     </div>
+                    </div>
+
+                    <!-- Bottom Controls: Status and Admin Reassign -->
+                    <div style="background: #f1f5f9; padding: 0.5rem 1rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <label style="font-size: 0.7rem; font-weight: 700; color: #64748b;">STATUS:</label>
+                            <select class="plan-status" style="padding: 4px 8px; border-radius: 6px; border: 1px solid #d1d5db; font-size: 0.75rem; background: white; color: #374151;">
+                                <option value="" selected>Auto (Smart Status)</option>
+                                <option value="completed">✅ Completed</option>
+                                <option value="not-completed">❌ Not Completed</option>
+                                <option value="in-process">🟡 In Process</option>
+                            </select>
+                        </div>
+                        
+                        ${(currentUser.role === 'Administrator' || currentUser.isAdmin) ? `
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <label style="font-size: 0.7rem; font-weight: 700; color: #64748b;">ASSIGN TO:</label>
+                                <select class="plan-assignee" style="padding: 4px 8px; border-radius: 6px; border: 1px solid #d1d5db; font-size: 0.75rem; background: white; color: #374151;">
+                                    ${allUsers.map(u => `<option value="${u.id}" ${u.id === currentUser.id ? 'selected' : ''}>${u.name}</option>`).join('')}
+                                </select>
+                            </div>
+                        ` : ''}
+                    </div>
                 </div>
         `;
         const tempDiv = document.createElement('div');
@@ -732,13 +755,16 @@
             const query = text.substring(lastAt + 1, cursorPos).toLowerCase();
             const filteredUsers = users.filter(u => u.name.toLowerCase().includes(query));
 
+            // Give textarea a temporary ID for selection if needed
+            if (!textarea.id) textarea.id = 'ta-' + Date.now();
+
             if (filteredUsers.length > 0) {
                 const rect = textarea.getBoundingClientRect();
                 const dropdown = document.getElementById('mention-dropdown');
                 const list = document.getElementById('mention-list-items');
 
                 list.innerHTML = filteredUsers.map(u => `
-                    <div onclick="window.app_applyMention('${textarea.id || 'current-ta'}', '${u.id}', '${u.name}', ${lastAt})" style="padding:8px 12px; font-size:0.85rem; cursor:pointer; border-bottom:1px solid #f1f5f9; display:flex; align-items:center; gap:8px;" class="mention-item">
+                    <div onclick="window.app_applyMention('${textarea.id}', '${u.id}', '${u.name}', ${lastAt})" style="padding:8px 12px; font-size:0.85rem; cursor:pointer; border-bottom:1px solid #f1f5f9; display:flex; align-items:center; gap:8px;" class="mention-item">
                         <img src="${u.avatar}" style="width:20px; height:20px; border-radius:50%;" />
                         <span>${u.name}</span>
                     </div>
@@ -748,9 +774,6 @@
                 dropdown.style.top = (rect.top + 30) + 'px';
                 dropdown.style.left = rect.left + 'px';
                 dropdown.style.display = 'block';
-
-                // Give textarea a temporary ID for selection if needed
-                if (!textarea.id) textarea.id = 'ta-' + Date.now();
             } else {
                 document.getElementById('mention-dropdown').style.display = 'none';
             }
