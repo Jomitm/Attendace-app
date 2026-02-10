@@ -226,6 +226,83 @@
                 alert("Export Failed: " + err.message);
             }
         }
+
+        /**
+         * Export Calendar Plans (Work, Leave, Events) to CSV
+         */
+        async exportCalendarPlansCSV(plans, month, year) {
+            try {
+                const flattenedData = [];
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                const monthName = new Date(year, month).toLocaleString('default', { month: 'long' });
+
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+                    // 1. Check Leaves
+                    plans.leaves.forEach(l => {
+                        if (dateStr >= l.startDate && dateStr <= l.endDate) {
+                            flattenedData.push({
+                                date: dateStr,
+                                category: 'Leave',
+                                subject: `${l.userName || 'Staff'} - ${l.type}`,
+                                details: l.reason || 'No reason provided',
+                                staff: l.userName || 'Staff'
+                            });
+                        }
+                    });
+
+                    // 2. Check Events
+                    plans.events.forEach(e => {
+                        if (e.date === dateStr) {
+                            flattenedData.push({
+                                date: dateStr,
+                                category: 'Event',
+                                subject: e.title,
+                                details: e.type || 'General Event',
+                                staff: 'Organization'
+                            });
+                        }
+                    });
+
+                    // 3. Check Work Plans
+                    plans.workPlans.forEach(p => {
+                        if (p.date === dateStr) {
+                            const taskDetails = p.plans ? p.plans.map((task, idx) => {
+                                let tStr = `${idx + 1}. ${task.task}`;
+                                if (task.subPlans && task.subPlans.length > 0) tStr += ` (Steps: ${task.subPlans.join(', ')})`;
+                                if (task.tags && task.tags.length > 0) tStr += ` [With: ${task.tags.map(t => `@${t.name} (${t.status || 'pending'})`).join(', ')}]`;
+                                return tStr;
+                            }).join(' | ') : (p.plan || 'Work Plan');
+
+                            flattenedData.push({
+                                date: dateStr,
+                                category: 'Work Plan',
+                                subject: 'Daily Goals',
+                                details: taskDetails,
+                                staff: p.userName || 'Staff'
+                            });
+                        }
+                    });
+                }
+
+                if (flattenedData.length === 0) {
+                    alert("No plans found for the selected month.");
+                    return false;
+                }
+
+                const headers = ['Date', 'Category', 'Subject', 'Details', 'Staff Member'];
+                const keys = ['date', 'category', 'subject', 'details', 'staff'];
+
+                const csvContent = this.convertToCSV(flattenedData, headers, keys);
+                const fileName = `Team_Schedule_${monthName}_${year}.csv`;
+                this.downloadFile(csvContent, fileName, 'text/csv');
+                return true;
+            } catch (err) {
+                console.error("Calendar Export Failed:", err);
+                alert("Failed to export calendar: " + err.message);
+            }
+        }
     }
 
     // Initialize

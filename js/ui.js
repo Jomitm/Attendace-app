@@ -983,7 +983,10 @@
                                 </div>
                                 <button onclick="window.app_changeCalMonth(1)" style="background:none; border:none; color:#6b7280; cursor:pointer; padding:2px;"><i class="fa-solid fa-chevron-right"></i></button>
                              </div>
-                             ${user.role === 'Administrator' || user.isAdmin ? `<button onclick="window.app_openEventModal()" style="background:none; border:none; color:var(--primary); cursor:pointer;"><i class="fa-solid fa-plus-circle"></i></button>` : ''}
+                             <div style="display:flex; align-items:center; gap:0.4rem;">
+                                 <button onclick="window.app_exportCalendar()" title="Export Excel" style="background:none; border:none; color:#64748b; cursor:pointer; font-size: 0.85rem;"><i class="fa-solid fa-file-excel"></i></button>
+                                 ${user.role === 'Administrator' || user.isAdmin ? `<button onclick="window.app_openEventModal()" title="Add Event" style="background:none; border:none; color:var(--primary); cursor:pointer;"><i class="fa-solid fa-plus-circle"></i></button>` : ''}
+                             </div>
                         </div>
                         <div class="calendar-grid-mini" style="display:grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align:center; font-size: 0.65rem;">
                             <div style="font-weight:700; color:#9ca3af;">S</div>

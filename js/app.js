@@ -913,6 +913,23 @@
         });
     };
 
+    window.app_exportCalendar = async () => {
+        const plans = window._currentPlans;
+        const month = window.app_calMonth;
+        const year = window.app_calYear;
+
+        if (!plans) {
+            alert("Calendar data not loaded yet.");
+            return;
+        }
+
+        try {
+            await window.AppReports.exportCalendarPlansCSV(plans, month, year);
+        } catch (err) {
+            alert("Export failed: " + err.message);
+        }
+    };
+
     window.app_useWorkPlan = () => {
         const planText = document.getElementById('checkout-plan-text')?.innerText;
         const descArea = document.querySelector('#checkout-modal textarea[name="description"]');
