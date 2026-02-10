@@ -68,6 +68,44 @@
         }
 
         /**
+         * Add a single task to a user's work plan for a specific date
+         * Used by Meeting Minutes to assign action items
+         */
+        async addWorkPlanTask(date, userId, taskDescription, tags = []) {
+            let workPlan = await this.getWorkPlan(userId, date);
+
+            // Create if not exists
+            if (!workPlan) {
+                const allUsers = await this.db.getAll('users');
+                const targetUser = allUsers.find(u => u.id === userId);
+                if (!targetUser) throw new Error("Target user not found");
+
+                workPlan = {
+                    id: `plan_${userId}_${date}`,
+                    userId: userId,
+                    userName: targetUser.name,
+                    date: date,
+                    plans: [],
+                    updatedAt: new Date().toISOString()
+                };
+            }
+
+            // Add the task
+            if (!workPlan.plans) workPlan.plans = [];
+
+            workPlan.plans.push({
+                task: taskDescription,
+                subPlans: [],
+                tags: tags,
+                status: 'pending', // Default
+                addedFrom: 'minutes'
+            });
+
+            workPlan.updatedAt = new Date().toISOString();
+            return await this.db.put('work_plans', workPlan);
+        }
+
+        /**
          * Delete a work plan for a specific day
          */
         async deleteWorkPlan(date, targetUserId = null) {

@@ -1844,6 +1844,184 @@
                         </table>
                     </div>
                 </div>`;
+        },
+
+        async renderMinutes() {
+            // Fetch/Mock Minutes Data
+            const minutes = await window.AppMinutes.getMinutes();
+            // Sort by date desc
+            minutes.sort((a, b) => new Date(b.date) - new Date(a.date));
+            const allUsers = await window.AppDB.getAll('users');
+
+            window.app_toggleNewMinuteForm = () => {
+                const form = document.getElementById('new-minute-form');
+                if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
+            };
+
+            // Dynamic Action Items
+            window.app_addActionItemRow = () => {
+                const container = document.getElementById('action-items-container');
+                const div = document.createElement('div');
+                div.className = 'action-item-row';
+                div.style.cssText = "display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:0.5rem; margin-bottom:0.5rem; align-items:center;";
+                div.innerHTML = `
+                    <input type="text" class="ai-task" placeholder="Task description..." required style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px; width:100%;">
+                    <input type="date" class="ai-date" required style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px; width:100%;">
+                    <select class="ai-assignee" required style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px; width:100%;">
+                        <option value="">Assign To...</option>
+                        ${allUsers.map(u => `<option value="${u.id}">${u.name}</option>`).join('')}
+                    </select>
+                    <button type="button" onclick="this.parentElement.remove()" style="color:#ef4444; background:none; border:none; cursor:pointer;"><i class="fa-solid fa-times"></i></button>
+                `;
+                container.appendChild(div);
+            };
+
+            window.app_saveMinute = async (e) => {
+                e.preventDefault();
+                const title = e.target.title.value;
+                const date = e.target.date.value;
+                const attendees = e.target.attendees.value;
+                const content = e.target.content.value;
+
+                // Collect Action Items
+                const actionItems = [];
+                const rows = document.querySelectorAll('.action-item-row');
+                rows.forEach(row => {
+                    actionItems.push({
+                        task: row.querySelector('.ai-task').value,
+                        dueDate: row.querySelector('.ai-date').value,
+                        assigneeId: row.querySelector('.ai-assignee').value
+                    });
+                });
+
+                try {
+                    // Save Minute
+                    await window.AppMinutes.addMinute({ title, date, attendees, content, actionItems });
+
+                    // Sync to Calendar (if AppCalendar exists)
+                    if (window.AppCalendar && actionItems.length > 0) {
+                        for (const item of actionItems) {
+                            try {
+                                await window.AppCalendar.addWorkPlanTask(item.dueDate, item.assigneeId, `From Minutes: ${title} - ${item.task}`);
+                            } catch (e) {
+                                console.error("Failed to sync task to calendar:", e);
+                            }
+                        }
+                    }
+
+                    alert("Meeting minutes saved & tasks assigned!");
+                    window.location.reload();
+                } catch (err) {
+                    alert("Error saving minutes: " + err.message);
+                }
+            };
+
+            window.app_deleteMinute = async (id) => {
+                if (confirm("Are you sure you want to delete this record?")) {
+                    try {
+                        await window.AppMinutes.deleteMinute(id);
+                        window.location.reload();
+                    } catch (err) {
+                        alert("Error deleting: " + err.message);
+                    }
+                }
+            };
+
+            return `
+                <div class="dashboard-grid">
+                    <div class="card full-width">
+                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                            <div>
+                                <h2 style="font-size:1.5rem; margin:0; color:#1e1b4b;">Meeting Minutes</h2>
+                                <p class="text-muted" style="margin-top:0.25rem;">Record and track internal meetings and decisions.</p>
+                            </div>
+                            <button onclick="window.app_toggleNewMinuteForm()" class="action-btn">
+                                <i class="fa-solid fa-plus"></i> New Minute
+                            </button>
+                        </div>
+
+                        <!-- New Entry Form -->
+                        <div id="new-minute-form" style="display:none; background:#f8fafc; padding:1.5rem; border-radius:12px; margin-bottom:2rem; border:1px solid #e2e8f0;">
+                            <h4 style="margin-top:0; margin-bottom:1rem; color:#334155;">Add New Record</h4>
+                            <form onsubmit="window.app_saveMinute(event)">
+                                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1rem; margin-bottom:1rem;">
+                                    <div>
+                                        <label style="display:block; font-size:0.8rem; font-weight:600; color:#64748b; margin-bottom:0.4rem;">Meeting Title</label>
+                                        <input type="text" name="title" required placeholder="e.g. Weekly Staff Sync" style="width:100%; padding:0.6rem; border:1px solid #cbd5e1; border-radius:6px;">
+                                    </div>
+                                    <div>
+                                        <label style="display:block; font-size:0.8rem; font-weight:600; color:#64748b; margin-bottom:0.4rem;">Date</label>
+                                        <input type="date" name="date" required style="width:100%; padding:0.6rem; border:1px solid #cbd5e1; border-radius:6px;">
+                                    </div>
+                                </div>
+                                <div style="margin-bottom:1rem;">
+                                    <label style="display:block; font-size:0.8rem; font-weight:600; color:#64748b; margin-bottom:0.4rem;">Attendees</label>
+                                    <input type="text" name="attendees" placeholder="Separate names with comma..." style="width:100%; padding:0.6rem; border:1px solid #cbd5e1; border-radius:6px;">
+                                </div>
+                                <div style="margin-bottom:1rem;">
+                                    <label style="display:block; font-size:0.8rem; font-weight:600; color:#64748b; margin-bottom:0.4rem;">Discussion Points & Decisions</label>
+                                    <textarea name="content" required rows="6" placeholder="- Discussed Q1 Goals..." style="width:100%; padding:0.6rem; border:1px solid #cbd5e1; border-radius:6px; font-family:inherit;"></textarea>
+                                </div>
+                                
+                                <!-- Action Items Section -->
+                                <div style="margin-bottom:1.5rem; background:white; padding:1rem; border-radius:8px; border:1px solid #e2e8f0;">
+                                    <label style="display:block; font-size:0.8rem; font-weight:800; color:#475569; margin-bottom:0.5rem; text-transform:uppercase;">Action Items / Plan Tasks</label>
+                                    <div id="action-items-container"></div>
+                                    <button type="button" onclick="window.app_addActionItemRow()" style="font-size:0.8rem; color:var(--primary); background:none; border:none; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:0.5rem;">
+                                        <i class="fa-solid fa-plus-circle"></i> Add Action Item
+                                    </button>
+                                </div>
+
+                                <div style="display:flex; justify-content:flex-end; gap:1rem;">
+                                    <button type="button" onclick="window.app_toggleNewMinuteForm()" style="padding:0.6rem 1.2rem; border:1px solid #cbd5e1; background:white; border-radius:6px; cursor:pointer;">Cancel</button>
+                                    <button type="submit" class="action-btn" style="padding:0.6rem 1.5rem;">Save & Assign Tasks</button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <!-- List -->
+                        <div class="minutes-list">
+                            ${minutes.length > 0 ? minutes.map(m => `
+                                <div style="background:white; border:1px solid #e2e8f0; border-radius:12px; padding:1.25rem; margin-bottom:1rem; position:relative;">
+                                    <button onclick="window.app_deleteMinute('${m.id}')" title="Delete" style="position:absolute; top:1rem; right:1rem; color:#ef4444; background:none; border:none; cursor:pointer;">
+                                        <i class="fa-solid fa-trash-can"></i>
+                                    </button>
+                                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.75rem; padding-right:2rem;">
+                                        <div>
+                                            <h3 style="margin:0; font-size:1.1rem; color:#1e293b;">${m.title}</h3>
+                                            <span style="font-size:0.8rem; color:#64748b;"><i class="fa-regular fa-calendar" style="margin-right:4px;"></i> ${new Date(m.date).toLocaleDateString()}</span>
+                                            <span style="margin:0 8px; color:#cbd5e1;">|</span>
+                                            <span style="font-size:0.8rem; color:#64748b;"><i class="fa-solid fa-users" style="margin-right:4px;"></i> ${m.attendees || 'All Staff'}</span>
+                                        </div>
+                                    </div>
+                                    <div style="background:#f8fafc; padding:1rem; border-radius:8px; color:#334155; font-size:0.9rem; white-space:pre-wrap; line-height:1.6;">${m.content}</div>
+                                    
+                                    ${m.actionItems && m.actionItems.length > 0 ? `
+                                        <div style="margin-top:1rem; border-top:1px dashed #e2e8f0; padding-top:0.75rem;">
+                                            <label style="font-size:0.7rem; font-weight:700; color:#94a3b8; text-transform:uppercase;">Action Items:</label>
+                                            <ul style="margin:0.25rem 0 0 1rem; padding:0; font-size:0.85rem; color:#475569;">
+                                                ${m.actionItems.map(item => `
+                                                    <li>${item.task} <span style="color:#64748b; font-size:0.75rem;">(Assigned to: ${allUsers.find(u => u.id === item.assigneeId)?.name || 'Unknown'})</span></li>
+                                                `).join('')}
+                                            </ul>
+                                        </div>
+                                    ` : ''}
+
+                                    <div style="margin-top:0.75rem; font-size:0.75rem; color:#94a3b8; text-align:right;">
+                                        Recorded by ${m.createdByName || 'Admin'}
+                                    </div>
+                                </div>
+                            `).join('') : `
+                                <div style="text-align:center; padding:3rem; color:#94a3b8; background:#f8fafc; border-radius:12px; border:1px dashed #cbd5e1;">
+                                    <i class="fa-solid fa-clipboard-list" style="font-size:2rem; margin-bottom:1rem; opacity:0.5;"></i>
+                                    <p>No meeting minutes recorded yet.</p>
+                                    <button onclick="window.app_toggleNewMinuteForm()" style="color:var(--primary); background:none; border:none; font-weight:600; cursor:pointer; margin-top:0.5rem;">Start First Record</button>
+                                </div>
+                            `}
+                        </div>
+                    </div>
+                </div>
+            `;
         }
     };
 })();
