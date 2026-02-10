@@ -488,55 +488,50 @@
         const plans = window._currentPlans;
         const myWorkPlan = plans && plans.workPlans ? plans.workPlans.find(p => p.date === date && p.userId === currentUser.id) : null;
 
-        // Grouping logic for multi-user visibility
         const teamActivity = evs.filter(e => e.type === 'leave' || e.type === 'event');
         const otherStaffPlans = evs.filter(e => e.type === 'work' && e.userId !== currentUser.id);
-
-        // Fetch all users for tagging
         const allUsers = await window.AppDB.getAll('users');
 
         const html = `
-            <div class="modal-overlay" id="day-plan-modal" style="display:flex;">
-                <div class="modal-content" style="max-width: 600px; width: 95%;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
-                        <h3 style="font-size: 1.1rem;">Plan for ${date}</h3>
-                        <div style="display:flex; gap:0.4rem; align-items:center;">
-                            ${myWorkPlan ? `<button onclick="window.app_deleteDayPlan('${date}')" title="Delete Plan" style="background:none; border:none; color:#ef4444; font-size:0.9rem; cursor:pointer;"><i class="fa-solid fa-trash-can"></i></button>` : ''}
-                            <button onclick="this.closest('.modal-overlay').remove()" style="background:none; border:none; font-size:1.1rem; cursor:pointer;">&times;</button>
+            <div class="modal-overlay" id="day-plan-modal" style="display:flex; align-items:flex-start; padding-top:2rem;">
+                <div class="modal-content" style="max-width: 800px; width: 95%; padding: 1.25rem; border-radius: 16px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                        <div>
+                            <h3 style="font-size: 1.1rem; margin:0;">Daily Work Plan</h3>
+                            <span style="font-size:0.75rem; color:#64748b;">${date} • Set your goals & tag collaborators</span>
+                        </div>
+                        <div style="display:flex; gap:0.5rem; align-items:center;">
+                            ${myWorkPlan ? `<button onclick="window.app_deleteDayPlan('${date}')" title="Delete Plan" style="background:#fff1f2; border:1px solid #fecaca; color:#ef4444; width:32px; height:32px; border-radius:8px; cursor:pointer; display:flex; align-items:center; justify-content:center;"><i class="fa-solid fa-trash-can" style="font-size:0.85rem;"></i></button>` : ''}
+                            <button onclick="this.closest('.modal-overlay').remove()" style="background:#f1f5f9; border:none; width:32px; height:32px; border-radius:8px; font-size:1.2rem; cursor:pointer; display:flex; align-items:center; justify-content:center;">&times;</button>
                         </div>
                     </div>
 
-                    <div style="margin: 0.4rem 0 1rem 0; max-height: 150px; overflow-y: auto; background:#f9fafb; padding:0.75rem; border-radius:8px; border:1px solid #f3f4f6;">
-                        <!-- Team Activity (Leaves/Shared Events) -->
-                        <div style="margin-bottom: 1rem;">
-                            <label style="font-size: 0.65rem; font-weight:700; color: #9ca3af; display: block; margin-bottom: 0.4rem; text-transform:uppercase; letter-spacing:0.5px;">Team Leaves & Events</label>
-                            ${teamActivity.length ? teamActivity.map(e => `
-                                <div style="font-size: 0.8rem; padding: 4px 0; border-bottom: 1px solid #f3f4f6; display:flex; gap:6px; align-items:start;">
-                                    <span style="width:6px; height:6px; border-radius:50%; margin-top:5px; background:${e.type === 'leave' ? '#ef4444' : '#10b981'}"></span>
-                                    <span style="flex:1;">${e.title}</span>
-                                </div>
-                            `).join('') : '<div style="color:#9ca3af; font-size:0.75rem;">No leaves or events.</div>'}
-                        </div>
-
-                        <!-- Staff Work Plans (Other Members) -->
-                        <div>
-                            <label style="font-size: 0.65rem; font-weight:700; color: #9ca3af; display: block; margin-bottom: 0.4rem; text-transform:uppercase; letter-spacing:0.5px;">Staff Work Plans</label>
-                            ${otherStaffPlans.length ? otherStaffPlans.map(e => {
+                    <!-- Shared Context (Compact) -->
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.75rem; margin-bottom:1.25rem;">
+                         <div style="background:#f8fafc; padding:0.6rem; border-radius:10px; border:1px solid #f1f5f9;">
+                            <label style="font-size: 0.6rem; font-weight:800; color: #94a3b8; display: block; margin-bottom: 0.3rem; text-transform:uppercase; letter-spacing:0.5px;">Team Leaves/Events</label>
+                            <div style="max-height: 80px; overflow-y:auto; display:flex; flex-direction:column; gap:2px;">
+                                ${teamActivity.length ? teamActivity.map(e => `
+                                    <div style="font-size: 0.75rem; display:flex; gap:6px; align-items:center; color:#475569;">
+                                        <span style="width:5px; height:5px; border-radius:50%; background:${e.type === 'leave' ? '#ef4444' : '#10b981'}"></span>
+                                        <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${e.title}</span>
+                                    </div>
+                                `).join('') : '<div style="color:#cbd5e1; font-size:0.7rem;">None scheduled</div>'}
+                            </div>
+                         </div>
+                         <div style="background:#f8fafc; padding:0.6rem; border-radius:10px; border:1px solid #f1f5f9;">
+                            <label style="font-size: 0.6rem; font-weight:800; color: #94a3b8; display: block; margin-bottom: 0.3rem; text-transform:uppercase; letter-spacing:0.5px;">Staff Plans</label>
+                            <div style="max-height: 80px; overflow-y:auto; display:flex; flex-direction:column; gap:4px;">
+                                ${otherStaffPlans.length ? otherStaffPlans.map(e => {
             const parts = e.title.split(':');
-            const name = parts[0];
-            const planText = parts.slice(1).join(':').trim();
-            return `
-                                <div style="font-size: 0.8rem; padding: 8px; border: 1px solid #e5e7eb; background:white; border-radius:8px; margin-bottom:6px; display:flex; flex-direction:column; gap:3px;">
-                                    <div style="font-weight:600; font-size:0.7rem; color:var(--primary);">${name}</div>
-                                    <div style="color:#374151; line-height:1.3; white-space: pre-wrap;">${planText}</div>
-                                </div>
-                            `;
-        }).join('') : '<div style="color:#9ca3af; font-size:0.75rem;">No staff plans yet.</div>'}
-                        </div>
+            return `<div style="font-size: 0.75rem; color:#475569; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${e.title.split(':').slice(1).join(':')}"><b style="color:var(--primary); font-size:0.7rem;">${parts[0].split(' ')[0]}:</b> ${parts.slice(1).join(':').trim()}</div>`;
+        }).join('') : '<div style="color:#cbd5e1; font-size:0.7rem;">No plans posted</div>'}
+                            </div>
+                         </div>
                     </div>
                     
                     <form onsubmit="window.app_saveDayPlan(event, '${date}')">
-                        <div id="plans-container" style="max-height: 400px; overflow-y: auto; padding-right: 5px;">
+                        <div id="plans-container" style="max-height: 50vh; overflow-y: auto; padding-right: 5px;">
                             ${(myWorkPlan && myWorkPlan.plans && myWorkPlan.plans.length > 0)
                 ? myWorkPlan.plans.map((p, idx) => renderPlanBlock(p, idx, allUsers)).join('')
                 : (myWorkPlan && myWorkPlan.plan)
@@ -545,58 +540,79 @@
             }
                         </div>
 
-                        <button type="button" onclick="window.app_addPlanBlockUI()" style="background:#fff; border:1px dashed var(--primary); border-radius:8px; padding:0.6rem; width:100%; font-size:0.85rem; color:var(--primary); cursor:pointer; margin-top:0.5rem; font-weight:600;">
-                            <i class="fa-solid fa-plus-circle"></i> Add Another Plan / Task
-                        </button>
-
-                        <div style="display:flex; gap:0.75rem; margin-top:1.5rem; border-top:1px solid #f3f4f6; padding-top:1rem;">
-                             <button type="button" onclick="this.closest('.modal-overlay').remove()" style="flex:1; padding:0.6rem; background:#fff; border:1px solid #ddd; border-radius:8px; cursor:pointer; font-weight:500; font-size:0.9rem;">Cancel</button>
-                             <button type="submit" class="action-btn" style="flex:2; padding:0.6rem; font-size:0.9rem;">Save All Plans</button>
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:1rem; gap:1rem;">
+                            <button type="button" onclick="window.app_addPlanBlockUI()" style="flex:1; background:#f0fdf4; border:1px dashed #22c55e; border-radius:10px; padding:0.75rem; font-size:0.85rem; color:#166534; cursor:pointer; font-weight:600; display:flex; align-items:center; justify-content:center; gap:0.5rem;">
+                                <i class="fa-solid fa-plus-circle"></i> Add Task Block
+                            </button>
+                            <div style="flex:2; display:flex; gap:0.75rem;">
+                                <button type="button" onclick="this.closest('.modal-overlay').remove()" style="flex:1; padding:0.75rem; background:#fff; border:1px solid #e2e8f0; border-radius:10px; cursor:pointer; font-weight:600; color:#64748b; font-size:0.9rem;">Cancel</button>
+                                <button type="submit" class="action-btn" style="flex:2; padding:0.75rem; font-size:0.9rem; border-radius:10px;">Save All Goals</button>
+                            </div>
                         </div>
                     </form>
+                </div>
+
+                <!-- Mention Dropdown (Shared) -->
+                <div id="mention-dropdown" style="display:none; position:fixed; z-index:10000; background:white; border:1px solid #e2e8f0; border-radius:10px; box-shadow:0 10px 15px -3px rgba(0,0,0,0.1); width:220px; max-height:200px; overflow-y:auto; padding:4px;">
+                    <div style="padding:6px 12px; font-size:0.65rem; color:#94a3b8; font-weight:800; text-transform:uppercase;">Tag Staff Member</div>
+                    <div id="mention-list-items"></div>
                 </div>
             </div>
         `;
         window.app_showModal(html, 'day-plan-modal');
 
+        // Setup event delegation for mentions
+        const container = document.getElementById('plans-container');
+        if (container) {
+            container.addEventListener('input', (e) => {
+                if (e.target.classList.contains('plan-task')) {
+                    window.app_checkMentions(e.target, allUsers.filter(u => u.id !== currentUser.id));
+                }
+            });
+            // Close dropdown on focus out or click away
+            document.addEventListener('mousedown', (e) => {
+                const dropdown = document.getElementById('mention-dropdown');
+                if (dropdown && !dropdown.contains(e.target) && !e.target.classList.contains('plan-task')) {
+                    dropdown.style.display = 'none';
+                }
+            });
+        }
+
         function renderPlanBlock(plan, index, users) {
             return `
-                <div class="plan-block" data-index="${index}" style="background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:1rem; margin-bottom:1rem; position:relative;">
-                    ${index > 0 ? `<button type="button" onclick="this.closest('.plan-block').remove()" style="position:absolute; top:8px; right:8px; background:none; border:none; color:#9ca3af; cursor:pointer;"><i class="fa-solid fa-trash"></i></button>` : ''}
+                <div class="plan-block" data-index="${index}" style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:0; margin-bottom:1.25rem; position:relative; overflow:hidden; display:flex; min-height:160px;">
+                    ${index > 0 ? `<button type="button" onclick="this.closest('.plan-block').remove()" style="position:absolute; top:8px; right:8px; background:#fff1f2; border:none; color:#ef4444; width:24px; height:24px; border-radius:6px; cursor:pointer; display:flex; align-items:center; justify-content:center; z-index:5;"><i class="fa-solid fa-times" style="font-size:0.7rem;"></i></button>` : ''}
                     
-                    <label style="display:block; font-size:0.75rem; font-weight:700; color:#4b5563; margin-bottom:0.4rem; text-transform:uppercase;">Main Task / Goal</label>
-                    <textarea class="plan-task" required placeholder="What are you working on?" style="width:100%; height:60px; padding:0.6rem; border:1px solid #ddd; border-radius:8px; font-family:inherit; resize:none; margin-bottom:0.75rem; font-size:0.9rem;">${plan.task || ''}</textarea>
-                    
-                    <label style="display:block; font-size:0.75rem; font-weight:700; color:#4b5563; margin-bottom:0.4rem; text-transform:uppercase;">Sub-plans / Steps</label>
-                    <div class="sub-plans-list" style="display:flex; flex-direction:column; gap:0.4rem; margin-bottom:0.75rem;">
-                        ${plan.subPlans ? plan.subPlans.map(sub => `
-                            <div class="sub-plan-row" style="display:flex; gap:0.4rem; align-items:center;">
-                                <input type="text" value="${sub}" class="sub-plan-input" placeholder="e.g. Design UI" style="flex:1; padding:0.4rem; border:1px solid #ddd; border-radius:6px; font-size:0.8rem;">
-                                <button type="button" onclick="this.parentElement.remove()" style="background:none; border:none; color:#9ca3af; cursor:pointer;"><i class="fa-solid fa-circle-xmark"></i></button>
-                            </div>
-                        `).join('') : ''}
+                    <!-- Left: Self Plan (65%) -->
+                    <div style="flex: 1.8; padding: 1rem; border-right: 1px solid #f1f5f9;">
+                         <label style="display:block; font-size:0.65rem; font-weight:800; color:#94a3b8; margin-bottom:0.5rem; text-transform:uppercase; letter-spacing:0.5px;">1. My Tasks & Steps</label>
+                         <textarea class="plan-task" required placeholder="Type task... use @ to tag staff" style="width:100%; height:70px; padding:0.75rem; border:1px solid #e2e8f0; border-radius:10px; font-family:inherit; resize:none; margin-bottom:0.75rem; font-size:0.9rem; line-height:1.4; background:#fcfdfe;">${plan.task || ''}</textarea>
+                         
+                         <div class="sub-plans-list" style="display:flex; flex-direction:column; gap:0.4rem;">
+                            ${plan.subPlans ? plan.subPlans.map(sub => `
+                                <div class="sub-plan-row" style="display:flex; gap:0.4rem; align-items:center;">
+                                    <div style="width:6px; height:6px; background:#cbd5e1; border-radius:50%;"></div>
+                                    <input type="text" value="${sub}" class="sub-plan-input" placeholder="Sub-task..." style="flex:1; padding:0.4rem; border:1px solid transparent; border-bottom:1px solid #f1f5f9; font-size:0.8rem; background:transparent; outline:none;">
+                                    <button type="button" onclick="this.parentElement.remove()" style="background:none; border:none; color:#cbd5e1; cursor:pointer;"><i class="fa-solid fa-circle-xmark"></i></button>
+                                </div>
+                            `).join('') : ''}
+                         </div>
+                         <button type="button" onclick="window.app_addSubPlanRow(this)" style="background:none; border:none; padding:4px 0; font-size:0.75rem; color:var(--primary); cursor:pointer; margin-top:0.4rem; display:flex; align-items:center; gap:4px; font-weight:600;">
+                            <i class="fa-solid fa-plus"></i> Add Sub-task
+                         </button>
                     </div>
-                    <button type="button" onclick="window.app_addSubPlanRow(this)" style="background:#f9fafb; border:1px dashed #d1d5db; border-radius:6px; padding:0.35rem; width:100%; font-size:0.75rem; color:#6b7280; cursor:pointer; margin-bottom:0.75rem;">
-                        <i class="fa-solid fa-plus"></i> Add Step
-                    </button>
 
-                    <label style="display:block; font-size:0.75rem; font-weight:700; color:#4b5563; margin-bottom:0.4rem; text-transform:uppercase;">Co-workers / Collaboration</label>
-                    <div class="tags-container" style="display:flex; flex-wrap:wrap; gap:0.4rem; margin-bottom:0.5rem;">
-                        ${plan.tags ? plan.tags.map(t => `
-                            <span class="tag-chip" data-id="${t.id}" data-name="${t.name}" style="background:#e0f2fe; color:#0369a1; padding:2px 8px; border-radius:12px; font-size:0.75rem; display:flex; align-items:center; gap:4px; font-weight:500; border:1px solid #bae6fd;">
-                                ${t.name}
-                                <i class="fa-solid fa-xmark" onclick="this.parentElement.remove()" style="cursor:pointer; font-size:0.65rem;"></i>
-                            </span>
-                        `).join('') : ''}
-                    </div>
-                    <div style="position:relative;">
-                        <button type="button" onclick="window.app_toggleTagUI(this)" style="background:#f0fdf4; border:1px solid #bcf0da; border-radius:6px; padding:0.35rem; font-size:0.75rem; color:#166534; cursor:pointer; font-weight:500;">
-                            <i class="fa-solid fa-user-plus"></i> Tag Co-worker
-                        </button>
-                        <div class="tag-picker" style="display:none; position:absolute; top:100%; left:0; z-index:10; background:white; border:1px solid #ddd; border-radius:8px; box-shadow:0 4px 6px -1px rgb(0 0 0 / 0.1); width:200px; margin-top:4px; max-height:150px; overflow-y:auto;">
-                            ${users.filter(u => u.id !== currentUser.id).map(u => `
-                                <div onclick="window.app_addTagChip(this, '${u.id}', '${u.name}')" style="padding:0.5rem 0.75rem; font-size:0.8rem; cursor:pointer; border-bottom:1px solid #f3f4f6;" class="tag-option">${u.name}</div>
-                            `).join('')}
+                    <!-- Right: Tagged Staff (35%) -->
+                    <div style="flex: 1; padding: 1rem; background: #f8fafc; display:flex; flex-direction:column;">
+                        <label style="display:block; font-size:0.65rem; font-weight:800; color:#94a3b8; margin-bottom:0.75rem; text-transform:uppercase; letter-spacing:0.5px;">2. Collaborators</label>
+                        <div class="tags-container" style="display:flex; flex-direction:column; gap:0.5rem; flex:1;">
+                            ${plan.tags ? plan.tags.map(t => `
+                                <div class="tag-chip" data-id="${t.id}" data-name="${t.name}" data-status="${t.status || 'pending'}" style="background:white; color:#334155; padding:6px 10px; border-radius:10px; font-size:0.75rem; display:flex; align-items:center; justify-content:space-between; font-weight:600; border:1px solid #e2e8f0; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
+                                    <span><i class="fa-solid fa-at" style="color:#6366f1; font-size:0.65rem; margin-right:4px;"></i>${t.name} <span style="font-size:0.6rem; color:${t.status === 'accepted' ? '#10b981' : (t.status === 'rejected' ? '#ef4444' : '#f59e0b')};">(${t.status ? t.status.charAt(0).toUpperCase() + t.status.slice(1) : 'Pending'})</span></span>
+                                    <i class="fa-solid fa-times" onclick="this.parentElement.remove()" style="cursor:pointer; font-size:0.7rem; color:#94a3b8;"></i>
+                                </div>
+                            `).join('') : ''}
+                            ${(!plan.tags || plan.tags.length === 0) ? '<div class="no-tags-placeholder" style="font-size:0.7rem; color:#cbd5e1; text-align:center; padding-top:1rem; border:1px dashed #e2e8f0; border-radius:10px; flex:1;">Use @ in task text to tag</div>' : ''}
                         </div>
                     </div>
                 </div>
@@ -611,37 +627,118 @@
         const currentUser = window.AppAuth.getUser();
         const index = container.querySelectorAll('.plan-block').length;
 
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = `
-            <div class="plan-block" data-index="${index}" style="background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:1rem; margin-bottom:1rem; position:relative; animation: fadeIn 0.3s ease;">
-                <button type="button" onclick="this.closest('.plan-block').remove()" style="position:absolute; top:8px; right:8px; background:none; border:none; color:#9ca3af; cursor:pointer;"><i class="fa-solid fa-trash"></i></button>
-                
-                <label style="display:block; font-size:0.75rem; font-weight:700; color:#4b5563; margin-bottom:0.4rem; text-transform:uppercase;">Main Task / Goal</label>
-                <textarea class="plan-task" required placeholder="What are you working on?" style="width:100%; height:60px; padding:0.6rem; border:1px solid #ddd; border-radius:8px; font-family:inherit; resize:none; margin-bottom:0.75rem; font-size:0.9rem;"></textarea>
-                
-                <label style="display:block; font-size:0.75rem; font-weight:700; color:#4b5563; margin-bottom:0.4rem; text-transform:uppercase;">Sub-plans / Steps</label>
-                <div class="sub-plans-list" style="display:flex; flex-direction:column; gap:0.4rem; margin-bottom:0.75rem;"></div>
-                <button type="button" onclick="window.app_addSubPlanRow(this)" style="background:#f9fafb; border:1px dashed #d1d5db; border-radius:6px; padding:0.35rem; width:100%; font-size:0.75rem; color:#6b7280; cursor:pointer; margin-bottom:0.75rem;">
-                    <i class="fa-solid fa-plus"></i> Add Step
-                </button>
+        const html = `
+                <div class="plan-block" data-index="${index}" style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:0; margin-bottom:1.25rem; position:relative; overflow:hidden; display:flex; min-height:160px; animation: fadeIn 0.3s ease;">
+                    <button type="button" onclick="this.closest('.plan-block').remove()" style="position:absolute; top:8px; right:8px; background:#fff1f2; border:none; color:#ef4444; width:24px; height:24px; border-radius:6px; cursor:pointer; display:flex; align-items:center; justify-content:center; z-index:5;"><i class="fa-solid fa-times" style="font-size:0.7rem;"></i></button>
+                    
+                    <!-- Left: Self Plan (65%) -->
+                    <div style="flex: 1.8; padding: 1rem; border-right: 1px solid #f1f5f9;">
+                         <label style="display:block; font-size:0.65rem; font-weight:800; color:#94a3b8; margin-bottom:0.5rem; text-transform:uppercase; letter-spacing:0.5px;">1. My Tasks & Steps</label>
+                         <textarea class="plan-task" required placeholder="Type task... use @ to tag staff" style="width:100%; height:70px; padding:0.75rem; border:1px solid #e2e8f0; border-radius:10px; font-family:inherit; resize:none; margin-bottom:0.75rem; font-size:0.9rem; line-height:1.4; background:#fcfdfe;"></textarea>
+                         
+                         <div class="sub-plans-list" style="display:flex; flex-direction:column; gap:0.4rem;"></div>
+                         <button type="button" onclick="window.app_addSubPlanRow(this)" style="background:none; border:none; padding:4px 0; font-size:0.75rem; color:var(--primary); cursor:pointer; margin-top:0.4rem; display:flex; align-items:center; gap:4px; font-weight:600;">
+                            <i class="fa-solid fa-plus"></i> Add Sub-task
+                         </button>
+                    </div>
 
-                <label style="display:block; font-size:0.75rem; font-weight:700; color:#4b5563; margin-bottom:0.4rem; text-transform:uppercase;">Co-workers / Collaboration</label>
-                <div class="tags-container" style="display:flex; flex-wrap:wrap; gap:0.4rem; margin-bottom:0.5rem;"></div>
-                <div style="position:relative;">
-                    <button type="button" onclick="window.app_toggleTagUI(this)" style="background:#f0fdf4; border:1px solid #bcf0da; border-radius:6px; padding:0.35rem; font-size:0.75rem; color:#166534; cursor:pointer; font-weight:500;">
-                        <i class="fa-solid fa-user-plus"></i> Tag Co-worker
-                    </button>
-                    <div class="tag-picker" style="display:none; position:absolute; top:100%; left:0; z-index:10; background:white; border:1px solid #ddd; border-radius:8px; box-shadow:0 4px 6px -1px rgb(0 0 0 / 0.1); width:200px; margin-top:4px; max-height:150px; overflow-y:auto;">
-                        ${allUsers.filter(u => u.id !== currentUser.id).map(u => `
-                            <div onclick="window.app_addTagChip(this, '${u.id}', '${u.name}')" style="padding:0.5rem 0.75rem; font-size:0.8rem; cursor:pointer; border-bottom:1px solid #f3f4f6;" class="tag-option">${u.name}</div>
-                        `).join('')}
+                    <!-- Right: Tagged Staff (35%) -->
+                    <div style="flex: 1; padding: 1rem; background: #f8fafc; display:flex; flex-direction:column;">
+                        <label style="display:block; font-size:0.65rem; font-weight:800; color:#94a3b8; margin-bottom:0.75rem; text-transform:uppercase; letter-spacing:0.5px;">2. Collaborators</label>
+                        <div class="tags-container" style="display:flex; flex-direction:column; gap:0.5rem; flex:1;">
+                            <div class="no-tags-placeholder" style="font-size:0.7rem; color:#cbd5e1; text-align:center; padding-top:1rem; border:1px dashed #e2e8f0; border-radius:10px; flex:1;">Use @ in task text to tag</div>
+                        </div>
                     </div>
                 </div>
-            </div>
         `;
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = html;
         const newBlock = tempDiv.firstElementChild;
         container.appendChild(newBlock);
         newBlock.querySelector('textarea').focus();
+    };
+
+    // Mentions Logic Helper
+    window.app_checkMentions = (textarea, users) => {
+        const text = textarea.value;
+        const cursorPos = textarea.selectionStart;
+        const lastAt = text.lastIndexOf('@', cursorPos - 1);
+
+        if (lastAt !== -1 && !text.substring(lastAt, cursorPos).includes(' ')) {
+            const query = text.substring(lastAt + 1, cursorPos).toLowerCase();
+            const filteredUsers = users.filter(u => u.name.toLowerCase().includes(query));
+
+            if (filteredUsers.length > 0) {
+                const rect = textarea.getBoundingClientRect();
+                const dropdown = document.getElementById('mention-dropdown');
+                const list = document.getElementById('mention-list-items');
+
+                list.innerHTML = filteredUsers.map(u => `
+                    <div onclick="window.app_applyMention('${textarea.id || 'current-ta'}', '${u.id}', '${u.name}', ${lastAt})" style="padding:8px 12px; font-size:0.85rem; cursor:pointer; border-bottom:1px solid #f1f5f9; display:flex; align-items:center; gap:8px;" class="mention-item">
+                        <img src="${u.avatar}" style="width:20px; height:20px; border-radius:50%;" />
+                        <span>${u.name}</span>
+                    </div>
+                `).join('');
+
+                // Position dropdown
+                dropdown.style.top = (rect.top + 30) + 'px';
+                dropdown.style.left = rect.left + 'px';
+                dropdown.style.display = 'block';
+
+                // Give textarea a temporary ID for selection if needed
+                if (!textarea.id) textarea.id = 'ta-' + Date.now();
+            } else {
+                document.getElementById('mention-dropdown').style.display = 'none';
+            }
+        } else {
+            const dropdown = document.getElementById('mention-dropdown');
+            if (dropdown) dropdown.style.display = 'none';
+        }
+    };
+
+    window.app_applyMention = (taId, userId, userName, atPos) => {
+        const textarea = document.getElementById(taId);
+        if (!textarea) return;
+
+        const text = textarea.value;
+        const cursorPos = textarea.selectionStart;
+        const before = text.substring(0, atPos);
+        const after = text.substring(cursorPos);
+
+        textarea.value = before + userName + ' ' + after;
+        textarea.focus();
+        document.getElementById('mention-dropdown').style.display = 'none';
+
+        // Add to tags container on the right
+        const block = textarea.closest('.plan-block');
+        const tagsContainer = block.querySelector('.tags-container');
+
+        // Remove placeholder
+        const placeholder = tagsContainer.querySelector('.no-tags-placeholder');
+        if (placeholder) placeholder.remove();
+
+        // Check if already tagged
+        if (tagsContainer.querySelector(`[data-id="${userId}"]`)) return;
+
+        const chip = document.createElement('div');
+        chip.className = 'tag-chip';
+        chip.dataset.id = userId;
+        chip.dataset.name = userName;
+        chip.dataset.status = 'pending'; // New: status for approval
+        chip.style.cssText = 'background:white; color:#334155; padding:6px 10px; border-radius:10px; font-size:0.75rem; display:flex; align-items:center; justify-content:space-between; font-weight:600; border:1px solid #e2e8f0; box-shadow:0 1px 2px rgba(0,0,0,0.03); animation: slideInRight 0.2s ease;';
+        chip.innerHTML = `
+            <span><i class="fa-solid fa-at" style="color:#6366f1; font-size:0.65rem; margin-right:4px;"></i>${userName} <span style="font-size:0.6rem; color:#f59e0b;">(Pending)</span></span>
+            <i class="fa-solid fa-times" onclick="window.app_removeTagHint(this)" style="cursor:pointer; font-size:0.7rem; color:#94a3b8;"></i>
+        `;
+        tagsContainer.appendChild(chip);
+    };
+
+    window.app_removeTagHint = (btn) => {
+        const container = btn.closest('.tags-container');
+        btn.parentElement.remove();
+        if (container.querySelectorAll('.tag-chip').length === 0) {
+            container.innerHTML = '<div class="no-tags-placeholder" style="font-size:0.7rem; color:#cbd5e1; text-align:center; padding-top:1rem; border:1px dashed #e2e8f0; border-radius:10px; flex:1;">Use @ in task text to tag</div>';
+        }
     };
 
     window.app_addSubPlanRow = (btn) => {
@@ -651,47 +748,12 @@
         row.className = 'sub-plan-row';
         row.style.cssText = 'display:flex; gap:0.4rem; align-items:center;';
         row.innerHTML = `
-            <input type="text" class="sub-plan-input" placeholder="e.g. Design UI" style="flex:1; padding:0.4rem; border:1px solid #ddd; border-radius:6px; font-size:0.8rem;">
-            <button type="button" onclick="this.parentElement.remove()" style="background:none; border:none; color:#9ca3af; cursor:pointer;"><i class="fa-solid fa-circle-xmark"></i></button>
+            <div style="width:6px; height:6px; background:#cbd5e1; border-radius:50%;"></div>
+            <input type="text" class="sub-plan-input" placeholder="Sub-task..." style="flex:1; padding:0.4rem; border:1px solid transparent; border-bottom:1px solid #f1f5f9; font-size:0.8rem; background:transparent; outline:none;">
+            <button type="button" onclick="this.parentElement.remove()" style="background:none; border:none; color:#cbd5e1; cursor:pointer;"><i class="fa-solid fa-circle-xmark"></i></button>
         `;
         list.appendChild(row);
         row.querySelector('input').focus();
-    };
-
-    window.app_toggleTagUI = (btn) => {
-        const picker = btn.nextElementSibling;
-        picker.style.display = picker.style.display === 'none' ? 'block' : 'none';
-
-        // Close when clicking outside
-        const closePicker = (e) => {
-            if (!picker.contains(e.target) && e.target !== btn && !btn.contains(e.target)) {
-                picker.style.display = 'none';
-                document.removeEventListener('click', closePicker);
-            }
-        };
-        setTimeout(() => document.addEventListener('click', closePicker), 0);
-    };
-
-    window.app_addTagChip = (option, id, name) => {
-        const block = option.closest('.plan-block');
-        const container = block.querySelector('.tags-container');
-        const picker = block.querySelector('.tag-picker');
-
-        // Check if already tagged
-        if (container.querySelector(`[data-id="${id}"]`)) {
-            picker.style.display = 'none';
-            return;
-        }
-
-        const chip = document.createElement('span');
-        chip.className = 'tag-chip';
-        chip.dataset.id = id;
-        chip.dataset.name = name;
-        chip.style.cssText = 'background:#e0f2fe; color:#0369a1; padding:2px 8px; border-radius:12px; font-size:0.75rem; display:flex; align-items:center; gap:4px; font-weight:500; border:1px solid #bae6fd;';
-        chip.innerHTML = `${name} <i class="fa-solid fa-xmark" onclick="this.parentElement.remove()" style="cursor:pointer; font-size:0.65rem;"></i>`;
-
-        container.appendChild(chip);
-        picker.style.display = 'none';
     };
 
 
@@ -727,7 +789,8 @@
             const tagChips = block.querySelectorAll('.tag-chip');
             const tags = Array.from(tagChips).map(chip => ({
                 id: chip.dataset.id,
-                name: chip.dataset.name
+                name: chip.dataset.name,
+                status: chip.dataset.status || 'pending'
             }));
 
             if (task) {
@@ -753,19 +816,34 @@
 
             if (distinctTaggedUsers.size > 0) {
                 const currentUser = window.AppAuth.getUser();
-                // We use an async IIFE or just don't await the loop to not block UI, 
-                // but since it's just a few DB writes, one await block is fine.
-                // We'll iterate and update.
                 const allUsers = await window.AppDB.getAll('users');
+                const planId = `plan_${currentUser.id}_${date}`;
 
                 for (const uid of distinctTaggedUsers) {
                     const targetUser = allUsers.find(u => u.id === uid);
                     if (targetUser) {
                         if (!targetUser.notifications) targetUser.notifications = [];
-                        targetUser.notifications.push({
-                            message: `${currentUser.name} tagged you in a plan for ${date}`,
-                            date: new Date().toLocaleString(),
-                            read: false
+
+                        // Find which tasks this user is tagged in to provide context
+                        plans.forEach((p, idx) => {
+                            if (p.tags && p.tags.some(t => t.id === uid)) {
+                                // Check if a notification for this specific plan/task already exists 
+                                // (To avoid spamming on every save)
+                                const alreadyNotified = targetUser.notifications.some(n =>
+                                    n.type === 'mention' && n.planId === planId && n.taskIndex === idx
+                                );
+
+                                if (!alreadyNotified) {
+                                    targetUser.notifications.push({
+                                        type: 'mention',
+                                        message: `${currentUser.name} tagged you in: "${p.task}" for ${date}`,
+                                        planId: planId,
+                                        taskIndex: idx,
+                                        date: new Date().toLocaleString(),
+                                        read: false
+                                    });
+                                }
+                            }
                         });
                         await window.AppDB.put('users', targetUser);
                     }
@@ -779,6 +857,45 @@
             setupDashboardEvents();
         } catch (err) {
             alert(err.message);
+        }
+    };
+
+    window.app_handleTagResponse = async (planId, taskIndex, response, notifIdx) => {
+        const user = window.AppAuth.getUser();
+        try {
+            // 1. Fetch the original work plan
+            const plan = await window.AppDB.get('work_plans', planId);
+            if (!plan || !plan.plans || !plan.plans[taskIndex]) {
+                throw new Error("Plan or task not found.");
+            }
+
+            // 2. Update the tag status for the current user
+            const task = plan.plans[taskIndex];
+            if (task.tags) {
+                const myTag = task.tags.find(t => t.id === user.id);
+                if (myTag) {
+                    myTag.status = response;
+                }
+            }
+
+            // 3. Save the updated plan
+            await window.AppDB.put('work_plans', plan);
+
+            // 4. Dismiss the notification
+            const updatedUser = await window.AppDB.get('users', user.id);
+            if (updatedUser && updatedUser.notifications) {
+                updatedUser.notifications.splice(notifIdx, 1);
+                await window.AppDB.put('users', updatedUser);
+            }
+
+            // 5. Refresh UI
+            const contentArea = document.getElementById('page-content');
+            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            if (window.setupDashboardEvents) window.setupDashboardEvents();
+
+            alert(`You have ${response} the collaboration request.`);
+        } catch (err) {
+            alert("Error: " + err.message);
         }
     };
 
@@ -845,6 +962,7 @@
                 const user = window.AppAuth.getUser();
                 const today = getLocalISO();
                 const workPlan = await window.AppCalendar.getWorkPlan(user.id, today);
+                const collaborations = await window.AppCalendar.getCollaborations(user.id, today);
 
                 // Ensure persistent modals are present
                 const modalContainer = document.getElementById('modal-container');
@@ -865,21 +983,39 @@
                         let displayPlan = "";
                         if (workPlan.plans && workPlan.plans.length > 0) {
                             displayPlan = workPlan.plans.map(p => {
-                                let txt = `- ${p.task}`;
+                                let txt = `[Goal] ${p.task}`;
                                 if (p.subPlans && p.subPlans.length > 0) {
-                                    txt += '\n  Steps: ' + p.subPlans.join(', ');
+                                    txt += '\n👣 Steps: ' + p.subPlans.join(', ');
                                 }
                                 if (p.tags && p.tags.length > 0) {
-                                    txt += '\n  With: ' + p.tags.map(t => t.name).join(', ');
+                                    txt += '\n🤝 Group: ' + p.tags.map(t => `@${t.name} (${t.status || 'pending'})`).join(', ');
                                 }
                                 return txt;
-                            }).join('\n\n');
+                            }).join('\n\n---\n\n');
                         } else if (workPlan.plan) {
                             // Legacy
                             displayPlan = workPlan.plan;
                             if (workPlan.subPlans && workPlan.subPlans.length > 0) {
-                                displayPlan += '\n- ' + workPlan.subPlans.join('\n- ');
+                                displayPlan += '\n👣 Steps: ' + workPlan.subPlans.join(', ');
                             }
+                        }
+
+                        // Add Collaborations
+                        if (collaborations && collaborations.length > 0) {
+                            const collabText = collaborations.map(cp => {
+                                return cp.plans.filter(p =>
+                                    p.tags && p.tags.some(t => t.id === user.id && t.status === 'accepted')
+                                ).map(p => {
+                                    let txt = `🤝 [Collaborated with ${cp.userName}] ${p.task}`;
+                                    if (p.subPlans && p.subPlans.length > 0) {
+                                        txt += '\n👣 Steps: ' + p.subPlans.join(', ');
+                                    }
+                                    return txt;
+                                }).join('\n');
+                            }).join('\n\n');
+
+                            if (displayPlan) displayPlan += '\n\n' + collabText;
+                            else displayPlan = collabText;
                         }
 
                         if (planTextEl) planTextEl.innerText = displayPlan;

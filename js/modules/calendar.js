@@ -78,6 +78,25 @@
         }
 
         /**
+         * Get all work plans where the user is tagged for a specific day
+         */
+        async getCollaborations(userId, date = null) {
+            try {
+                const allPlans = await this.db.getAll('work_plans');
+                return allPlans.filter(p =>
+                    (!date || p.date === date) &&
+                    p.plans &&
+                    p.plans.some(task =>
+                        task.tags && task.tags.some(t => t.id === userId && t.status === 'accepted')
+                    )
+                );
+            } catch (err) {
+                console.error("Failed to fetch collaborations:", err);
+                return [];
+            }
+        }
+
+        /**
          * Add a new shared event (Admin only)
          */
         async addEvent(eventData) {

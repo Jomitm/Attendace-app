@@ -632,3 +632,49 @@ td {
 .compact-table td .time-badge .in {
     color: var(--success);
 }
+
+/* Animations */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slideInRight {
+    from {
+        opacity: 0;
+        transform: translateX(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Mention Dropdown Styling */
+#mention-dropdown {
+    scrollbar-width: thin;
+    scrollbar-color: #e2e8f0 transparent;
+}
+
+#mention-dropdown::-webkit-scrollbar {
+    width: 4px;
+}
+
+#mention-dropdown::-webkit-scrollbar-thumb {
+    background-color: #e2e8f0;
+    border-radius: 4px;
+}
+
+.mention-item:hover {
+    background-color: #f8fafc;
+}
+
+.mention-item img {
+    border: 1px solid #f1f5f9;
+}

@@ -480,7 +480,7 @@
 
             console.time('DashboardFetch');
             // Parallel Fetch
-            const [status, logs, monthlyStats, yearlyStats, heroData, calendarPlans, staffActivities, pendingLeaves, allUsers] = await Promise.all([
+            const [status, logs, monthlyStats, yearlyStats, heroData, calendarPlans, staffActivities, pendingLeaves, allUsers, collaborations] = await Promise.all([
                 window.AppAttendance.getStatus(),
                 window.AppAttendance.getLogs(targetStaffId),
                 window.AppAnalytics.getUserMonthlyStats(targetStaffId),
@@ -489,7 +489,8 @@
                 window.AppCalendar ? window.AppCalendar.getPlans() : { leaves: [], events: [] },
                 window.AppAnalytics.getAllStaffActivities(7),
                 isAdmin ? window.AppLeaves.getPendingLeaves() : Promise.resolve([]),
-                isAdmin ? window.AppDB.getAll('users') : Promise.resolve([])
+                isAdmin ? window.AppDB.getAll('users') : Promise.resolve([]),
+                window.AppCalendar ? window.AppCalendar.getCollaborations(targetStaffId) : Promise.resolve([])
             ]);
             console.timeEnd('DashboardFetch');
 
@@ -524,17 +525,26 @@
                     <div class="card full-width" style="background: linear-gradient(to right, #fef3c7, #fff7ed); border-left: 5px solid #f59e0b;">
                         <h4 style="color: #b45309; margin-bottom: 0.5rem;"><i class="fa-solid fa-bell"></i> Notifications</h4>
                         <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-                            ${notifications.map((n, idx) => `
+                            ${notifications.map((n, idx) => {
+                    const isMention = n.type === 'mention';
+                    return `
                                 <div style="display: flex; justify-content: space-between; align-items: start; gap: 1rem; padding-bottom: 0.5rem; ${idx !== notifications.length - 1 ? 'border-bottom: 1px solid rgba(0,0,0,0.05);' : ''}">
-                                    <div>
+                                    <div style="flex:1;">
                                         <p style="font-size: 0.95rem; color: #78350f;">${n.message}</p>
                                         <small style="color: #92400e; font-size: 0.75rem;">${n.date}</small>
+                                        ${isMention ? `
+                                            <div style="display:flex; gap:0.5rem; margin-top:0.4rem;">
+                                                <button onclick="window.app_handleTagResponse('${n.planId}', ${n.taskIndex}, 'accepted', ${idx})" style="background:#10b981; color:white; border:none; padding:4px 10px; border-radius:6px; font-size:0.75rem; cursor:pointer; font-weight:600;"><i class="fa-solid fa-check"></i> Accept</button>
+                                                <button onclick="window.app_handleTagResponse('${n.planId}', ${n.taskIndex}, 'rejected', ${idx})" style="background:#ef4444; color:white; border:none; padding:4px 10px; border-radius:6px; font-size:0.75rem; cursor:pointer; font-weight:600;"><i class="fa-solid fa-xmark"></i> Reject</button>
+                                            </div>
+                                        ` : ''}
                                     </div>
-                                    <button onclick="document.dispatchEvent(new CustomEvent('dismiss-notification', {detail: ${idx}}))" style="background: none; border: none; color: #b45309; cursor: pointer;">
+                                    <button onclick="document.dispatchEvent(new CustomEvent('dismiss-notification', {detail: ${idx}}))" style="background: none; border: none; color: #b45309; cursor: pointer; padding: 4px;">
                                         <i class="fa-solid fa-xmark"></i>
                                     </button>
                                 </div>
-                            `).join('')}
+                            `;
+                }).join('')}
                         </div>
                     </div>
                 `;
@@ -623,17 +633,17 @@
             };
 
             // NEW: Activity Report Widget Helper
-            const renderActivityReport = (logs) => {
+            const renderActivityReport = (logs, collabs = []) => {
                 // Default: Current Month
                 const today = new Date();
                 const startDefault = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
                 const endDefault = today.toISOString().split('T')[0];
 
                 return `
-                    <div class="card" style="padding: 0.75rem; display:flex; flex-direction:column;">
+                    <div class="card" style="padding: 0.75rem; display:flex; flex-direction:column; height:100%;">
                         <div style="margin-bottom:0.75rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.4rem;">
                              <h4 style="margin:0; color:#1f2937; font-size: 1rem;">Activity Log</h4>
-                             <span style="font-size:0.7rem; color:#6b7280;">Work Descriptions</span>
+                             <span style="font-size:0.7rem; color:#6b7280;">Work Descriptions & Collaborations</span>
                         </div>
 
                         <!-- Filters -->
@@ -645,8 +655,8 @@
                         </div>
 
                         <!-- Report Content (Scrollable) -->
-                        <div id="activity-list" style="flex:1; overflow-y:auto; min-height: 150px; max-height: 300px; font-size:0.8rem; padding-right:5px;">
-                            ${renderActivityList(logs, startDefault, endDefault)}
+                        <div id="activity-list" style="flex:1; overflow-y:auto; min-height: 150px; max-height: 250px; font-size:0.8rem; padding-right:5px;">
+                            ${renderActivityList(logs, startDefault, endDefault, collabs)}
                         </div>
                     </div>
                 `;
@@ -658,42 +668,78 @@
                 const s = document.getElementById('act-start').value;
                 const e = document.getElementById('act-end').value;
                 const list = document.getElementById('activity-list');
-                // We need access to logs here. Since this is async/global, we might need to re-fetch or store logs globally.
-                // Simpler: Just make renderDashboard store logs in a window var? Or fetch again.
-                // Fetching again is safer for data consistency.
-                window.AppAttendance.getLogs().then(logs => {
-                    list.innerHTML = renderActivityList(logs, s, e);
+                const staffId = window.app_selectedSummaryStaffId || window.AppAuth.getUser().id;
+
+                Promise.all([
+                    window.AppAttendance.getLogs(staffId),
+                    window.AppCalendar ? window.AppCalendar.getCollaborations(staffId) : Promise.resolve([])
+                ]).then(([logs, collabs]) => {
+                    list.innerHTML = renderActivityList(logs, s, e, collabs);
                 });
             };
 
             // Internal Helper to render the list HTML
-            const renderActivityList = (allLogs, startStr, endStr) => {
+            const renderActivityList = (allLogs, startStr, endStr, collabs = []) => {
                 const start = new Date(startStr);
                 const end = new Date(endStr);
                 end.setHours(23, 59, 59, 999); // End of day
 
-                // Filter & Sort
-                const filtered = allLogs.filter(l => {
+                // 1. Process Logs
+                const logEntries = allLogs.filter(l => {
                     const d = new Date(l.date);
                     const desc = l.workDescription || (l.location && !l.location.startsWith('Lat:') ? l.location : 'Standard Activity');
                     l._displayDesc = desc;
+                    l._isCollab = false;
+                    l._sortTime = l.checkOut || '00:00';
                     return d >= start && d <= end;
-                }).sort((a, b) => new Date(b.date + ' ' + b.checkOut) - new Date(a.date + ' ' + a.checkOut));
+                });
 
-                if (filtered.length === 0) return '<div style="color:#9ca3af; text-align:center; padding:1rem;">No activity descriptions found.</div>';
+                // 2. Process Collaborations (Convert to list items)
+                const collabEntries = [];
+                collabs.forEach(cp => {
+                    const cpDate = new Date(cp.date);
+                    if (cpDate < start || cpDate > end) return;
+
+                    const dailyCollabPlans = cp.plans.filter(p =>
+                        p.tags && p.tags.some(t => t.id === targetStaffId && t.status === 'accepted')
+                    );
+
+                    dailyCollabPlans.forEach(p => {
+                        collabEntries.push({
+                            date: cp.date,
+                            workDescription: `🤝 Collaborated with ${cp.userName}: ${p.task}${p.subPlans && p.subPlans.length > 0 ? ` (Sub-tasks: ${p.subPlans.join(', ')})` : ''}`,
+                            checkOut: 'Planned / Accepted',
+                            _displayDesc: `🤝 Collaborated with ${cp.userName}: ${p.task}${p.subPlans && p.subPlans.length > 0 ? ` (Sub-tasks: ${p.subPlans.join(', ')})` : ''}`,
+                            _isCollab: true,
+                            _sortTime: '23:59' // Put collaborations at top of the day usually
+                        });
+                    });
+                });
+
+                // 3. Merge & Sort
+                const merged = [...logEntries, ...collabEntries].sort((a, b) => {
+                    const dateDiff = new Date(b.date) - new Date(a.date);
+                    if (dateDiff !== 0) return dateDiff;
+                    return b._sortTime.localeCompare(a._sortTime);
+                });
+
+                if (merged.length === 0) return '<div style="color:#9ca3af; text-align:center; padding:1rem;">No activity descriptions found.</div>';
 
                 let html = '';
                 let lastDate = '';
 
-                filtered.forEach(log => {
+                merged.forEach(log => {
                     const showDate = log.date !== lastDate;
                     if (showDate) {
                         html += `<div style="font-weight:600; color:#374151; background:#f9fafb; padding:4px 8px; border-radius:4px; margin-top:0.75rem; margin-bottom:0.25rem; font-size:0.8rem;">${log.date}</div>`;
                         lastDate = log.date;
                     }
-                    // Preserve whitespace/newlines in description
+
+                    const borderColor = log._isCollab ? '#10b981' : '#e5e7eb';
+                    const bgStyle = log._isCollab ? 'background: #f0fdf4;' : '';
+
                     html += `
-                        <div style="margin-left:0.5rem; padding-left:0.75rem; border-left:2px solid #e5e7eb; margin-bottom:0.5rem;">
+                        <div style="margin-left:0.5rem; padding-left:0.75rem; border-left:3px solid ${borderColor}; margin-bottom:0.5rem; ${bgStyle} padding-top:4px; padding-bottom:4px; border-radius:0 4px 4px 0;">
                             <div style="white-space: pre-wrap; color:#4b5563; font-size:0.85rem;">${log._displayDesc}</div>
                             <div style="font-size:0.7rem; color:#9ca3af; margin-top:2px;">${log.checkOut || 'Checked Out'}</div>
                         </div>
@@ -1011,10 +1057,10 @@
                             </div>
                         </div>
 
-                        <!-- Column 2: Team Activities (Middle) -->
-                        <div style="flex: 1.1; min-width: 300px; display: flex; flex-direction: column;">
-                            ${renderStaffActivityWidget(staffActivities)}
-                        </div>
+                        <!-- 3. Work Log (Current User) -->
+                    <div style="flex: 1.5; min-width: 320px; display: flex; flex-direction: column;">
+                        ${renderActivityReport(logs, collaborations)}
+                    </div>
 
                         <!-- Column 3: Team Schedule (Calendar) + Hero -->
                         <div style="flex: 1.2; min-width: 320px; display: flex; flex-direction: column;">
@@ -1163,7 +1209,7 @@
                             </div>
                         </div>
                         <div id="activity-list" style="flex: 1; overflow-y: auto; max-height: 250px; font-size: 0.75rem; padding-right: 4px;">
-                            ${renderActivityList(logs, new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], new Date().toISOString().split('T')[0])}
+                            ${renderActivityList(logs, new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0], new Date().toISOString().split('T')[0], collaborations)}
                         </div>
                     </div>
 
