@@ -496,6 +496,10 @@
             const isCheckedIn = status.status === 'in';
             const notifications = user.notifications || [];
 
+            // Helper for Admin Data Indicators
+            const targetStaff = (allUsers || []).find(u => u.id === targetStaffId);
+            const isViewingSelf = targetStaffId === user.id;
+
             // Rename for clarity in template
             const recentLogs = logs;
             const statusData = status; // prevent conflict
@@ -987,8 +991,8 @@
                     </div>
 
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; align-items: start; grid-column: 1 / -1;">
-                        ${renderStatsCard(targetStaffId === user.id ? monthlyStats.label : `${monthlyStats.label} (Staff)`, 'Monthly Stats', monthlyStats)}
-                        ${renderStatsCard('Yearly Summary', targetStaffId === user.id ? yearlyStats.label : `${yearlyStats.label} (Staff)`, yearlyStats)}
+                        ${renderStatsCard(isViewingSelf ? monthlyStats.label : `${monthlyStats.label} - ${targetStaff?.name || 'Staff'}`, isViewingSelf ? 'Monthly Stats' : 'Viewing Staff Monthly Stats', monthlyStats)}
+                        ${renderStatsCard('Yearly Summary', isViewingSelf ? yearlyStats.label : `${yearlyStats.label} for ${targetStaff?.name || 'Staff'}`, yearlyStats)}
                     </div>
                 `;
             } else {
@@ -1042,7 +1046,10 @@
                                 <div style="background: #f1f5f9; padding: 0.6rem 1rem; border-radius: 12px; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 0.75rem; width: 100%; max-width: 320px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
                                     <i class="fa-solid fa-users-viewfinder" style="color: #4f46e5; font-size: 1.1rem;"></i>
                                     <div style="flex: 1;">
-                                        <div style="font-size: 0.65rem; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">Viewing Summary For</div>
+                                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px;">
+                                            <div style="font-size: 0.65rem; color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Viewing Summary For</div>
+                                            ${targetStaffId !== user.id ? '<span style="font-size:0.55rem; color:#c2410c; background:#fff7ed; padding:1px 6px; border-radius:10px; font-weight:800; border:1px solid #ffedd5;">STAFF VIEW ACTIVE</span>' : ''}
+                                        </div>
                                         <select onchange="window.app_changeSummaryStaff(this.value)" style="width: 100%; background: transparent; color: #1e1b4b; border: none; font-size: 0.85rem; font-weight: 700; outline: none; cursor: pointer; padding: 0;">
                                             <option value="${user.id}">My Own Summary</option>
                                             <optgroup label="Staff Members">
@@ -1117,12 +1124,17 @@
                         </div>
                     </div>
 
-                    <!-- 2. Recent Activity -->
-                    <div class="card" style="flex: 1; min-width: 240px; padding: 1.25rem; margin-bottom: 0; display: flex; flex-direction: column; background: white;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;">
-                            <h4 style="margin: 0; font-size: 0.95rem; color: #1e1b4b;"><i class="fa-solid fa-history" style="color: #6366f1; margin-right: 6px;"></i> Recent Activity</h4>
-                            <a href="#timesheet" onclick="window.location.hash = 'timesheet'; return false;" style="font-size: 0.7rem; color: #4338ca; text-decoration: none; font-weight: 600;">View All</a>
-                        </div>
+                        <!-- 2. Recent Activity -->
+                        <div class="card" style="flex: 1; min-width: 240px; padding: 1.25rem; margin-bottom: 0; display: flex; flex-direction: column; background: white; position: relative;">
+                            ${!isViewingSelf ? `
+                                <div style="position: absolute; top: -8px; right: 10px; background: #fff7ed; color: #c2410c; padding: 2px 8px; border-radius: 10px; font-size: 0.6rem; font-weight: 800; border: 1px solid #ffedd5; box-shadow: 0 2px 4px rgba(0,0,0,0.05); z-index: 5;">
+                                    <i class="fa-solid fa-user-clock"></i> ${targetStaff?.name || 'Staff'}'s Activity
+                                </div>
+                            ` : ''}
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;">
+                                <h4 style="margin: 0; font-size: 0.95rem; color: #1e1b4b;"><i class="fa-solid fa-history" style="color: #6366f1; margin-right: 6px;"></i> Recent Activity</h4>
+                                <a href="#timesheet" onclick="window.location.hash = 'timesheet'; return false;" style="font-size: 0.7rem; color: #4338ca; text-decoration: none; font-weight: 600;">View All</a>
+                            </div>
                         <div style="display: flex; flex-direction: column; gap: 0.75rem; flex: 1; overflow-y: auto; max-height: 250px; padding-right: 4px;">
                             ${recentLogs.length > 0 ? recentLogs.slice(0, 3).map(log => `
                                     <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.5rem; border-bottom: 1px solid #f8fafc;">
@@ -1136,10 +1148,15 @@
                         </div>
                     </div>
 
-                    <!-- 3. Activity Log (Compact) -->
-                    <div class="card" style="flex: 1; min-width: 240px; padding: 1.25rem; margin-bottom: 0; display: flex; flex-direction: column; background: white;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;">
-                            <h4 style="margin: 0; font-size: 0.95rem; color: #1e1b4b;"><i class="fa-solid fa-clipboard-list" style="color: #6366f1; margin-right: 6px;"></i> Work Log</h4>
+                        <!-- 3. Activity Log (Compact) -->
+                        <div class="card" style="flex: 1; min-width: 240px; padding: 1.25rem; margin-bottom: 0; display: flex; flex-direction: column; background: white; position: relative;">
+                            ${!isViewingSelf ? `
+                                <div style="position: absolute; top: -8px; right: 10px; background: #fff7ed; color: #c2410c; padding: 2px 8px; border-radius: 10px; font-size: 0.6rem; font-weight: 800; border: 1px solid #ffedd5; box-shadow: 0 2px 4px rgba(0,0,0,0.05); z-index: 5;">
+                                    <i class="fa-solid fa-clipboard-user"></i> ${targetStaff?.name || 'Staff'}'s Log
+                                </div>
+                            ` : ''}
+                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;">
+                                <h4 style="margin: 0; font-size: 0.95rem; color: #1e1b4b;"><i class="fa-solid fa-clipboard-list" style="color: #6366f1; margin-right: 6px;"></i> Work Log</h4>
                             <div style="display: flex; gap: 4px;">
                                 <input type="date" id="act-start" value="${new Date().toISOString().split('T')[0]}" style="border: 1px solid #e2e8f0; border-radius: 4px; padding: 2px 4px; font-size: 0.65rem; width: 85px; outline: none;">
                                     <button onclick="window.app_filterActivity()" style="background: #4338ca; color: white; border: none; border-radius: 4px; padding: 2px 6px; font-size: 0.65rem; cursor: pointer;"><i class="fa-solid fa-sync"></i></button>
