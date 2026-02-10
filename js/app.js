@@ -930,6 +930,72 @@
         }
     };
 
+    window.app_checkDailyPlanReminder = async () => {
+        const user = window.AppAuth.getUser();
+        const today = getLocalISO();
+
+        try {
+            const [myPlan, collabs] = await Promise.all([
+                window.AppCalendar.getWorkPlan(user.id, today),
+                window.AppCalendar.getCollaborations(user.id, today)
+            ]);
+
+            const hasMyPlan = myPlan && (myPlan.plans?.length > 0 || (myPlan.plan && myPlan.plan.trim() !== ''));
+            const hasCollab = collabs && collabs.length > 0;
+
+            if (!hasMyPlan && !hasCollab) return;
+
+            let planHtml = "";
+
+            if (hasMyPlan) {
+                const plansToDisplay = myPlan.plans || [{ task: myPlan.plan, subPlans: myPlan.subPlans || [], tags: [] }];
+                planHtml += plansToDisplay.map(p => `
+                    <div style="background:#f0f9ff; border-left:4px solid #0369a1; padding:0.75rem; border-radius:8px; margin-bottom:0.75rem;">
+                        <div style="font-weight:700; color:#0c4a6e; font-size:0.9rem;">📍 ${p.task}</div>
+                        ${p.subPlans && p.subPlans.length > 0 ? `<div style="font-size:0.75rem; color:#075985; margin-top:4px;">👣 ${p.subPlans.join(', ')}</div>` : ''}
+                    </div>
+                `).join('');
+            }
+
+            if (hasCollab) {
+                collabs.forEach(cp => {
+                    const myCollabTasks = cp.plans.filter(p =>
+                        p.tags && p.tags.some(t => t.id === user.id && t.status === 'accepted')
+                    );
+                    myCollabTasks.forEach(p => {
+                        planHtml += `
+                            <div style="background:#f0fdf4; border-left:4px solid #15803d; padding:0.75rem; border-radius:8px; margin-bottom:0.75rem;">
+                                <div style="font-weight:700; color:#14532d; font-size:0.9rem;">🤝 ${p.task} <span style="font-weight:normal; font-size:0.7rem; color:#166534;">(with ${cp.userName})</span></div>
+                                ${p.subPlans && p.subPlans.length > 0 ? `<div style="font-size:0.75rem; color:#166534; margin-top:4px;">👣 ${p.subPlans.join(', ')}</div>` : ''}
+                            </div>
+                        `;
+                    });
+                });
+            }
+
+            const modalHtml = `
+                <div class="modal-overlay" id="plan-reminder-modal" style="display:flex; align-items:center; z-index:10001;">
+                    <div class="modal-content" style="max-width: 450px; width: 90%; padding: 1.5rem; text-align:left; border-radius:20px; animation: slideUp 0.3s ease;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                            <h3 style="margin:0; font-size:1.1rem; color:#1e2937;">📝 Your Goals for Today</h3>
+                            <button onclick="this.closest('.modal-overlay').remove()" style="background:none; border:none; font-size:1.5rem; cursor:pointer; color:#94a3b8;">&times;</button>
+                        </div>
+                        <p style="font-size:0.85rem; color:#64748b; margin-bottom:1.25rem;">You have some items planned for today. Let's make it a productive one!</p>
+                        
+                        <div style="max-height:300px; overflow-y:auto; padding-right:5px;">
+                            ${planHtml}
+                        </div>
+
+                        <button onclick="this.closest('.modal-overlay').remove()" class="action-btn" style="width:100%; margin-top:1.25rem; padding:0.8rem; border-radius:12px;">Got it, let's work!</button>
+                    </div>
+                </div>
+            `;
+            window.app_showModal(modalHtml, 'plan-reminder-modal');
+        } catch (err) {
+            console.error("Reminder failed:", err);
+        }
+    };
+
     window.app_useWorkPlan = () => {
         const planText = document.getElementById('checkout-plan-text')?.innerText;
         const descArea = document.querySelector('#checkout-modal textarea[name="description"]');
@@ -974,6 +1040,8 @@
                 await window.AppAttendance.checkIn(pos.lat, pos.lng, address);
                 contentArea.innerHTML = await window.AppUI.renderDashboard();
                 setupDashboardEvents();
+                // Check if a reminder popup is needed
+                await window.app_checkDailyPlanReminder();
             } else {
                 // Pre-fill Checkout Description from Work Plan
                 const user = window.AppAuth.getUser();
