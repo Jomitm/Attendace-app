@@ -268,55 +268,18 @@
         const month = window.app_calMonth;
         const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-        const getDayEvents = (d) => {
-            // Use LOCAL date construction
-            const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-            const evs = [];
-
-            // 1. Add Automatic Day Types (Saturdays, Sundays)
-            if (window.AppAnalytics) {
-                const dayType = window.AppAnalytics.getDayType(new Date(year, month, d));
-                if (dayType === 'Holiday') {
-                    evs.push({ title: 'Company Holiday (Weekend)', type: 'holiday' });
-                } else if (dayType === 'Half Day') {
-                    evs.push({ title: 'Half Working Day (Sat)', type: 'event' });
-                }
-            }
-
-            plans.leaves.forEach(l => {
-                if (dStr >= l.startDate && dStr <= l.endDate) {
-                    evs.push({ title: `${l.userName || 'Staff'} (Leave)`, type: 'leave', userId: l.userId });
-                }
-            });
-            plans.events.forEach(e => {
-                if (e.date === dStr) evs.push({ title: e.title, type: e.type || 'event' });
-            });
-            plans.workPlans.forEach(p => {
-                if (p.date === dStr) {
-                    let title = '';
-                    if (p.plans && p.plans.length > 0) {
-                        title = `${p.userName}: ${p.plans.map(pl => pl.task).join('; ')}`;
-                    } else {
-                        title = `${p.userName}: ${p.plan || 'Work Plan'}`;
-                    }
-                    evs.push({ title: title, type: 'work', userId: p.userId, plans: p.plans });
-                }
-            });
-            return evs;
-        };
-
         const firstDay = new Date(year, month, 1).getDay();
         const daysInMonth = new Date(year, month + 1, 0).getDate();
 
         let calendarHTML = '';
         for (let i = 0; i < firstDay; i++) calendarHTML += '<div class="cal-day empty"></div>';
         for (let d = 1; d <= daysInMonth; d++) {
-            const evs = getDayEvents(d);
+            const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            const evs = window.app_getDayEvents(dStr, plans);
             const hasLeave = evs.some(e => e.type === 'leave');
             const hasEvent = evs.some(e => e.type === 'event');
             const hasWork = evs.some(e => e.type === 'work');
             const isToday = d === today.getDate() && month === today.getMonth() && year === today.getFullYear();
-            const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 
             // Detect automatic day type
             const dayType = window.AppAnalytics ? window.AppAnalytics.getDayType(new Date(year, month, d)) : 'Work Day';
@@ -331,7 +294,6 @@
 
         // Global data for the handlers in app.js
         window._currentPlans = plans;
-        window._getDayEvents = getDayEvents; // Helper for modal
 
         return `
             <div class="card" style="padding: 0.75rem; display:flex; flex-direction:column;">
@@ -1192,7 +1154,15 @@
                     ${renderStatsCard('Yearly Summary', isViewingSelf ? yearlyStats.label : `${yearlyStats.label} for ${targetStaff?.name || 'Staff'}`, yearlyStats)}
                 </div>`;
             } else {
-                summaryHTML = `<div style="display: flex; flex-wrap: wrap; gap: 1rem; grid-column: 1 / -1; margin-bottom: 2rem; align-items: stretch;"><div style="flex: 1; min-width: 250px; display: flex; flex-direction: column; gap: 1rem;"><div style="flex: 1; display: flex; flex-direction: column;">${renderStatsCard(monthlyStats.label, 'Monthly Stats', monthlyStats)}</div><div style="flex: 1; display: flex; flex-direction: column;">${renderStatsCard('Yearly Summary', yearlyStats.label, yearlyStats)}</div></div><div style="flex: 2; min-width: 320px; display: flex; flex-direction: column;">${renderActivityLog(staffActivities)}</div></div>`;
+                summaryHTML = `
+                <div style="display: flex; flex-wrap: wrap; gap: 1rem; grid-column: 1 / -1; margin-bottom: 1rem;">
+                    <div style="flex: 2; min-width: 350px; display: flex; flex-direction: column;">${renderActivityLog(staffActivities)}</div>
+                    <div style="flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 1rem;">${renderYearlyPlan(calendarPlans)}${heroHTML}</div>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; align-items: start; grid-column: 1 / -1;">
+                    ${renderStatsCard(monthlyStats.label, 'Monthly Stats', monthlyStats)}
+                    ${renderStatsCard('Yearly Summary', yearlyStats.label, yearlyStats)}
+                </div>`;
             }
             return `
                 <div class="dashboard-grid">
@@ -1225,6 +1195,7 @@
             const year = window.app_annualYear || today.getFullYear();
             const user = window.AppAuth.getUser();
             const plans = await window.AppCalendar.getPlans();
+            window._currentPlans = plans; // Ensure global plans are set for day plan modal
             const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
             const getDayMarkers = (d, m, y) => {

@@ -509,18 +509,57 @@
     }
 
     // --- Work Plan Logic ---
+
+    window.app_getDayEvents = (dateStr, plans) => {
+        if (!plans) return [];
+        const dateObj = new Date(dateStr);
+        const year = dateObj.getFullYear();
+        const month = dateObj.getMonth();
+        const d = dateObj.getDate();
+
+        const evs = [];
+
+        // 1. Add Automatic Day Types (Saturdays, Sundays)
+        if (window.AppAnalytics) {
+            const dayType = window.AppAnalytics.getDayType(dateObj);
+            if (dayType === 'Holiday') {
+                evs.push({ title: 'Company Holiday (Weekend)', type: 'holiday' });
+            } else if (dayType === 'Half Day') {
+                evs.push({ title: 'Half Working Day (Sat)', type: 'event' });
+            }
+        }
+
+        (plans.leaves || []).forEach(l => {
+            if (dateStr >= l.startDate && dateStr <= l.endDate) {
+                evs.push({ title: `${l.userName || 'Staff'} (Leave)`, type: 'leave', userId: l.userId });
+            }
+        });
+        (plans.events || []).forEach(e => {
+            if (e.date === dateStr) evs.push({ title: e.title, type: e.type || 'event' });
+        });
+        (plans.workPlans || []).forEach(p => {
+            if (p.date === dateStr) {
+                let title = '';
+                if (p.plans && p.plans.length > 0) {
+                    title = `${p.userName}: ${p.plans.map(pl => pl.task).join('; ')}`;
+                } else {
+                    title = `${p.userName}: ${p.plan || 'Work Plan'}`;
+                }
+                evs.push({ title: title, type: 'work', userId: p.userId, plans: p.plans });
+            }
+        });
+        return evs;
+    };
+
     window.app_openDayPlan = async (date, targetUserId = null) => {
         const currentUser = window.AppAuth.getUser();
         const isAdmin = currentUser.role === 'Administrator' || currentUser.isAdmin;
         const targetId = targetUserId || currentUser.id;
 
-        const d = new Date(date).getDate();
-        const evs = window._getDayEvents ? window._getDayEvents(d) : [];
         const plans = window._currentPlans;
 
-        // Find work plan for the target user
+        const evs = window.app_getDayEvents(date, plans);
         const myWorkPlan = plans && plans.workPlans ? plans.workPlans.find(p => p.date === date && p.userId === targetId) : null;
-
         const teamActivity = evs.filter(e => e.type === 'leave' || e.type === 'event');
         const otherStaffPlans = evs.filter(e => e.type === 'work' && e.userId !== targetId);
         const allUsers = await window.AppDB.getAll('users');
