@@ -112,9 +112,9 @@
         }, 500);
         return `
             <div class="card" style="padding: 0.75rem; display:flex; flex-direction:column; height: 100%;">
-                <div style="margin-bottom:0.5rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.3rem;"><h4 style="margin:0; color:#1f2937; font-size: 0.9rem;">Activity Log</h4><span style="font-size:0.65rem; color:#6b7280;">Team Activities (Weekly Roll)</span></div>
-                <div style="display:flex; gap:0.4rem; margin-bottom:0.75rem;"><button onclick="window.app_filterStaffActivity(7)" class="chip-btn" style="font-size:0.7rem; padding:0.3rem 0.6rem;">Last 7 Days</button><button onclick="window.app_filterStaffActivity(30)" class="chip-btn" style="font-size:0.7rem; padding:0.3rem 0.6rem;">Monthly</button></div>
-                <div id="staff-activity-list" style="flex:1; overflow-y:auto; font-size:0.75rem; padding-right:5px; scroll-behavior: smooth; max-height: 180px;">${renderStaffActivityList(allStaffLogs, 7)}</div>
+                <div style="margin-bottom:0.5rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.3rem;"><h4 style="margin:0; color:#1f2937; font-size: 0.9rem;">Team Activity</h4><span style="font-size:0.65rem; color:#6b7280;">Last 2 Weeks (Rolling)</span></div>
+                <div style="display:flex; gap:0.4rem; margin-bottom:0.75rem;"><button onclick="window.app_filterStaffActivity(14)" class="chip-btn" style="font-size:0.7rem; padding:0.3rem 0.6rem;">Last 2 Weeks</button><button onclick="window.app_filterStaffActivity(30)" class="chip-btn" style="font-size:0.7rem; padding:0.3rem 0.6rem;">Monthly</button></div>
+                <div id="staff-activity-list" style="flex:1; overflow-y:auto; font-size:0.75rem; padding-right:5px; scroll-behavior: smooth; max-height: 180px;">${renderStaffActivityList(allStaffLogs, 14)}</div>
             </div>`;
     };
 
@@ -937,7 +937,7 @@
                 window.AppAnalytics.getUserYearlyStats(targetStaffId),
                 window.AppAnalytics.getHeroOfTheWeek(),
                 window.AppCalendar ? window.AppCalendar.getPlans() : { leaves: [], events: [] },
-                window.AppAnalytics.getAllStaffActivities(7),
+                window.AppAnalytics.getAllStaffActivities(14),
                 isAdmin ? window.AppLeaves.getPendingLeaves() : Promise.resolve([]),
                 isAdmin ? window.AppDB.getAll('users') : Promise.resolve([]),
                 window.AppCalendar ? window.AppCalendar.getCollaborations(targetStaffId) : Promise.resolve([])
@@ -1026,7 +1026,7 @@
                     ${renderStatsCard('Yearly Summary', isViewingSelf ? yearlyStats.label : `${yearlyStats.label} for ${targetStaff?.name || 'Staff'}`, yearlyStats)}
                 </div>`;
             } else {
-                summaryHTML = `<div style="display: flex; flex-wrap: wrap; gap: 1rem; grid-column: 1 / -1; margin-bottom: 2rem; align-items: stretch;"><div style="flex: 1; min-width: 250px; display: flex; flex-direction: column; gap: 1rem;"><div style="flex: 1; display: flex; flex-direction: column;">${renderStatsCard(monthlyStats.label, 'Monthly Stats', monthlyStats)}</div><div style="flex: 1; display: flex; flex-direction: column;">${renderStatsCard('Yearly Summary', yearlyStats.label, yearlyStats)}</div></div><div style="flex: 1.5; min-width: 320px; display: flex; flex-direction: column;">${renderWorkLog(logs, collaborations)}</div><div style="flex: 1.2; min-width: 320px; display: flex; flex-direction: column;">${renderYearlyPlan(calendarPlans)}<div style="margin-top: 1rem;">${heroHTML}</div></div></div>`;
+                summaryHTML = `<div style="display: flex; flex-wrap: wrap; gap: 1rem; grid-column: 1 / -1; margin-bottom: 2rem; align-items: stretch;"><div style="flex: 1; min-width: 250px; display: flex; flex-direction: column; gap: 1rem;"><div style="flex: 1; display: flex; flex-direction: column;">${renderStatsCard(monthlyStats.label, 'Monthly Stats', monthlyStats)}</div><div style="flex: 1; display: flex; flex-direction: column;">${renderStatsCard('Yearly Summary', yearlyStats.label, yearlyStats)}</div></div><div style="flex: 2; min-width: 320px; display: flex; flex-direction: column;">${renderActivityLog(staffActivities)}</div></div>`;
             }
             return `
                 <div class="dashboard-grid">
@@ -1344,11 +1344,18 @@
                                 </button>
                                 <input type="file" id="profile-upload" accept="image/*" style="display: none;" onchange="window.app_handlePhotoUpload(this)">
                             </div>
-                            <div>
-                                <h2 style="margin: 0; font-size: 1.5rem; font-weight: 700;">${user.name}</h2>
-                                <p style="margin: 4px 0 0; opacity: 0.8; font-size: 0.9rem; font-weight: 500;">
-                                    ${user.role} <span style="margin: 0 0.5rem; opacity: 0.5;">|</span> ${user.dept || 'General'}
-                                </p>
+                            <div style="flex:1;">
+                                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                                    <div>
+                                        <h2 style="margin: 0; font-size: 1.5rem; font-weight: 700;">${user.name}</h2>
+                                        <p style="margin: 4px 0 0; opacity: 0.8; font-size: 0.9rem; font-weight: 500;">
+                                            ${user.role} <span style="margin: 0 0.5rem; opacity: 0.5;">|</span> ${user.dept || 'General'}
+                                        </p>
+                                    </div>
+                                    <button onclick="window.AppAuth.logout()" class="action-btn secondary" style="font-size:0.75rem; padding:6px 12px; background:#fff1f2; color:#be123c; border:1px solid #fda4af;">
+                                        <i class="fa-solid fa-right-from-bracket"></i> Sign Out
+                                    </button>
+                                </div>
                                 <div style="margin-top: 10px; display: flex; gap: 8px;">
                                     <span class="badge ${user.status === 'in' ? 'in' : 'out'}" style="background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.2); font-size: 0.7rem;">
                                         ${user.status === 'in' ? '● Online' : '○ Offline'}
