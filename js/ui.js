@@ -5,7 +5,7 @@
  */
 (function () {
     // --- Helper Functions (Local to IIFE) ---
-    const renderWorkLog = (logs, collabs = []) => {
+    const renderWorkLog = (logs, collabs = [], targetStaff = null, isViewingSelf = true) => {
         const today = new Date();
         const startDefault = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
         const endDefault = today.toISOString().split('T')[0];
@@ -13,7 +13,7 @@
         return `
                 <div class="card" style="padding: 0.6rem; display:flex; flex-direction:column; height:100%;">
                     <div style="margin-bottom:0.5rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.3rem;">
-                         <h4 style="margin:0; color:#1f2937; font-size: 0.9rem;">Work Log</h4>
+                         <h4 style="margin:0; color:#1f2937; font-size: 0.9rem;">Work Log${!isViewingSelf && targetStaff ? ` <span style="font-size: 0.75rem; color: #f97316; font-weight: 800;">(${targetStaff.name})</span>` : ''}</h4>
                          <span style="font-size:0.65rem; color:#6b7280;">Ongoing & Historical Tasks</span>
                     </div>
                      <div style="display:flex; gap:0.4rem; margin-bottom:0.75rem; align-items:center;">
@@ -40,6 +40,17 @@
             window.AppCalendar ? window.AppCalendar.getCollaborations(staffId) : Promise.resolve([])
         ]).then(([logs, collabs]) => {
             list.innerHTML = renderActivityList(logs, s, e, collabs);
+        });
+    };
+
+    window.app_changeSummaryStaff = (staffId) => {
+        window.app_selectedSummaryStaffId = staffId;
+        window.AppUI.renderDashboard().then(html => {
+            const contentArea = document.getElementById('page-content');
+            if (contentArea) {
+                contentArea.innerHTML = html;
+                if (window.setupDashboardEvents) window.setupDashboardEvents();
+            }
         });
     };
 
@@ -1014,6 +1025,33 @@
 
             // Stats fetched in parallel above, variables ready.
 
+            // Staff View Indicator Banner (for admins viewing other staff)
+            let staffViewBannerHTML = '';
+            if (isAdmin && !isViewingSelf && targetStaff) {
+                staffViewBannerHTML = `
+                    <div class="card full-width" style="background: linear-gradient(135deg, #f97316 0%, #fb923c 100%); color: white; padding: 1rem 1.5rem; border-left: 5px solid #ea580c; margin-bottom: 1rem;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+                            <div style="display: flex; align-items: center; gap: 1rem;">
+                                <div style="position: relative;">
+                                    <img src="${targetStaff.avatar}" alt="${targetStaff.name}" style="width: 48px; height: 48px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.3);">
+                                    <div style="position: absolute; bottom: -2px; right: -2px; background: #ea580c; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 800; border: 2px solid white;">
+                                        <i class="fa-solid fa-eye"></i>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div style="font-size: 0.7rem; font-weight: 600; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px;">Currently Viewing</div>
+                                    <h3 style="margin: 0; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.5px;">${targetStaff.name}'s Dashboard</h3>
+                                    <div style="font-size: 0.8rem; opacity: 0.9; margin-top: 2px;">${targetStaff.role} • ${targetStaff.dept || 'General'}</div>
+                                </div>
+                            </div>
+                            <button onclick="window.app_changeSummaryStaff('${user.id}')" style="background: rgba(255,255,255,0.2); color: white; border: 2px solid rgba(255,255,255,0.3); padding: 0.6rem 1.2rem; border-radius: 10px; cursor: pointer; font-weight: 700; font-size: 0.85rem; backdrop-filter: blur(10px); transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                                <i class="fa-solid fa-arrow-left"></i> Back to My Dashboard
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+
             let summaryHTML = '';
             if (isAdmin) {
                 summaryHTML = `
@@ -1031,6 +1069,7 @@
             return `
                 <div class="dashboard-grid">
                     ${notifHTML}
+                    ${staffViewBannerHTML}
                     <div class="card full-width" style="background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%); color: white; padding: 1.5rem; position: relative; overflow: hidden;">
                         <div style="position: absolute; top: -40px; right: -40px; width: 200px; height: 200px; background: rgba(255,255,255,0.05); border-radius: 50%;"></div>
                         <div style="position: absolute; bottom: -30px; left: -20px; width: 150px; height: 150px; background: rgba(255,255,255,0.03); border-radius: 50%;"></div>
@@ -1045,8 +1084,8 @@
                             <button class="${btnClass}" id="attendance-btn" style="width: 100%; padding: 0.75rem; font-size: 0.9rem; border-radius: 10px; margin-top: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; transition: all 0.3s ease;">${btnText} <i class="fa-solid fa-fingerprint"></i></button>
                             <div class="location-text" id="location-text" style="font-size: 0.65rem; color: #94a3b8; text-align: center; margin-top: 0.5rem;"><i class="fa-solid fa-location-dot"></i><span>${isCheckedIn && user.currentLocation ? `Lat: ${Number(user.currentLocation.lat).toFixed(4)}, Lng: ${Number(user.currentLocation.lng).toFixed(4)}` : 'Waiting for location...'}</span></div>
                         </div>
-                        <div class="card" style="flex: 1; min-width: 210px; padding: 1rem; margin-bottom: 0; display: flex; flex-direction: column; background: white; position: relative;">${!isViewingSelf ? `<div style="position: absolute; top: -8px; right: 10px; background: #fff7ed; color: #c2410c; padding: 2px 8px; border-radius: 10px; font-size: 0.6rem; font-weight: 800; border: 1px solid #ffedd5; box-shadow: 0 2px 4px rgba(0,0,0,0.05); z-index: 5;"><i class="fa-solid fa-user-clock"></i> ${targetStaff?.name || 'Staff'}'s Activity</div>` : ''}<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;"><h4 style="margin: 0; font-size: 0.95rem; color: #1e1b4b;"><i class="fa-solid fa-history" style="color: #6366f1; margin-right: 6px;"></i> Recent Activity</h4><a href="#timesheet" onclick="window.location.hash = 'timesheet'; return false;" style="font-size: 0.7rem; color: #4338ca; text-decoration: none; font-weight: 600;">View All</a></div><div style="display: flex; flex-direction: column; gap: 0.75rem; flex: 1; overflow-y: auto; max-height: 250px; padding-right: 4px;">${recentLogs.length > 0 ? recentLogs.slice(0, 3).map(log => `<div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.5rem; border-bottom: 1px solid #f8fafc;"><div><div style="font-size: 0.8rem; font-weight: 600; color: #334155;">${log.date}</div><div style="font-size: 0.7rem; color: #64748b;">${log.checkIn} - ${log.checkOut || '<span style="color:#10b981;">Active</span>'}</div></div><div style="font-size: 0.8rem; font-weight: 700; color: #4338ca; background: #eef2ff; padding: 2px 8px; border-radius: 6px;">${log.duration || '--'}</div></div>`).join('') : '<p style="font-size: 0.8rem; color: #94a3b8; text-align: center; margin-top: 1rem;">No recent sessions</p>'}</div></div>
-                        <div style="flex: 1.2; min-width: 210px; display: flex; flex-direction: column;">${renderWorkLog(logs, collaborations)}</div>
+                        <div class="card" style="flex: 1; min-width: 210px; padding: 1rem; margin-bottom: 0; display: flex; flex-direction: column; background: white; position: relative; ${!isViewingSelf ? 'border: 2px solid #fb923c;' : ''}"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;"><h4 style="margin: 0; font-size: 0.95rem; color: #1e1b4b;"><i class="fa-solid fa-history" style="color: #6366f1; margin-right: 6px;"></i> Recent Activity${!isViewingSelf ? ` <span style="font-size: 0.75rem; color: #f97316; font-weight: 800;">(${targetStaff?.name || 'Staff'})</span>` : ''}</h4><a href="#timesheet" onclick="window.location.hash = 'timesheet'; return false;" style="font-size: 0.7rem; color: #4338ca; text-decoration: none; font-weight: 600;">View All</a></div><div style="display: flex; flex-direction: column; gap: 0.75rem; flex: 1; overflow-y: auto; max-height: 250px; padding-right: 4px;">${recentLogs.length > 0 ? recentLogs.slice(0, 3).map(log => `<div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.5rem; border-bottom: 1px solid #f8fafc;"><div><div style="font-size: 0.8rem; font-weight: 600; color: #334155;">${log.date}</div><div style="font-size: 0.7rem; color: #64748b;">${log.checkIn} - ${log.checkOut || '<span style="color:#10b981;">Active</span>'}</div></div><div style="font-size: 0.8rem; font-weight: 700; color: #4338ca; background: #eef2ff; padding: 2px 8px; border-radius: 6px;">${log.duration || '--'}</div></div>`).join('') : '<p style="font-size: 0.8rem; color: #94a3b8; text-align: center; margin-top: 1rem;">No recent sessions</p>'}</div></div>
+                        <div style="flex: 1.2; min-width: 210px; display: flex; flex-direction: column; ${!isViewingSelf ? 'border: 2px solid #fb923c; border-radius: 12px;' : ''}">${renderWorkLog(logs, collaborations, targetStaff, isViewingSelf)}</div>
                         ${isAdmin ? `<div style="flex: 1.2; min-width: 210px; display: flex; flex-direction: column;">${renderActivityLog(staffActivities)}</div>` : ''}
                     </div>
                     ${summaryHTML}
