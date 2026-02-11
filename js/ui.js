@@ -482,7 +482,7 @@
                             </div>
                         </div>
 
-                        <form onsubmit="return window.app_handleCheckout ? window.app_handleCheckout(event) : true">
+                        <form id="checkout-form" onsubmit="window.app_submitCheckOut(event)">
                             
                             <!-- Today's Plan Reference (Enhanced) -->
                             <div id="checkout-plan-ref" style="display:none; background:linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%); padding:1rem; border-radius:12px; border:2px solid #e9d5ff; margin-bottom:1.5rem;">
@@ -518,7 +518,20 @@
                                 </div>
                             </div>
 
-                            <!-- Location Verification -->
+                            <!-- Plan for Tomorrow (New) -->
+                            <div style="margin-bottom:1.5rem; background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); padding:1.25rem; border-radius:12px; border:2px solid #6ee7b7;">
+                                <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.75rem;">
+                                    <div style="background:#059669; color:white; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.7rem;">3</div>
+                                    <label style="font-size:0.85rem; font-weight:700; color:#064e3b; margin:0;">🗓️ What's your top goal for tomorrow?</label>
+                                </div>
+                                <p style="font-size:0.75rem; color:#065f46; margin:0 0 0.75rem 0; font-style:italic;">Quickly set a goal for your next shift. We'll show this to you when you check in!</p>
+                                <textarea name="tomorrowGoal" placeholder="e.g., Finalize the project report, Follow up with client X..." 
+                                    style="width:100%; min-height:80px; padding:0.75rem; border:2px solid #6ee7b7; border-radius:10px; font-family:inherit; resize:none; font-size:0.9rem; line-height:1.4; background:white; transition: all 0.2s;" 
+                                    onfocus="this.style.borderColor='#059669'; this.style.boxShadow='0 0 0 3px rgba(5, 150, 105, 0.1)'" 
+                                    onblur="this.style.borderColor='#6ee7b7'; this.style.boxShadow='none'"></textarea>
+                            </div>
+
+                            <!-- Location Update Warning Index Adjustment -->
                             <div id="checkout-location-loading" style="display:none; margin-bottom: 1rem; padding: 0.75rem; background: #f0f9ff; border:1px solid #bae6fd; border-radius: 10px; text-align: center; font-size: 0.85rem; color: #0369a1;">
                                 <i class="fa-solid fa-spinner fa-spin"></i> <span style="margin-left:0.5rem;">Verifying your location...</span>
                             </div>
@@ -526,7 +539,7 @@
                             <!-- Location Mismatch (Redesigned - Friendly) -->
                             <div id="checkout-location-mismatch" style="display:none; margin-bottom: 1.5rem;">
                                 <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.75rem;">
-                                    <div style="background:#0ea5e9; color:white; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.7rem;">3</div>
+                                    <div style="background:#0ea5e9; color:white; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.7rem;">4</div>
                                     <label style="font-size:0.85rem; font-weight:700; color:#0c4a6e; margin:0;">📍 Location Update Notice</label>
                                 </div>
                                 <div style="padding: 0.85rem; background: #f0f9ff; border: 2px solid #bae6fd; border-radius: 10px; margin-bottom:0.75rem;">

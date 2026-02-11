@@ -1058,18 +1058,12 @@
 
     // Use work plan to fill checkout summary
     window.app_useWorkPlan = () => {
-        const planText = document.getElementById('checkout-plan-text')?.innerText;
+        const planTextEl = document.getElementById('checkout-plan-text');
         const summaryTextarea = document.getElementById('checkout-work-summary');
+        const rawText = planTextEl?.dataset?.rawText;
 
-        if (planText && summaryTextarea) {
-            // Format the plan text nicely for the summary
-            const formattedText = planText
-                .split('\n')
-                .filter(line => line.trim())
-                .map(line => line.startsWith('•') || line.startsWith('-') ? line : `• ${line}`)
-                .join('\n');
-
-            summaryTextarea.value = formattedText;
+        if (rawText && summaryTextarea) {
+            summaryTextarea.value = rawText;
 
             // Update character counter
             if (window.app_updateCharCounter) {
@@ -1081,7 +1075,7 @@
 
             // Visual feedback
             summaryTextarea.style.borderColor = '#8b5cf6';
-            summaryTextarea.style.background = '#faf5ff';
+            summaryTextarea.style.background = '#f5f3ff';
             setTimeout(() => {
                 summaryTextarea.style.borderColor = '#e2e8f0';
                 summaryTextarea.style.background = '#ffffff';
@@ -1426,13 +1420,23 @@
         }
     };
 
-    window.app_useWorkPlan = () => {
-        const planText = document.getElementById('checkout-plan-text')?.innerText;
-        const descArea = document.querySelector('#checkout-modal textarea[name="description"]');
-        if (descArea && planText) {
-            // Include sub-plans in the pre-fill if they exist in the hidden text or elements
-            // Actually, checkout-plan-text and myPlan are available in handleAttendance
-            descArea.value = planText;
+    // Helper to postpone a task
+    window.app_postponeTask = async (planId, taskIndex, taskText) => {
+        const targetDate = prompt("When do you want to postpone this to? (YYYY-MM-DD)", new Date(Date.now() + 86400000).toISOString().split('T')[0]);
+        if (!targetDate) return;
+
+        try {
+            const user = window.AppAuth.getUser();
+            // 1. Mark as 'postponed' in today's plan
+            await window.AppCalendar.updateTaskStatus(planId, taskIndex, 'postponed');
+
+            // 2. Add to target date's plan
+            await window.AppCalendar.addWorkPlanTask(targetDate, user.id, taskText);
+
+            alert(`Task postponed to ${targetDate}`);
+            if (handleAttendance) await handleAttendance();
+        } catch (err) {
+            alert("Failed to postpone task: " + err.message);
         }
     };
 
@@ -1496,22 +1500,38 @@
                         if (planRef) planRef.style.display = 'block';
 
                         let displayPlan = "";
+                        let rawPlanText = "";
+
                         if (workPlan.plans && workPlan.plans.length > 0) {
-                            displayPlan = workPlan.plans.map(p => {
-                                let txt = `[Goal] ${p.task}`;
-                                if (p.subPlans && p.subPlans.length > 0) {
-                                    txt += '\n👣 Steps: ' + p.subPlans.join(', ');
-                                }
-                                if (p.tags && p.tags.length > 0) {
-                                    txt += '\n🤝 Group: ' + p.tags.map(t => `@${t.name} (${t.status || 'pending'})`).join(', ');
-                                }
+                            displayPlan = workPlan.plans.map((p, idx) => {
+                                let txt = `<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px; padding-bottom:12px; border-bottom:1px dashed #e9d5ff;">
+                                    <div style="flex:1;">
+                                        <div style="font-weight:600; color:#4c1d95;">${p.task}</div>
+                                        ${p.subPlans && p.subPlans.length > 0 ? `<div style="font-size:0.75rem; color:#7c3aed; margin-top:2px;">👣 ${p.subPlans.join(', ')}</div>` : ''}
+                                    </div>
+                                    <div style="display:flex; gap:6px; flex-shrink:0;">
+                                        ${p.status === 'completed'
+                                        ? '<span style="font-size:0.75rem; color:#059669; font-weight:700;">✅ Done</span>'
+                                        : `<button type="button" onclick="window.app_postponeTask('${workPlan.id}', ${idx}, '${p.task}')" style="background:#f3e8ff; color:#7c3aed; border:1px solid #ddd6fe; border-radius:8px; padding:6px 12px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#ddd6fe'" onmouseout="this.style.background='#f3e8ff'">⌛ Postpone</button>`
+                                    }
+                                    </div>
+                                </div>`;
                                 return txt;
-                            }).join('\n\n---\n\n');
+                            }).join('');
+
+                            rawPlanText = workPlan.plans.map(p => {
+                                let txt = `• ${p.task}`;
+                                if (p.subPlans && p.subPlans.length > 0) txt += ` (${p.subPlans.join(', ')})`;
+                                return txt;
+                            }).join('\n');
+
                         } else if (workPlan.plan) {
                             // Legacy
-                            displayPlan = workPlan.plan;
+                            displayPlan = `<div style="font-weight:600; color:#4c1d95;">${workPlan.plan}</div>`;
+                            rawPlanText = `• ${workPlan.plan}`;
                             if (workPlan.subPlans && workPlan.subPlans.length > 0) {
-                                displayPlan += '\n👣 Steps: ' + workPlan.subPlans.join(', ');
+                                displayPlan += `<div style="font-size:0.75rem; color:#7c3aed; margin-top:2px;">👣 ${workPlan.subPlans.join(', ')}</div>`;
+                                rawPlanText += ` (${workPlan.subPlans.join(', ')})`;
                             }
                         }
 
@@ -1531,12 +1551,18 @@
 
                             if (displayPlan) displayPlan += '\n\n' + collabText;
                             else displayPlan = collabText;
+
+                            if (rawPlanText) rawPlanText += '\n\n• ' + collabText;
+                            else rawPlanText = '• ' + collabText;
                         }
 
-                        if (planTextEl) planTextEl.innerText = displayPlan;
+                        if (planTextEl) planTextEl.innerHTML = displayPlan;
+                        // Store raw text for the action button
+                        if (planTextEl) planTextEl.dataset.rawText = rawPlanText;
+
                         // Pre-fill only if the textarea is empty
                         if (descArea && !descArea.value.trim()) {
-                            descArea.value = displayPlan;
+                            descArea.value = rawPlanText;
                         }
                     } else {
                         if (planRef) planRef.style.display = 'none';
@@ -1624,6 +1650,14 @@
             const formattedAddress = `Lat: ${Number(pos.lat).toFixed(4)}, Lng: ${Number(pos.lng).toFixed(4)}`;
 
             const explanation = form.locationExplanation ? form.locationExplanation.value : '';
+            const tomorrowGoal = form.tomorrowGoal ? form.tomorrowGoal.value.trim() : '';
+
+            // 1. Save tomorrow's goal if provided
+            if (tomorrowGoal) {
+                const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+                await window.AppCalendar.addWorkPlanTask(tomorrow, window.AppAuth.getUser().id, tomorrowGoal);
+                console.log("Tomorrow's goal saved:", tomorrowGoal);
+            }
 
             await window.AppAttendance.checkOut(description, pos.lat, pos.lng, formattedAddress, locationMismatched, explanation);
 
@@ -1808,6 +1842,7 @@
         console.log("Submit Event Intercepted. Form ID:", id);
 
         if (id === 'manual-log-form') handleManualLog(e);
+        else if (id === 'checkout-form') window.app_submitCheckOut(e);
         else if (id === 'add-user-form') handleAddUser(e);
         else if (id === 'login-form') {
             const fd = new FormData(e.target);
