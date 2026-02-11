@@ -421,33 +421,148 @@
             if (!user) return '';
 
             return `
-                <!-- Check-Out Modal -->
+                <!-- Check-Out Modal (Redesigned) -->
                 <div id="checkout-modal" class="modal-overlay" style="display: none;">
-                    <div class="modal-content" style="width: 100%; max-width: 450px;">
-                        <h3 style="margin-bottom: 1rem;">Check Out</h3>
-                        <p style="color: #6b7280; font-size: 0.9rem; margin-bottom: 1rem;">Please summarize your work for today before checking out.</p>
-                        <div id="checkout-plan-ref" style="display:none; background:#f9fafb; padding:0.75rem; border-radius:8px; border:1px solid #e5e7eb; margin-bottom:1rem; font-size:0.85rem;">
-                            <div style="font-weight:600; color:#4f46e5; margin-bottom:4px;">Today's Plan:</div>
-                            <div id="checkout-plan-text" style="color:#374151; margin-bottom:8px; line-height:1.4;"></div>
-                            <button type="button" onclick="window.app_useWorkPlan()" style="background:#4f46e5; color:white; border:none; padding:4px 10px; border-radius:4px; font-size:0.75rem; cursor:pointer; font-weight:500;">
-                                <i class="fa-solid fa-file-import"></i> Use this Plan
-                            </button>
+                    <div class="modal-content" style="width: 100%; max-width: 550px; padding: 1.5rem; border-radius: 16px;">
+                        
+                        <!-- Redesigned Header -->
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1.5rem;">
+                            <div style="flex:1;">
+                                <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:0.5rem;">
+                                    <div style="background: linear-gradient(135deg, #10b981 0%, #14b8a6 100%); width:40px; height:40px; border-radius:10px; display:flex; align-items:center; justify-content:center; box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.3);">
+                                        <i class="fa-solid fa-door-open" style="color:white; font-size:1.1rem;"></i>
+                                    </div>
+                                    <div>
+                                        <h3 style="font-size: 1.3rem; margin:0; font-weight:700; color:#111827;">Wrap Up Your Day</h3>
+                                        <p id="checkout-date-display" style="font-size:0.875rem; color:#64748b; margin:0.25rem 0 0 0;">Review your accomplishments and check out</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <button onclick="document.getElementById('checkout-modal').style.display = 'none'" title="Close without checking out" style="background:#f1f5f9; border:none; width:36px; height:36px; border-radius:8px; font-size:1.3rem; cursor:pointer; display:flex; align-items:center; justify-content:center; transition: background 0.2s;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f1f5f9'">&times;</button>
                         </div>
 
-                        <form onsubmit="window.app_submitCheckOut(event)">
-                            <div id="checkout-location-loading" style="display:none; margin-bottom: 1rem; padding: 0.5rem; background: #f3f4f6; border-radius: 8px; text-align: center; font-size: 0.8rem; color: #6b7280;">
-                                <i class="fa-solid fa-spinner fa-spin"></i> Verifying location...
+                        <!-- How to Check Out Panel (Collapsible) -->
+                        <div id="checkout-intro-panel" style="background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%); border:1px solid #bbf7d0; border-radius:12px; padding:1rem; margin-bottom:1.5rem; display:none;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                                <div style="display:flex; align-items:center; gap:0.5rem;">
+                                    <i class="fa-solid fa-circle-info" style="color:#059669; font-size:1rem;"></i>
+                                    <h4 style="margin:0; font-size:0.95rem; font-weight:700; color:#059669;">How to Check Out</h4>
+                                </div>
+                                <button onclick="window.app_hideCheckoutIntro()" title="Hide this guide" style="background:transparent; border:none; color:#059669; cursor:pointer; font-size:1.2rem; width:24px; height:24px; display:flex; align-items:center; justify-content:center; border-radius:4px; transition: background 0.2s;" onmouseover="this.style.background='rgba(5, 150, 105, 0.1)'" onmouseout="this.style.background='transparent'">&times;</button>
                             </div>
-                            <div id="checkout-location-mismatch" style="display:none; margin-bottom: 1rem; padding: 0.75rem; background: #fff1f2; border: 1px solid #fda4af; border-radius: 8px;">
-                                <label style="display:block; font-size: 0.85rem; font-weight: 600; color: #991b1b; margin-bottom: 0.5rem;">
-                                    <i class="fa-solid fa-triangle-exclamation"></i> Different Location Detected
-                                </label>
-                                <textarea name="locationExplanation" placeholder="Please explain why you are checking out from a different location..." style="width: 100%; height: 60px; padding: 0.5rem; border: 1px solid #fda4af; border-radius: 0.5rem; resize: none; font-size: 0.85rem; font-family: inherit;"></textarea>
+                            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap:0.75rem;">
+                                <div style="display:flex; gap:0.5rem;">
+                                    <div style="background:#10b981; color:white; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.75rem; flex-shrink:0;">1</div>
+                                    <div>
+                                        <p style="margin:0; font-size:0.8rem; font-weight:600; color:#065f46;">📝 Summarize Work</p>
+                                        <p style="margin:0.25rem 0 0 0; font-size:0.75rem; color:#047857; line-height:1.3;">List accomplishments</p>
+                                    </div>
+                                </div>
+                                <div style="display:flex; gap:0.5rem;">
+                                    <div style="background:#10b981; color:white; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.75rem; flex-shrink:0;">2</div>
+                                    <div>
+                                        <p style="margin:0; font-size:0.8rem; font-weight:600; color:#065f46;">✅ Review Plan</p>
+                                        <p style="margin:0.25rem 0 0 0; font-size:0.75rem; color:#047857; line-height:1.3;">Check completed tasks</p>
+                                    </div>
+                                </div>
+                                <div style="display:flex; gap:0.5rem;">
+                                    <div style="background:#10b981; color:white; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.75rem; flex-shrink:0;">3</div>
+                                    <div>
+                                        <p style="margin:0; font-size:0.8rem; font-weight:600; color:#065f46;">📍 Verify Location</p>
+                                        <p style="margin:0.25rem 0 0 0; font-size:0.75rem; color:#047857; line-height:1.3;">Confirm checkout spot</p>
+                                    </div>
+                                </div>
+                                <div style="display:flex; gap:0.5rem;">
+                                    <div style="background:#10b981; color:white; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.75rem; flex-shrink:0;">4</div>
+                                    <div>
+                                        <p style="margin:0; font-size:0.8rem; font-weight:600; color:#065f46;">🎉 You're Done!</p>
+                                        <p style="margin:0.25rem 0 0 0; font-size:0.75rem; color:#047857; line-height:1.3;">Have a great evening</p>
+                                    </div>
+                                </div>
                             </div>
-                            <textarea name="description" required placeholder="- Completed monthly report&#10;- Fixed login bug..." style="width: 100%; height: 120px; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem; resize: none; font-family: inherit; margin-bottom: 1.5rem;"></textarea>
-                            <div style="display: flex; gap: 1rem;">
-                                <button type="button" onclick="document.getElementById('checkout-modal').style.display = 'none'" style="flex: 1; padding: 0.75rem; background: white; border: 1px solid #d1d5db; border-radius: 0.5rem; cursor: pointer;">Cancel</button>
-                                <button type="submit" class="action-btn" style="flex: 1; justify-content: center;">Complete Check-Out</button>
+                        </div>
+
+                        <form onsubmit="return window.app_handleCheckout ? window.app_handleCheckout(event) : true">
+                            
+                            <!-- Today's Plan Reference (Enhanced) -->
+                            <div id="checkout-plan-ref" style="display:none; background:linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%); padding:1rem; border-radius:12px; border:2px solid #e9d5ff; margin-bottom:1.5rem;">
+                                <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.75rem;">
+                                    <div style="background:#a78bfa; color:white; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.7rem;">2</div>
+                                    <label style="font-size:0.85rem; font-weight:700; color:#6b21a8; margin:0;">✅ Your Planned Tasks for Today</label>
+                                </div>
+                                <div id="checkout-plan-text" style="color:#7c3aed; margin-bottom:0.75rem; line-height:1.5; font-size:0.85rem; padding:0.75rem; background:white; border-radius:8px; border:1px solid #e9d5ff;"></div>
+                                <button type="button" onclick="window.app_useWorkPlan()" style="background:#8b5cf6; color:white; border:none; padding:8px 14px; border-radius:8px; font-size:0.85rem; cursor:pointer; font-weight:600; display:flex; align-items:center; gap:0.5rem; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed'; this.style.transform='translateY(-1px)'" onmouseout="this.style.background='#8b5cf6'; this.style.transform='translateY(0)'">
+                                    <i class="fa-solid fa-wand-magic-sparkles"></i> <span>✨ Use Plan as My Summary</span>
+                                </button>
+                            </div>
+
+                            <!-- Work Summary Section (Enhanced) -->
+                            <div style="margin-bottom:1.5rem;">
+                                <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.75rem;">
+                                    <div style="background:#3b82f6; color:white; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.7rem;">1</div>
+                                    <label style="font-size:0.85rem; font-weight:700; color:#1e40af; margin:0;">📝 Summarize What You Accomplished Today</label>
+                                </div>
+                                <p style="font-size:0.75rem; color:#64748b; margin:0 0 0.75rem 0; font-style:italic; line-height:1.4;">Be specific! This helps track your progress and generates your timesheet.</p>
+                                
+                                <textarea name="description" id="checkout-work-summary" required placeholder="• Finalized Q1 budget report and sent to finance team&#10;• Fixed authentication bug in user login module&#10;• Attended team standup and project planning meeting" 
+                                    style="width:100%; min-height:150px; padding:0.85rem; border:2px solid #e2e8f0; border-radius:10px; font-family:inherit; resize:vertical; margin-bottom:0.5rem; font-size:0.95rem; line-height:1.5; background:#fcfdfe; transition: border-color 0.2s;" 
+                                    onfocus="this.style.borderColor='#3b82f6'; this.style.background='#ffffff'" 
+                                    onblur="this.style.borderColor='#e2e8f0'; this.style.background='#fcfdfe'"
+                                    oninput="window.app_updateCharCounter && window.app_updateCharCounter(this)"></textarea>
+                                
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <span id="char-counter" style="font-size:0.75rem; color:#94a3b8;">0 / 500 recommended</span>
+                                    <div style="display:flex; gap:0.5rem;">
+                                        <span style="font-size:0.7rem; background:#dbeafe; color:#1e40af; padding:4px 8px; border-radius:6px; font-weight:600;">💡 Tip: Use bullet points</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Location Verification -->
+                            <div id="checkout-location-loading" style="display:none; margin-bottom: 1rem; padding: 0.75rem; background: #f0f9ff; border:1px solid #bae6fd; border-radius: 10px; text-align: center; font-size: 0.85rem; color: #0369a1;">
+                                <i class="fa-solid fa-spinner fa-spin"></i> <span style="margin-left:0.5rem;">Verifying your location...</span>
+                            </div>
+                            
+                            <!-- Location Mismatch (Redesigned - Friendly) -->
+                            <div id="checkout-location-mismatch" style="display:none; margin-bottom: 1.5rem;">
+                                <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.75rem;">
+                                    <div style="background:#0ea5e9; color:white; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.7rem;">3</div>
+                                    <label style="font-size:0.85rem; font-weight:700; color:#0c4a6e; margin:0;">📍 Location Update Notice</label>
+                                </div>
+                                <div style="padding: 0.85rem; background: #f0f9ff; border: 2px solid #bae6fd; border-radius: 10px; margin-bottom:0.75rem;">
+                                    <p style="font-size:0.8rem; color:#075985; margin:0; line-height:1.5;">
+                                        <i class="fa-solid fa-circle-info" style="color:#0ea5e9; margin-right:0.5rem;"></i>
+                                        You're checking out from a different location than check-in. <strong>This is perfectly fine!</strong> Just let us know why:
+                                    </p>
+                                </div>
+                                
+                                <!-- Quick Reason Selectors -->
+                                <div style="display:flex; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.75rem;">
+                                    <button type="button" class="location-reason-btn" onclick="window.app_selectLocationReason('Went home early')" style="background:#e0f2fe; border:1px solid #7dd3fc; color:#0c4a6e; padding:6px 12px; border-radius:8px; font-size:0.8rem; cursor:pointer; font-weight:600; transition: all 0.2s;" onmouseover="this.style.background='#bae6fd'" onmouseout="this.style.background='#e0f2fe'">
+                                        🏠 Went home early
+                                    </button>
+                                    <button type="button" class="location-reason-btn" onclick="window.app_selectLocationReason('Doctor appointment')" style="background:#e0f2fe; border:1px solid #7dd3fc; color:#0c4a6e; padding:6px 12px; border-radius:8px; font-size:0.8rem; cursor:pointer; font-weight:600; transition: all 0.2s;" onmouseover="this.style.background='#bae6fd'" onmouseout="this.style.background='#e0f2fe'">
+                                        🏥 Doctor appointment
+                                    </button>
+                                    <button type="button" class="location-reason-btn" onclick="window.app_selectLocationReason('Client meeting')" style="background:#e0f2fe; border:1px solid #7dd3fc; color:#0c4a6e; padding:6px 12px; border-radius:8px; font-size:0.8rem; cursor:pointer; font-weight:600; transition: all 0.2s;" onmouseover="this.style.background='#bae6fd'" onmouseout="this.style.background='#e0f2fe'">
+                                        🤝 Client meeting
+                                    </button>
+                                    <button type="button" class="location-reason-btn" onclick="window.app_selectLocationReason('Field work')" style="background:#e0f2fe; border:1px solid #7dd3fc; color:#0c4a6e; padding:6px 12px; border-radius:8px; font-size:0.8rem; cursor:pointer; font-weight:600; transition: all 0.2s;" onmouseover="this.style.background='#bae6fd'" onmouseout="this.style.background='#e0f2fe'">
+                                        🚧 Field work
+                                    </button>
+                                </div>
+                                
+                                <textarea name="locationExplanation" id="location-explanation" placeholder="Or explain here... (optional)" style="width: 100%; height: 70px; padding: 0.75rem; border: 2px solid #bae6fd; border-radius: 10px; resize: none; font-size: 0.85rem; font-family: inherit; transition: border-color 0.2s;" onfocus="this.style.borderColor='#0ea5e9'" onblur="this.style.borderColor='#bae6fd'"></textarea>
+                            </div>
+
+                            <!-- Action Buttons -->
+                            <div style="display: flex; gap: 1rem; margin-top: 1.5rem; flex-wrap:wrap;">
+                                <button type="button" onclick="document.getElementById('checkout-modal').style.display = 'none'" style="flex: 1; min-width:180px; padding: 0.85rem; background: white; border: 2px solid #e2e8f0; border-radius: 10px; cursor: pointer; font-weight:600; color:#64748b; font-size:0.95rem; transition: all 0.2s; display:flex; align-items:center; justify-content:center; gap:0.5rem;" onmouseover="this.style.background='#f8fafc'; this.style.borderColor='#cbd5e1'" onmouseout="this.style.background='white'; this.style.borderColor='#e2e8f0'">
+                                    <span>✕ Stay Checked In</span>
+                                </button>
+                                <button type="submit" style="flex: 2; min-width:220px; padding: 0.85rem; background: linear-gradient(135deg, #10b981 0%, #14b8a6 100%); color:white; border:none; border-radius: 10px; cursor: pointer; font-weight:700; font-size:0.95rem; box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.3); transition: all 0.2s; display:flex; align-items:center; justify-content:center; gap:0.5rem;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 10px -1px rgba(16, 185, 129, 0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 6px -1px rgba(16, 185, 129, 0.3)'">
+                                    <i class="fa-solid fa-circle-check"></i> <span>🎉 Complete & Check Out</span>
+                                </button>
                             </div>
                         </form>
                     </div>
@@ -2070,4 +2185,46 @@
             `;
         }
     };
+
+    // Initialize checkout intro panel visibility
+    if (typeof window !== 'undefined') {
+        // Use MutationObserver to detect when checkout modal is shown
+        const checkoutObserver = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                const modal = document.getElementById('checkout-modal');
+                const introPanel = document.getElementById('checkout-intro-panel');
+
+                if (modal && introPanel && modal.style.display !== 'none') {
+                    // Check if intro has been seen before
+                    const introSeen = localStorage.getItem('checkoutIntroSeen');
+                    if (!introSeen) {
+                        introPanel.style.display = 'block';
+                    }
+                }
+            });
+        });
+
+        // Start observing when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                const modalContainer = document.body;
+                if (modalContainer) {
+                    checkoutObserver.observe(modalContainer, {
+                        attributes: true,
+                        subtree: true,
+                        attributeFilter: ['style']
+                    });
+                }
+            });
+        } else {
+            const modalContainer = document.body;
+            if (modalContainer) {
+                checkoutObserver.observe(modalContainer, {
+                    attributes: true,
+                    subtree: true,
+                    attributeFilter: ['style']
+                });
+            }
+        }
+    }
 })();

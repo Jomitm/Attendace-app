@@ -526,40 +526,103 @@
         const allUsers = await window.AppDB.getAll('users');
         const targetStaff = allUsers.find(u => u.id === targetId);
 
+        // Format date nicely
+        const dateObj = new Date(date);
+        const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+
+        // Check if intro panel has been seen
+        const introPanelSeen = localStorage.getItem('workPlanIntroSeen') === 'true';
+
         const html = `
             <div class="modal-overlay" id="day-plan-modal" style="display:flex; align-items:flex-start; padding-top:2rem;">
-                <div class="modal-content" style="max-width: 800px; width: 95%; padding: 1.25rem; border-radius: 16px;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-                        <div>
-                            <h3 style="font-size: 1.1rem; margin:0;">Daily Work Plan ${targetId !== currentUser.id ? `- For ${targetStaff?.name || 'Staff'}` : ''}</h3>
-                            <span style="font-size:0.75rem; color:#64748b;">${date} • Set goals & tag collaborators</span>
+                <div class="modal-content" style="max-width: 800px; width: 95%; padding: 1.5rem; border-radius: 16px;">
+                    
+                    <!-- Redesigned Header -->
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1.5rem;">
+                        <div style="flex:1;">
+                            <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:0.5rem;">
+                                <div style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); width:40px; height:40px; border-radius:10px; display:flex; align-items:center; justify-content:center; box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.3);">
+                                    <i class="fa-solid fa-calendar-day" style="color:white; font-size:1.1rem;"></i>
+                                </div>
+                                <div>
+                                    <h3 style="font-size: 1.3rem; margin:0; font-weight:700; color:#111827;">Plan Your Day${targetId !== currentUser.id ? ` - ${targetStaff?.name || 'Staff'}` : ''}</h3>
+                                    <p style="font-size:0.875rem; color:#64748b; margin:0.25rem 0 0 0;">${formattedDate} • Break down tasks, set goals, and collaborate</p>
+                                </div>
+                            </div>
                         </div>
                         <div style="display:flex; gap:0.5rem; align-items:center;">
-                            ${myWorkPlan ? `<button onclick="window.app_deleteDayPlan('${date}', '${targetId}')" title="Delete Plan" style="background:#fff1f2; border:1px solid #fecaca; color:#ef4444; width:32px; height:32px; border-radius:8px; cursor:pointer; display:flex; align-items:center; justify-content:center;"><i class="fa-solid fa-trash-can" style="font-size:0.85rem;"></i></button>` : ''}
-                            <button onclick="this.closest('.modal-overlay').remove()" style="background:#f1f5f9; border:none; width:32px; height:32px; border-radius:8px; font-size:1.2rem; cursor:pointer; display:flex; align-items:center; justify-content:center;">&times;</button>
+                            ${myWorkPlan ? `<button onclick="window.app_deleteDayPlan('${date}', '${targetId}')" title="Delete this entire plan" style="background:#fff1f2; border:1px solid #fecaca; color:#ef4444; width:36px; height:36px; border-radius:8px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition: all 0.2s;" onmouseover="this.style.background='#fee2e2'" onmouseout="this.style.background='#fff1f2'"><i class="fa-solid fa-trash-can" style="font-size:0.9rem;"></i></button>` : ''}
+                            <button onclick="this.closest('.modal-overlay').remove()" title="Close without saving" style="background:#f1f5f9; border:none; width:36px; height:36px; border-radius:8px; font-size:1.3rem; cursor:pointer; display:flex; align-items:center; justify-content:center; transition: background 0.2s;" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f1f5f9'">&times;</button>
                         </div>
                     </div>
 
-                    <!-- Shared Context (Compact) -->
-                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.75rem; margin-bottom:1.25rem;">
-                         <div style="background:#f8fafc; padding:0.6rem; border-radius:10px; border:1px solid #f1f5f9;">
-                            <label style="font-size: 0.6rem; font-weight:800; color: #94a3b8; display: block; margin-bottom: 0.3rem; text-transform:uppercase; letter-spacing:0.5px;">Team Leaves/Events</label>
-                            <div style="max-height: 80px; overflow-y:auto; display:flex; flex-direction:column; gap:2px;">
+                    <!-- How to Use Panel (Collapsible) -->
+                    <div id="intro-panel" style="background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border:1px solid #bae6fd; border-radius:12px; padding:1rem; margin-bottom:1.5rem; display:${introPanelSeen ? 'none' : 'block'};">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                            <div style="display:flex; align-items:center; gap:0.5rem;">
+                                <i class="fa-solid fa-lightbulb" style="color:#0369a1; font-size:1rem;"></i>
+                                <h4 style="margin:0; font-size:0.95rem; font-weight:700; color:#0369a1;">How to Use This Form</h4>
+                            </div>
+                            <button onclick="window.app_hideIntroPanel()" title="Hide this guide" style="background:transparent; border:none; color:#0369a1; cursor:pointer; font-size:1.2rem; width:24px; height:24px; display:flex; align-items:center; justify-content:center; border-radius:4px; transition: background 0.2s;" onmouseover="this.style.background='rgba(3, 105, 161, 0.1)'" onmouseout="this.style.background='transparent'">&times;</button>
+                        </div>
+                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:0.75rem;">
+                            <div style="display:flex; gap:0.5rem;">
+                                <div style="background:#0ea5e9; color:white; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.75rem; flex-shrink:0;">1</div>
+                                <div>
+                                    <p style="margin:0; font-size:0.8rem; font-weight:600; color:#0c4a6e;">📝 Write Your Tasks</p>
+                                    <p style="margin:0.25rem 0 0 0; font-size:0.75rem; color:#075985; line-height:1.3;">Describe what you'll work on today</p>
+                                </div>
+                            </div>
+                            <div style="display:flex; gap:0.5rem;">
+                                <div style="background:#0ea5e9; color:white; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.75rem; flex-shrink:0;">2</div>
+                                <div>
+                                    <p style="margin:0; font-size:0.8rem; font-weight:600; color:#0c4a6e;">⏱️ Break Into Steps</p>
+                                    <p style="margin:0.25rem 0 0 0; font-size:0.75rem; color:#075985; line-height:1.3;">Add smaller actionable items</p>
+                                </div>
+                            </div>
+                            <div style="display:flex; gap:0.5rem;">
+                                <div style="background:#0ea5e9; color:white; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.75rem; flex-shrink:0;">3</div>
+                                <div>
+                                    <p style="margin:0; font-size:0.8rem; font-weight:600; color:#0c4a6e;">👥 Tag Teammates</p>
+                                    <p style="margin:0.25rem 0 0 0; font-size:0.75rem; color:#075985; line-height:1.3;">Type @ to mention collaborators</p>
+                                </div>
+                            </div>
+                            <div style="display:flex; gap:0.5rem;">
+                                <div style="background:#0ea5e9; color:white; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.75rem; flex-shrink:0;">4</div>
+                                <div>
+                                    <p style="margin:0; font-size:0.8rem; font-weight:600; color:#0c4a6e;">✅ Track Progress</p>
+                                    <p style="margin:0.25rem 0 0 0; font-size:0.75rem; color:#075985; line-height:1.3;">Status updates automatically</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Team Context Cards -->
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.75rem; margin-bottom:1.5rem;">
+                         <div style="background:#f8fafc; padding:0.75rem; border-radius:10px; border:1px solid #e2e8f0;">
+                            <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
+                                <i class="fa-solid fa-users" style="color:#64748b; font-size:0.85rem;"></i>
+                                <label style="font-size: 0.7rem; font-weight:700; color: #64748b; text-transform:uppercase; letter-spacing:0.5px; margin:0;">Who's Out Today</label>
+                            </div>
+                            <div style="max-height: 80px; overflow-y:auto; display:flex; flex-direction:column; gap:3px;">
                                 ${teamActivity.length ? teamActivity.map(e => `
-                                    <div style="font-size: 0.75rem; display:flex; gap:6px; align-items:center; color:#475569;">
-                                        <span style="width:5px; height:5px; border-radius:50%; background:${e.type === 'leave' ? '#ef4444' : '#10b981'}"></span>
+                                    <div style="font-size: 0.8rem; display:flex; gap:6px; align-items:center; color:#475569;">
+                                        <span style="width:6px; height:6px; border-radius:50%; background:${e.type === 'leave' ? '#ef4444' : '#10b981'}"></span>
                                         <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${e.title}</span>
                                     </div>
-                                `).join('') : '<div style="color:#cbd5e1; font-size:0.7rem;">None scheduled</div>'}
+                                `).join('') : '<div style="color:#94a3b8; font-size:0.75rem; font-style:italic;">Everyone available today</div>'}
                             </div>
                          </div>
-                         <div style="background:#f8fafc; padding:0.6rem; border-radius:10px; border:1px solid #f1f5f9;">
-                            <label style="font-size: 0.6rem; font-weight:800; color: #94a3b8; display: block; margin-bottom: 0.3rem; text-transform:uppercase; letter-spacing:0.5px;">Staff Plans</label>
+                         <div style="background:#f8fafc; padding:0.75rem; border-radius:10px; border:1px solid #e2e8f0;">
+                            <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
+                                <i class="fa-solid fa-clipboard-list" style="color:#64748b; font-size:0.85rem;"></i>
+                                <label style="font-size: 0.7rem; font-weight:700; color: #64748b; text-transform:uppercase; letter-spacing:0.5px; margin:0;">Team's Plans Today</label>
+                            </div>
                             <div style="max-height: 80px; overflow-y:auto; display:flex; flex-direction:column; gap:4px;">
                                 ${otherStaffPlans.length ? otherStaffPlans.map(e => {
             const parts = e.title.split(':');
-            return `<div style="font-size: 0.75rem; color:#475569; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${e.title.split(':').slice(1).join(':')}"><b style="color:var(--primary); font-size:0.7rem;">${parts[0].split(' ')[0]}:</b> ${parts.slice(1).join(':').trim()}</div>`;
-        }).join('') : '<div style="color:#cbd5e1; font-size:0.7rem;">No plans posted</div>'}
+            return `<div style="font-size: 0.8rem; color:#475569; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${e.title.split(':').slice(1).join(':')}"><b style="color:var(--primary); font-size:0.75rem;">${parts[0].split(' ')[0]}:</b> ${parts.slice(1).join(':').trim()}</div>`;
+        }).join('') : '<div style="color:#94a3b8; font-size:0.75rem; font-style:italic;">No other plans yet</div>'}
                             </div>
                          </div>
                     </div>
@@ -574,21 +637,26 @@
             }
                         </div>
 
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:1rem; gap:1rem;">
-                            <button type="button" onclick="window.app_addPlanBlockUI()" style="flex:1; background:#f0fdf4; border:1px dashed #22c55e; border-radius:10px; padding:0.75rem; font-size:0.85rem; color:#166534; cursor:pointer; font-weight:600; display:flex; align-items:center; justify-content:center; gap:0.5rem;">
-                                <i class="fa-solid fa-plus-circle"></i> Add Task Block
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:1.5rem; gap:1rem; flex-wrap:wrap;">
+                            <button type="button" onclick="window.app_addPlanBlockUI()" style="flex:1; min-width:200px; background:#f0fdf4; border:1px dashed #22c55e; border-radius:10px; padding:0.85rem; font-size:0.9rem; color:#166534; cursor:pointer; font-weight:600; display:flex; align-items:center; justify-content:center; gap:0.5rem; transition: all 0.2s;" onmouseover="this.style.background='#dcfce7'; this.style.borderStyle='solid'" onmouseout="this.style.background='#f0fdf4'; this.style.borderStyle='dashed'">
+                                <i class="fa-solid fa-plus-circle"></i> <span>➕ Add Another Task</span>
                             </button>
-                            <div style="flex:2; display:flex; gap:0.75rem;">
-                                <button type="button" onclick="this.closest('.modal-overlay').remove()" style="flex:1; padding:0.75rem; background:#fff; border:1px solid #e2e8f0; border-radius:10px; cursor:pointer; font-weight:600; color:#64748b; font-size:0.9rem;">Cancel</button>
-                                <button type="submit" class="action-btn" style="flex:2; padding:0.75rem; font-size:0.9rem; border-radius:10px;">Save All Goals</button>
+                            <div style="flex:1.5; min-width:300px; display:flex; gap:0.75rem;">
+                                <button type="button" onclick="this.closest('.modal-overlay').remove()" style="flex:1; padding:0.85rem; background:#fff; border:1px solid #e2e8f0; border-radius:10px; cursor:pointer; font-weight:600; color:#64748b; font-size:0.95rem; transition: all 0.2s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='#fff'">✕ Discard Changes</button>
+                                <button type="submit" class="action-btn" style="flex:2; padding:0.85rem; font-size:0.95rem; border-radius:10px; display:flex; align-items:center; justify-content:center; gap:0.5rem;">
+                                    <i class="fa-solid fa-check-circle"></i> <span>💾 Save My Plan</span>
+                                </button>
                             </div>
                         </div>
                     </form>
                 </div>
 
                 <!-- Mention Dropdown (Shared) -->
-                <div id="mention-dropdown" style="display:none; position:fixed; z-index:10000; background:white; border:1px solid #e2e8f0; border-radius:10px; box-shadow:0 10px 15px -3px rgba(0,0,0,0.1); width:220px; max-height:200px; overflow-y:auto; padding:4px;">
-                    <div style="padding:6px 12px; font-size:0.65rem; color:#94a3b8; font-weight:800; text-transform:uppercase;">Tag Staff Member</div>
+                <div id="mention-dropdown" style="display:none; position:fixed; z-index:10000; background:white; border:1px solid #e2e8f0; border-radius:10px; box-shadow:0 10px 15px -3px rgba(0,0,0,0.1); width:240px; max-height:250px; overflow-y:auto; padding:4px;">
+                    <div style="padding:8px 12px; font-size:0.7rem; color:#64748b; font-weight:700; text-transform:uppercase; display:flex; align-items:center; gap:0.5rem; border-bottom:1px solid #f1f5f9;">
+                        <i class="fa-solid fa-at" style="color:#6366f1;"></i>
+                        <span>Tag a Teammate</span>
+                    </div>
                     <div id="mention-list-items"></div>
                 </div>
             </div>
@@ -616,68 +684,136 @@
             const calculatedStatus = window.AppCalendar.getSmartTaskStatus(date, plan.status);
             const isAdmin = currentUser.role === 'Administrator' || currentUser.isAdmin;
 
+            // Example placeholders that rotate
+            const taskExamples = [
+                "Example: Review Q1 budget report with @TeamMember",
+                "Example: Update client presentation slides for Friday meeting",
+                "Example: Complete code review for authentication module",
+                "Example: Prepare monthly analytics dashboard @DataTeam"
+            ];
+            const randomExample = taskExamples[index % taskExamples.length];
+
             return `
-                <div class="plan-block" data-index="${index}" style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:0; margin-bottom:1.25rem; position:relative; overflow:hidden; display:flex; min-height:160px; flex-direction: column;">
-                    <div style="display: flex; flex: 1; min-height: 160px;">
-                        ${index > 0 ? `<button type="button" onclick="this.closest('.plan-block').remove()" style="position:absolute; top:8px; right:8px; background:#fff1f2; border:none; color:#ef4444; width:24px; height:24px; border-radius:6px; cursor:pointer; display:flex; align-items:center; justify-content:center; z-index:5;"><i class="fa-solid fa-times" style="font-size:0.7rem;"></i></button>` : ''}
+                <div class="plan-block" data-index="${index}" style="background:#fff; border:2px solid #e2e8f0; border-radius:14px; padding:0; margin-bottom:1.5rem; position:relative; overflow:hidden; display:flex; min-height:180px; flex-direction: column; transition: all 0.2s;" onmouseover="this.style.borderColor='#cbd5e1'" onmouseout="this.style.borderColor='#e2e8f0'">
+                    <div style="display: flex; flex: 1; min-height: 180px;">
+                        ${index > 0 ? `<button type="button" onclick="this.closest('.plan-block').remove()" title="Remove this task" style="position:absolute; top:10px; right:10px; background:#fff1f2; border:1px solid #fecaca; color:#ef4444; width:28px; height:28px; border-radius:8px; cursor:pointer; display:flex; align-items:center; justify-content:center; z-index:5; transition: all 0.2s;" onmouseover="this.style.background='#fee2e2'; this.style.transform='scale(1.1)'" onmouseout="this.style.background='#fff1f2'; this.style.transform='scale(1)'"><i class="fa-solid fa-times" style="font-size:0.75rem;"></i></button>` : ''}
                         
-                        <!-- Left: Self Plan (65%) -->
-                        <div style="flex: 1.8; padding: 1rem; border-right: 1px solid #f1f5f9;">
-                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                                <label style="font-size:0.65rem; font-weight:800; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px;">1. Tasks & Steps</label>
+                        <!-- Left: Task Description (60%) -->
+                        <div style="flex: 1.5; padding: 1.25rem; border-right: 2px solid #f1f5f9;">
+                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                                <div style="display:flex; align-items:center; gap:0.5rem;">
+                                    <div style="background:#6366f1; color:white; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.7rem;">1</div>
+                                    <label style="font-size:0.85rem; font-weight:700; color:#334155; margin:0;">📝 What will you work on?</label>
+                                </div>
                                 ${window.AppUI.renderTaskStatusBadge ? window.AppUI.renderTaskStatusBadge(calculatedStatus) : ''}
                              </div>
-                             <textarea class="plan-task" required placeholder="Type task... use @ to tag staff" style="width:100%; height:70px; padding:0.75rem; border:1px solid #e2e8f0; border-radius:10px; font-family:inherit; resize:none; margin-bottom:0.75rem; font-size:0.9rem; line-height:1.4; background:#fcfdfe;">${plan.task || ''}</textarea>
+                             <p style="font-size:0.75rem; color:#64748b; margin:0 0 0.75rem 0; font-style:italic; line-height:1.4;">Be specific about your goal. Type @ to tag a teammate who will help you.</p>
+                             <textarea class="plan-task" required placeholder="${randomExample}" style="width:100%; height:80px; padding:0.85rem; border:2px solid #e2e8f0; border-radius:10px; font-family:inherit; resize:none; margin-bottom:0.85rem; font-size:0.95rem; line-height:1.5; background:#fcfdfe; transition: border-color 0.2s;" onfocus="this.style.borderColor='#6366f1'; this.style.background='#ffffff'" onblur="this.style.borderColor='#e2e8f0'; this.style.background='#fcfdfe'">${plan.task || ''}</textarea>
                              
-                             <div class="sub-plans-list" style="display:flex; flex-direction:column; gap:0.4rem;">
-                                ${plan.subPlans ? plan.subPlans.map(sub => `
-                                    <div class="sub-plan-row" style="display:flex; gap:0.4rem; align-items:center;">
-                                        <div style="width:6px; height:6px; background:#cbd5e1; border-radius:50%;"></div>
-                                        <input type="text" value="${sub}" class="sub-plan-input" placeholder="Sub-task..." style="flex:1; padding:0.4rem; border:1px solid transparent; border-bottom:1px solid #f1f5f9; font-size:0.8rem; background:transparent; outline:none;">
-                                        <button type="button" onclick="this.parentElement.remove()" style="background:none; border:none; color:#cbd5e1; cursor:pointer;"><i class="fa-solid fa-circle-xmark"></i></button>
-                                    </div>
-                                `).join('') : ''}
+                             <div style="background:#fef9f3; padding:0.6rem; border-radius:8px; border:1px solid #fed7aa; margin-bottom:0.75rem; display:${plan.task && plan.task.includes('@') ? 'block' : 'none'}">
+                                <p style="font-size:0.75rem; color:#9a3412; margin:0; display:flex; align-items:center; gap:0.4rem;">
+                                    <i class="fa-solid fa-circle-info" style="font-size:0.85rem;"></i>
+                                    <span>💡 Typing @ will show teammates you can tag</span>
+                                </p>
                              </div>
-                             <button type="button" onclick="window.app_addSubPlanRow(this)" style="background:none; border:none; padding:4px 0; font-size:0.75rem; color:var(--primary); cursor:pointer; margin-top:0.4rem; display:flex; align-items:center; gap:4px; font-weight:600;">
-                                <i class="fa-solid fa-plus"></i> Add Sub-task
-                             </button>
+                             
+                             <div style="border-top:1px dashed #e2e8f0; padding-top:0.75rem;">
+                                <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
+                                    <div style="background:#8b5cf6; color:white; width:18px; height:18px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.65rem;">2</div>
+                                    <label style="font-size:0.8rem; font-weight:600; color:#334155; margin:0;">⏱️ Break it down into steps <span style="font-size:0.7rem; color:#94a3b8; font-weight:400;">(Optional)</span></label>
+                                </div>
+                                <p style="font-size:0.7rem; color:#64748b; margin:0 0 0.5rem 0; font-style:italic;">Smaller steps make big tasks easier to complete</p>
+                                <div class="sub-plans-list" style="display:flex; flex-direction:column; gap:0.5rem;">
+                                   ${plan.subPlans ? plan.subPlans.map(sub => `
+                                       <div class="sub-plan-row" style="display:flex; gap:0.5rem; align-items:center;">
+                                           <div style="width:8px; height:8px; background:#a78bfa; border-radius:50%; flex-shrink:0;"></div>
+                                           <input type="text" value="${sub}" class="sub-plan-input" placeholder="e.g., Gather data, Create charts, Review..." style="flex:1; padding:0.5rem; border:1px solid #e2e8f0; border-radius:6px; font-size:0.85rem; background:#fafafa; outline:none; transition: all 0.2s;" onfocus="this.style.borderColor='#8b5cf6'; this.style.background='#ffffff'" onblur="this.style.borderColor='#e2e8f0'; this.style.background='#fafafa'">
+                                           <button type="button" onclick="this.parentElement.remove()" title="Remove step" style="background:none; border:none; color:#cbd5e1; cursor:pointer; padding:4px; transition: color 0.2s;" onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='#cbd5e1'"><i class="fa-solid fa-circle-xmark"></i></button>
+                                       </div>
+                                   `).join('') : ''}
+                                </div>
+                                <button type="button" onclick="window.app_addSubPlanRow(this)" style="background:none; border:1px dashed #e2e8f0; border-radius:6px; padding:6px 10px; font-size:0.8rem; color:#8b5cf6; cursor:pointer; margin-top:0.5rem; display:flex; align-items:center; gap:6px; font-weight:600; width:100%; justify-content:center; transition: all 0.2s;" onmouseover="this.style.background='#faf5ff'; this.style.borderColor='#8b5cf6'; this.style.borderStyle='solid'" onmouseout="this.style.background='transparent'; this.style.borderColor='#e2e8f0'; this.style.borderStyle='dashed'">
+                                   <i class="fa-solid fa-plus"></i> ➕ Add a Step
+                                </button>
+                             </div>
                         </div>
     
-                        <!-- Right: Tagged Staff (35%) -->
-                        <div style="flex: 1; padding: 1rem; background: #f8fafc; display:flex; flex-direction:column;">
-                            <label style="display:block; font-size:0.65rem; font-weight:800; color:#94a3b8; margin-bottom:0.75rem; text-transform:uppercase; letter-spacing:0.5px;">2. Collaborators</label>
+                        <!-- Right: Collaborators (40%) -->
+                        <div style="flex: 1; padding: 1.25rem; background: linear-gradient(135deg, #faf5ff 0%, #f5f3ff 100%); display:flex; flex-direction:column;">
+                            <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.75rem;">
+                                <div style="background:#a78bfa; color:white; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.7rem;">3</div>
+                                <label style="font-size:0.85rem; font-weight:700; color:#334155; margin:0;">👥 Who's helping?</label>
+                            </div>
+                            <p style="font-size:0.7rem; color:#6b21a8; margin:0 0 0.75rem 0; background:#faf5ff; padding:0.5rem; border-radius:6px; border:1px solid #e9d5ff; line-height:1.4;">
+                                <span style="font-weight:600;">How to tag:</span> Type <span style="background:#8b5cf6; color:white; padding:2px 6px; border-radius:4px; font-weight:700; font-size:0.65rem;">@</span> in the task field above, then click a name.
+                            </p>
                             <div class="tags-container" style="display:flex; flex-direction:column; gap:0.5rem; flex:1;">
                                 ${plan.tags ? plan.tags.map(t => `
-                                    <div class="tag-chip" data-id="${t.id}" data-name="${t.name}" data-status="${t.status || 'pending'}" style="background:white; color:#334155; padding:6px 10px; border-radius:10px; font-size:0.75rem; display:flex; align-items:center; justify-content:space-between; font-weight:600; border:1px solid #e2e8f0; box-shadow:0 1px 2px rgba(0,0,0,0.03);">
-                                        <span><i class="fa-solid fa-at" style="color:#6366f1; font-size:0.65rem; margin-right:4px;"></i>${t.name} <span style="font-size:0.6rem; color:${t.status === 'accepted' ? '#10b981' : (t.status === 'rejected' ? '#ef4444' : '#f59e0b')};">(${t.status ? t.status.charAt(0).toUpperCase() + t.status.slice(1) : 'Pending'})</span></span>
-                                        <i class="fa-solid fa-times" onclick="this.parentElement.remove()" style="cursor:pointer; font-size:0.7rem; color:#94a3b8;"></i>
+                                    <div class="tag-chip" data-id="${t.id}" data-name="${t.name}" data-status="${t.status || 'pending'}" style="background:white; color:#334155; padding:8px 12px; border-radius:10px; font-size:0.8rem; display:flex; align-items:center; justify-content:space-between; font-weight:600; border:1px solid #c4b5fd; box-shadow:0 2px 4px rgba(139, 92, 246, 0.1);">
+                                        <span style="display:flex; align-items:center; gap:6px;">
+                                            <i class="fa-solid fa-user-tag" style="color:#8b5cf6; font-size:0.75rem;"></i>
+                                            <span>${t.name}</span>
+                                            <span style="font-size:0.65rem; padding:2px 6px; border-radius:4px; background:${t.status === 'accepted' ? '#dcfce7' : (t.status === 'rejected' ? '#fee2e2' : '#fef3c7')}; color:${t.status === 'accepted' ? '#166534' : (t.status === 'rejected' ? '#991b1b' : '#854d0e')}; font-weight:700;">
+                                                ${t.status === 'accepted' ? '✅' : (t.status === 'rejected' ? '❌' : '🟡')} ${t.status ? t.status.charAt(0).toUpperCase() + t.status.slice(1) : 'Pending'}
+                                            </span>
+                                        </span>
+                                        <i class="fa-solid fa-times" onclick="this.parentElement.remove()" title="Remove collaborator" style="cursor:pointer; font-size:0.75rem; color:#94a3b8; transition: color 0.2s;" onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='#94a3b8'"></i>
                                     </div>
                                 `).join('') : ''}
-                                ${(!plan.tags || plan.tags.length === 0) ? '<div class="no-tags-placeholder" style="font-size:0.7rem; color:#cbd5e1; text-align:center; padding-top:1rem; border:1px dashed #e2e8f0; border-radius:10px; flex:1;">Use @ in task text to tag</div>' : ''}
+                                ${(!plan.tags || plan.tags.length === 0) ? `
+                                    <div class="no-tags-placeholder" style="font-size:0.75rem; color:#a78bfa; text-align:center; padding:1.5rem 1rem; border:2px dashed #ddd6fe; border-radius:10px; flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:0.5rem; background:white;">
+                                        <div style="background:#f5f3ff; width:48px; height:48px; border-radius:50%; display:flex; align-items:center; justify-content:center; margin-bottom:0.25rem;">
+                                            <i class="fa-solid fa-user-plus" style="font-size:1.2rem; color:#8b5cf6;"></i>
+                                        </div>
+                                        <p style="margin:0; font-weight:600; color:#6b21a8;">No collaborators yet</p>
+                                        <p style="margin:0; font-size:0.7rem; color:#9333ea; line-height:1.3;">Type <b>@</b> in your task<br/>to tag a teammate</p>
+                                    </div>
+                                ` : ''}
                             </div>
                         </div>
                     </div>
                     
-                    <!-- Bottom Controls: Status and Admin Reassign -->
-                    <div style="background: #f1f5f9; padding: 0.5rem 1rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
-                        <div style="display: flex; align-items: center; gap: 0.5rem;">
-                            <label style="font-size: 0.7rem; font-weight: 700; color: #64748b;">STATUS:</label>
-                            <select class="plan-status" style="padding: 4px 8px; border-radius: 6px; border: 1px solid #d1d5db; font-size: 0.75rem; background: white; color: #374151;">
-                                <option value="" ${!plan.status ? 'selected' : ''}>Auto (Smart Status)</option>
-                                <option value="completed" ${plan.status === 'completed' ? 'selected' : ''}>✅ Completed</option>
-                                <option value="not-completed" ${plan.status === 'not-completed' ? 'selected' : ''}>❌ Not Completed</option>
-                                <option value="in-process" ${plan.status === 'in-process' ? 'selected' : ''}>🟡 In Process</option>
+                    <!-- Bottom Controls: Status and Assignment -->
+                    <div style="background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); padding: 0.85rem 1.25rem; border-top: 2px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <div style="display:flex; align-items:center; gap:0.5rem;">
+                                <label style="font-size: 0.75rem; font-weight: 700; color: #334155; display:flex; align-items:center; gap:0.35rem;">
+                                    ✅ STATUS:
+                                    <button type="button" onclick="window.app_showStatusTooltip(this)" title="Click for help" style="background:#e0e7ff; border:none; color:#4338ca; width:16px; height:16px; border-radius:50%; cursor:pointer; font-size:0.65rem; font-weight:700; display:flex; align-items:center; justify-content:center;">?</button>
+                                </label>
+                            </div>
+                            <select class="plan-status" style="padding: 6px 10px; border-radius: 8px; border: 2px solid #d1d5db; font-size: 0.8rem; background: white; color: #374151; font-weight:600; cursor:pointer; transition: border-color 0.2s;" onfocus="this.style.borderColor='#6366f1'" onblur="this.style.borderColor='#d1d5db'">
+                                <option value="" ${!plan.status ? 'selected' : ''}>🤖 Auto-Track (Recommended)</option>
+                                <option value="completed" ${plan.status === 'completed' ? 'selected' : ''}>✅ I Finished This</option>
+                                <option value="not-completed" ${plan.status === 'not-completed' ? 'selected' : ''}>❌ Won't Complete</option>
+                                <option value="in-process" ${plan.status === 'in-process' ? 'selected' : ''}>🟡 Working On It</option>
                             </select>
                         </div>
                         
                         ${isAdmin ? `
-                            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                <label style="font-size: 0.7rem; font-weight: 700; color: #64748b;">ASSIGN TO:</label>
-                                <select class="plan-assignee" style="padding: 4px 8px; border-radius: 6px; border: 1px solid #d1d5db; font-size: 0.75rem; background: white; color: #374151;">
+                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                <label style="font-size: 0.75rem; font-weight: 700; color: #334155;">👤 ASSIGN TO:</label>
+                                <select class="plan-assignee" style="padding: 6px 10px; border-radius: 8px; border: 2px solid #d1d5db; font-size: 0.8rem; background: white; color: #374151; font-weight:600; cursor:pointer; transition: border-color 0.2s;" onfocus="this.style.borderColor='#6366f1'" onblur="this.style.borderColor='#d1d5db'">
                                     ${users.map(u => `<option value="${u.id}" ${u.id === (plan.assignedTo || currentUser.id) ? 'selected' : ''}>${u.name}</option>`).join('')}
                                 </select>
                             </div>
                         ` : ''}
+                    </div>
+                    
+                    <!-- Status Tooltip (Hidden by default) -->
+                    <div class="status-tooltip" style="display:none; position:absolute; bottom:60px; left:1.25rem; background:#1e293b; color:white; padding:0.85rem; border-radius:10px; font-size:0.75rem; max-width:280px; z-index:10; box-shadow:0 10px 25px rgba(0,0,0,0.3); line-height:1.5;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+                            <strong style="font-size:0.8rem;">Status Tracking Help</strong>
+                            <button onclick="this.closest('.status-tooltip').style.display='none'" style="background:transparent; border:none; color:white; cursor:pointer; font-size:1rem;">&times;</button>
+                        </div>
+                        <p style="margin:0.4rem 0; color:#cbd5e1;"><b>🤖 Auto-Track:</b> App decides based on date</p>
+                        <ul style="margin:0; padding-left:1.2rem; color:#cbd5e1;">
+                            <li style="margin:0.25rem 0;">Future → To Start</li>
+                            <li style="margin:0.25rem 0;">Today → In Progress</li>
+                            <li style="margin:0.25rem 0;">Past → Overdue</li>
+                        </ul>
+                        <p style="margin:0.4rem 0 0 0; color:#cbd5e1;"><b>Manual options:</b> Mark yourself when done</p>
+                        <div style="position:absolute; bottom:-6px; left:20px; width:12px; height:12px; background:#1e293b; transform:rotate(45deg);"></div>
                     </div>
                 </div>
             `;
@@ -824,7 +960,15 @@
         const container = btn.closest('.tags-container');
         btn.parentElement.remove();
         if (container.querySelectorAll('.tag-chip').length === 0) {
-            container.innerHTML = '<div class="no-tags-placeholder" style="font-size:0.7rem; color:#cbd5e1; text-align:center; padding-top:1rem; border:1px dashed #e2e8f0; border-radius:10px; flex:1;">Use @ in task text to tag</div>';
+            container.innerHTML = `
+                <div class="no-tags-placeholder" style="font-size:0.75rem; color:#a78bfa; text-align:center; padding:1.5rem 1rem; border:2px dashed #ddd6fe; border-radius:10px; flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:0.5rem; background:white;">
+                    <div style="background:#f5f3ff; width:48px; height:48px; border-radius:50%; display:flex; align-items:center; justify-content:center; margin-bottom:0.25rem;">
+                        <i class="fa-solid fa-user-plus" style="font-size:1.2rem; color:#8b5cf6;"></i>
+                    </div>
+                    <p style="margin:0; font-weight:600; color:#6b21a8;">No collaborators yet</p>
+                    <p style="margin:0; font-size:0.7rem; color:#9333ea; line-height:1.3;">Type <b>@</b> in your task<br/>to tag a teammate</p>
+                </div>
+            `;
         }
     };
 
@@ -833,14 +977,116 @@
         const list = block.querySelector('.sub-plans-list');
         const row = document.createElement('div');
         row.className = 'sub-plan-row';
-        row.style.cssText = 'display:flex; gap:0.4rem; align-items:center;';
+        row.style.cssText = 'display:flex; gap:0.5rem; align-items:center;';
         row.innerHTML = `
-            <div style="width:6px; height:6px; background:#cbd5e1; border-radius:50%;"></div>
-            <input type="text" class="sub-plan-input" placeholder="Sub-task..." style="flex:1; padding:0.4rem; border:1px solid transparent; border-bottom:1px solid #f1f5f9; font-size:0.8rem; background:transparent; outline:none;">
-            <button type="button" onclick="this.parentElement.remove()" style="background:none; border:none; color:#cbd5e1; cursor:pointer;"><i class="fa-solid fa-circle-xmark"></i></button>
+            <div style="width:8px; height:8px; background:#a78bfa; border-radius:50%; flex-shrink:0;"></div>
+            <input type="text" class="sub-plan-input" placeholder="e.g., Gather data, Create charts, Review..." style="flex:1; padding:0.5rem; border:1px solid #e2e8f0; border-radius:6px; font-size:0.85rem; background:#fafafa; outline:none; transition: all 0.2s;" onfocus="this.style.borderColor='#8b5cf6'; this.style.background='#ffffff'" onblur="this.style.borderColor='#e2e8f0'; this.style.background='#fafafa'">
+            <button type="button" onclick="this.parentElement.remove()" title="Remove step" style="background:none; border:none; color:#cbd5e1; cursor:pointer; padding:4px; transition: color 0.2s;" onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='#cbd5e1'"><i class="fa-solid fa-circle-xmark"></i></button>
         `;
         list.appendChild(row);
         row.querySelector('input').focus();
+    };
+
+    // New helper function: Hide intro panel
+    window.app_hideIntroPanel = () => {
+        const panel = document.getElementById('intro-panel');
+        if (panel) {
+            panel.style.display = 'none';
+            localStorage.setItem('workPlanIntroSeen', 'true');
+        }
+    };
+
+    // New helper function: Show status tooltip
+    window.app_showStatusTooltip = (btn) => {
+        const block = btn.closest('.plan-block');
+        const tooltip = block.querySelector('.status-tooltip');
+        if (tooltip) {
+            const isVisible = tooltip.style.display === 'block';
+            tooltip.style.display = isVisible ? 'none' : 'block';
+        }
+    };
+
+    // === CHECKOUT FORM HELPER FUNCTIONS ===
+
+    // Hide checkout intro panel
+    window.app_hideCheckoutIntro = () => {
+        const panel = document.getElementById('checkout-intro-panel');
+        if (panel) {
+            panel.style.display = 'none';
+            localStorage.setItem('checkoutIntroSeen', 'true');
+        }
+    };
+
+    // Update character counter in checkout textarea
+    window.app_updateCharCounter = (textarea) => {
+        const counter = document.getElementById('char-counter');
+        if (counter) {
+            const length = textarea.value.length;
+            counter.textContent = `${length} / 500 recommended`;
+
+            // Visual feedback for length
+            if (length > 500) {
+                counter.style.color = '#f59e0b'; // Orange for long text
+            } else if (length > 300) {
+                counter.style.color = '#10b981'; // Green for good length
+            } else {
+                counter.style.color = '#94a3b8'; // Default gray
+            }
+        }
+    };
+
+    // Select location reason (quick button)
+    window.app_selectLocationReason = (reason) => {
+        const textarea = document.getElementById('location-explanation');
+        if (textarea) {
+            // Clear previous selection styling
+            document.querySelectorAll('.location-reason-btn').forEach(btn => {
+                btn.style.background = '#e0f2fe';
+                btn.style.borderColor = '#7dd3fc';
+            });
+
+            // Highlight selected button
+            event.target.style.background = '#0ea5e9';
+            event.target.style.borderColor = '#0ea5e9';
+            event.target.style.color = 'white';
+
+            // Set textarea value
+            textarea.value = reason;
+            textarea.focus();
+        }
+    };
+
+    // Use work plan to fill checkout summary
+    window.app_useWorkPlan = () => {
+        const planText = document.getElementById('checkout-plan-text')?.innerText;
+        const summaryTextarea = document.getElementById('checkout-work-summary');
+
+        if (planText && summaryTextarea) {
+            // Format the plan text nicely for the summary
+            const formattedText = planText
+                .split('\n')
+                .filter(line => line.trim())
+                .map(line => line.startsWith('•') || line.startsWith('-') ? line : `• ${line}`)
+                .join('\n');
+
+            summaryTextarea.value = formattedText;
+
+            // Update character counter
+            if (window.app_updateCharCounter) {
+                window.app_updateCharCounter(summaryTextarea);
+            }
+
+            // Focus the textarea
+            summaryTextarea.focus();
+
+            // Visual feedback
+            summaryTextarea.style.borderColor = '#8b5cf6';
+            summaryTextarea.style.background = '#faf5ff';
+            setTimeout(() => {
+                summaryTextarea.style.borderColor = '#e2e8f0';
+                summaryTextarea.style.background = '#ffffff';
+            }, 1000);
+        }
     };
 
 
