@@ -33,11 +33,7 @@
         async seedUsers() {
             const mockUsers = [
                 { id: 'sim_admin_new', name: 'Sr. Maria Admin', username: 'maria', password: '123', email: 'maria@crwi.org', role: 'Administrator', isAdmin: true, dept: 'Administration', avatar: 'https://ui-avatars.com/api/?name=Maria+Admin&background=1e40af&color=fff', status: 'out', lastCheckIn: null },
-                { id: 'sim_punctual', name: 'Jomit Punctuall', username: 'jomit_p', password: '123', email: 'jomit@crwi.org', role: 'Administrator', isAdmin: true, dept: 'IT Department', avatar: 'https://ui-avatars.com/api/?name=Jomit+P&background=10b981&color=fff', status: 'out', lastCheckIn: null },
-                { id: 'sim_late', name: 'Staff Late', username: 'late_user', password: '123', email: 'late@crwi.org', role: 'Employee', isAdmin: false, dept: 'Sales', avatar: 'https://ui-avatars.com/api/?name=Late+Staff&background=f59e0b&color=fff', status: 'out', lastCheckIn: null },
-                { id: 'sim_early', name: 'Staff Early', username: 'early_user', password: '123', email: 'early@crwi.org', role: 'Employee', isAdmin: false, dept: 'HR', avatar: 'https://ui-avatars.com/api/?name=Early+Staff&background=ef4444&color=fff', status: 'out', lastCheckIn: null },
-                { id: 'sim_mismatch', name: 'Staff Field', username: 'field_user', password: '123', email: 'field@crwi.org', role: 'Employee', isAdmin: false, dept: 'Operations', avatar: 'https://ui-avatars.com/api/?name=Field+Staff&background=6366f1&color=fff', status: 'out', lastCheckIn: null },
-                { id: 'sim_general', name: 'Staff General', username: 'general_user', password: '123', email: 'general@crwi.org', role: 'Employee', isAdmin: false, dept: 'General', avatar: 'https://ui-avatars.com/api/?name=General+Staff&background=94a3b8&color=fff', status: 'out', lastCheckIn: null }
+                { id: 'sim_punctual', name: 'Jomit Punctuall', username: 'jomit_p', password: '123', email: 'jomit@crwi.org', role: 'Administrator', isAdmin: true, dept: 'IT Department', avatar: 'https://ui-avatars.com/api/?name=Jomit+P&background=10b981&color=fff', status: 'out', lastCheckIn: null }
             ];
 
             for (const u of mockUsers) {

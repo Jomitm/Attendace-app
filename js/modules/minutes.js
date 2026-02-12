@@ -6,21 +6,14 @@ window.AppMinutes = (function () {
     const COLLECTION = 'minutes';
 
     /**
-     * Get all minutes, optionally filtered by date range or limit
+     * Get all minutes
      */
-    async function getMinutes(limit = 20) {
+    async function getMinutes() {
         try {
-            // Using AppDB helper which likely wraps Firestore
-            // Assuming AppDB.getAll or query is available.
-            // If AppDB is just a wrapper, we might use it directly.
-            // Let's use window.AppDB if available, or raw firestore if needed.
-            // Based on other modules, AppDB seems to be the way.
-
-            // Check if AppDB is available, otherwise fell back to firestore
             if (window.AppDB) {
                 return await window.AppDB.getAll(COLLECTION);
             } else {
-                const snapshot = await window.AppFirestore.collection(COLLECTION).orderBy('date', 'desc').limit(limit).get();
+                const snapshot = await window.AppFirestore.collection(COLLECTION).orderBy('date', 'desc').get();
                 return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             }
         } catch (error) {
@@ -39,7 +32,16 @@ window.AppMinutes = (function () {
                 ...data,
                 createdBy: user.id,
                 createdByName: user.name,
-                createdAt: new Date().toISOString()
+                createdAt: new Date().toISOString(),
+                auditLog: [{
+                    userId: user.id,
+                    userName: user.name,
+                    timestamp: new Date().toISOString(),
+                    action: "Created meeting minutes"
+                }],
+                approvals: {}, // userId: timestamp
+                locked: false,
+                restrictedFrom: [] // List of user IDs who cannot see this
             };
 
             if (window.AppDB) {
@@ -50,6 +52,93 @@ window.AppMinutes = (function () {
             }
         } catch (error) {
             console.error("Error adding minute:", error);
+            throw error;
+        }
+    }
+
+    /**
+     * Update an existing minute entry (with audit log)
+     */
+    async function updateMinute(id, updates, auditAction) {
+        try {
+            const user = window.AppAuth.getUser();
+            const existing = await (window.AppDB ? window.AppDB.get(COLLECTION, id) : window.AppFirestore.collection(COLLECTION).doc(id).get().then(d => d.data()));
+
+            if (!existing) throw new Error("Minute not found");
+            if (existing.locked) throw new Error("This record is locked and cannot be edited.");
+
+            const auditEntry = {
+                userId: user.id,
+                userName: user.name,
+                timestamp: new Date().toISOString(),
+                action: auditAction || "Updated minutes"
+            };
+
+            const updatedData = {
+                ...existing,
+                ...updates,
+                auditLog: [...(existing.auditLog || []), auditEntry]
+            };
+
+            if (window.AppDB) {
+                await window.AppDB.put(COLLECTION, updatedData);
+            } else {
+                await window.AppFirestore.collection(COLLECTION).doc(id).update(updatedData);
+            }
+            return true;
+        } catch (error) {
+            console.error("Error updating minute:", error);
+            throw error;
+        }
+    }
+
+    /**
+     * Approve meeting minutes
+     */
+    async function approveMinute(id) {
+        try {
+            const user = window.AppAuth.getUser();
+            const existing = await (window.AppDB ? window.AppDB.get(COLLECTION, id) : window.AppFirestore.collection(COLLECTION).doc(id).get().then(d => d.data()));
+
+            if (!existing) throw new Error("Minute not found");
+
+            const approvals = existing.approvals || {};
+            approvals[user.id] = new Date().toISOString();
+
+            // Check if all attendees have approved
+            const attendeeIds = existing.attendeeIds || [];
+            const allApproved = attendeeIds.length > 0 && attendeeIds.every(uid => approvals[uid]);
+
+            const auditEntry = {
+                userId: user.id,
+                userName: user.name,
+                timestamp: new Date().toISOString(),
+                action: "Approved meeting minutes"
+            };
+
+            const updates = {
+                approvals,
+                auditLog: [...(existing.auditLog || []), auditEntry]
+            };
+
+            if (allApproved) {
+                updates.locked = true;
+                updates.auditLog.push({
+                    userId: 'system',
+                    userName: 'System',
+                    timestamp: new Date().toISOString(),
+                    action: "All attendees approved. Minutes are now LOCKED."
+                });
+            }
+
+            if (window.AppDB) {
+                await window.AppDB.put(COLLECTION, { ...existing, ...updates });
+            } else {
+                await window.AppFirestore.collection(COLLECTION).doc(id).update(updates);
+            }
+            return true;
+        } catch (error) {
+            console.error("Error approving minute:", error);
             throw error;
         }
     }
@@ -74,6 +163,8 @@ window.AppMinutes = (function () {
     return {
         getMinutes,
         addMinute,
+        updateMinute,
+        approveMinute,
         deleteMinute
     };
 })();

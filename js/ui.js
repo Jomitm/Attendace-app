@@ -1435,6 +1435,43 @@
                         50% { opacity: 0.4; }
                         100% { opacity: 1; }
                     }
+                <style>
+                    .full-screen-modal {
+                        animation: modalSlideIn 0.3s ease-out;
+                    }
+                    @keyframes modalSlideIn {
+                        from { transform: translateY(100vh); }
+                        to { transform: translateY(0); }
+                    }
+                    @media (max-width: 992px) {
+                        .modal-body-grid {
+                            grid-template-columns: 1fr !important;
+                            overflow-y: auto !important;
+                        }
+                        .modal-body-grid > div:last-child {
+                            border-left: none !important;
+                            border-top: 1px solid #e2e8f0 !important;
+                            min-height: auto !important;
+                            flex: none !important;
+                        }
+                        .full-screen-modal {
+                            border-radius: 0 !important;
+                        }
+                    }
+                    /* Ensure inputs are touched-friendly on mobile */
+                    @media (max-width: 600px) {
+                        .action-item-row {
+                            grid-template-columns: 1fr !important;
+                            gap: 0.75rem !important;
+                            padding: 1rem;
+                            background: #f8fafc;
+                            border-radius: 8px;
+                            border: 1px solid #e2e8f0;
+                        }
+                        .action-item-row > * {
+                            width: 100% !important;
+                        }
+                    }
                 </style>
             `;
         },
@@ -1992,18 +2029,219 @@
         },
 
         async renderMinutes() {
-            // Fetch/Mock Minutes Data
             const minutes = await window.AppMinutes.getMinutes();
-            // Sort by date desc
-            minutes.sort((a, b) => new Date(b.date) - new Date(a.date));
             const allUsers = await window.AppDB.getAll('users');
+            const currentUser = window.AppAuth.getUser();
+
+            // Filters based on user visibility
+            const visibleMinutes = minutes.filter(m => {
+                if (currentUser.isAdmin || currentUser.role === 'Administrator') return true;
+                if (!m.restrictedFrom) return true;
+                return !m.restrictedFrom.includes(currentUser.id);
+            }).sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            // Setup Global Handlers for Minutes
+            window.app_openMinuteDetails = async (id) => {
+                const minute = await (window.AppDB ? window.AppDB.get('minutes', id) : window.AppFirestore.collection('minutes').doc(id).get().then(d => d.data()));
+                if (!minute) return alert("Minute not found");
+
+                const isAttendee = (minute.attendeeIds || []).includes(currentUser.id);
+                const isAuthor = minute.createdBy === currentUser.id;
+                const isAdmin = currentUser.isAdmin || currentUser.role === 'Administrator';
+                const canEdit = (isAttendee || isAuthor || isAdmin) && !minute.locked;
+
+                const modal = document.createElement('div');
+                modal.id = 'minute-detail-modal';
+                modal.className = 'modal';
+                modal.style.cssText = 'display: flex; position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);';
+                modal.innerHTML = `
+                    <div class="modal-content full-screen-modal" style="width: 100vw; height: 100vh; max-width: none; margin: 0; display: flex; flex-direction: column; padding: 0; overflow: hidden; border-radius: 0; background: white;">
+                        <div style="padding: 1rem 1.5rem; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; flex-shrink: 0;">
+                            <div>
+                                <h2 style="margin: 0; font-size: 1.25rem;">${minute.title}</h2>
+                                <p style="margin: 4px 0 0; font-size: 0.85rem; color: #64748b;">${new Date(minute.date).toLocaleDateString()} • Recorded by ${minute.createdByName}</p>
+                            </div>
+                            <div style="display: flex; gap: 0.75rem; align-items: center;">
+                                ${minute.locked ? '<span class="badge in" style="background:#f0fdf4; color:#166534; border:1px solid #dcfce7; padding: 4px 12px;"><i class="fa-solid fa-lock"></i> LOCKED</span>' : ''}
+                                <button onclick="this.closest('.modal').remove()" class="icon-btn" style="background: white; border: 1px solid #e2e8f0; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 10px; font-size: 1.2rem;">
+                                    <i class="fa-solid fa-times"></i>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="modal-body-grid" style="flex: 1; display: grid; grid-template-columns: 1fr 350px; overflow: hidden;">
+                            <!-- Main Content Area -->
+                            <div style="overflow-y: auto; padding: 2rem; background: white;">
+                                <div style="margin-bottom: 2rem;">
+                                    <label style="display: block; font-size: 0.7rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 0.5rem;">Discussion & Decisions</label>
+                                    ${canEdit ? `
+                                        <textarea id="edit-minute-content" style="width: 100%; min-height: 250px; padding: 1rem; border: 1px solid #cbd5e1; border-radius: 12px; font-family: inherit; line-height: 1.6; font-size: 1rem;" placeholder="Start typing...">${minute.content || ''}</textarea>
+                                    ` : `
+                                        <div style="background: #f8fafc; padding: 1.5rem; border-radius: 12px; color: #334155; font-size: 1rem; white-space: pre-wrap; line-height: 1.7; border: 1px solid #e2e8f0;">${minute.content || 'No content recorded.'}</div>
+                                    `}
+                                </div>
+
+                                <div style="margin-bottom: 2rem;">
+                                    <label style="display: block; font-size: 0.7rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 0.5rem;">Action Items</label>
+                                    <div id="modal-action-items-container">
+                                        ${(minute.actionItems || []).map((item, idx) => `
+                                            <div class="action-item-row" style="display:grid; grid-template-columns: 1fr auto auto auto; gap:0.5rem; margin-bottom:0.5rem; align-items:center;">
+                                                <input type="text" class="ai-task" value="${item.task}" ${!canEdit ? 'disabled' : ''} placeholder="Task..." style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px;">
+                                                <input type="date" class="ai-date" value="${item.dueDate}" ${!canEdit ? 'disabled' : ''} style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px; width: 130px;">
+                                                <select class="ai-assignee" ${!canEdit ? 'disabled' : ''} style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px;">
+                                                    ${allUsers.map(u => `<option value="${u.id}" ${u.id === item.assigneeId ? 'selected' : ''}>${u.name}</option>`).join('')}
+                                                </select>
+                                                ${canEdit ? `<button onclick="this.parentElement.remove()" style="color:#ef4444; background:none; border:none; cursor:pointer;"><i class="fa-solid fa-trash-can"></i></button>` : ''}
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                    ${canEdit ? `
+                                        <button onclick="window.app_addModalActionRow()" style="font-size:0.8rem; color:var(--primary); background:none; border:none; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:0.5rem; margin-top: 1rem;">
+                                            <i class="fa-solid fa-plus-circle"></i> Add Task
+                                        </button>
+                                    ` : ''}
+                                </div>
+
+                                <div style="display: flex; gap: 1rem; justify-content: flex-end; padding-top: 1rem; border-top: 1px dashed #e2e8f0;">
+                                    ${canEdit ? `
+                                        <button onclick="window.app_saveUpdatedMinute('${id}')" class="action-btn" style="padding: 0.75rem 2rem;">
+                                            <i class="fa-solid fa-check"></i> Save Changes
+                                        </button>
+                                    ` : ''}
+                                    ${isAttendee && !minute.approvals?.[currentUser.id] && !minute.locked ? `
+                                        <button onclick="window.app_approveMinute('${id}')" class="action-btn" style="background: #10b981; padding: 0.75rem 2rem;">
+                                            <i class="fa-solid fa-thumbs-up"></i> Approve Minutes
+                                        </button>
+                                    ` : ''}
+                                </div>
+                            </div>
+
+                            <!-- Sidebar -->
+                            <div style="background: #f1f5f9; border-left: 1px solid #e2e8f0; display: flex; flex-direction: column; overflow: hidden;">
+                                <!-- Approvals -->
+                                <div style="padding: 1.5rem; border-bottom: 1px solid #e2e8f0;">
+                                    <label style="display: block; font-size: 0.7rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 1rem;">Approvals</label>
+                                    ${(minute.attendeeIds || []).length > 0 ? (minute.attendeeIds || []).map(uid => {
+                    const user = allUsers.find(u => u.id === uid);
+                    const approvalDate = minute.approvals?.[uid];
+                    return `
+                                            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; background: ${approvalDate ? '#f0fdf4' : 'white'}; padding: 0.5rem; border-radius: 8px; border: 1px solid ${approvalDate ? '#dcfce7' : '#e2e8f0'};">
+                                                <img src="${user?.avatar || 'https://via.placeholder.com/24'}" style="width: 24px; height: 24px; border-radius: 50%;">
+                                                <div style="flex: 1;">
+                                                    <div style="font-size: 0.8rem; font-weight: 600;">${user?.name || 'Unknown'}</div>
+                                                    ${approvalDate ? `<div style="font-size: 0.65rem; color: #166534;">Approved: ${new Date(approvalDate).toLocaleDateString()}</div>` : '<div style="font-size: 0.65rem; color: #94a3b8;">Pending</div>'}
+                                                </div>
+                                                ${approvalDate ? '<i class="fa-solid fa-circle-check" style="color: #22c55e;"></i>' : '<i class="fa-regular fa-circle" style="color: #cbd5e1;"></i>'}
+                                            </div>
+                                        `;
+                }).join('') : '<div style="font-size: 0.8rem; color: #94a3b8; text-align: center; padding: 1rem;">No attendees assigned for approval.</div>'}
+                                </div>
+
+                                <!-- Audit Log -->
+                                <div style="padding: 1.5rem; flex: 1; overflow-y: auto;">
+                                    <label style="display: block; font-size: 0.7rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 1rem;">Audit Trail</label>
+                                    <div style="display: flex; flex-direction: column; gap: 1rem;">
+                                        ${(minute.auditLog || []).slice().reverse().map(log => `
+                                            <div style="position: relative; padding-left: 1rem; border-left: 2px solid #cbd5e1;">
+                                                <div style="position: absolute; left: -5px; top: 0; width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; border: 2px solid #f1f5f9;"></div>
+                                                <div style="font-size: 0.75rem; font-weight: 700; color: #334155;">${log.userName}</div>
+                                                <div style="font-size: 0.8rem; color: #475569; margin: 2px 0;">${log.action}</div>
+                                                <div style="font-size: 0.65rem; color: #94a3b8;">${new Date(log.timestamp).toLocaleString()}</div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+
+                                <!-- Visibility Restriction (Admin Only) -->
+                                ${isAdmin ? `
+                                    <div style="padding: 1.5rem; background: #fffbeb; border-top: 1px solid #fef3c7;">
+                                        <label style="display: block; font-size: 0.7rem; font-weight: 700; color: #92400e; text-transform: uppercase; margin-bottom: 0.5rem;"><i class="fa-solid fa-shield-halved"></i> Visibility Control</label>
+                                        <div style="font-size: 0.75rem; color: #b45309; margin-bottom: 0.5rem;">Restrict staff from viewing this meeting:</div>
+                                        <div id="restricted-users-list" style="max-height: 120px; overflow-y: auto; background: white; border-radius: 6px; border: 1px solid #fde68a; padding: 0.5rem;">
+                                            ${allUsers.filter(u => u.role !== 'Administrator').map(u => `
+                                                <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; cursor: pointer; font-size: 0.8rem;">
+                                                    <input type="checkbox" value="${u.id}" ${minute.restrictedFrom?.includes(u.id) ? 'checked' : ''} onchange="window.app_toggleMinuteVisibility('${id}', '${u.id}', this.checked)">
+                                                    ${u.name}
+                                                </label>
+                                            `).join('')}
+                                        </div>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+            };
+
+            window.app_addModalActionRow = () => {
+                const container = document.getElementById('modal-action-items-container');
+                const div = document.createElement('div');
+                div.className = 'action-item-row';
+                div.style.cssText = "display:grid; grid-template-columns: 1fr auto auto auto; gap:0.5rem; margin-bottom:0.5rem; align-items:center;";
+                div.innerHTML = `
+                    <input type="text" class="ai-task" placeholder="Task description..." required style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px; width:100%;">
+                    <input type="date" class="ai-date" required style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px; width: 130px;">
+                    <select class="ai-assignee" required style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px;">
+                        ${allUsers.map(u => `<option value="${u.id}">${u.name}</option>`).join('')}
+                    </select>
+                    <button type="button" onclick="this.parentElement.remove()" style="color:#ef4444; background:none; border:none; cursor:pointer;"><i class="fa-solid fa-times"></i></button>
+                `;
+                container.appendChild(div);
+            };
+
+            window.app_saveUpdatedMinute = async (id) => {
+                const content = document.getElementById('edit-minute-content').value;
+                const rows = document.querySelectorAll('#modal-action-items-container .action-item-row');
+                const actionItems = Array.from(rows).map(row => ({
+                    task: row.querySelector('.ai-task').value,
+                    dueDate: row.querySelector('.ai-date').value,
+                    assigneeId: row.querySelector('.ai-assignee').value
+                }));
+
+                try {
+                    await window.AppMinutes.updateMinute(id, { content, actionItems }, "Edited discussion content and action items");
+                    alert("Changes saved!");
+                    document.getElementById('minute-detail-modal').remove();
+                    window.location.reload();
+                } catch (err) {
+                    alert(err.message);
+                }
+            };
+
+            window.app_approveMinute = async (id) => {
+                if (confirm("I confirm that I have reviewed these minutes and approve them as an accurate record.")) {
+                    try {
+                        await window.AppMinutes.approveMinute(id);
+                        alert("Minutes approved!");
+                        document.getElementById('minute-detail-modal').remove();
+                        window.location.reload();
+                    } catch (err) {
+                        alert(err.message);
+                    }
+                }
+            };
+
+            window.app_toggleMinuteVisibility = async (id, userId, isRestricted) => {
+                try {
+                    const minute = await (window.AppDB ? window.AppDB.get('minutes', id) : window.AppFirestore.collection('minutes').doc(id).get().then(d => d.data()));
+                    let restrictedFrom = minute.restrictedFrom || [];
+                    if (isRestricted) {
+                        if (!restrictedFrom.includes(userId)) restrictedFrom.push(userId);
+                    } else {
+                        restrictedFrom = restrictedFrom.filter(uid => uid !== userId);
+                    }
+                    await window.AppMinutes.updateMinute(id, { restrictedFrom }, isRestricted ? `Restricted visibility for staff member` : `Restored visibility for staff member`);
+                } catch (err) {
+                    alert(err.message);
+                }
+            };
 
             window.app_toggleNewMinuteForm = () => {
                 const form = document.getElementById('new-minute-form');
                 if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
             };
 
-            // Dynamic Action Items
             window.app_addActionItemRow = () => {
                 const container = document.getElementById('action-items-container');
                 const div = document.createElement('div');
@@ -2025,12 +2263,19 @@
                 e.preventDefault();
                 const title = e.target.title.value;
                 const date = e.target.date.value;
-                const attendees = e.target.attendees.value;
                 const content = e.target.content.value;
 
-                // Collect Action Items
+                // Get attendee IDs from multi-select or comma list? 
+                // Let's use the attendees input for now and convert names to IDs if possible, 
+                // but better to have a multi-select for staff. 
+                // For simplicity, let's treat the attendees field as a list of staff IDs for logic.
+                // WE SHOULD CHANGE THIS TO A SELECT.
+                const attendeeIds = Array.from(e.target.attendee_ids.options)
+                    .filter(opt => opt.selected)
+                    .map(opt => opt.value);
+
                 const actionItems = [];
-                const rows = document.querySelectorAll('.action-item-row');
+                const rows = document.querySelectorAll('#new-minute-form .action-item-row');
                 rows.forEach(row => {
                     actionItems.push({
                         task: row.querySelector('.ai-task').value,
@@ -2040,134 +2285,131 @@
                 });
 
                 try {
-                    // Save Minute
-                    await window.AppMinutes.addMinute({ title, date, attendees, content, actionItems });
-
-                    // Sync to Calendar (if AppCalendar exists)
-                    if (window.AppCalendar && actionItems.length > 0) {
-                        for (const item of actionItems) {
-                            try {
-                                await window.AppCalendar.addWorkPlanTask(item.dueDate, item.assigneeId, `From Minutes: ${title} - ${item.task}`);
-                            } catch (e) {
-                                console.error("Failed to sync task to calendar:", e);
-                            }
-                        }
-                    }
-
-                    alert("Meeting minutes saved & tasks assigned!");
+                    await window.AppMinutes.addMinute({ title, date, attendeeIds, content, actionItems });
+                    alert("Meeting minutes recorded!");
                     window.location.reload();
                 } catch (err) {
-                    alert("Error saving minutes: " + err.message);
+                    alert(err.message);
                 }
             };
 
             window.app_deleteMinute = async (id) => {
-                if (confirm("Are you sure you want to delete this record?")) {
+                if (confirm("Are you sure you want to delete this meeting record?")) {
                     try {
                         await window.AppMinutes.deleteMinute(id);
                         window.location.reload();
                     } catch (err) {
-                        alert("Error deleting: " + err.message);
+                        alert(err.message);
                     }
                 }
             };
 
             return `
                 <div class="dashboard-grid">
-                    <div class="card full-width">
-                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                    <div class="card full-width" style="padding: 1.5rem;">
+                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
                             <div>
                                 <h2 style="font-size:1.5rem; margin:0; color:#1e1b4b;">Meeting Minutes</h2>
-                                <p class="text-muted" style="margin-top:0.25rem;">Record and track internal meetings and decisions.</p>
+                                <p class="text-muted" style="margin-top:0.25rem;">Simple list of organizational meetings and decisions.</p>
                             </div>
                             <button onclick="window.app_toggleNewMinuteForm()" class="action-btn">
-                                <i class="fa-solid fa-plus"></i> New Minute
+                                <i class="fa-solid fa-plus"></i> Record New Meeting
                             </button>
                         </div>
 
                         <!-- New Entry Form -->
-                        <div id="new-minute-form" style="display:none; background:#f8fafc; padding:1.5rem; border-radius:12px; margin-bottom:2rem; border:1px solid #e2e8f0;">
-                            <h4 style="margin-top:0; margin-bottom:1rem; color:#334155;">Add New Record</h4>
+                        <div id="new-minute-form" style="display:none; background:#f8fafc; padding:2rem; border-radius:16px; margin-bottom:2rem; border:1px solid #e2e8f0; box-shadow: var(--shadow-sm);">
+                            <h4 style="margin-top:0; margin-bottom:1.5rem; color:#1e293b; font-size: 1.1rem;">Create New Meeting Record</h4>
                             <form onsubmit="window.app_saveMinute(event)">
-                                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1rem; margin-bottom:1rem;">
+                                <div style="display:grid; grid-template-columns: 2fr 1fr; gap:1.5rem; margin-bottom:1.5rem;">
                                     <div>
-                                        <label style="display:block; font-size:0.8rem; font-weight:600; color:#64748b; margin-bottom:0.4rem;">Meeting Title</label>
-                                        <input type="text" name="title" required placeholder="e.g. Weekly Staff Sync" style="width:100%; padding:0.6rem; border:1px solid #cbd5e1; border-radius:6px;">
+                                        <label style="display:block; font-size:0.75rem; font-weight:700; color:#64748b; text-transform:uppercase; margin-bottom:0.5rem;">Meeting Title</label>
+                                        <input type="text" name="title" required placeholder="e.g. Monthly Performance Review" style="width:100%; padding:0.75rem; border:1px solid #cbd5e1; border-radius:10px;">
                                     </div>
                                     <div>
-                                        <label style="display:block; font-size:0.8rem; font-weight:600; color:#64748b; margin-bottom:0.4rem;">Date</label>
-                                        <input type="date" name="date" required style="width:100%; padding:0.6rem; border:1px solid #cbd5e1; border-radius:6px;">
+                                        <label style="display:block; font-size:0.75rem; font-weight:700; color:#64748b; text-transform:uppercase; margin-bottom:0.5rem;">Date</label>
+                                        <input type="date" name="date" required value="${new Date().toISOString().split('T')[0]}" style="width:100%; padding:0.75rem; border:1px solid #cbd5e1; border-radius:10px;">
                                     </div>
                                 </div>
-                                <div style="margin-bottom:1rem;">
-                                    <label style="display:block; font-size:0.8rem; font-weight:600; color:#64748b; margin-bottom:0.4rem;">Attendees</label>
-                                    <input type="text" name="attendees" placeholder="Separate names with comma..." style="width:100%; padding:0.6rem; border:1px solid #cbd5e1; border-radius:6px;">
+                                <div style="margin-bottom:1.5rem;">
+                                    <label style="display:block; font-size:0.75rem; font-weight:700; color:#64748b; text-transform:uppercase; margin-bottom:0.5rem;">Required Approvers (Attendees)</label>
+                                    <select name="attendee_ids" multiple required style="width:100%; padding:0.75rem; border:1px solid #cbd5e1; border-radius:10px; height: 120px; font-family: inherit;">
+                                        ${allUsers.map(u => `<option value="${u.id}">${u.name} (${u.role})</option>`).join('')}
+                                    </select>
+                                    <p style="font-size: 0.7rem; color: #94a3b8; margin-top: 4px;">Hold Ctrl/Cmd to select multiple staff. These staff members will be allowed to edit and must approve.</p>
                                 </div>
-                                <div style="margin-bottom:1rem;">
-                                    <label style="display:block; font-size:0.8rem; font-weight:600; color:#64748b; margin-bottom:0.4rem;">Discussion Points & Decisions</label>
-                                    <textarea name="content" required rows="6" placeholder="- Discussed Q1 Goals..." style="width:100%; padding:0.6rem; border:1px solid #cbd5e1; border-radius:6px; font-family:inherit;"></textarea>
+                                <div style="margin-bottom:1.5rem;">
+                                    <label style="display:block; font-size:0.75rem; font-weight:700; color:#64748b; text-transform:uppercase; margin-bottom:0.5rem;">Discussion points & decisions</label>
+                                    <textarea name="content" required rows="6" placeholder="Document the key takeaways..." style="width:100%; padding:1rem; border:1px solid #cbd5e1; border-radius:10px; font-family:inherit; line-height: 1.6;"></textarea>
                                 </div>
                                 
-                                <!-- Action Items Section -->
-                                <div style="margin-bottom:1.5rem; background:white; padding:1rem; border-radius:8px; border:1px solid #e2e8f0;">
-                                    <label style="display:block; font-size:0.8rem; font-weight:800; color:#475569; margin-bottom:0.5rem; text-transform:uppercase;">Action Items / Plan Tasks</label>
+                                <div style="margin-bottom:2rem; background:white; padding:1.25rem; border-radius:12px; border:1px solid #e2e8f0;">
+                                    <label style="display:block; font-size:0.75rem; font-weight:800; color:#475569; margin-bottom:0.75rem; text-transform:uppercase;">Immediate Action Items</label>
                                     <div id="action-items-container"></div>
                                     <button type="button" onclick="window.app_addActionItemRow()" style="font-size:0.8rem; color:var(--primary); background:none; border:none; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:0.5rem;">
-                                        <i class="fa-solid fa-plus-circle"></i> Add Action Item
+                                        <i class="fa-solid fa-plus-circle"></i> Add Task
                                     </button>
                                 </div>
 
                                 <div style="display:flex; justify-content:flex-end; gap:1rem;">
-                                    <button type="button" onclick="window.app_toggleNewMinuteForm()" style="padding:0.6rem 1.2rem; border:1px solid #cbd5e1; background:white; border-radius:6px; cursor:pointer;">Cancel</button>
-                                    <button type="submit" class="action-btn" style="padding:0.6rem 1.5rem;">Save & Assign Tasks</button>
+                                    <button type="button" onclick="window.app_toggleNewMinuteForm()" style="padding:0.75rem 1.5rem; border:1px solid #cbd5e1; background:white; border-radius:10px; cursor:pointer; font-weight: 600;">Cancel</button>
+                                    <button type="submit" class="action-btn" style="padding:0.75rem 2rem;">Save & Notify Attendees</button>
                                 </div>
                             </form>
                         </div>
 
-                        <!-- List -->
+                        <!-- Full-Width Simple List -->
                         <div class="minutes-list">
-                            ${minutes.length > 0 ? minutes.map(m => `
-                                <div style="background:white; border:1px solid #e2e8f0; border-radius:12px; padding:1.25rem; margin-bottom:1rem; position:relative;">
-                                    <button onclick="window.app_deleteMinute('${m.id}')" title="Delete" style="position:absolute; top:1rem; right:1rem; color:#ef4444; background:none; border:none; cursor:pointer;">
-                                        <i class="fa-solid fa-trash-can"></i>
-                                    </button>
-                                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.75rem; padding-right:2rem;">
-                                        <div>
-                                            <h3 style="margin:0; font-size:1.1rem; color:#1e293b;">${m.title}</h3>
-                                            <span style="font-size:0.8rem; color:#64748b;"><i class="fa-regular fa-calendar" style="margin-right:4px;"></i> ${new Date(m.date).toLocaleDateString()}</span>
-                                            <span style="margin:0 8px; color:#cbd5e1;">|</span>
-                                            <span style="font-size:0.8rem; color:#64748b;"><i class="fa-solid fa-users" style="margin-right:4px;"></i> ${m.attendees || 'All Staff'}</span>
-                                        </div>
-                                    </div>
-                                    <div style="background:#f8fafc; padding:1rem; border-radius:8px; color:#334155; font-size:0.9rem; white-space:pre-wrap; line-height:1.6;">${m.content}</div>
-                                    
-                                    ${m.actionItems && m.actionItems.length > 0 ? `
-                                        <div style="margin-top:1rem; border-top:1px dashed #e2e8f0; padding-top:0.75rem;">
-                                            <label style="font-size:0.7rem; font-weight:700; color:#94a3b8; text-transform:uppercase;">Action Items:</label>
-                                            <ul style="margin:0.25rem 0 0 1rem; padding:0; font-size:0.85rem; color:#475569;">
-                                                ${m.actionItems.map(item => `
-                                                    <li>${item.task} <span style="color:#64748b; font-size:0.75rem;">(Assigned to: ${allUsers.find(u => u.id === item.assigneeId)?.name || 'Unknown'})</span></li>
-                                                `).join('')}
-                                            </ul>
-                                        </div>
-                                    ` : ''}
-
-                                    <div style="margin-top:0.75rem; font-size:0.75rem; color:#94a3b8; text-align:right;">
-                                        Recorded by ${m.createdByName || 'Admin'}
-                                    </div>
-                                </div>
-                            `).join('') : `
-                                <div style="text-align:center; padding:3rem; color:#94a3b8; background:#f8fafc; border-radius:12px; border:1px dashed #cbd5e1;">
-                                    <i class="fa-solid fa-clipboard-list" style="font-size:2rem; margin-bottom:1rem; opacity:0.5;"></i>
-                                    <p>No meeting minutes recorded yet.</p>
-                                    <button onclick="window.app_toggleNewMinuteForm()" style="color:var(--primary); background:none; border:none; font-weight:600; cursor:pointer; margin-top:0.5rem;">Start First Record</button>
-                                </div>
-                            `}
+                            <div class="table-container" style="border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+                                <table class="compact-table">
+                                    <thead>
+                                        <tr style="background: #f8fafc;">
+                                            <th style="width: 150px;">Date</th>
+                                            <th>Meeting Title</th>
+                                            <th style="width: 120px; text-align: center;">Status</th>
+                                            <th style="width: 100px; text-align: right;">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${visibleMinutes.length > 0 ? visibleMinutes.map(m => `
+                                            <tr style="cursor: pointer;" onclick="if(!event.target.closest('button')) window.app_openMinuteDetails('${m.id}')">
+                                                <td style="font-weight: 600; color: #475569;">${new Date(m.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                                                <td>
+                                                    <div style="font-weight: 700; color: #1e293b; font-size: 1rem;">${m.title}</div>
+                                                    <div style="font-size: 0.75rem; color: #94a3b8;">Recorded by ${m.createdByName}</div>
+                                                </td>
+                                                <td style="text-align: center;">
+                                                    ${m.locked ?
+                    '<span class="badge in" style="background:#f0fdf4; color:#166534; border:1px solid #dcfce7;">Locked</span>' :
+                    '<span class="badge out" style="background:#fff7ed; color:#c2410c; border:1px solid #ffedd5;">Open</span>'}
+                                                </td>
+                                                <td style="text-align: right;">
+                                                    ${(currentUser.isAdmin || m.createdBy === currentUser.id) ? `
+                                                        <button onclick="event.stopPropagation(); window.app_deleteMinute('${m.id}')" class="icon-btn" style="color: #ef4444;" title="Delete">
+                                                            <i class="fa-solid fa-trash-can"></i>
+                                                        </button>
+                                                    ` : ''}
+                                                    <button class="icon-btn" style="color: var(--primary);" title="Open Details">
+                                                        <i class="fa-solid fa-chevron-right"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        `).join('') : `
+                                            <tr>
+                                                <td colspan="4" style="text-align:center; padding:4rem; color:#94a3b8;">
+                                                    <i class="fa-solid fa-clipboard-list" style="font-size:2.5rem; margin-bottom:1rem; opacity:0.3;"></i>
+                                                    <p style="margin:0;">No meeting records accessible to you.</p>
+                                                </td>
+                                            </tr>
+                                        `}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </div>
             `;
-        }
+        },
     };
 
     // Initialize checkout intro panel visibility
