@@ -776,7 +776,6 @@
                                 </button>
                              </div>
                         </div>
-                    </div>
     
                         <!-- Right: Collaborators (40%) -->
                         <div style="flex: 1; padding: 1.25rem; background: linear-gradient(135deg, #faf5ff 0%, #f5f3ff 100%); display:flex; flex-direction:column;">
@@ -872,17 +871,24 @@
                     <button type="button" onclick="this.closest('.plan-block').remove()" style="position:absolute; top:8px; right:8px; background:#fff1f2; border:none; color:#ef4444; width:24px; height:24px; border-radius:6px; cursor:pointer; display:flex; align-items:center; justify-content:center; z-index:5;"><i class="fa-solid fa-times" style="font-size:0.7rem;"></i></button>
                     
                     <!-- Left: Self Plan (65%) -->
-                    <div style="flex: 1.8; padding: 1rem; border-right: 1px solid #f1f5f9;">
-                         <label style="display:block; font-size:0.65rem; font-weight:800; color:#94a3b8; margin-bottom:0.5rem; text-transform:uppercase; letter-spacing:0.5px;">1. My Tasks & Steps</label>
-                         <textarea class="plan-task" required placeholder="Type task... use @ to tag staff" style="width:100%; height:70px; padding:0.75rem; border:1px solid #e2e8f0; border-radius:10px; font-family:inherit; resize:none; margin-bottom:0.75rem; font-size:0.9rem; line-height:1.4; background:#fcfdfe;"></textarea>
-                         
-                         <div class="sub-plans-list" style="display:flex; flex-direction:column; gap:0.4rem;"></div>
-                         <button type="button" onclick="window.app_addSubPlanRow(this)" style="background:none; border:none; padding:4px 0; font-size:0.75rem; color:var(--primary); cursor:pointer; margin-top:0.4rem; display:flex; align-items:center; gap:4px; font-weight:600;">
-                            <i class="fa-solid fa-plus"></i> Add Sub-task
-                         </button>
-                    </div>
-
-                    <!-- Right: Tagged Staff (35%) -->
+                    <div style="flex: 1; display: flex; min-height: 160px;">
+                        <div style="flex: 1.8; padding: 1rem; border-right: 1px solid #f1f5f9;">
+                             <label style="display:block; font-size:0.65rem; font-weight:800; color:#94a3b8; margin-bottom:0.5rem; text-transform:uppercase; letter-spacing:0.5px;">1. My Tasks & Steps</label>
+                             <textarea class="plan-task" required placeholder="Type task... use @ to tag staff" style="width:100%; height:70px; padding:0.75rem; border:1px solid #e2e8f0; border-radius:10px; font-family:inherit; resize:none; margin-bottom:0.75rem; font-size:0.9rem; line-height:1.4; background:#fcfdfe;"></textarea>
+                             
+                             <div class="sub-plans-list" style="display:flex; flex-direction:column; gap:0.4rem;"></div>
+                             <button type="button" onclick="window.app_addSubPlanRow(this)" style="background:none; border:none; padding:4px 0; font-size:0.75rem; color:var(--primary); cursor:pointer; margin-top:0.4rem; display:flex; align-items:center; gap:4px; font-weight:600;">
+                                <i class="fa-solid fa-plus"></i> Add Sub-task
+                             </button>
+                        </div>
+    
+                        <!-- Right: Tagged Staff (35%) -->
+                        <div style="flex: 1; padding: 1rem; background: #f8fafc; display:flex; flex-direction:column;">
+                            <label style="display:block; font-size:0.65rem; font-weight:800; color:#94a3b8; margin-bottom:0.75rem; text-transform:uppercase; letter-spacing:0.5px;">2. Collaborators</label>
+                            <div class="tags-container" style="display:flex; flex-direction:column; gap:0.5rem; flex:1;">
+                                <div class="no-tags-placeholder" style="font-size:0.7rem; color:#cbd5e1; text-align:center; padding-top:1rem; border:1px dashed #e2e8f0; border-radius:10px; flex:1;">Use @ in task text to tag</div>
+                            </div>
+                        </div>
                     </div>
                     
                     <!-- Bottom Controls: Status and Admin Reassign -->
