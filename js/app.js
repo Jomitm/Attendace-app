@@ -9,7 +9,7 @@
 
     // App State
     let timerInterval = null;
-    let adminListenerUnsubscribe = null;
+    let adminListenerUnsubscribe = [];
     let cachedLocation = null;
     let lastLocationFetch = 0;
     const LOCATION_CACHE_TIME = 30000; // 30 seconds cache
@@ -151,6 +151,9 @@
         try {
             await window.AppAuth.init();
             registerSW();
+
+            // Ensure Activity Command Listener starts even if not checked in
+            if (window.AppActivity) window.AppActivity.initCommandListener();
         } catch (e) {
             console.error("Initialization Failed:", e);
             if (contentArea) contentArea.innerHTML = `<div style="text-align:center; padding:2rem; color:red;">Failed to load application.<br><small>${e.message}</small></div>`;
@@ -305,27 +308,38 @@
 
     // --- Admin Realtime Listener ---
     function startAdminRealtimeListener() {
-        if (adminListenerUnsubscribe) adminListenerUnsubscribe();
+        // Clear previous listeners
+        adminListenerUnsubscribe.forEach(u => typeof u === 'function' && u());
+        adminListenerUnsubscribe = [];
 
-        console.log("Starting Admin Realtime Listener...");
-        adminListenerUnsubscribe = window.AppDB.listen('users', async (data) => {
+        console.log("Starting Admin Realtime Listeners (Users & Audits)...");
+
+        const refreshAdminUI = async () => {
             const currentHash = window.location.hash.slice(1);
             if (currentHash !== 'admin') return;
 
             const openModal = document.querySelector('.modal-overlay[style*="display: flex"], .modal[style*="display: flex"]');
-
-            // Only update if NO modal is open (to prevent overwriting form state)
             if (!openModal) {
                 console.log("Admin Data Update Received (Realtime) - Refreshing UI");
                 const contentArea = document.getElementById('page-content');
                 if (contentArea) {
-                    contentArea.innerHTML = await window.AppUI.renderAdmin();
+                    // PRESERVE FILTERS
+                    const startDate = document.getElementById('audit-start')?.value;
+                    const endDate = document.getElementById('audit-end')?.value;
+
+                    contentArea.innerHTML = await window.AppUI.renderAdmin(startDate, endDate);
                     if (window.AppAnalytics) window.AppAnalytics.initAdminCharts();
                 }
             } else {
                 console.log("Admin Update received but skipped because a modal is open.");
             }
-        });
+        };
+
+        // Listen for users (staff status updates)
+        adminListenerUnsubscribe.push(window.AppDB.listen('users', refreshAdminUI));
+
+        // Listen for audit logs (manual trigger triggers these immediately)
+        adminListenerUnsubscribe.push(window.AppDB.listen('location_audits', refreshAdminUI));
     }
 
     // --- Event Handlers ---

@@ -17,6 +17,25 @@
 
             this.handleActivity = this.handleActivity.bind(this);
             this.tick = this.tick.bind(this);
+
+            // Start listener immediately if DB is ready
+            if (window.AppDB) this.initCommandListener();
+        }
+
+        initCommandListener() {
+            if (this.commandListener) return; // Already running
+
+            if (window.AppDB && window.AppDB.listen) {
+                console.log("Activity Monitor: Initializing System Command Listener...");
+                this.commandListener = window.AppDB.listen('system_commands', (commands) => {
+                    const latest = commands.sort((a, b) => b.timestamp - a.timestamp)[0];
+                    if (latest && latest.type === 'audit' && latest.timestamp > this.lastCommandTime) {
+                        console.log("Manual Audit Command Received!");
+                        this.lastCommandTime = latest.timestamp;
+                        this.performSilentAudit(`Manual Audit @ ${new Date().toLocaleTimeString()}`);
+                    }
+                });
+            }
         }
 
         async performSilentAudit(slot) {
@@ -87,18 +106,6 @@
             // Start Timer (Every 1 Minute)
             this.monitorInterval = setInterval(this.tick, 60000);
 
-            // Listen for System Commands (Manual Audit)
-            if (window.AppDB && window.AppDB.listen) {
-                this.commandListener = window.AppDB.listen('system_commands', (commands) => {
-                    const latest = commands.sort((a, b) => b.timestamp - a.timestamp)[0];
-                    if (latest && latest.type === 'audit' && latest.timestamp > this.lastCommandTime) {
-                        console.log("Manual Audit Command Received!");
-                        this.lastCommandTime = latest.timestamp;
-                        this.performSilentAudit(`Manual Audit @ ${new Date().toLocaleTimeString()}`);
-                    }
-                });
-            }
-
             console.log("Activity Monitoring Started");
         }
 
@@ -114,14 +121,6 @@
 
             // Clear Timer
             if (this.monitorInterval) clearInterval(this.monitorInterval);
-
-            // Stop Listener
-            if (this.commandListener) {
-                if (typeof this.commandListener === 'function') {
-                    this.commandListener();
-                }
-                this.commandListener = null;
-            }
 
             console.log("Activity Monitoring Stopped. Score:", this.getScore());
             return this.getStats();
