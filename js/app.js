@@ -448,7 +448,7 @@
         updateTimerUI();
     }
 
-    function getLocation() {
+    window.getLocation = function getLocation() {
         return new Promise(async (resolve, reject) => {
             // Check Cache first
             const now = Date.now();
@@ -2719,6 +2719,79 @@
     // Listeners for Modal Events 
     // (We keep these as they are internal to app.js logic or standard form submits)
     // Removed old document.addEventListener calls for admin actions since we use global funcs now.
+
+    window.app_triggerManualAudit = async () => {
+        if (!confirm("Trigger a manual location audit for all active staff?")) return;
+        try {
+            await window.AppDB.add('system_commands', {
+                type: 'audit',
+                timestamp: Date.now(),
+                requestedBy: window.AppAuth.getUser()?.name || 'Admin',
+                status: 'pending'
+            });
+            alert("Manual audit command sent. Active staff devices will perform a stealth check within a minute.");
+        } catch (err) {
+            console.error("Failed to trigger manual audit:", err);
+            alert("Error: " + err.message);
+        }
+    };
+
+    window.app_applyAuditFilter = async () => {
+        const start = document.getElementById('audit-start')?.value;
+        const end = document.getElementById('audit-end')?.value;
+        const contentArea = document.getElementById('page-content');
+        if (contentArea) {
+            contentArea.innerHTML = await window.AppUI.renderAdmin(start, end);
+            if (window.AppAnalytics) window.AppAnalytics.initAdminCharts();
+        }
+    };
+
+    window.app_exportAudits = async () => {
+        const start = document.getElementById('audit-start')?.value;
+        const end = document.getElementById('audit-end')?.value;
+
+        try {
+            let audits = await window.AppDB.getAll('location_audits');
+            if (start && end) {
+                audits = audits.filter(a => {
+                    const d = new Date(a.timestamp).toISOString().split('T')[0];
+                    return d >= start && d <= end;
+                });
+            }
+            audits.sort((a, b) => b.timestamp - a.timestamp);
+
+            if (audits.length === 0) {
+                alert("No audits found for the selected range.");
+                return;
+            }
+
+            const headers = ['Timestamp', 'Date', 'Time', 'Staff Member', 'Slot', 'Status', 'Latitude', 'Longitude'];
+            const rows = audits.map(a => [
+                a.timestamp,
+                new Date(a.timestamp).toLocaleDateString(),
+                new Date(a.timestamp).toLocaleTimeString(),
+                a.userName || 'Unknown',
+                a.slot,
+                a.status,
+                a.lat || '',
+                a.lng || ''
+            ]);
+
+            const csvContent = [headers, ...rows].map(r => r.join(',')).join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", `security_audits_${start || 'export'}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } catch (err) {
+            console.error("Export failed:", err);
+            alert("Export failed: " + err.message);
+        }
+    };
 
     // Initialization
     init();

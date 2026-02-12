@@ -1756,15 +1756,34 @@
                 </div>`;
         },
 
-        async renderAdmin() {
+        async renderAdmin(auditStartDate = null, auditEndDate = null) {
             let allUsers = [];
             let performance = { avgScore: 0, trendData: [0, 0, 0, 0, 0, 0, 0], labels: [] };
 
             try {
-                [allUsers, performance] = await Promise.all([
+                // Default to last 7 days if no range provided
+                if (!auditStartDate || !auditEndDate) {
+                    const end = new Date();
+                    const start = new Date();
+                    start.setDate(end.getDate() - 7);
+                    auditStartDate = auditStartDate || start.toISOString().split('T')[0];
+                    auditEndDate = auditEndDate || end.toISOString().split('T')[0];
+                }
+
+                [allUsers, performance, audits] = await Promise.all([
                     window.AppDB.getAll('users'),
-                    window.AppAnalytics.getSystemPerformance()
+                    window.AppAnalytics.getSystemPerformance(),
+                    window.AppDB.getAll('location_audits')
                 ]);
+
+                // Filter audits by date
+                audits = audits.filter(a => {
+                    const d = new Date(a.timestamp).toISOString().split('T')[0];
+                    return d >= auditStartDate && d <= auditEndDate;
+                });
+
+                // Sort audits by timestamp descending
+                audits.sort((a, b) => b.timestamp - a.timestamp);
             } catch (e) {
                 console.error("Failed to fetch admin data", e);
             }
@@ -1831,6 +1850,7 @@
                         </div>
                     </div>
 
+                    <!-- Live Security Audits (Stealth Check Log) -->
                     <div class="card full-width">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
                             <h3 style="font-size: 1.1rem; margin: 0;">Staff Management</h3>
@@ -1921,6 +1941,79 @@
                                          </tr>
                                      `;
             }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Live Security Audits (Stealth Check Log) -->
+                    <div class="card full-width">
+                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+                            <div>
+                                <h3 style="font-size: 1.1rem; margin: 0;">Live Security Audits</h3>
+                                <p class="text-muted" style="font-size: 0.8rem; margin-top:2px;">Background checks & manual triggers</p>
+                            </div>
+                            
+                            <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; background: #f8fafc; padding: 0.4rem 0.75rem; border-radius: 0.5rem; border: 1px solid #e2e8f0;">
+                                    <input type="date" id="audit-start" value="${auditStartDate}" style="font-size: 0.75rem; border: none; background: transparent;">
+                                    <span style="color: #94a3b8;">to</span>
+                                    <input type="date" id="audit-end" value="${auditEndDate}" style="font-size: 0.75rem; border: none; background: transparent;">
+                                    <button onclick="window.app_applyAuditFilter()" style="background: var(--primary); color: white; border: none; padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 0.75rem;">
+                                        Filter
+                                    </button>
+                                </div>
+                                <button onclick="window.app_exportAudits()" class="action-btn secondary" style="padding: 0.4rem 0.75rem; font-size: 0.75rem;">
+                                    <i class="fa-solid fa-file-csv"></i> Export
+                                </button>
+                                <button onclick="window.app_triggerManualAudit()" class="action-btn" style="padding: 0.4rem 0.75rem; font-size: 0.75rem; background: #6366f1;">
+                                    <i class="fa-solid fa-radar"></i> Audit Now
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="table-container mobile-table-card">
+                            <table>
+                                <thead style="background: #f9fafb;">
+                                    <tr>
+                                        <th>Staff Member</th>
+                                        <th>Audit Slot</th>
+                                        <th>Time</th>
+                                        <th>Status</th>
+                                        <th>Coordinates</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${audits.length ? audits.map(a => {
+                const auditTime = new Date(a.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                const auditDate = new Date(a.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric' });
+                const isSuccess = a.status === 'Success';
+
+                return `
+                                        <tr>
+                                            <td data-label="Staff">
+                                                <div style="font-weight: 600;">${a.userName || 'Unknown'}</div>
+                                                <div style="font-size: 0.7rem; color: #6b7280;">${auditDate}</div>
+                                            </td>
+                                            <td data-label="Slot">
+                                                <div style="font-size: 0.85rem; font-weight: 500; color: #4f46e5;">${a.slot}</div>
+                                            </td>
+                                            <td data-label="Time">
+                                                <div style="font-size: 0.85rem;">${auditTime}</div>
+                                            </td>
+                                            <td data-label="Status">
+                                                <span style="padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; background: ${isSuccess ? '#f0fdf4' : '#fef2f2'}; color: ${isSuccess ? '#166534' : '#991b1b'};">
+                                                    ${isSuccess ? '<i class="fa-solid fa-check"></i> Verified' : '<i class="fa-solid fa-triangle-exclamation"></i> ' + a.status}
+                                                </span>
+                                            </td>
+                                            <td data-label="Coordinates">
+                                                <div style="font-family: monospace; font-size: 0.8rem; color: #4b5563;">
+                                                    ${isSuccess ? `${a.lat.toFixed(4)}, ${a.lng.toFixed(4)}` : '--'}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    `;
+            }).join('') : `<tr><td colspan="5" style="text-align: center; padding: 2rem; color: #9ca3af;">No recent security audits recorded for this range.</td></tr>`}
                                 </tbody>
                             </table>
                         </div>

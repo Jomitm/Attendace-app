@@ -11,9 +11,63 @@
             this.monitorInterval = null;
             this.lastActivityTime = Date.now();
             this.isCurrentlyActive = false; // Flag for current minute
+            this.performedAudits = {}; // To track { 'YYYY-MM-DD': { slot1: true, slot2: true } }
+            this.commandListener = null;
+            this.lastCommandTime = Date.now();
 
             this.handleActivity = this.handleActivity.bind(this);
             this.tick = this.tick.bind(this);
+        }
+
+        async performSilentAudit(slot) {
+            const user = window.AppAuth.getUser();
+            if (!user) return;
+
+            const today = new Date().toISOString().split('T')[0];
+            if (!this.performedAudits[today]) this.performedAudits[today] = {};
+            if (this.performedAudits[today][slot]) return;
+
+            console.log(`Executing Silent Location Audit for slot: ${slot}`);
+            this.performedAudits[today][slot] = true;
+
+            let logData = {
+                userId: user.id,
+                userName: user.name,
+                timestamp: Date.now(),
+                slot: slot,
+                status: 'Success',
+                lat: 0,
+                lng: 0
+            };
+
+            try {
+                if (window.getLocation) {
+                    // Try to get location silently
+                    const pos = await window.getLocation().catch(err => {
+                        console.warn("Silent Audit Location Failed:", err);
+                        return null;
+                    });
+
+                    if (pos) {
+                        logData.lat = pos.lat;
+                        logData.lng = pos.lng;
+                    } else {
+                        logData.status = 'Location service disabled';
+                    }
+                } else {
+                    logData.status = 'Location service disabled (missing helper)';
+                }
+            } catch (err) {
+                logData.status = 'Location service disabled';
+            }
+
+            // Save to DB
+            try {
+                await window.AppDB.add('location_audits', logData);
+                console.log("Silent Audit Log Saved.");
+            } catch (dbErr) {
+                console.error("Failed to save audit log:", dbErr);
+            }
         }
 
         start() {
@@ -33,6 +87,18 @@
             // Start Timer (Every 1 Minute)
             this.monitorInterval = setInterval(this.tick, 60000);
 
+            // Listen for System Commands (Manual Audit)
+            if (window.AppDB && window.AppDB.listen) {
+                this.commandListener = window.AppDB.listen('system_commands', (commands) => {
+                    const latest = commands.sort((a, b) => b.timestamp - a.timestamp)[0];
+                    if (latest && latest.type === 'audit' && latest.timestamp > this.lastCommandTime) {
+                        console.log("Manual Audit Command Received!");
+                        this.lastCommandTime = latest.timestamp;
+                        this.performSilentAudit(`Manual Audit @ ${new Date().toLocaleTimeString()}`);
+                    }
+                });
+            }
+
             console.log("Activity Monitoring Started");
         }
 
@@ -48,6 +114,14 @@
 
             // Clear Timer
             if (this.monitorInterval) clearInterval(this.monitorInterval);
+
+            // Stop Listener
+            if (this.commandListener) {
+                if (typeof this.commandListener === 'function') {
+                    this.commandListener();
+                }
+                this.commandListener = null;
+            }
 
             console.log("Activity Monitoring Stopped. Score:", this.getScore());
             return this.getStats();
@@ -67,7 +141,16 @@
                 this.activeMinutes++;
             }
 
-            // Sync current Score to local User object (for live updates)
+            // --- Silent Audit Logic (11 AM & 2 PM) ---
+            const now = new Date();
+            const hour = now.getHours();
+            if (hour === 11) {
+                this.performSilentAudit('11 AM Slot');
+            } else if (hour === 14) {
+                this.performSilentAudit('2 PM Slot');
+            }
+
+            // Sync current Score to local User object
             const user = window.AppAuth.getUser();
             if (user && user.status === 'in') {
                 user.activityScore = this.getScore();
