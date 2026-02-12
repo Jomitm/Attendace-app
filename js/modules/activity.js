@@ -29,21 +29,26 @@
             if (window.AppDB && window.AppDB.listen) {
                 console.log("Activity Monitor: Initializing System Command Listener...");
                 this.commandListener = window.AppDB.listen('system_commands', (commands) => {
+                    const user = window.AppAuth.getUser();
+                    if (!user) {
+                        console.log("[Audit] Command detected but user not authenticated yet. Waiting...");
+                        return;
+                    }
+
                     // Filter for recent commands we haven't processed
-                    // Allow 5 minutes drift (before start time) to catch commands if clocks are slightly off
                     const freshCommands = commands.filter(cmd =>
                         cmd.type === 'audit' &&
-                        cmd.timestamp > (this.startTime - 300000) &&
+                        cmd.timestamp > (this.startTime - 600000) && // 10 min window
                         !this.processedCommandIds.has(cmd.id)
                     ).sort((a, b) => b.timestamp - a.timestamp);
 
                     if (freshCommands.length > 0) {
                         const latest = freshCommands[0];
-                        console.log("Manual Audit Command Received!", latest.id);
+                        console.log("[Audit] Manual Command Received!", latest.id);
                         this.processedCommandIds.add(latest.id);
 
-                        // Use the slot name from the command so all devices report to the same slot
                         const slotName = latest.slotName || `Manual Audit @ ${new Date().toLocaleTimeString()}`;
+                        console.log(`[Audit] Executing for user: ${user.name} in slot: ${slotName}`);
                         this.performSilentAudit(slotName);
                     }
                 });

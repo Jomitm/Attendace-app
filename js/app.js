@@ -184,10 +184,10 @@
         const hash = window.location.hash.slice(1) || 'dashboard';
 
         // Cleanup
-        if (hash !== 'admin' && adminListenerUnsubscribe) {
+        if (hash !== 'admin' && adminListenerUnsubscribe && adminListenerUnsubscribe.length > 0) {
             console.log("Cleaning up Admin Realtime Listener.");
-            adminListenerUnsubscribe();
-            adminListenerUnsubscribe = null;
+            adminListenerUnsubscribe.forEach(u => typeof u === 'function' && u());
+            adminListenerUnsubscribe = [];
         }
 
         // AUTH GUARD
