@@ -13,7 +13,8 @@
             this.isCurrentlyActive = false; // Flag for current minute
             this.performedAudits = {}; // To track { 'YYYY-MM-DD': { slot1: true, slot2: true } }
             this.commandListener = null;
-            this.lastCommandTime = Date.now();
+            this.processedCommandIds = new Set();
+            this.startTime = Date.now();
 
             this.handleActivity = this.handleActivity.bind(this);
             this.tick = this.tick.bind(this);
@@ -28,11 +29,22 @@
             if (window.AppDB && window.AppDB.listen) {
                 console.log("Activity Monitor: Initializing System Command Listener...");
                 this.commandListener = window.AppDB.listen('system_commands', (commands) => {
-                    const latest = commands.sort((a, b) => b.timestamp - a.timestamp)[0];
-                    if (latest && latest.type === 'audit' && latest.timestamp > this.lastCommandTime) {
-                        console.log("Manual Audit Command Received!");
-                        this.lastCommandTime = latest.timestamp;
-                        this.performSilentAudit(`Manual Audit @ ${new Date().toLocaleTimeString()}`);
+                    // Filter for recent commands we haven't processed
+                    // Allow 5 minutes drift (before start time) to catch commands if clocks are slightly off
+                    const freshCommands = commands.filter(cmd =>
+                        cmd.type === 'audit' &&
+                        cmd.timestamp > (this.startTime - 300000) &&
+                        !this.processedCommandIds.has(cmd.id)
+                    ).sort((a, b) => b.timestamp - a.timestamp);
+
+                    if (freshCommands.length > 0) {
+                        const latest = freshCommands[0];
+                        console.log("Manual Audit Command Received!", latest.id);
+                        this.processedCommandIds.add(latest.id);
+
+                        // Use the slot name from the command so all devices report to the same slot
+                        const slotName = latest.slotName || `Manual Audit @ ${new Date().toLocaleTimeString()}`;
+                        this.performSilentAudit(slotName);
                     }
                 });
             }

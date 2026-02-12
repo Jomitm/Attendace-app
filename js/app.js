@@ -2736,14 +2736,16 @@
 
     window.app_triggerManualAudit = async () => {
         if (!confirm("Trigger a manual location audit for all active staff?")) return;
+        const slotName = `Manual Audit @ ${new Date().toLocaleTimeString()}`;
         try {
             await window.AppDB.add('system_commands', {
                 type: 'audit',
+                slotName: slotName,
                 timestamp: Date.now(),
                 requestedBy: window.AppAuth.getUser()?.name || 'Admin',
                 status: 'pending'
             });
-            alert("Manual audit command sent. Active staff devices will perform a stealth check within a minute.");
+            alert("Manual audit command sent. All active staff devices will now perform a stealth check.");
         } catch (err) {
             console.error("Failed to trigger manual audit:", err);
             alert("Error: " + err.message);
