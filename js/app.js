@@ -776,6 +776,7 @@
                                 </button>
                              </div>
                         </div>
+                    </div>
     
                         <!-- Right: Collaborators (40%) -->
                         <div style="flex: 1; padding: 1.25rem; background: linear-gradient(135deg, #faf5ff 0%, #f5f3ff 100%); display:flex; flex-direction:column;">
@@ -867,7 +868,7 @@
         const index = container.querySelectorAll('.plan-block').length;
 
         const html = `
-                <div class="plan-block" data-index="${index}" style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:0; margin-bottom:1.25rem; position:relative; overflow:hidden; display:flex; min-height:160px; animation: fadeIn 0.3s ease;">
+                <div class="plan-block" data-index="${index}" style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:0; margin-bottom:1.25rem; position:relative; overflow:hidden; display:flex; flex-direction:column; min-height:160px; animation: fadeIn 0.3s ease;">
                     <button type="button" onclick="this.closest('.plan-block').remove()" style="position:absolute; top:8px; right:8px; background:#fff1f2; border:none; color:#ef4444; width:24px; height:24px; border-radius:6px; cursor:pointer; display:flex; align-items:center; justify-content:center; z-index:5;"><i class="fa-solid fa-times" style="font-size:0.7rem;"></i></button>
                     
                     <!-- Left: Self Plan (65%) -->
@@ -882,14 +883,8 @@
                     </div>
 
                     <!-- Right: Tagged Staff (35%) -->
-                    <div style="flex: 1; padding: 1rem; background: #f8fafc; display:flex; flex-direction:column;">
-                        <label style="display:block; font-size:0.65rem; font-weight:800; color:#94a3b8; margin-bottom:0.75rem; text-transform:uppercase; letter-spacing:0.5px;">2. Collaborators</label>
-                        <div class="tags-container" style="display:flex; flex-direction:column; gap:0.5rem; flex:1;">
-                            <div class="no-tags-placeholder" style="font-size:0.7rem; color:#cbd5e1; text-align:center; padding-top:1rem; border:1px dashed #e2e8f0; border-radius:10px; flex:1;">Use @ in task text to tag</div>
-                        </div>
                     </div>
-                    </div>
-
+                    
                     <!-- Bottom Controls: Status and Admin Reassign -->
                     <div style="background: #f1f5f9; padding: 0.5rem 1rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
                         <div style="display: flex; align-items: center; gap: 0.5rem;">
