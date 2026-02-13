@@ -261,29 +261,32 @@
                     const isManual = log.isManualOverride === true;
 
                     if (!isManual) {
-                        // EARLY ARRIVAL Credit (Before 09:15 = 555)
-                        if (inMinutes !== null && inMinutes < 555) {
-                            dayEarlyCredit = 555 - inMinutes;
+                        // EARLY ARRIVAL Credit
+                        const lateCutoff = window.AppConfig.LATE_CUTOFF_MINUTES || 555;
+                        if (inMinutes !== null && inMinutes < lateCutoff) {
+                            dayEarlyCredit = lateCutoff - inMinutes;
                         }
 
-                        // LATE Check (Target: 09:15 = 555)
-                        if (inMinutes !== null && inMinutes > 555) {
+                        // LATE Check
+                        if (inMinutes !== null && inMinutes > lateCutoff) {
                             const weekKey = `${logDate.getFullYear()}-W${this.getWeekNumber(logDate)}`;
                             if (!weeklyGraceCount[weekKey]) weeklyGraceCount[weekKey] = 0;
 
                             weeklyGraceCount[weekKey]++;
-                            if (weeklyGraceCount[weekKey] > 3) {
+                            const graceLimit = window.AppConfig.LATE_GRACE_COUNT || 3;
+                            if (weeklyGraceCount[weekKey] > graceLimit) {
                                 // 4th+ time in a week = Half Day Salary loss
                                 stats.penalty += 0.5;
                             }
 
                             breakdown['Late']++;
                             stats.late++;
-                            totalLateMinutes += (inMinutes - 555);
+                            totalLateMinutes += (inMinutes - lateCutoff);
                         }
 
-                        // EARLY DEPARTURE Check (Before 17:00 = 1020 minutes)
-                        if (outMinutes !== null && outMinutes < 1020 && !String(type).includes('Leave') && type !== 'Absent') {
+                        // EARLY DEPARTURE Check
+                        const earlyDeparture = window.AppConfig.EARLY_DEPARTURE_MINUTES || 1020;
+                        if (outMinutes !== null && outMinutes < earlyDeparture && !String(type).includes('Leave') && type !== 'Absent') {
                             stats.earlyDepartures++;
                             breakdown['Early Departure']++;
                         }
@@ -304,8 +307,11 @@
                     }
 
                     // EXTRA HOURS Check (for duration display)
-                    if (inMinutes !== null && inMinutes < 555) totalExtraMinutes += (555 - inMinutes);
-                    if (outMinutes !== null && outMinutes > 1020) totalExtraMinutes += (outMinutes - 1020);
+                    const lateCutoff = window.AppConfig.LATE_CUTOFF_MINUTES || 555;
+                    const earlyDeparture = window.AppConfig.EARLY_DEPARTURE_MINUTES || 1020;
+
+                    if (inMinutes !== null && inMinutes < lateCutoff) totalExtraMinutes += (lateCutoff - inMinutes);
+                    if (outMinutes !== null && outMinutes > earlyDeparture) totalExtraMinutes += (outMinutes - earlyDeparture);
 
                     // CATEGORY Check
                     if (type === 'Work - Home') breakdown['Work - Home']++;
@@ -376,10 +382,11 @@
                     const inMinutes = this.parseTimeToMinutes(log.checkIn);
                     const outMinutes = this.parseTimeToMinutes(log.checkOut);
 
-                    // LATE Check (Target: 09:15 = 555)
-                    if (inMinutes !== null && inMinutes > 555) {
+                    // LATE Check
+                    const lateCutoff = window.AppConfig.LATE_CUTOFF_MINUTES || 555;
+                    if (inMinutes !== null && inMinutes > lateCutoff) {
                         breakdown['Late']++;
-                        totalLateMinutes += (inMinutes - 555);
+                        totalLateMinutes += (inMinutes - lateCutoff);
 
                         const weekKey = `${logDate.getFullYear()}-W${this.getWeekNumber(logDate)}`;
                         if (!weeklyGraceCount[weekKey]) weeklyGraceCount[weekKey] = 0;
@@ -391,15 +398,16 @@
                         }
                     }
 
-                    // EARLY DEPARTURE Check (Before 17:00 = 1020 minutes)
-                    if (outMinutes !== null && outMinutes < 1020 && !String(type).includes('Leave') && type !== 'Absent') {
+                    // EARLY DEPARTURE Check
+                    const earlyDeparture = window.AppConfig.EARLY_DEPARTURE_MINUTES || 1020;
+                    if (outMinutes !== null && outMinutes < earlyDeparture && !String(type).includes('Leave') && type !== 'Absent') {
                         stats.earlyDepartures++;
                         breakdown['Early Departure']++;
                     }
 
                     // EXTRA HOURS Check
-                    if (inMinutes !== null && inMinutes < 555) totalExtraMinutes += (555 - inMinutes);
-                    if (outMinutes !== null && outMinutes > 1020) totalExtraMinutes += (outMinutes - 1020);
+                    if (inMinutes !== null && inMinutes < lateCutoff) totalExtraMinutes += (lateCutoff - inMinutes);
+                    if (outMinutes !== null && outMinutes > earlyDeparture) totalExtraMinutes += (outMinutes - earlyDeparture);
 
                     // CATEGORY Check
                     if (type === 'Work - Home') breakdown['Work - Home']++;
@@ -437,14 +445,16 @@
             const today = new Date();
             const year = today.getFullYear();
             const month = today.getMonth(); // 0-11
+            const startMonth = window.AppConfig.FY_START_MONTH || 3; // Default April
 
             let startYear = year;
-            if (month < 3) { // Jan, Feb, Mar are part of previous FY starts
+            if (month < startMonth) {
                 startYear = year - 1;
             }
 
-            const start = new Date(startYear, 3, 1); // April 1st
-            const end = new Date(startYear + 1, 2, 31); // March 31st
+            const start = new Date(startYear, startMonth, 1);
+            // End is 1 day before start month of next year
+            const end = new Date(startYear + 1, startMonth, 0);
 
             return {
                 start,
@@ -461,12 +471,10 @@
             if (day === 0) return 'Holiday'; // Sunday
 
             if (day === 6) { // Saturday Rules
-                // Calculate which Saturday of the month it is (1st, 2nd, 3rd, 4th, or 5th)
-                const n = Math.ceil(dateNum / 7);
-                // 1st, 3rd, 5th are working days
-                if (n === 1 || n === 3 || n === 5) return 'Work Day';
-                // 2nd, 4th are holidays
-                return 'Holiday';
+                if (window.AppConfig.IS_SATURDAY_OFF && window.AppConfig.IS_SATURDAY_OFF(date)) {
+                    return 'Holiday';
+                }
+                return 'Work Day';
             }
 
             return 'Work Day';

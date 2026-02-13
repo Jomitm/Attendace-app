@@ -4,7 +4,7 @@ echo      Deploying Attendance App to GitHub
 echo ==============================================
 echo.
 
-cd /d "D:\Attendance App"
+cd /d "%~dp0"
 
 echo [1/3] Adding changes...
 git add .

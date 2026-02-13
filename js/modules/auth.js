@@ -23,17 +23,20 @@
                 }
             }
 
-            // Seed mock users if empty (First Run)
+            // Seed mock users if empty (First Run) - DISABLED FOR SECURITY
+            /* 
             const users = await window.AppDB.getAll('users');
             if (users.length === 0) {
                 await this.seedUsers();
             }
+            */
         }
 
+        /* SECURED: Seed Logic Disabled
         async seedUsers() {
             const mockUsers = [
-                { id: 'sim_admin_new', name: 'Sr. Maria Admin', username: 'maria', password: '123', email: 'maria@crwi.org', role: 'Administrator', isAdmin: true, dept: 'Administration', avatar: 'https://ui-avatars.com/api/?name=Maria+Admin&background=1e40af&color=fff', status: 'out', lastCheckIn: null },
-                { id: 'sim_punctual', name: 'Jomit Punctuall', username: 'jomit_p', password: '123', email: 'jomit@crwi.org', role: 'Administrator', isAdmin: true, dept: 'IT Department', avatar: 'https://ui-avatars.com/api/?name=Jomit+P&background=10b981&color=fff', status: 'out', lastCheckIn: null }
+                { id: 'sim_admin_new', name: 'Sr. Maria Admin', username: 'maria', password: 'REDACTED', email: 'maria@crwi.org', role: 'Administrator', isAdmin: true, dept: 'Administration', avatar: 'https://ui-avatars.com/api/?name=Maria+Admin&background=1e40af&color=fff', status: 'out', lastCheckIn: null },
+                { id: 'sim_punctual', name: 'Jomit Punctuall', username: 'jomit_p', password: 'REDACTED', email: 'jomit@crwi.org', role: 'Administrator', isAdmin: true, dept: 'IT Department', avatar: 'https://ui-avatars.com/api/?name=Jomit+P&background=10b981&color=fff', status: 'out', lastCheckIn: null }
             ];
 
             for (const u of mockUsers) {
@@ -41,6 +44,7 @@
             }
             console.log('Database seeded with mock users.');
         }
+        */
 
         async login(username, password) {
             const users = await window.AppDB.getAll('users');
@@ -122,6 +126,7 @@
             return true;
         }
 
+        /* SECURED: Reset Logic Disabled
         async resetData() {
             if (confirm('Are you sure you want to RESET ALL DATA? This will clear logs and users.')) {
                 this.stopHeartbeat();
@@ -132,6 +137,7 @@
                 window.location.reload();
             }
         }
+        */
 
         startHeartbeat() {
             if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);

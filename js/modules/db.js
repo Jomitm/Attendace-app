@@ -87,6 +87,7 @@
             }
         }
 
+        /* SECURED: Clear Logic Disabled
         async clear(collectionName) {
             // DANGEROUS IN PRODUCTION - Deletes all documents in collection
             // Only used for Reset/Debug
@@ -102,6 +103,7 @@
                 throw error;
             }
         }
+        */
 
         async query(collectionName, field, operator, value) {
             try {

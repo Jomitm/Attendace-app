@@ -225,9 +225,13 @@
             // If after 9:15 AM -> Late
             // Sat/Sun -> default Present (or specific weekend logic if needed, user said 'except saturdays')
 
+            const lateCutoff = window.AppConfig.LATE_CUTOFF_MINUTES || 555; // Default 09:15
+            const lateHours = Math.floor(lateCutoff / 60);
+            const lateMinutes = lateCutoff % 60;
+
             if (day >= 1 && day <= 5) {
-                // Check if late (after 9:15)
-                if (hours > 9 || (hours === 9 && minutes > 15)) {
+                // Check if late (after config time)
+                if (hours > lateHours || (hours === lateHours && minutes > lateMinutes)) {
                     return 'Late';
                 }
                 return 'Present';
