@@ -1710,7 +1710,7 @@
                                         <p class="profile-roleline">${user.role} <span>|</span> ${user.dept || 'General'}</p>
                                     </div>
                                     <div style="display:flex; gap:0.5rem; flex-wrap:wrap; justify-content:flex-end;">
-                                        <button onclick="window.location.reload()" class="action-btn secondary profile-signout-btn" title="Force Refresh">
+                                        <button onclick="window.app_forceRefresh()" class="action-btn secondary profile-signout-btn" title="Force Refresh">
                                             <i class="fa-solid fa-rotate-right"></i> Refresh
                                         </button>
                                         <button onclick="window.AppAuth.logout()" class="action-btn secondary profile-signout-btn">

@@ -2653,6 +2653,22 @@
         });
     };
 
+    window.app_forceRefresh = async () => {
+        try {
+            if (navigator.serviceWorker) {
+                const regs = await navigator.serviceWorker.getRegistrations();
+                await Promise.all(regs.map(r => r.unregister()));
+            }
+            if (window.caches) {
+                const keys = await caches.keys();
+                await Promise.all(keys.map(k => caches.delete(k)));
+            }
+        } catch (err) {
+            console.warn('Force refresh cleanup failed:', err);
+        }
+        window.location.reload(true);
+    };
+
     // Initialization
     init();
 
