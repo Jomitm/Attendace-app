@@ -176,11 +176,30 @@
             return log.date !== todayStr && logDate >= cutoffDate;
         });
         if (filtered.length === 0) return '<div class="dashboard-activity-empty">No team activities found for the requested period.</div>';
+        const deduped = [];
+        const seen = new Map();
+        filtered.forEach(log => {
+            const desc = (log._displayDesc || '').trim();
+            const key = `${log.staffName || ''}|${log.date || ''}|${desc}`;
+            if (!seen.has(key)) {
+                seen.set(key, log);
+                deduped.push(log);
+                return;
+            }
+            const existing = seen.get(key);
+            const isAttendance = log.type === 'attendance';
+            const existingIsAttendance = existing.type === 'attendance';
+            if (isAttendance && !existingIsAttendance) {
+                seen.set(key, log);
+                const idx = deduped.indexOf(existing);
+                if (idx >= 0) deduped[idx] = log;
+            }
+        });
         let html = '';
         let lastDate = '';
         const currentUser = window.AppAuth.getUser();
         const isAdminUser = currentUser && (currentUser.role === 'Administrator' || currentUser.isAdmin);
-        filtered.sort((a, b) => new Date(b.date) - new Date(a.date)).forEach(log => {
+        deduped.sort((a, b) => new Date(b.date) - new Date(a.date)).forEach(log => {
             const showDate = log.date !== lastDate;
             if (showDate) { html += `<div class="dashboard-activity-date">${log.date}</div>`; lastDate = log.date; }
             let statusBadge = '';
