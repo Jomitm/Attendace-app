@@ -1,0 +1,101 @@
+/* Hide main app UI when in widget mode */
+body.widget-mode .app-container {
+    display: none !important;
+}
+
+#widget-view {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #f8fafc;
+    z-index: 10000;
+    flex-direction: column;
+    /* Support for chromeless title bar overlay */
+    padding: calc(env(titlebar-area-inset-top, 0px) + 0.5rem) 0.5rem 0.5rem 0.5rem;
+    box-sizing: border-box;
+}
+
+body.widget-mode #widget-view {
+    display: flex;
+}
+
+/* Chrome/Header for Standalone Window */
+.widget-chrome-header {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    align-items: center;
+    -webkit-app-region: drag;
+    cursor: move;
+    min-height: 24px;
+    margin-bottom: 0.5rem;
+}
+
+.widget-controls {
+    -webkit-app-region: no-drag;
+}
+
+.widget-close {
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 1rem;
+    transition: color 0.2s;
+}
+
+.widget-close:hover {
+    color: var(--primary);
+}
+
+.widget-drag-handle {
+    opacity: 0.5;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+/* Card Overrides for Widget Mode */
+#widget-view .card {
+    border: none;
+    box-shadow: none;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+/* Ensure font sizes look great in tiny window */
+#widget-view .timer-display {
+    font-size: 2rem !important;
+}
+
+#widget-view #timer-label {
+    font-size: 0.6rem !important;
+}
+
+/* Animations */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+#widget-view {
+    animation: fadeIn 0.2s ease-out;
+}
+
+/* Ensure the action button looks great */
+#widget-view #attendance-btn {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+#widget-view #attendance-btn:active {
+    transform: scale(0.98);
+}

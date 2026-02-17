@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CRWI Attendance</title>
+    <link rel="icon" type="image/x-icon" href="favicon.png">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+    <!-- Styles -->
+    <!-- Styles -->
+    <!-- Styles -->
+    <link rel="stylesheet" href="css/main.css">
+    <link rel="stylesheet" href="css/tour.css">
+    <link rel="stylesheet" href="css/widget.css">
+
+    <!-- PWA -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#4f46e5">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+
+
+
+    <!-- Critical Error Handler for Debugging -->
+    <script>
+        // CRITICAL: Block file:// protocol immediately
+        if (window.location.protocol === 'file:') {
+            document.write(`
+                <div style="position:fixed; top:0; left:0; right:0; bottom:0; background:#fff; z-index:99999; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:2rem; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                    <h1 style="color:#dc2626; font-size:2rem; margin-bottom:1rem;">⚠️ Security Restriction Detected</h1>
+                    <p style="font-size:1.2rem; margin-bottom:2rem; max-width:600px; line-height:1.5;">
+                        This application uses <b>Google Firebase</b> for real-time data, which browsers <u>block</u> when running directly from a file.
+                    </p>
+                    <div style="background:#f3f4f6; padding:2rem; border-radius:1rem; border:2px dashed #4b5563; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);">
+                        <h3 style="margin-top:0; color:#111827;">✅ How to Open Correctly:</h3>
+                        <ol style="text-align:left; font-size:1.1rem; line-height:1.8; margin-bottom:0;">
+                            <li>Close this browser tab.</li>
+                            <li>Open the folder <code>D:\\Attendance App</code> on your PC.</li>
+                            <li>Double-click the file named <b>start_app.cmd</b> (or just <b>start_app</b>).</li>
+                            <li>A black window will appear, and the app will open automatically in your browser.</li>
+                        </ol>
+                    </div>
+                </div>
+            `);
+            throw new Error("Execution halted: Improper protocol (file:// detected). User redirected.");
+        }
+
+        window.onerror = function (msg, url, line, col, error) {
+            const div = document.createElement('div');
+            div.style.cssText = 'position:fixed; top:0; left:0; right:0; background:#991b1b; color:white; padding:1rem; z-index:9999; font-family:monospace; white-space:pre-wrap; border-bottom: 2px solid #fff; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);';
+            div.innerHTML = `<strong>JS Error:</strong> ${msg}<br><strong>File:</strong> ${url}<br><strong>Line:</strong> ${line}`;
+            document.body.appendChild(div);
+            return false;
+        };
+
+        window.addEventListener('unhandledrejection', function (event) {
+            const div = document.createElement('div');
+            div.style.cssText = 'position:fixed; top:0; left:0; right:0; background:#d97706; color:white; padding:1rem; z-index:9999; font-family:monospace; white-space:pre-wrap; border-bottom: 2px solid #fff; margin-top: 60px;';
+            div.textContent = `Promise Error: ${event.reason}`;
+            document.body.appendChild(div);
+        });
+    </script>
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Sidebar Overlay for Mobile -->
+        <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+        <!-- Desktop Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>CRWI Attendance</h2>
+                <button class="desktop-toggle-btn" id="desktop-sidebar-toggle" onclick="window.app_toggleSidebar()"
+                    title="Toggle Sidebar">
+                    <i class="fa-solid fa-angles-left"></i>
+                </button>
+            </div>
+
+            <nav class="sidebar-nav">
+                <a href="#dashboard" class="nav-item active" data-page="dashboard">
+                    <i class="fa-solid fa-house"></i>
+                    <span>Dashboard</span>
+                </a>
+                <a href="#policies" class="nav-item" data-page="policies">
+                    <i class="fa-solid fa-scale-balanced"></i>
+                    <span>Policies</span>
+                </a>
+                <a href="#annual-plan" class="nav-item" data-page="annual-plan">
+                    <i class="fa-solid fa-calendar-check"></i>
+                    <span>Annual Plan</span>
+                </a>
+                <a href="#timesheet" class="nav-item" data-page="timesheet">
+                    <i class="fa-solid fa-calendar-days"></i>
+                    <span>Timesheet</span>
+                </a>
+                <a href="#profile" class="nav-item" data-page="profile">
+                    <i class="fa-solid fa-user"></i>
+                    <span>Profile</span>
+                </a>
+                <a href="#minutes" class="nav-item" data-page="minutes">
+                    <i class="fa-solid fa-file-pen"></i>
+                    <span>Meeting Minutes</span>
+                </a>
+                <a href="#admin" class="nav-item" data-page="admin" style="display: none;">
+                    <i class="fa-solid fa-users-gear"></i>
+                    <span>Admin Panel</span>
+                </a>
+                <a href="#master-sheet" class="nav-item" data-page="master-sheet" style="display: none;">
+                    <i class="fa-solid fa-table"></i>
+                    <span>Attendance Sheet</span>
+                </a>
+                <a href="#salary" class="nav-item" data-page="salary" style="display: none;">
+                    <i class="fa-solid fa-file-invoice-dollar"></i>
+                    <span>Salary Processing</span>
+                </a>
+                <a href="javascript:void(0)" class="nav-item" onclick="window.Widget.toggle()">
+                    <i class="fa-solid fa-window-restore"></i>
+                    <span>Widget Mode</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="user-mini-profile">
+                    <img src="https://ui-avatars.com/api/?name=User&background=0D8ABC&color=fff" alt="User">
+                    <div>
+                        <p class="user-name">Staff Member</p>
+                        <p class="user-role">Employee</p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Mobile Header -->
+            <header class="mobile-header">
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <button class="menu-toggle-btn" id="sidebar-toggle">
+                        <i class="fa-solid fa-bars"></i>
+                    </button>
+                    <div class="logo-area">
+                        <div class="logo-circle small" style="width: 32px; height: 32px;">
+                            <img src="https://ui-avatars.com/api/?name=CRWI&background=random" alt="Logo">
+                        </div>
+                        <h1 style="font-size: 1rem;">Attendance</h1>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button class="icon-btn" onclick="window.Widget.toggle()" title="Widget Mode">
+                        <i class="fa-solid fa-window-restore"></i>
+                    </button>
+                    <button class="icon-btn">
+                        <i class="fa-regular fa-bell"></i>
+                    </button>
+                    <div id="user-status-dot"
+                        style="width: 10px; height: 10px; border-radius: 50%; background: #9ca3af; margin-top: 10px;">
+                    </div>
+                </div>
+            </header>
+
+            <div id="page-content" class="page-content">
+                <!-- Content injected via JS -->
+                <div class="loading-spinner">Loading...</div>
+            </div>
+        </main>
+
+        <div id="modal-container"></div>
+
+        <!-- Mobile Bottom Nav -->
+        <nav class="mobile-nav">
+            <a href="#dashboard" class="mobile-nav-item active" data-page="dashboard">
+                <i class="fa-solid fa-house"></i>
+                <span>Home</span>
+            </a>
+            <a href="#policies" class="mobile-nav-item" data-page="policies">
+                <i class="fa-solid fa-scale-balanced"></i>
+                <span>Policies</span>
+            </a>
+            <a href="#annual-plan" class="mobile-nav-item" data-page="annual-plan">
+                <i class="fa-solid fa-calendar-days"></i>
+                <span>Annual</span>
+            </a>
+            <a href="#timesheet" class="mobile-nav-item" data-page="timesheet">
+                <i class="fa-solid fa-calendar-check"></i>
+                <span>Timesheet</span>
+            </a>
+            <a href="#profile" class="mobile-nav-item" data-page="profile">
+                <i class="fa-solid fa-user"></i>
+                <span>Profile</span>
+            </a>
+            <a href="#minutes" class="mobile-nav-item" data-page="minutes">
+                <i class="fa-solid fa-file-pen"></i>
+                <span>Minutes</span>
+            </a>
+            <a href="#admin" class="mobile-nav-item" data-page="admin" style="display: none;">
+                <i class="fa-solid fa-users-gear"></i>
+                <span>Admin</span>
+            </a>
+            <a href="#master-sheet" class="mobile-nav-item" data-page="master-sheet" style="display: none;">
+                <i class="fa-solid fa-table"></i>
+                <span>Sheet</span>
+            </a>
+            <a href="#salary" class="mobile-nav-item" data-page="salary" style="display: none;">
+                <i class="fa-solid fa-money-bill-wave"></i>
+                <span>Salary</span>
+            </a>
+        </nav>
+    </div>
+
+    <!-- Scripts -->
+    <!-- Firebase SDK (v9.23.0 Compat) -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js" crossorigin="anonymous"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"
+        crossorigin="anonymous"></script>
+
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyC7a8AxukI0-egXimYTedwCa2RFnMTBu84",
+            authDomain: "crwiattendance.firebaseapp.com",
+            projectId: "crwiattendance",
+            storageBucket: "crwiattendance.firebasestorage.app",
+            messagingSenderId: "462155106938",
+            appId: "1:462155106938:web:18291b04a5a3bec185c9c3",
+            measurementId: "G-X6W45TV4QR"
+        };
+
+        // Initialize Firebase
+        if (typeof firebase !== 'undefined') {
+            if (!firebase.apps.length) {
+                firebase.initializeApp(firebaseConfig);
+            }
+
+            // Enable Offline Persistence
+            firebase.firestore().enablePersistence()
+                .catch((err) => {
+                    if (err.code == 'failed-precondition') {
+                        console.warn("Firestore Persistence: Multiple tabs open (persistence enabled in first tab only).");
+                    } else if (err.code == 'unimplemented') {
+                        console.warn("Firestore Persistence: Not supported by browser.");
+                    }
+                });
+
+            window.AppFirestore = firebase.firestore();
+            console.log("Firebase Initialized (Inline) with Persistence");
+        } else {
+            console.error("Firebase SDK not loaded!");
+            alert("Critical Error: Firebase SDK failed to load.");
+        }
+    </script>
+    <!-- Modules -->
+    <script src="js/modules/firebase-config.js"></script> <!-- FireBase Config -->
+    <script src="js/config.js"></script> <!-- App Config -->
+    <script src="js/modules/db.js"></script>
+    <script src="js/modules/auth.js"></script>
+    <script src="js/modules/attendance.js"></script>
+    <script src="js/modules/reports.js"></script>
+    <script src="js/modules/leaves.js"></script>
+    <script src="js/modules/calendar.js"></script>
+    <script src="js/modules/analytics.js"></script>
+    <script src="js/modules/activity.js"></script>
+    <script src="js/modules/rating.js"></script>
+    <script src="js/modules/simulation.js"></script>
+    <script src="js/modules/tour.js"></script>
+    <script src="js/modules/minutes.js"></script>
+    <script src="js/modules/policies.js"></script>
+    <script src="js/modules/admin-policies.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/modules/widget.js"></script>
+    <script src="js/app.js"></script>
+</body>
+
+</html>

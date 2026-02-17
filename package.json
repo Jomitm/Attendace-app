@@ -1,0 +1,18 @@
+﻿{
+  "name": "crwi-attendance-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Automation tooling for linting and smoke testing",
+  "scripts": {
+    "lint": "eslint \"js/**/*.js\" \"tests/**/*.js\"",
+    "test:smoke": "playwright test",
+    "test": "npm run lint && npm run test:smoke"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.21.0",
+    "@playwright/test": "^1.51.0",
+    "eslint": "^9.21.0",
+    "globals": "^15.15.0",
+    "playwright": "^1.51.0"
+  }
+}

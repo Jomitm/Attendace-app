@@ -1,0 +1,27 @@
+{
+    "manifest_version": 3,
+    "name": "CRWI Attendance Widget",
+    "version": "1.0",
+    "description": "Floating widget for task completion and scheduling.",
+    "permissions": [
+        "storage",
+        "activeTab",
+        "sidePanel"
+    ],
+    "host_permissions": [
+        "https://*.firebaseio.com/*",
+        "https://*.googleapis.com/*"
+    ],
+    "action": {
+        "default_popup": "popup.html"
+    },
+    "background": {
+        "service_worker": "background.js"
+    },
+    "side_panel": {
+        "default_path": "popup.html"
+    },
+    "content_security_policy": {
+        "extension_pages": "script-src 'self'; object-src 'self'"
+    }
+}
