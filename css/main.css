@@ -26,6 +26,34 @@
 
     --font-sans: 'Manrope', sans-serif;
     --font-display: 'Sora', sans-serif;
+
+    --motion-fast: 120ms;
+    --motion-med: 220ms;
+    --motion-slow: 420ms;
+    --easing-standard: cubic-bezier(0.2, 0, 0, 1);
+    --easing-emphasized: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes fadeUp {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes scaleIn {
+    from {
+        opacity: 0;
+        transform: scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
 }
 
 * {
@@ -119,7 +147,10 @@ body {
     /* Gray-400 */
     text-decoration: none;
     border-radius: var(--radius-md);
-    transition: all 0.2s;
+    transition: transform var(--motion-fast) var(--easing-standard),
+        background var(--motion-fast) var(--easing-standard),
+        color var(--motion-fast) var(--easing-standard),
+        border-color var(--motion-fast) var(--easing-standard);
     font-weight: 500;
     overflow: hidden;
     white-space: nowrap;
@@ -207,6 +238,14 @@ body {
         padding: 1rem;
         padding-bottom: calc(7rem + env(safe-area-inset-bottom));
         /* Space for mobile nav with 6 items */
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation: none !important;
+        transition: none !important;
+        scroll-behavior: auto !important;
     }
 }
 
@@ -345,6 +384,9 @@ body {
     padding: 0.75rem;
     box-shadow: var(--shadow-sm);
     border: 1px solid rgba(0, 0, 0, 0.05);
+    transition: transform var(--motion-med) var(--easing-standard),
+        box-shadow var(--motion-med) var(--easing-standard);
+    animation: fadeUp var(--motion-med) var(--easing-standard);
 }
 
 .welcome-card {
@@ -451,7 +493,9 @@ body {
     border: none;
     cursor: pointer;
     box-shadow: 0 4px 14px 0 rgba(16, 185, 129, 0.39);
-    transition: transform 0.1s;
+    transition: transform var(--motion-fast) var(--easing-standard),
+        box-shadow var(--motion-fast) var(--easing-standard),
+        filter var(--motion-fast) var(--easing-standard);
 }
 
 .action-btn:active {
@@ -476,6 +520,7 @@ body {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: 0.75rem;
+    animation: fadeUp var(--motion-med) var(--easing-standard);
 }
 
 .full-width {
@@ -588,6 +633,7 @@ td {
     justify-content: center;
     align-items: center;
     padding: 1rem;
+    animation: fadeUp var(--motion-fast) var(--easing-standard);
 }
 
 .modal-content {
@@ -600,7 +646,8 @@ td {
     overflow-y: auto;
     box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
     position: relative;
-    animation: modalSlide 0.3s ease-out;
+    animation: scaleIn var(--motion-med) var(--easing-emphasized);
+    transition: transform var(--motion-med) var(--easing-emphasized);
 }
 
 @keyframes modalSlide {
@@ -753,7 +800,9 @@ td {
     cursor: pointer;
     font-weight: 500;
     color: #4b5563;
-    transition: background 0.2s;
+    transition: transform var(--motion-fast) var(--easing-standard),
+        box-shadow var(--motion-fast) var(--easing-standard),
+        background var(--motion-fast) var(--easing-standard);
 }
 
 .annual-day:hover:not(.empty) {
@@ -1015,6 +1064,8 @@ textarea:focus {
 .dashboard-modern .card {
     border: 1px solid #dbe3ee;
     box-shadow: 0 10px 22px rgba(15, 23, 42, 0.06);
+    transition: transform var(--motion-med) var(--easing-standard),
+        box-shadow var(--motion-med) var(--easing-standard);
 }
 
 .dashboard-modern .card:hover {
@@ -1053,6 +1104,10 @@ textarea:focus {
 .dashboard-modern .check-in-widget #attendance-btn {
     min-height: 44px;
     border-radius: 0.75rem !important;
+    transition: transform var(--motion-fast) var(--easing-standard),
+        box-shadow var(--motion-fast) var(--easing-standard),
+        background var(--motion-fast) var(--easing-standard),
+        color var(--motion-fast) var(--easing-standard);
 }
 
 .dashboard-modern .check-in-widget .timer-display {
