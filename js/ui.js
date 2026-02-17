@@ -836,6 +836,28 @@
                 </div>
             `;
         },
+        async checkDailyPlanReminder() {
+            try {
+                const user = window.AppAuth.getUser();
+                if (!user || !window.AppCalendar) return;
+
+                const today = new Date();
+                const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+                const key = `daily-plan-reminder-${user.id}-${dateStr}`;
+                if (localStorage.getItem(key)) return;
+
+                const plan = await window.AppCalendar.getWorkPlan(user.id, dateStr);
+                if (plan && (plan.plans?.length || plan.plan)) return;
+
+                localStorage.setItem(key, 'true');
+                const shouldOpen = confirm('You checked in today. Do you want to plan your day now?');
+                if (shouldOpen && typeof window.app_openDayPlan === 'function') {
+                    window.app_openDayPlan(dateStr, user.id);
+                }
+            } catch (err) {
+                console.warn('Daily plan reminder failed:', err);
+            }
+        },
 
         /**
          * Render star rating display (1-5 stars)
