@@ -1384,6 +1384,61 @@
                 return `<div class="annual-detail-item"><span class="annual-detail-tag" style="${tagStyle}">${type.toUpperCase()}</span><div class="annual-detail-title">${ev.title}</div></div>`;
             }).join('') : '<div class="annual-detail-empty">No visible items for this date with current filters.</div>';
 
+            const listItems = (() => {
+                const items = [];
+                const pushItem = (date, type, title, userId = null, plansRef = null) => {
+                    items.push({ date, type, title, userId, plansRef });
+                };
+
+                if (window.AppAnalytics) {
+                    const start = new Date(year, 0, 1);
+                    const end = new Date(year, 11, 31);
+                    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+                        const dt = d.toISOString().split('T')[0];
+                        const dayType = window.AppAnalytics.getDayType(d);
+                        if (dayType === 'Holiday') {
+                            pushItem(dt, 'holiday', 'Company Holiday (Weekend)');
+                        } else if (dayType === 'Half Day') {
+                            pushItem(dt, 'event', 'Half Working Day (Sat)');
+                        }
+                    }
+                }
+
+                (plans.leaves || []).forEach(l => {
+                    const startDate = new Date(l.startDate);
+                    const endDate = new Date(l.endDate || l.startDate);
+                    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+                        const dt = d.toISOString().split('T')[0];
+                        if (!dt.startsWith(String(year))) continue;
+                        pushItem(dt, 'leave', `${l.userName || 'Staff'} (Leave)`, l.userId);
+                    }
+                });
+
+                (plans.events || []).forEach(e => {
+                    if (String(e.date || '').startsWith(String(year))) {
+                        pushItem(e.date, e.type || 'event', e.title || 'Company Event');
+                    }
+                });
+
+                (plans.workPlans || []).forEach(p => {
+                    if (String(p.date || '').startsWith(String(year))) {
+                        let title = '';
+                        if (p.plans && p.plans.length > 0) {
+                            title = `${p.userName}: ${p.plans.map(pl => pl.task).join('; ')}`;
+                        } else {
+                            title = `${p.userName}: ${p.plan || 'Work Plan'}`;
+                        }
+                        pushItem(p.date, 'work', title, p.userId, p);
+                    }
+                });
+
+                items.sort((a, b) => {
+                    if (a.date !== b.date) return a.date.localeCompare(b.date);
+                    return a.type.localeCompare(b.type);
+                });
+                return items;
+            })();
+
             return `
                 <div style="display:flex; flex-direction:column; gap:1.5rem;">
                     <div class="card" style="padding:1.5rem; display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:1rem;">
@@ -1437,7 +1492,39 @@
                     </div>
 
                     <div id="annual-list-view" style="display:${viewMode === 'list' ? 'block' : 'none'};">
-                        <div style="text-align:center; padding:2rem; color:#94a3b8;">Loading list view...</div>
+                        <div class="card" style="padding:1rem;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                                <h4 style="margin:0;">Annual Timeline</h4>
+                                <span style="font-size:0.8rem; color:#64748b;">${year}</span>
+                            </div>
+                            ${listItems.length === 0 ? `
+                                <div style="text-align:center; padding:2rem; color:#94a3b8;">No items found for this year.</div>
+                            ` : `
+                                <div style="display:flex; flex-direction:column; gap:0.6rem;">
+                                    ${listItems.map(item => {
+                                        const chipStyle = item.type === 'leave'
+                                            ? 'background:#fee2e2;color:#991b1b;'
+                                            : item.type === 'work'
+                                                ? 'background:#e0e7ff;color:#3730a3;'
+                                                : item.type === 'holiday'
+                                                    ? 'background:#f1f5f9;color:#334155;'
+                                                    : 'background:#dcfce7;color:#166534;';
+                                        return `
+                                            <div style="display:flex; align-items:flex-start; gap:0.75rem; padding:0.7rem; border:1px solid #eef2f7; border-radius:12px;">
+                                                <div style="min-width:90px; font-size:0.8rem; color:#64748b;">${item.date}</div>
+                                                <div style="flex:1;">
+                                                    <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                                                        <span style="padding:2px 8px; border-radius:999px; font-size:0.7rem; font-weight:700; ${chipStyle}">${item.type.toUpperCase()}</span>
+                                                        <div style="font-size:0.9rem; color:#1f2937; font-weight:600;">${item.title}</div>
+                                                    </div>
+                                                    ${item.type === 'work' ? `<div style="margin-top:0.4rem;"><button class="action-btn secondary" style="padding:0.35rem 0.7rem; font-size:0.75rem;" onclick="window.app_openDayPlan('${item.date}', '${item.userId || ''}')">Open Day Plan</button></div>` : ''}
+                                                </div>
+                                            </div>
+                                        `;
+                                    }).join('')}
+                                </div>
+                            `}
+                        </div>
                     </div>
                 </div>`;
         },
