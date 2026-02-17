@@ -960,14 +960,14 @@
                             </div>
                         </div>
     
-                        <div class="dashboard-viewing-meta">
+                        <div class="dashboard-viewing-meta" style="color:#ffffff;">
                             <span style="font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: #fbbf24;">Hero of the Week</span>
-                            <h3 style="margin: 0.15rem 0; font-size: 1.25rem; letter-spacing: -0.5px;">${user.name}</h3>
+                            <h3 style="margin: 0.15rem 0; font-size: 1.25rem; letter-spacing: -0.5px; color:#ffffff;">${user.name}</h3>
                             <div style="display: flex; gap: 0.75rem; align-items: center; margin-top: 0.25rem;">
-                                <div style="font-size: 0.75rem; background: rgba(255,255,255,0.1); padding: 3px 8px; border-radius: 20px; backdrop-filter: blur(4px);">
+                                <div style="font-size: 0.75rem; background: rgba(255,255,255,0.12); padding: 3px 8px; border-radius: 20px; backdrop-filter: blur(4px); color:#ffffff;">
                                     <i class="fa-solid fa-star" style="color: #fbbf24; margin-right: 4px;"></i> ${reason}
                                 </div>
-                                <div style="font-size: 0.75rem; opacity: 0.9;">
+                                <div style="font-size: 0.75rem; opacity: 0.9; color:#ffffff;">
                                      <i class="fa-solid fa-clock" style="margin-right: 4px;"></i> ${stats.hours}h
                                 </div>
                             </div>
