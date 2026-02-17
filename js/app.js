@@ -2711,7 +2711,7 @@
                         <div style="font-size:0.8rem; color:#64748b;">Date</div>
                         <div style="font-size:1rem; font-weight:700; color:#1e1b4b;">${dateStr}</div>
                     </div>
-                    <button type="button" onclick="this.closest('.modal-overlay').remove()" class="day-plan-close-btn" title="Close">
+                    <button type="button" onclick="window.app_closeModal(this)" class="day-plan-close-btn" title="Close">
                         <i class="fa-solid fa-xmark"></i>
                     </button>
                 </div>
@@ -2743,6 +2743,11 @@
             }
             window.app_showAnnualDayDetails(window.app_selectedAnnualDate);
         });
+    };
+
+    window.app_closeModal = (el) => {
+        const overlay = el && el.closest ? el.closest('.modal-overlay') : null;
+        if (overlay) overlay.remove();
     };
 
     window.app_forceRefresh = async () => {
