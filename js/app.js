@@ -601,6 +601,7 @@
 
     window.app_getDayEvents = (dateStr, plans, opts = {}) => {
         const includeAuto = opts.includeAuto !== false;
+        const dedupe = opts.dedupe !== false;
         if (!plans) return [];
         if (Array.isArray(plans)) return plans.filter(p => p.date === dateStr);
         const dateObj = new Date(dateStr);
@@ -614,19 +615,19 @@
         if (includeAuto && window.AppAnalytics) {
             const dayType = window.AppAnalytics.getDayType(dateObj);
             if (dayType === 'Holiday') {
-                evs.push({ title: 'Company Holiday (Weekend)', type: 'holiday' });
+                evs.push({ title: 'Company Holiday (Weekend)', type: 'holiday', date: dateStr });
             } else if (dayType === 'Half Day') {
-                evs.push({ title: 'Half Working Day (Sat)', type: 'event' });
+                evs.push({ title: 'Half Working Day (Sat)', type: 'event', date: dateStr });
             }
         }
 
         (plans.leaves || []).forEach(l => {
             if (dateStr >= l.startDate && dateStr <= l.endDate) {
-                evs.push({ title: `${l.userName || 'Staff'} (Leave)`, type: 'leave', userId: l.userId });
+                evs.push({ title: `${l.userName || 'Staff'} (Leave)`, type: 'leave', userId: l.userId, date: dateStr });
             }
         });
         (plans.events || []).forEach(e => {
-            if (e.date === dateStr) evs.push({ title: e.title, type: e.type || 'event' });
+            if (e.date === dateStr) evs.push({ title: e.title, type: e.type || 'event', date: dateStr });
         });
         (plans.workPlans || []).forEach(p => {
             if (p.date === dateStr) {
@@ -636,10 +637,19 @@
                 } else {
                     title = `${p.userName}: ${p.plan || 'Work Plan'}`;
                 }
-                evs.push({ title: title, type: 'work', userId: p.userId, plans: p.plans });
+                evs.push({ title: title, type: 'work', userId: p.userId, plans: p.plans, date: dateStr });
             }
         });
-        return evs;
+        if (!dedupe) return evs;
+        const seen = new Set();
+        return evs.filter(ev => {
+            const type = ev.type || 'event';
+            if (type !== 'holiday' && type !== 'event') return true;
+            const key = `${type}|${ev.title || ''}|${ev.userId || ''}|${ev.date || dateStr}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
     };
 
     window.app_openDayPlan = async (date, targetUserId = null) => {
@@ -2706,18 +2716,20 @@
                 </div>`;
         }).join('') : '<div style="text-align:center; color:#94a3b8; padding:1rem;">No visible items for this date with current filters.</div>';
         const html = `
-            <div class="annual-detail-modal">
-                <div class="annual-detail-modal-header">
-                    <div>
-                        <div style="font-size:0.8rem; color:#64748b;">Date</div>
-                        <div style="font-size:1rem; font-weight:700; color:#1e1b4b;">${dateStr}</div>
+            <div class="modal-overlay" id="annual-day-detail-modal" style="display:flex;">
+                <div class="annual-detail-modal">
+                    <div class="annual-detail-modal-header">
+                        <div>
+                            <div style="font-size:0.8rem; color:#64748b;">Date</div>
+                            <div style="font-size:1rem; font-weight:700; color:#1e1b4b;">${dateStr}</div>
+                        </div>
+                        <button type="button" onclick="window.app_closeModal(this)" class="day-plan-close-btn" title="Close">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
                     </div>
-                    <button type="button" onclick="window.app_closeModal(this)" class="day-plan-close-btn" title="Close">
-                        <i class="fa-solid fa-xmark"></i>
-                    </button>
-                </div>
-                <div style="display:flex; flex-direction:column; gap:0.6rem; max-height:60vh; overflow:auto;">
-                    ${listHTML}
+                    <div style="display:flex; flex-direction:column; gap:0.6rem; max-height:60vh; overflow:auto;">
+                        ${listHTML}
+                    </div>
                 </div>
             </div>`;
         window.app_showModal(html, 'annual-day-detail-modal');
