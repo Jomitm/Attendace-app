@@ -65,7 +65,9 @@ window.AppMinutes = (function () {
             const existing = await (window.AppDB ? window.AppDB.get(COLLECTION, id) : window.AppFirestore.collection(COLLECTION).doc(id).get().then(d => d.data()));
 
             if (!existing) throw new Error("Minute not found");
-            if (existing.locked) throw new Error("This record is locked and cannot be edited.");
+            const updateKeys = updates ? Object.keys(updates) : [];
+            const isActionOnlyUpdate = updateKeys.length > 0 && updateKeys.every(k => k === 'actionItems');
+            if (existing.locked && !isActionOnlyUpdate) throw new Error("This record is locked and cannot be edited.");
 
             const auditEntry = {
                 userId: user.id,

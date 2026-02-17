@@ -2391,16 +2391,32 @@
                                 <div style="margin-bottom: 2rem;">
                                     <label style="display: block; font-size: 0.7rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 0.5rem;">Action Items</label>
                                     <div id="modal-action-items-container">
-                                        ${(minute.actionItems || []).map((item, idx) => `
-                                            <div class="action-item-row" style="display:grid; grid-template-columns: 1fr auto auto auto; gap:0.5rem; margin-bottom:0.5rem; align-items:center;">
+                                        ${(minute.actionItems || []).map((item, idx) => {
+                    const status = item.status || 'pending';
+                    const isAssignee = item.assigneeId === currentUser.id;
+                    const statusStyle = status === 'approved'
+                        ? 'background:#ecfdf5;color:#166534;border:1px solid #dcfce7;'
+                        : status === 'rejected'
+                            ? 'background:#fef2f2;color:#991b1b;border:1px solid #fee2e2;'
+                            : 'background:#fffbeb;color:#92400e;border:1px solid #fde68a;';
+                    const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+                    return `
+                                            <div class="action-item-row" data-status="${status}" data-approved-by="${item.approvedBy || ''}" data-approved-at="${item.approvedAt || ''}" data-rejected-by="${item.rejectedBy || ''}" data-rejected-at="${item.rejectedAt || ''}" data-calendar-synced="${item.calendarSynced ? 'true' : 'false'}" data-assignee="${item.assigneeId}" style="display:grid; grid-template-columns: 1fr auto auto auto auto; gap:0.5rem; margin-bottom:0.5rem; align-items:center;">
                                                 <input type="text" class="ai-task" value="${item.task}" ${!canEdit ? 'disabled' : ''} placeholder="Task..." style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px;">
                                                 <input type="date" class="ai-date" value="${item.dueDate}" ${!canEdit ? 'disabled' : ''} style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px; width: 130px;">
                                                 <select class="ai-assignee" ${!canEdit ? 'disabled' : ''} style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px;">
                                                     ${allUsers.map(u => `<option value="${u.id}" ${u.id === item.assigneeId ? 'selected' : ''}>${u.name}</option>`).join('')}
                                                 </select>
+                                                <div style="display:flex; align-items:center; gap:0.35rem; justify-content:flex-end;">
+                                                    ${isAssignee && status === 'pending' ? `
+                                                        <button onclick="window.app_updateActionItemStatus('${id}', ${idx}, 'approved')" title="Approve" style="background:#ecfdf5; color:#166534; border:1px solid #dcfce7; border-radius:6px; padding:4px 8px; cursor:pointer; font-size:0.75rem; font-weight:700;">Approve</button>
+                                                        <button onclick="window.app_updateActionItemStatus('${id}', ${idx}, 'rejected')" title="Reject" style="background:#fef2f2; color:#991b1b; border:1px solid #fee2e2; border-radius:6px; padding:4px 8px; cursor:pointer; font-size:0.75rem; font-weight:700;">Reject</button>
+                                                    ` : `<span style="padding:2px 8px; border-radius:999px; font-size:0.7rem; font-weight:700; ${statusStyle}">${statusLabel}</span>`}
+                                                </div>
                                                 ${canEdit ? `<button onclick="this.parentElement.remove()" style="color:#ef4444; background:none; border:none; cursor:pointer;"><i class="fa-solid fa-trash-can"></i></button>` : ''}
                                             </div>
-                                        `).join('')}
+                                        `;
+                }).join('')}
                                     </div>
                                     ${canEdit ? `
                                         <button onclick="window.app_addModalActionRow()" style="font-size:0.8rem; color:var(--primary); background:none; border:none; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:0.5rem; margin-top: 1rem;">
@@ -2485,13 +2501,19 @@
                 const container = document.getElementById('modal-action-items-container');
                 const div = document.createElement('div');
                 div.className = 'action-item-row';
-                div.style.cssText = "display:grid; grid-template-columns: 1fr auto auto auto; gap:0.5rem; margin-bottom:0.5rem; align-items:center;";
+                div.style.cssText = "display:grid; grid-template-columns: 1fr auto auto auto auto; gap:0.5rem; margin-bottom:0.5rem; align-items:center;";
+                div.dataset.status = 'pending';
+                div.dataset.calendarSynced = 'false';
+                div.dataset.assignee = '';
                 div.innerHTML = `
                     <input type="text" class="ai-task" placeholder="Task description..." required style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px; width:100%;">
                     <input type="date" class="ai-date" required style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px; width: 130px;">
                     <select class="ai-assignee" required style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px;">
                         ${allUsers.map(u => `<option value="${u.id}">${u.name}</option>`).join('')}
                     </select>
+                    <div style="display:flex; align-items:center; justify-content:flex-end;">
+                        <span style="padding:2px 8px; border-radius:999px; font-size:0.7rem; font-weight:700; background:#fffbeb;color:#92400e;border:1px solid #fde68a;">Pending</span>
+                    </div>
                     <button type="button" onclick="this.parentElement.remove()" style="color:#ef4444; background:none; border:none; cursor:pointer;"><i class="fa-solid fa-times"></i></button>
                 `;
                 container.appendChild(div);
@@ -2500,11 +2522,23 @@
             window.app_saveUpdatedMinute = async (id) => {
                 const content = document.getElementById('edit-minute-content').value;
                 const rows = document.querySelectorAll('#modal-action-items-container .action-item-row');
-                const actionItems = Array.from(rows).map(row => ({
-                    task: row.querySelector('.ai-task').value,
-                    dueDate: row.querySelector('.ai-date').value,
-                    assigneeId: row.querySelector('.ai-assignee').value
-                }));
+                const actionItems = Array.from(rows).map(row => {
+                    const assigneeId = row.querySelector('.ai-assignee').value;
+                    const previousAssignee = row.dataset.assignee || assigneeId;
+                    const assigneeChanged = previousAssignee && previousAssignee !== assigneeId;
+                    const status = assigneeChanged ? 'pending' : (row.dataset.status || 'pending');
+                    return {
+                        task: row.querySelector('.ai-task').value,
+                        dueDate: row.querySelector('.ai-date').value,
+                        assigneeId,
+                        status,
+                        approvedBy: status === 'approved' ? (row.dataset.approvedBy || '') : '',
+                        approvedAt: status === 'approved' ? (row.dataset.approvedAt || '') : '',
+                        rejectedBy: status === 'rejected' ? (row.dataset.rejectedBy || '') : '',
+                        rejectedAt: status === 'rejected' ? (row.dataset.rejectedAt || '') : '',
+                        calendarSynced: row.dataset.calendarSynced === 'true'
+                    };
+                });
 
                 try {
                     await window.AppMinutes.updateMinute(id, { content, actionItems }, "Edited discussion content and action items");
@@ -2526,6 +2560,47 @@
                     } catch (err) {
                         alert(err.message);
                     }
+                }
+            };
+
+            window.app_updateActionItemStatus = async (minuteId, itemIndex, newStatus) => {
+                try {
+                    const currentUser = window.AppAuth.getUser();
+                    const minute = await (window.AppDB ? window.AppDB.get('minutes', minuteId) : window.AppFirestore.collection('minutes').doc(minuteId).get().then(d => d.data()));
+                    if (!minute) throw new Error('Meeting minute not found');
+
+                    const actionItems = minute.actionItems || [];
+                    const item = actionItems[itemIndex];
+                    if (!item) throw new Error('Action item not found');
+                    if (item.assigneeId !== currentUser.id) {
+                        alert('Only the assigned staff can approve or reject this task.');
+                        return;
+                    }
+                    if (item.status === 'approved' || item.status === 'rejected') return;
+
+                    const nowIso = new Date().toISOString();
+                    item.status = newStatus;
+                    if (newStatus === 'approved') {
+                        item.approvedBy = currentUser.id;
+                        item.approvedAt = nowIso;
+                        item.rejectedBy = '';
+                        item.rejectedAt = '';
+                        if (!item.calendarSynced && window.AppCalendar) {
+                            await window.AppCalendar.addWorkPlanTask(item.dueDate, item.assigneeId, item.task);
+                            item.calendarSynced = true;
+                        }
+                    } else if (newStatus === 'rejected') {
+                        item.rejectedBy = currentUser.id;
+                        item.rejectedAt = nowIso;
+                        item.approvedBy = '';
+                        item.approvedAt = '';
+                    }
+
+                    await window.AppMinutes.updateMinute(minuteId, { actionItems }, `Action item ${newStatus}`);
+                    document.getElementById('minute-detail-modal')?.remove();
+                    window.location.reload();
+                } catch (err) {
+                    alert(err.message);
                 }
             };
 
@@ -2586,7 +2661,9 @@
                     actionItems.push({
                         task: row.querySelector('.ai-task').value,
                         dueDate: row.querySelector('.ai-date').value,
-                        assigneeId: row.querySelector('.ai-assignee').value
+                        assigneeId: row.querySelector('.ai-assignee').value,
+                        status: 'pending',
+                        calendarSynced: false
                     });
                 });
 
