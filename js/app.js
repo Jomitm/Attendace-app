@@ -1014,7 +1014,9 @@
 
         try {
             await window.AppCalendar.deleteWorkPlan(date, targetId);
-            window.AppStore.invalidatePlans(); // CACHE INVALIDATION
+            if (window.AppStore && window.AppStore.invalidatePlans) {
+                window.AppStore.invalidatePlans(); // CACHE INVALIDATION
+            }
             alert("Plan deleted!");
             document.getElementById('day-plan-modal')?.remove();
 
@@ -1071,7 +1073,9 @@
 
         try {
             await window.AppCalendar.setWorkPlan(date, plans, targetId);
-            window.AppStore.invalidatePlans(); // CACHE INVALIDATION
+            if (window.AppStore && window.AppStore.invalidatePlans) {
+                window.AppStore.invalidatePlans(); // CACHE INVALIDATION
+            }
 
             const allUsers = await window.AppDB.getAll('users');
 
@@ -1170,7 +1174,9 @@
             }
 
             // 5. Refresh UI
-            window.AppStore.invalidatePlans(); // CACHE INVALIDATION
+            if (window.AppStore && window.AppStore.invalidatePlans) {
+                window.AppStore.invalidatePlans(); // CACHE INVALIDATION
+            }
             const contentArea = document.getElementById('page-content');
             contentArea.innerHTML = await window.AppUI.renderDashboard();
             if (window.setupDashboardEvents) window.setupDashboardEvents();
@@ -1289,7 +1295,9 @@
 
             // 2. Add to target date's plan
             await window.AppCalendar.addWorkPlanTask(targetDate, user.id, taskText);
-            window.AppStore.invalidatePlans(); // CACHE INVALIDATION
+            if (window.AppStore && window.AppStore.invalidatePlans) {
+                window.AppStore.invalidatePlans(); // CACHE INVALIDATION
+            }
 
             alert(`Task postponed to ${targetDate}`);
             if (typeof handleAttendance === 'function') await handleAttendance();
