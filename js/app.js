@@ -599,7 +599,8 @@
 
     // --- Work Plan Logic ---
 
-    window.app_getDayEvents = (dateStr, plans) => {
+    window.app_getDayEvents = (dateStr, plans, opts = {}) => {
+        const includeAuto = opts.includeAuto !== false;
         if (!plans) return [];
         if (Array.isArray(plans)) return plans.filter(p => p.date === dateStr);
         const dateObj = new Date(dateStr);
@@ -610,7 +611,7 @@
         const evs = [];
 
         // 1. Add Automatic Day Types (Saturdays, Sundays)
-        if (window.AppAnalytics) {
+        if (includeAuto && window.AppAnalytics) {
             const dayType = window.AppAnalytics.getDayType(dateObj);
             if (dayType === 'Holiday') {
                 evs.push({ title: 'Company Holiday (Weekend)', type: 'holiday' });
@@ -2675,7 +2676,7 @@
             overdue: true,
             completed: true
         };
-        const events = (window.app_getDayEvents(dateStr, plans) || []).filter(ev => {
+        const events = (window.app_getDayEvents(dateStr, plans, { includeAuto: false }) || []).filter(ev => {
             if (ev.type === 'leave') return !!filters.leave;
             if (ev.type === 'work') return !!filters.work;
             if (ev.type === 'holiday') return !!filters.event;

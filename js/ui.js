@@ -1396,7 +1396,7 @@
             }
 
             const viewMode = window.app_annualViewMode || 'grid';
-            const detailEvents = selectedDate ? window.app_getDayEvents(selectedDate, plans) : [];
+            const detailEvents = selectedDate ? window.app_getDayEvents(selectedDate, plans, { includeAuto: false }) : [];
             const detailCards = detailEvents.length ? detailEvents.map(ev => {
                 const type = ev.type || 'event';
                 const tagStyle = type === 'leave' ? 'background:#fee2e2;color:#991b1b;' : type === 'work' ? 'background:#e0e7ff;color:#3730a3;' : 'background:#dcfce7;color:#166534;';
