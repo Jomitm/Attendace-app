@@ -2631,6 +2631,28 @@
         });
     };
 
+    window.app_toggleAnnualView = (mode) => {
+        window.app_annualViewMode = mode;
+        window.AppUI.renderAnnualPlan().then(html => {
+            const contentArea = document.getElementById('page-content');
+            if (contentArea) {
+                contentArea.innerHTML = html;
+            }
+        });
+    };
+
+    window.app_jumpToAnnualToday = () => {
+        const today = new Date();
+        window.app_annualYear = today.getFullYear();
+        window.app_selectedAnnualDate = today.toISOString().split('T')[0];
+        window.AppUI.renderAnnualPlan().then(html => {
+            const contentArea = document.getElementById('page-content');
+            if (contentArea) {
+                contentArea.innerHTML = html;
+            }
+        });
+    };
+
     // Initialization
     init();
 
