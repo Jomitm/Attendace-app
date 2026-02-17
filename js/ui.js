@@ -2391,6 +2391,7 @@
                                     <th>Attendance Summary</th>
                                     <th>Deductions</th>
                                     <th>Adjusted Salary</th>
+                                    <th>TDS %</th>
                                     <th>TDS Amount</th>
                                     <th>Final Net</th>
                                     <th>Comment</th>
@@ -2400,6 +2401,7 @@
                                 ${summary.map(item => {
                 const { user, stats } = item;
                 const base = user.baseSalary || 0;
+                const userTds = typeof user.tdsPercent === 'number' ? user.tdsPercent : null;
                 const dailyRate = base / 22;
 
                 const totalDeductionDays = stats.unpaidLeaves + stats.penalty;
@@ -2429,6 +2431,12 @@
                                             <td>
                                                 <input type="number" class="salary-input" value="${calculatedSalary}" 
                                                     style="width: 100px; padding: 4px; border: 1px solid #ddd; border-radius: 10px;"
+                                                    onchange="this.dataset.manual = 'true'; window.app_recalculateRow(this.closest('tr'))" />
+                                            </td>
+                                            <td>
+                                                <input type="number" class="tds-input" value="${userTds !== null ? userTds : ''}" min="0" max="100"
+                                                    style="width: 60px; padding: 4px; border: 1px solid #ddd; border-radius: 6px;"
+                                                    placeholder="${typeof userTds === 'number' ? '' : 'Global'}"
                                                     onchange="this.dataset.manual = 'true'; window.app_recalculateRow(this.closest('tr'))" />
                                             </td>
                                             <td style="color: #64748b;" class="tds-amount">₹0</td>

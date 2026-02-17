@@ -2261,8 +2261,14 @@
         const base = parseFloat(row.querySelector('.base-salary-input').value) || 0;
         const dailyRate = base / 22;
         const unpaid = parseFloat(row.querySelector('.unpaid-leaves-count').innerText) || 0;
-        const penalty = parseFloat(row.querySelector('.penalty-count').dataset.penalty) || 0;
-        const tdsPercent = parseFloat(document.getElementById('global-tds-percent').value) || 0;
+        const penaltyEl = row.querySelector('.penalty-count');
+        const penalty = penaltyEl ? (parseFloat(penaltyEl.dataset.penalty) || 0) : 0;
+        const globalTds = parseFloat(document.getElementById('global-tds-percent').value) || 0;
+        const tdsInput = row.querySelector('.tds-input');
+        if (tdsInput && !tdsInput.dataset.manual) {
+            tdsInput.value = globalTds;
+        }
+        const tdsPercent = tdsInput ? (parseFloat(tdsInput.value) || 0) : globalTds;
 
         const deduct = Math.round(dailyRate * (unpaid + penalty));
         row.querySelector('.deduction-amount').innerText = '-₹' + deduct.toLocaleString();
@@ -2294,13 +2300,15 @@
         const userUpdates = [];
         const today = new Date();
         const monthKey = `${today.getFullYear()}-${today.getMonth() + 1}`;
-        const tdsPercent = parseFloat(document.getElementById('global-tds-percent').value) || 0;
+        const globalTdsPercent = parseFloat(document.getElementById('global-tds-percent').value) || 0;
 
         for (const row of rows) {
             const userId = row.dataset.userId;
             const baseSalaryInput = row.querySelector('.base-salary-input').value;
             const adjustedSalary = row.querySelector('.salary-input').value;
             const comment = row.querySelector('.comment-input').value;
+            const tdsInput = row.querySelector('.tds-input');
+            const rowTdsPercent = tdsInput ? (parseFloat(tdsInput.value) || 0) : globalTdsPercent;
             const tdsAmount = row.querySelector('.tds-amount').dataset.value || 0;
             const finalNet = row.querySelector('.final-net-salary').dataset.value || 0;
 
@@ -2318,7 +2326,7 @@
                 baseAmount: Number(baseSalaryInput),
                 deductions: Number(row.querySelector('.deduction-amount').innerText.replace(/[^0-9.-]+/g, "")),
                 adjustedAmount: Number(adjustedSalary),
-                tdsPercent: tdsPercent,
+                tdsPercent: rowTdsPercent,
                 tdsAmount: Number(tdsAmount),
                 finalNet: Number(finalNet),
                 comment: comment || '',
@@ -2328,7 +2336,8 @@
             // Update user's base salary if changed
             userUpdates.push({
                 id: userId,
-                baseSalary: Number(baseSalaryInput)
+                baseSalary: Number(baseSalaryInput),
+                tdsPercent: rowTdsPercent
             });
         }
 
@@ -2343,6 +2352,7 @@
                 const existingUser = await window.AppDB.get('users', update.id);
                 if (existingUser) {
                     existingUser.baseSalary = update.baseSalary;
+                    existingUser.tdsPercent = update.tdsPercent;
                     await window.AppDB.put('users', existingUser);
                 }
             }
@@ -2367,7 +2377,11 @@
             const attendance = row.querySelector('td:nth-child(3)').innerText.replace(/[\n|]/g, '').trim();
             const deduct = row.querySelector('.deduction-amount').innerText.replace('₹', '').replace(',', '');
             const adjusted = row.querySelector('.salary-input').value;
-            const tdsP = document.getElementById('global-tds-percent').value;
+            const globalTdsPercent = parseFloat(document.getElementById('global-tds-percent').value) || 0;
+            const tdsInput = row.querySelector('.tds-input');
+            const tdsP = tdsInput && tdsInput.value !== ''
+                ? tdsInput.value
+                : globalTdsPercent;
             const tdsA = row.querySelector('.tds-amount').innerText.replace('₹', '').replace(',', '');
             const net = row.querySelector('.final-net-salary').innerText.replace('₹', '').replace(',', '');
             const comment = row.querySelector('.comment-input').value;
