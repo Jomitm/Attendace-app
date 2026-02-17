@@ -1709,9 +1709,14 @@
                                         <h2 class="profile-name">${user.name}</h2>
                                         <p class="profile-roleline">${user.role} <span>|</span> ${user.dept || 'General'}</p>
                                     </div>
-                                    <button onclick="window.AppAuth.logout()" class="action-btn secondary profile-signout-btn">
-                                        <i class="fa-solid fa-right-from-bracket"></i> Sign Out
-                                    </button>
+                                    <div style="display:flex; gap:0.5rem; flex-wrap:wrap; justify-content:flex-end;">
+                                        <button onclick="window.location.reload()" class="action-btn secondary profile-signout-btn" title="Force Refresh">
+                                            <i class="fa-solid fa-rotate-right"></i> Refresh
+                                        </button>
+                                        <button onclick="window.AppAuth.logout()" class="action-btn secondary profile-signout-btn">
+                                            <i class="fa-solid fa-right-from-bracket"></i> Sign Out
+                                        </button>
+                                    </div>
                                 </div>
                                 <div class="profile-presence-wrap">
                                     <span class="badge ${user.status === 'in' ? 'in' : 'out'} profile-presence-badge">${user.status === 'in' ? 'Online' : 'Offline'}</span>
