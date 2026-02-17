@@ -2146,6 +2146,26 @@ textarea:focus {
     font-weight: 700;
 }
 
+.annual-detail-modal {
+    width: min(560px, 92vw);
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 1.1rem;
+    box-shadow: 0 25px 70px rgba(15, 23, 42, 0.25);
+    border: 1px solid #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+}
+
+.annual-detail-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 0.6rem;
+    border-bottom: 1px solid #eef2f7;
+}
+
 .annual-detail-list {
     display: flex;
     flex-direction: column;

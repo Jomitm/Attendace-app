@@ -2645,6 +2645,83 @@
         });
     };
 
+    window.app_toggleAnnualLegendFilter = (key) => {
+        const filters = window.app_annualLegendFilters || {
+            leave: true,
+            event: true,
+            work: true,
+            overdue: true,
+            completed: true
+        };
+        if (Object.prototype.hasOwnProperty.call(filters, key)) {
+            filters[key] = !filters[key];
+            window.app_annualLegendFilters = filters;
+            window.AppUI.renderAnnualPlan().then(html => {
+                const contentArea = document.getElementById('page-content');
+                if (contentArea) {
+                    contentArea.innerHTML = html;
+                }
+            });
+        }
+    };
+
+    window.app_showAnnualDayDetails = async (dateStr) => {
+        if (!dateStr) return;
+        const plans = window._currentPlans || await window.AppCalendar.getPlans();
+        const filters = window.app_annualLegendFilters || {
+            leave: true,
+            event: true,
+            work: true,
+            overdue: true,
+            completed: true
+        };
+        const events = (window.app_getDayEvents(dateStr, plans) || []).filter(ev => {
+            if (ev.type === 'leave') return !!filters.leave;
+            if (ev.type === 'work') return !!filters.work;
+            if (ev.type === 'holiday') return !!filters.event;
+            return !!filters.event;
+        });
+        const listHTML = events.length ? events.map(ev => {
+            const type = ev.type || 'event';
+            const tagStyle = type === 'leave'
+                ? 'background:#fee2e2;color:#991b1b;'
+                : type === 'work'
+                    ? 'background:#e0e7ff;color:#3730a3;'
+                    : type === 'holiday'
+                        ? 'background:#f1f5f9;color:#334155;'
+                        : 'background:#dcfce7;color:#166534;';
+            const tasks = type === 'work' && Array.isArray(ev.plans) && ev.plans.length
+                ? `<ul style="margin:0.5rem 0 0 1rem; padding:0; color:#475569; font-size:0.8rem;">
+                    ${ev.plans.map(p => `<li>${p.task || 'Work plan item'}</li>`).join('')}
+                   </ul>`
+                : '';
+            return `
+                <div style="border:1px solid #eef2f7; border-radius:12px; padding:0.75rem;">
+                    <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                        <span style="padding:2px 8px; border-radius:999px; font-size:0.7rem; font-weight:700; ${tagStyle}">${type.toUpperCase()}</span>
+                        <div style="font-size:0.9rem; color:#1f2937; font-weight:600;">${ev.title || 'Event'}</div>
+                    </div>
+                    ${tasks}
+                </div>`;
+        }).join('') : '<div style="text-align:center; color:#94a3b8; padding:1rem;">No visible items for this date with current filters.</div>';
+        const html = `
+            <div class="annual-detail-modal">
+                <div class="annual-detail-modal-header">
+                    <div>
+                        <div style="font-size:0.8rem; color:#64748b;">Date</div>
+                        <div style="font-size:1rem; font-weight:700; color:#1e1b4b;">${dateStr}</div>
+                    </div>
+                    <button type="button" onclick="this.closest('.modal-overlay').remove()" class="day-plan-close-btn" title="Close">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:0.6rem; max-height:60vh; overflow:auto;">
+                    ${listHTML}
+                </div>
+            </div>`;
+        window.app_showModal(html, 'annual-day-detail-modal');
+    };
+
     window.app_toggleAnnualView = (mode) => {
         window.app_annualViewMode = mode;
         window.AppUI.renderAnnualPlan().then(html => {
@@ -2664,6 +2741,7 @@
             if (contentArea) {
                 contentArea.innerHTML = html;
             }
+            window.app_showAnnualDayDetails(window.app_selectedAnnualDate);
         });
     };
 
