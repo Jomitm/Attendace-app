@@ -2449,7 +2449,7 @@
                 modal.className = 'modal';
                 modal.style.cssText = 'display: flex; position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);';
                 modal.innerHTML = `
-                    <div class="modal-content full-screen-modal" style="width: 100vw; height: 100vh; max-width: none; margin: 0; display: flex; flex-direction: column; padding: 0; overflow: hidden; border-radius: 0; background: white;">
+                    <div class="modal-content full-screen-modal minutes-detail-modal" style="width: 100vw; height: 100vh; max-width: none; margin: 0; display: flex; flex-direction: column; padding: 0; overflow: hidden; border-radius: 0; background: white;">
                         <div style="padding: 1rem 1.5rem; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; flex-shrink: 0;">
                             <div>
                                 <h2 style="margin: 0; font-size: 1.25rem;">${minute.title}</h2>
@@ -2711,6 +2711,38 @@
                 if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
             };
 
+            window.app_filterAttendees = (query) => {
+                const q = String(query || '').toLowerCase().trim();
+                const rows = document.querySelectorAll('.minutes-attendee-list .minutes-attendee-item');
+                rows.forEach(row => {
+                    const name = row.dataset.name || '';
+                    row.style.display = name.includes(q) ? 'flex' : 'none';
+                });
+            };
+
+            window.app_toggleAttendeePick = (checkbox, name) => {
+                const chipWrap = document.getElementById('minutes-attendee-chips');
+                if (!chipWrap) return;
+                const existing = chipWrap.querySelector(`[data-id="${checkbox.value}"]`);
+                if (checkbox.checked) {
+                    if (existing) return;
+                    const chip = document.createElement('div');
+                    chip.className = 'minutes-attendee-chip';
+                    chip.dataset.id = checkbox.value;
+                    chip.innerHTML = `<span>${name}</span><button type="button" onclick="window.app_removeAttendeeChip('${checkbox.value}')">&times;</button>`;
+                    chipWrap.appendChild(chip);
+                } else if (existing) {
+                    existing.remove();
+                }
+            };
+
+            window.app_removeAttendeeChip = (id) => {
+                const input = document.querySelector(`.minutes-attendee-list input[value="${id}"]`);
+                if (input) input.checked = false;
+                const chip = document.querySelector(`#minutes-attendee-chips [data-id="${id}"]`);
+                if (chip) chip.remove();
+            };
+
             window.app_addActionItemRow = () => {
                 const container = document.getElementById('action-items-container');
                 const div = document.createElement('div');
@@ -2738,9 +2770,8 @@
                 // but better to have a multi-select for staff. 
                 // For simplicity, let's treat the attendees field as a list of staff IDs for logic.
                 // WE SHOULD CHANGE THIS TO A SELECT.
-                const attendeeIds = Array.from(e.target.attendee_ids.options)
-                    .filter(opt => opt.selected)
-                    .map(opt => opt.value);
+                const attendeeIds = Array.from(document.querySelectorAll('.minutes-attendee-list input[type="checkbox"]:checked'))
+                    .map(cb => cb.value);
 
                 const actionItems = [];
                 const rows = document.querySelectorAll('#new-minute-form .action-item-row');
@@ -2803,10 +2834,23 @@
                                 </div>
                                 <div class="minutes-field">
                                     <label>Required Approvers (Attendees)</label>
-                                    <select name="attendee_ids" multiple required class="minutes-multi">
-                                        ${allUsers.map(u => `<option value="${u.id}">${u.name} (${u.role})</option>`).join('')}
-                                    </select>
-                                    <p class="minutes-help">Hold Ctrl/Cmd to select multiple staff. These users can edit and must approve.</p>
+                                    <div class="minutes-attendee-picker">
+                                        <div class="minutes-attendee-search">
+                                            <i class="fa-solid fa-magnifying-glass"></i>
+                                            <input type="text" placeholder="Search staff..." oninput="window.app_filterAttendees(this.value)">
+                                        </div>
+                                        <div id="minutes-attendee-chips" class="minutes-attendee-chips"></div>
+                                        <div class="minutes-attendee-list">
+                                            ${allUsers.map(u => `
+                                                <label class="minutes-attendee-item" data-name="${u.name.toLowerCase()}">
+                                                    <input type="checkbox" value="${u.id}" onchange="window.app_toggleAttendeePick(this, '${u.name.replace(/'/g, "\\'")}')">
+                                                    <span class="minutes-attendee-name">${u.name}</span>
+                                                    <span class="minutes-attendee-role">${u.role || 'Staff'}</span>
+                                                </label>
+                                            `).join('')}
+                                        </div>
+                                    </div>
+                                    <p class="minutes-help">Select staff who must approve these minutes.</p>
                                 </div>
                                 <div class="minutes-field">
                                     <label>Discussion Points and Decisions</label>

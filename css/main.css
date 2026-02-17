@@ -3959,6 +3959,120 @@ textarea:focus {
     gap: 0.65rem;
 }
 
+.minutes-attendee-picker {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.minutes-attendee-search {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #dbe4f0;
+    border-radius: 10px;
+    background: #ffffff;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.minutes-attendee-search input {
+    border: none;
+    outline: none;
+    flex: 1;
+    font-size: 0.9rem;
+    background: transparent;
+    color: var(--text-main);
+}
+
+.minutes-attendee-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.minutes-attendee-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.3rem 0.7rem;
+    border-radius: 999px;
+    background: rgba(63, 99, 168, 0.12);
+    color: var(--primary-dark);
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.minutes-attendee-chip button {
+    border: none;
+    background: rgba(63, 99, 168, 0.15);
+    color: var(--primary-dark);
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    cursor: pointer;
+}
+
+.minutes-attendee-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.5rem;
+    max-height: 220px;
+    overflow: auto;
+    padding-right: 4px;
+}
+
+.minutes-attendee-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #fff;
+    cursor: pointer;
+    font-size: 0.8rem;
+}
+
+.minutes-attendee-item input {
+    accent-color: var(--primary);
+}
+
+.minutes-attendee-name {
+    font-weight: 700;
+    color: var(--text-main);
+}
+
+.minutes-attendee-role {
+    margin-left: auto;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+}
+
+.minutes-detail-modal .modal-body-grid {
+    display: grid;
+    grid-template-columns: 1fr 360px;
+    height: 100%;
+}
+
+@media (max-width: 900px) {
+    .minutes-detail-modal .modal-body-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .minutes-attendee-list {
+        grid-template-columns: 1fr;
+        max-height: 180px;
+    }
+}
+
 #new-minute-form {
     max-height: 78vh;
     overflow-y: auto;
