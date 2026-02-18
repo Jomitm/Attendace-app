@@ -7,8 +7,11 @@
     // --- Helper Functions (Local to IIFE) ---
     const renderWorkLog = (logs, collabs = [], targetStaff = null, isViewingSelf = true) => {
         const today = new Date();
-        const startDefault = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+        const startDate = new Date(today);
+        startDate.setDate(startDate.getDate() - 180);
+        const startDefault = startDate.toISOString().split('T')[0];
         const endDefault = today.toISOString().split('T')[0];
+        const targetStaffId = targetStaff ? targetStaff.id : window.AppAuth.getUser().id;
 
         return `
                 <div class="card dashboard-worklog-card">
@@ -23,7 +26,7 @@
                         <button onclick="window.app_filterActivity()" class="dashboard-worklog-go-btn">Go</button>
                     </div>
                     <div id="activity-list" class="dashboard-worklog-list">
-                        ${renderActivityList(logs, startDefault, endDefault, collabs)}
+                        ${renderActivityList(logs, startDefault, endDefault, targetStaffId, collabs)}
                     </div>
                 </div>
             `;
@@ -123,9 +126,9 @@
         }, 500);
         return `
             <div class="card dashboard-team-activity-card">
-                <div class="dashboard-team-activity-head"><h4>Team Activity</h4><span>Last 2 Weeks (Rolling)</span></div>
+                <div class="dashboard-team-activity-head"><h4>Team Activity</h4><span>Last 6 Months (Rolling)</span></div>
                 <div class="dashboard-team-activity-filters"><button onclick="window.app_filterStaffActivity(14)" class="chip-btn dashboard-team-chip">Last 2 Weeks</button><button onclick="window.app_filterStaffActivity(30)" class="chip-btn dashboard-team-chip">Monthly</button></div>
-                <div id="staff-activity-list" class="dashboard-team-activity-list">${renderStaffActivityList(allStaffLogs, 14)}</div>
+                <div id="staff-activity-list" class="dashboard-team-activity-list">${renderStaffActivityList(allStaffLogs, 180)}</div>
             </div>`;
     };
 
@@ -1451,7 +1454,7 @@
                             <button class="${btnClass}" id="attendance-btn" style="width: 100%; padding: 0.75rem; font-size: 0.9rem; border-radius: 10px; margin-top: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; transition: all 0.3s ease;">${btnText} <i class="fa-solid fa-fingerprint"></i></button>
                             <div class="location-text" id="location-text" style="font-size: 0.65rem; color: #94a3b8; text-align: center; margin-top: 0.5rem;"><i class="fa-solid fa-location-dot"></i><span>${isCheckedIn && user.currentLocation ? `Lat: ${Number(user.currentLocation.lat).toFixed(4)}, Lng: ${Number(user.currentLocation.lng).toFixed(4)}` : 'Waiting for location...'}</span></div>
                         </div>
-                        <div class="card" style="flex: 1; min-width: 210px; padding: 1rem; margin-bottom: 0; display: flex; flex-direction: column; background: white; position: relative; ${!isViewingSelf ? 'border: 2px solid #fb923c;' : ''}"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;"><h4 style="margin: 0; font-size: 0.95rem; color: #1e1b4b;"><i class="fa-solid fa-history" style="color: #6366f1; margin-right: 6px;"></i> Recent Activity${!isViewingSelf ? ` <span style="font-size: 0.75rem; color: #f97316; font-weight: 800;">(${targetStaff?.name || 'Staff'})</span>` : ''}</h4><a href="#timesheet" onclick="window.location.hash = 'timesheet'; return false;" style="font-size: 0.7rem; color: #4338ca; text-decoration: none; font-weight: 600;">View All</a></div><div style="display: flex; flex-direction: column; gap: 0.75rem; flex: 1; overflow-y: auto; max-height: 250px; padding-right: 4px;">${recentLogs.length > 0 ? recentLogs.slice(0, 3).map(log => `<div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.5rem; border-bottom: 1px solid #f8fafc;"><div><div style="font-size: 0.8rem; font-weight: 600; color: #334155;">${log.date}</div><div style="font-size: 0.7rem; color: #64748b;">${log.checkIn} - ${log.checkOut || '<span style="color:#10b981;">Active</span>'}</div></div><div style="font-size: 0.8rem; font-weight: 700; color: #4338ca; background: #eef2ff; padding: 2px 8px; border-radius: 6px;">${log.duration || '--'}</div></div>`).join('') : '<p style="font-size: 0.8rem; color: #94a3b8; text-align: center; margin-top: 1rem;">No recent sessions</p>'}</div></div>
+                        <div class="card dashboard-recent-activity-card" style="flex: 1; min-width: 210px; padding: 1rem; margin-bottom: 0; display: flex; flex-direction: column; background: white; position: relative; ${!isViewingSelf ? 'border: 2px solid #fb923c;' : ''}"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;"><h4 style="margin: 0; font-size: 0.95rem; color: #1e1b4b;"><i class="fa-solid fa-history" style="color: #6366f1; margin-right: 6px;"></i> Recent Activity${!isViewingSelf ? ` <span style="font-size: 0.75rem; color: #f97316; font-weight: 800;">(${targetStaff?.name || 'Staff'})</span>` : ''}</h4><a href="#timesheet" onclick="window.location.hash = 'timesheet'; return false;" style="font-size: 0.7rem; color: #4338ca; text-decoration: none; font-weight: 600;">View All</a></div><div class="dashboard-recent-activity-list">${recentLogs.length > 0 ? recentLogs.map(log => `<div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.5rem; border-bottom: 1px solid #f8fafc;"><div><div style="font-size: 0.8rem; font-weight: 600; color: #334155;">${log.date}</div><div style="font-size: 0.7rem; color: #64748b;">${log.checkIn} - ${log.checkOut || '<span style="color:#10b981;">Active</span>'}</div></div><div style="font-size: 0.8rem; font-weight: 700; color: #4338ca; background: #eef2ff; padding: 2px 8px; border-radius: 6px;">${log.duration || '--'}</div></div>`).join('') : '<p style="font-size: 0.8rem; color: #94a3b8; text-align: center; margin-top: 1rem;">No recent sessions</p>'}</div></div>
                         <div style="flex: 1.2; min-width: 210px; display: flex; flex-direction: column; ${!isViewingSelf ? 'border: 2px solid #fb923c; border-radius: 12px;' : ''}">${renderWorkLog(logs, collaborations, targetStaff, isViewingSelf)}</div>
                         ${isAdmin ? `
                             <div style="flex: 1.2; min-width: 210px; display: flex; flex-direction: column;">${renderActivityLog(staffActivities)}</div>

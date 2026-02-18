@@ -154,6 +154,9 @@ body {
     font-weight: 500;
     overflow: hidden;
     white-space: nowrap;
+    --nav-icon-bg: rgba(255, 255, 255, 0.08);
+    --nav-icon-active-bg: var(--primary);
+    --nav-icon-fg: #cbd5f5;
 }
 
 .sidebar.collapsed .nav-item {
@@ -169,8 +172,21 @@ body {
 }
 
 .nav-item i {
-    min-width: 20px;
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     text-align: center;
+    border-radius: 10px;
+    font-size: 0.95rem;
+    background: var(--nav-icon-bg);
+    color: var(--nav-icon-fg);
+    transition: transform var(--motion-fast) var(--easing-standard),
+        background var(--motion-fast) var(--easing-standard),
+        color var(--motion-fast) var(--easing-standard),
+        box-shadow var(--motion-fast) var(--easing-standard);
 }
 
 .nav-item:hover,
@@ -183,6 +199,36 @@ body {
     background-color: var(--primary);
     box-shadow: var(--shadow-md);
 }
+
+.nav-item:hover i {
+    transform: translateY(-1px);
+}
+
+.nav-item.active i {
+    background: var(--nav-icon-active-bg);
+    color: #fff;
+    box-shadow: 0 10px 18px rgba(15, 23, 42, 0.35);
+}
+
+.sidebar.collapsed .nav-item i {
+    width: 38px;
+    height: 38px;
+    min-width: 38px;
+    margin: 0 auto;
+    font-size: 1rem;
+}
+
+.nav-item[data-page="dashboard"] { --nav-icon-bg: rgba(63, 99, 168, 0.25); --nav-icon-active-bg: #3f63a8; --nav-icon-fg: #a9c1ff; }
+.nav-item[data-page="staff-directory"] { --nav-icon-bg: rgba(16, 185, 129, 0.2); --nav-icon-active-bg: #10b981; --nav-icon-fg: #b7f7dd; }
+.nav-item[data-page="policies"] { --nav-icon-bg: rgba(245, 158, 11, 0.2); --nav-icon-active-bg: #f59e0b; --nav-icon-fg: #fde7b0; }
+.nav-item[data-page="annual-plan"] { --nav-icon-bg: rgba(99, 102, 241, 0.2); --nav-icon-active-bg: #6366f1; --nav-icon-fg: #c7c9ff; }
+.nav-item[data-page="timesheet"] { --nav-icon-bg: rgba(14, 165, 233, 0.18); --nav-icon-active-bg: #0ea5e9; --nav-icon-fg: #b7e9ff; }
+.nav-item[data-page="profile"] { --nav-icon-bg: rgba(236, 72, 153, 0.18); --nav-icon-active-bg: #ec4899; --nav-icon-fg: #ffc0e2; }
+.nav-item[data-page="minutes"] { --nav-icon-bg: rgba(139, 92, 246, 0.2); --nav-icon-active-bg: #8b5cf6; --nav-icon-fg: #decaff; }
+.nav-item[data-page="admin"] { --nav-icon-bg: rgba(249, 115, 22, 0.2); --nav-icon-active-bg: #f97316; --nav-icon-fg: #ffd2ad; }
+.nav-item[data-page="master-sheet"] { --nav-icon-bg: rgba(20, 184, 166, 0.2); --nav-icon-active-bg: #14b8a6; --nav-icon-fg: #baf4ee; }
+.nav-item[data-page="salary"] { --nav-icon-bg: rgba(34, 197, 94, 0.2); --nav-icon-active-bg: #22c55e; --nav-icon-fg: #c9f7d9; }
+.nav-item[data-page="widget"] { --nav-icon-bg: rgba(148, 163, 184, 0.2); --nav-icon-active-bg: #64748b; --nav-icon-fg: #e2e8f0; }
 
 .nav-item.has-new-msg,
 .mobile-nav-item.has-new-msg {
@@ -313,15 +359,42 @@ body {
     min-width: 0;
     white-space: nowrap;
     overflow: hidden;
+    --nav-icon-bg: rgba(31, 41, 55, 0.08);
+    --nav-icon-active-bg: var(--primary);
+    --nav-icon-fg: #6b7280;
 }
 
 .mobile-nav-item i {
-    font-size: 1.1rem;
+    font-size: 1rem;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--nav-icon-bg);
+    color: var(--nav-icon-fg);
 }
 
 .mobile-nav-item.active {
     color: var(--primary);
 }
+
+.mobile-nav-item.active i {
+    background: var(--nav-icon-active-bg);
+    color: #fff;
+}
+
+.mobile-nav-item[data-page="dashboard"] { --nav-icon-bg: rgba(63, 99, 168, 0.2); --nav-icon-active-bg: #3f63a8; }
+.mobile-nav-item[data-page="staff-directory"] { --nav-icon-bg: rgba(16, 185, 129, 0.18); --nav-icon-active-bg: #10b981; }
+.mobile-nav-item[data-page="policies"] { --nav-icon-bg: rgba(245, 158, 11, 0.18); --nav-icon-active-bg: #f59e0b; }
+.mobile-nav-item[data-page="annual-plan"] { --nav-icon-bg: rgba(99, 102, 241, 0.18); --nav-icon-active-bg: #6366f1; }
+.mobile-nav-item[data-page="timesheet"] { --nav-icon-bg: rgba(14, 165, 233, 0.18); --nav-icon-active-bg: #0ea5e9; }
+.mobile-nav-item[data-page="profile"] { --nav-icon-bg: rgba(236, 72, 153, 0.18); --nav-icon-active-bg: #ec4899; }
+.mobile-nav-item[data-page="minutes"] { --nav-icon-bg: rgba(139, 92, 246, 0.18); --nav-icon-active-bg: #8b5cf6; }
+.mobile-nav-item[data-page="admin"] { --nav-icon-bg: rgba(249, 115, 22, 0.18); --nav-icon-active-bg: #f97316; }
+.mobile-nav-item[data-page="master-sheet"] { --nav-icon-bg: rgba(20, 184, 166, 0.18); --nav-icon-active-bg: #14b8a6; }
+.mobile-nav-item[data-page="salary"] { --nav-icon-bg: rgba(34, 197, 94, 0.18); --nav-icon-active-bg: #22c55e; }
 
 /* Responsive Logic */
 @media (max-width: 768px) {
@@ -1403,6 +1476,8 @@ textarea:focus {
     display: flex;
     flex-direction: column;
     height: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
 .dashboard-worklog-head {
@@ -1462,10 +1537,13 @@ textarea:focus {
 .dashboard-worklog-list {
     flex: 1;
     overflow-y: auto;
-    min-height: 120px;
-    max-height: 180px;
+    min-height: 0;
     font-size: 0.75rem;
     padding-right: 5px;
+    padding-bottom: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
 }
 
 .dashboard-team-activity-card {
@@ -1473,6 +1551,8 @@ textarea:focus {
     display: flex;
     flex-direction: column;
     height: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
 .dashboard-team-activity-head {
@@ -1509,7 +1589,11 @@ textarea:focus {
     font-size: 0.75rem;
     padding-right: 5px;
     scroll-behavior: smooth;
-    max-height: 180px;
+    min-height: 0;
+    padding-bottom: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
 }
 
 .dashboard-staff-directory-card {
@@ -1517,6 +1601,8 @@ textarea:focus {
     display: flex;
     flex-direction: column;
     height: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
 .dashboard-staff-directory-head {
@@ -1541,10 +1627,39 @@ textarea:focus {
     overflow-y: auto;
     font-size: 0.75rem;
     padding-right: 5px;
-    max-height: 180px;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+}
+
+.dashboard-recent-activity-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    flex: 1;
+    overflow-y: auto;
+    padding-right: 4px;
+    min-height: 0;
+    padding-bottom: 0;
+}
+
+.dashboard-recent-activity-card {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.dashboard-worklog-list .dashboard-activity-date,
+.dashboard-team-activity-list .dashboard-activity-date {
+    margin: 0;
+}
+
+.dashboard-worklog-list .dashboard-activity-item {
+    margin-bottom: 0;
+}
+
+.dashboard-team-activity-list .dashboard-staff-activity-item {
+    margin-bottom: 0;
 }
 
 .dashboard-staff-row {
