@@ -1190,7 +1190,7 @@
                 window.AppCalendar ? window.AppCalendar.getPlans() : { leaves: [], events: [] },
                 window.AppAnalytics.getAllStaffActivities(14),
                 isAdmin ? window.AppLeaves.getPendingLeaves() : Promise.resolve([]),
-                isAdmin ? window.AppDB.getAll('users') : Promise.resolve([]),
+                window.AppDB.getAll('users'),
                 window.AppCalendar ? window.AppCalendar.getCollaborations(targetStaffId) : Promise.resolve([]),
                 isAdmin ? window.AppDB.getAll('leaves') : Promise.resolve([])
             ]);
@@ -1329,8 +1329,9 @@
             } else {
                 summaryHTML = `
                 <div class="dashboard-summary-row">
-                    <div style="flex: 2; min-width: 350px; display: flex; flex-direction: column;">${renderActivityLog(staffActivities)}</div>
-                    <div style="flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 1rem;">${renderYearlyPlan(calendarPlans)}${heroHTML}</div>
+                    <div style="flex: 2; min-width: 320px; display: flex; flex-direction: column;">${renderActivityLog(staffActivities)}</div>
+                    <div style="flex: 1.2; min-width: 240px; display: flex; flex-direction: column;">${renderStaffDirectory(allUsers, notifications, user)}</div>
+                    <div style="flex: 1; min-width: 280px; display: flex; flex-direction: column; gap: 1rem;">${renderYearlyPlan(calendarPlans)}${heroHTML}</div>
                 </div>
                 <div class="dashboard-stats-row">
                     ${renderStatsCard(monthlyStats.label, 'Monthly Stats', monthlyStats)}
