@@ -26,8 +26,8 @@ const Widget = {
 
     toggle() {
         if (!this.isWidgetMode) {
-            const width = 420;
-            const height = 500;
+            const width = 320;
+            const height = 420;
             const left = window.screen.width - width - 20;
             const top = 40;
 
