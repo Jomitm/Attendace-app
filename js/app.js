@@ -283,6 +283,8 @@
             if (hash === 'dashboard') {
                 contentArea.innerHTML = await window.AppUI.renderDashboard();
                 setupDashboardEvents();
+            } else if (hash === 'staff-directory') {
+                contentArea.innerHTML = await window.AppUI.renderStaffDirectoryPage();
             } else if (hash === 'policies') {
                 if (window.AppPolicies && typeof window.AppPolicies.render === 'function') {
                     contentArea.innerHTML = await window.AppPolicies.render();
@@ -319,6 +321,9 @@
                 contentArea.innerHTML = await window.AppUI.renderAdmin();
                 window.AppAnalytics.initAdminCharts();
                 startAdminRealtimeListener();
+            }
+            if (window.app_updateStaffNavIndicator) {
+                await window.app_updateStaffNavIndicator();
             }
         } catch (e) {
             console.error("Render Error:", e);
@@ -1910,6 +1915,7 @@
         const formData = new FormData(e.target);
         const toUserId = formData.get('toUserId');
         const reminderMsg = formData.get('reminderMessage') || '';
+        const reminderLink = formData.get('reminderLink') || '';
         const taskTitle = formData.get('taskTitle') || '';
         const taskDesc = formData.get('taskDescription') || '';
         const taskDue = formData.get('taskDueDate') || '';
@@ -1939,6 +1945,18 @@
                     date: nowIso,
                     read: false
                 });
+                await window.AppDB.add('staff_messages', {
+                    id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                    type: 'text',
+                    message: reminderMsg.trim(),
+                    link: reminderLink.trim(),
+                    fromId: currentUser.id,
+                    fromName: currentUser.name,
+                    toId: toUserId,
+                    toName: user.name,
+                    createdAt: nowIso,
+                    read: false
+                });
             }
             if (taskTitle.trim()) {
                 user.notifications.unshift({
@@ -1954,15 +1972,193 @@
                     date: nowIso,
                     read: false
                 });
+                await window.AppDB.add('staff_messages', {
+                    id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                    type: 'task',
+                    title: taskTitle.trim(),
+                    description: taskDesc.trim(),
+                    dueDate: taskDue || '',
+                    status: 'pending',
+                    fromId: currentUser.id,
+                    fromName: currentUser.name,
+                    toId: toUserId,
+                    toName: user.name,
+                    createdAt: nowIso,
+                    read: false,
+                    history: [{ action: 'created', byId: currentUser.id, byName: currentUser.name, at: nowIso }]
+                });
             }
 
             await window.AppAuth.updateUser(user);
             alert('Notification sent!');
             document.getElementById('notify-modal').style.display = 'none';
+            if (window.app_updateStaffNavIndicator) {
+                await window.app_updateStaffNavIndicator();
+            }
         } catch (err) {
             alert('Failed to send: ' + err.message);
         }
     }
+
+    window.app_openStaffThread = async (userId) => {
+        window.app_staffThreadId = userId;
+        const currentUser = window.AppAuth.getUser();
+        if (!currentUser) return;
+        const messages = await window.AppDB.getAll('staff_messages');
+        const updates = messages.filter(m => m.toId === currentUser.id && m.fromId === userId && !m.read);
+        for (const msg of updates) {
+            msg.read = true;
+            msg.readAt = new Date().toISOString();
+            await window.AppDB.put('staff_messages', msg);
+        }
+        const contentArea = document.getElementById('page-content');
+        if (contentArea) {
+            contentArea.innerHTML = await window.AppUI.renderStaffDirectoryPage();
+        }
+        if (window.app_updateStaffNavIndicator) {
+            await window.app_updateStaffNavIndicator();
+        }
+    };
+
+    window.app_sendStaffText = async (e) => {
+        e.preventDefault();
+        const currentUser = window.AppAuth.getUser();
+        const formData = new FormData(e.target);
+        const toUserId = formData.get('toUserId');
+        const message = (formData.get('message') || '').trim();
+        const link = (formData.get('link') || '').trim();
+        if (!message) {
+            alert('Please type a message.');
+            return;
+        }
+        const toUser = await window.AppDB.get('users', toUserId);
+        if (!toUser) {
+            alert('Staff member not found.');
+            return;
+        }
+        await window.AppDB.add('staff_messages', {
+            id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            type: 'text',
+            message,
+            link,
+            fromId: currentUser.id,
+            fromName: currentUser.name,
+            toId: toUserId,
+            toName: toUser.name,
+            createdAt: new Date().toISOString(),
+            read: false
+        });
+        e.target.reset();
+        const contentArea = document.getElementById('page-content');
+        if (contentArea) {
+            contentArea.innerHTML = await window.AppUI.renderStaffDirectoryPage();
+        }
+        if (window.app_updateStaffNavIndicator) {
+            await window.app_updateStaffNavIndicator();
+        }
+    };
+
+    window.app_sendStaffTask = async (e) => {
+        e.preventDefault();
+        const currentUser = window.AppAuth.getUser();
+        const formData = new FormData(e.target);
+        const toUserId = formData.get('toUserId');
+        const title = (formData.get('taskTitle') || '').trim();
+        const description = (formData.get('taskDescription') || '').trim();
+        const dueDate = (formData.get('taskDueDate') || '').trim();
+        if (!title) {
+            alert('Please provide a task title.');
+            return;
+        }
+        const toUser = await window.AppDB.get('users', toUserId);
+        if (!toUser) {
+            alert('Staff member not found.');
+            return;
+        }
+        await window.AppDB.add('staff_messages', {
+            id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            type: 'task',
+            title,
+            description,
+            dueDate,
+            status: 'pending',
+            fromId: currentUser.id,
+            fromName: currentUser.name,
+            toId: toUserId,
+            toName: toUser.name,
+            createdAt: new Date().toISOString(),
+            read: false,
+            history: [{ action: 'created', byId: currentUser.id, byName: currentUser.name, at: new Date().toISOString() }]
+        });
+        e.target.reset();
+        const contentArea = document.getElementById('page-content');
+        if (contentArea) {
+            contentArea.innerHTML = await window.AppUI.renderStaffDirectoryPage();
+        }
+        if (window.app_updateStaffNavIndicator) {
+            await window.app_updateStaffNavIndicator();
+        }
+    };
+
+    window.app_respondStaffTask = async (messageId, response) => {
+        const currentUser = window.AppAuth.getUser();
+        const msg = await window.AppDB.get('staff_messages', messageId);
+        if (!msg) {
+            alert('Task not found.');
+            return;
+        }
+        if (msg.toId !== currentUser.id) {
+            alert('Only the recipient can approve or reject this task.');
+            return;
+        }
+        let reason = '';
+        if (response === 'rejected') {
+            reason = prompt('Optional: add a rejection reason', '') || '';
+        }
+        msg.status = response;
+        msg.respondedAt = new Date().toISOString();
+        if (reason) msg.rejectReason = reason;
+        if (!msg.history) msg.history = [];
+        msg.history.unshift({ action: response, byId: currentUser.id, byName: currentUser.name, at: msg.respondedAt, reason });
+        await window.AppDB.put('staff_messages', msg);
+
+        const sender = await window.AppDB.get('users', msg.fromId);
+        if (sender) {
+            if (!sender.notifications) sender.notifications = [];
+            sender.notifications.unshift({
+                id: `taskresp_${Date.now()}`,
+                type: 'task_response',
+                message: `${currentUser.name} ${response} a task.`,
+                title: msg.title,
+                taggedByName: currentUser.name,
+                status: response,
+                reason,
+                date: msg.respondedAt,
+                read: false
+            });
+            await window.AppDB.put('users', sender);
+        }
+        const contentArea = document.getElementById('page-content');
+        if (contentArea) {
+            contentArea.innerHTML = await window.AppUI.renderStaffDirectoryPage();
+        }
+        if (window.app_updateStaffNavIndicator) {
+            await window.app_updateStaffNavIndicator();
+        }
+    };
+
+    window.app_updateStaffNavIndicator = async () => {
+        const currentUser = window.AppAuth.getUser();
+        if (!currentUser) return;
+        const navTargets = document.querySelectorAll('[data-page="staff-directory"]');
+        if (!navTargets.length) return;
+        const messages = await window.AppDB.getAll('staff_messages');
+        const hasUnread = messages.some(m => m.toId === currentUser.id && !m.read);
+        navTargets.forEach(el => {
+            if (hasUnread) el.classList.add('has-new-msg');
+            else el.classList.remove('has-new-msg');
+        });
+    };
 
     window.app_handleTagDecision = async (notifId, response) => {
         const user = window.AppAuth.getUser();
@@ -2099,11 +2295,29 @@
         try {
             if (!window.AppCalendar) throw new Error('Calendar module not available.');
             await window.AppCalendar.addWorkPlanTask(date, userId, taskText.trim());
+            await window.AppDB.add('staff_messages', {
+                id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                type: 'task',
+                title: taskText.trim(),
+                description: '',
+                dueDate: date,
+                status: 'pending',
+                fromId: currentUser.id,
+                fromName: currentUser.name,
+                toId: userId,
+                toName: (await window.AppDB.get('users', userId))?.name || 'Staff',
+                createdAt: new Date().toISOString(),
+                read: false,
+                history: [{ action: 'created', byId: currentUser.id, byName: currentUser.name, at: new Date().toISOString() }]
+            });
             alert('Task added successfully.');
             const contentArea = document.getElementById('page-content');
             if (contentArea) {
                 contentArea.innerHTML = await window.AppUI.renderDashboard();
                 if (window.setupDashboardEvents) window.setupDashboardEvents();
+            }
+            if (window.app_updateStaffNavIndicator) {
+                await window.app_updateStaffNavIndicator();
             }
         } catch (err) {
             alert('Failed to add task: ' + err.message);

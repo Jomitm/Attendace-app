@@ -942,6 +942,10 @@
                                         Message
                                         <textarea name="reminderMessage" rows="5" placeholder="Type your reminder here..."></textarea>
                                     </label>
+                                    <label>
+                                        Link (optional)
+                                        <input type="url" name="reminderLink" placeholder="https://example.org">
+                                    </label>
                                 </div>
                                 <div class="notify-col">
                                     <h4>Send Task</h4>
@@ -1459,6 +1463,137 @@
                     </div>
                     ${summaryHTML}
                 </div>`;
+        },
+
+        async renderStaffDirectoryPage() {
+            const currentUser = window.AppAuth.getUser();
+            const allUsers = await window.AppDB.getAll('users');
+            const messages = await window.AppDB.getAll('staff_messages');
+            const others = allUsers.filter(u => u.id !== currentUser.id).sort((a, b) => a.name.localeCompare(b.name));
+            if (!window.app_staffThreadId && others.length > 0) {
+                window.app_staffThreadId = others[0].id;
+            }
+            const selected = allUsers.find(u => u.id === window.app_staffThreadId);
+
+            const escapeHtml = (str) => String(str || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+            const linkify = (text) => escapeHtml(text).replace(
+                /(https?:\/\/[^\s]+)/g,
+                '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
+            );
+
+            const conversation = messages
+                .filter(m => (m.fromId === currentUser.id && m.toId === window.app_staffThreadId)
+                    || (m.fromId === window.app_staffThreadId && m.toId === currentUser.id))
+                .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+
+            const textMessages = conversation.filter(m => m.type === 'text');
+            const taskMessages = conversation.filter(m => m.type === 'task');
+
+            const unreadByUser = {};
+            messages.forEach(m => {
+                if (m.toId === currentUser.id && !m.read) {
+                    unreadByUser[m.fromId] = (unreadByUser[m.fromId] || 0) + 1;
+                }
+            });
+
+            const staffList = others.map(u => {
+                const unread = unreadByUser[u.id] || 0;
+                const isActive = u.id === window.app_staffThreadId;
+                return `
+                    <button class="staff-directory-item ${isActive ? 'active' : ''}" onclick="window.app_openStaffThread('${u.id}')">
+                        <div class="staff-directory-avatar">
+                            <img src="${u.avatar}" alt="${u.name}">
+                        </div>
+                        <div class="staff-directory-info">
+                            <div class="staff-directory-name">${u.name}</div>
+                            <div class="staff-directory-role">${u.role || 'Staff'}</div>
+                        </div>
+                        ${unread ? `<span class="staff-directory-badge">${unread}</span>` : ''}
+                    </button>
+                `;
+            }).join('');
+
+            const textHistory = textMessages.length ? textMessages.map(m => `
+                <div class="staff-message ${m.fromId === currentUser.id ? 'outgoing' : 'incoming'}">
+                    <div class="staff-message-meta">${m.fromName} • ${new Date(m.createdAt).toLocaleString()}</div>
+                    <div class="staff-message-body">${linkify(m.message || '')}</div>
+                    ${m.link ? `<div class="staff-message-link"><a href="${m.link}" target="_blank" rel="noopener noreferrer">${m.link}</a></div>` : ''}
+                </div>
+            `).join('') : '<div class="staff-message-empty">No messages yet.</div>';
+
+            const taskHistory = taskMessages.length ? taskMessages.map(m => `
+                <div class="staff-task-card">
+                    <div class="staff-task-head">
+                        <div>
+                            <div class="staff-task-title">${escapeHtml(m.title || 'Task')}</div>
+                            <div class="staff-task-meta">From ${m.fromName} • Due ${m.dueDate || 'No date'}</div>
+                        </div>
+                        <span class="staff-task-status ${m.status || 'pending'}">${(m.status || 'pending').toUpperCase()}</span>
+                    </div>
+                    <div class="staff-task-desc">${escapeHtml(m.description || '')}</div>
+                    ${m.status === 'pending' && m.toId === currentUser.id ? `
+                        <div class="staff-task-actions">
+                            <button onclick="window.app_respondStaffTask('${m.id}', 'approved')" class="staff-task-btn approve">Approve</button>
+                            <button onclick="window.app_respondStaffTask('${m.id}', 'rejected')" class="staff-task-btn reject">Reject</button>
+                        </div>
+                    ` : ''}
+                    ${m.rejectReason ? `<div class="staff-task-reason">Reason: ${escapeHtml(m.rejectReason)}</div>` : ''}
+                </div>
+            `).join('') : '<div class="staff-message-empty">No tasks yet.</div>';
+
+            return `
+                <div class="staff-directory-page">
+                    <aside class="staff-directory-panel">
+                        <div class="staff-directory-panel-head">
+                            <h3>Staff Directory</h3>
+                            <span>Messages & tasks</span>
+                        </div>
+                        <div class="staff-directory-list">
+                            ${staffList || '<div class="staff-message-empty">No staff found.</div>'}
+                        </div>
+                    </aside>
+                    <section class="staff-thread-panel">
+                        <div class="staff-thread-head">
+                            <div>
+                                <h3>${selected ? selected.name : 'Select a staff member'}</h3>
+                                <span>${selected ? (selected.role || 'Staff') : ''}</span>
+                            </div>
+                        </div>
+                        <div class="staff-thread-columns">
+                            <div class="staff-thread-column">
+                                <div class="staff-thread-column-head">Text Messages</div>
+                                <form class="staff-thread-form" onsubmit="window.app_sendStaffText(event)">
+                                    <input type="hidden" name="toUserId" value="${selected ? selected.id : ''}">
+                                    <textarea name="message" rows="3" placeholder="Type a message... (text + links only)"></textarea>
+                                    <input type="url" name="link" placeholder="Optional link (https://...)">
+                                    <button type="submit" class="action-btn">Send Message</button>
+                                </form>
+                                <div class="staff-thread-history">
+                                    ${textHistory}
+                                </div>
+                            </div>
+                            <div class="staff-thread-column">
+                                <div class="staff-thread-column-head">Tasks</div>
+                                <form class="staff-thread-form" onsubmit="window.app_sendStaffTask(event)">
+                                    <input type="hidden" name="toUserId" value="${selected ? selected.id : ''}">
+                                    <input type="text" name="taskTitle" placeholder="Task title">
+                                    <textarea name="taskDescription" rows="2" placeholder="Task details"></textarea>
+                                    <input type="date" name="taskDueDate">
+                                    <button type="submit" class="action-btn">Send Task</button>
+                                </form>
+                                <div class="staff-thread-history">
+                                    ${taskHistory}
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            `;
         },
 
         async renderAnnualPlan() {
