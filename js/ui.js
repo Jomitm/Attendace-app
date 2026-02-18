@@ -57,6 +57,75 @@
         });
     };
 
+    let dailyPlanReminderResolve = null;
+    const showDailyPlanReminderModal = ({ dateStr, userId, hasPlan, planItems = [], legacyPlan = '' }) => {
+        return new Promise((resolve) => {
+            dailyPlanReminderResolve = resolve;
+            const modalId = 'daily-plan-reminder-modal';
+            document.getElementById(modalId)?.remove();
+            const hour = new Date().getHours();
+            const dayPart = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
+            const greeting = dayPart === 'morning'
+                ? 'Good Morning'
+                : dayPart === 'afternoon'
+                    ? 'Good Afternoon'
+                    : 'Good Evening';
+            const iconClass = dayPart === 'evening' ? 'fa-cloud-moon' : 'fa-sun';
+
+            const taskListHTML = hasPlan
+                ? `<div class="daily-plan-reminder-list">
+                        ${(planItems || []).slice(0, 6).map((p, idx) => `
+                            <div class="daily-plan-reminder-item">
+                                <span class="daily-plan-reminder-index">${idx + 1}</span>
+                                <span>${p.task || 'Planned task'}</span>
+                            </div>
+                        `).join('') || `<div class="daily-plan-reminder-item"><span class="daily-plan-reminder-index">1</span><span>${legacyPlan || 'Planned task'}</span></div>`}
+                        ${(planItems || []).length > 6 ? `<div class="daily-plan-reminder-more">+ ${(planItems || []).length - 6} more task(s)</div>` : ''}
+                   </div>`
+                : `<div class="daily-plan-reminder-empty">No tasks planned yet for today.</div>`;
+
+            const html = `
+                <div class="modal-overlay" id="${modalId}" style="display:flex;">
+                    <div class="modal-content daily-plan-reminder-modal daily-theme-${dayPart}">
+                        <div class="daily-plan-reminder-head">
+                            <div class="daily-plan-reminder-badge"><i class="fa-solid ${iconClass}"></i></div>
+                            <div>
+                                <h3>${greeting}</h3>
+                                <p>You are checked in for ${dateStr}</p>
+                            </div>
+                        </div>
+                        <div class="daily-plan-reminder-body">
+                            <p class="daily-plan-reminder-note">${hasPlan ? "Here is your plan for today:" : "Start your day with a clear plan to stay focused."}</p>
+                            ${taskListHTML}
+                        </div>
+                        <div class="daily-plan-reminder-actions">
+                            <button type="button" class="action-btn secondary" onclick="window.app_handleDailyPlanReminderAction('later')">Later</button>
+                            <button type="button" class="action-btn" onclick="window.app_handleDailyPlanReminderAction('open', '${dateStr}', '${userId}')">${hasPlan ? 'Open Plan' : 'Create Plan'}</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            if (typeof window.app_showModal === 'function') {
+                window.app_showModal(html, modalId);
+            } else {
+                const container = document.getElementById('modal-container') || document.body;
+                container.insertAdjacentHTML('beforeend', html);
+            }
+        });
+    };
+
+    window.app_handleDailyPlanReminderAction = (action, dateStr, userId) => {
+        document.getElementById('daily-plan-reminder-modal')?.remove();
+        if (action === 'open' && typeof window.app_openDayPlan === 'function') {
+            window.app_openDayPlan(dateStr, userId);
+        }
+        if (dailyPlanReminderResolve) {
+            dailyPlanReminderResolve(action);
+            dailyPlanReminderResolve = null;
+        }
+    };
+
     const renderActivityList = (allLogs, startStr, endStr, targetStaffId, collabs = []) => {
         const start = new Date(startStr);
         const end = new Date(endStr);
@@ -1068,17 +1137,18 @@
 
                 const today = new Date();
                 const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-                const key = `daily-plan-reminder-${user.id}-${dateStr}`;
-                if (localStorage.getItem(key)) return;
-
                 const plan = await window.AppCalendar.getWorkPlan(user.id, dateStr);
-                if (plan && (plan.plans?.length || plan.plan)) return;
+                const planItems = Array.isArray(plan?.plans) ? plan.plans : [];
+                const hasModernPlans = planItems.length > 0;
+                const hasLegacyPlan = !!plan?.plan;
 
-                localStorage.setItem(key, 'true');
-                const shouldOpen = confirm('You checked in today. Do you want to plan your day now?');
-                if (shouldOpen && typeof window.app_openDayPlan === 'function') {
-                    window.app_openDayPlan(dateStr, user.id);
-                }
+                await showDailyPlanReminderModal({
+                    dateStr,
+                    userId: user.id,
+                    hasPlan: hasModernPlans || hasLegacyPlan,
+                    planItems: planItems,
+                    legacyPlan: plan?.plan || ''
+                });
             } catch (err) {
                 console.warn('Daily plan reminder failed:', err);
             }
