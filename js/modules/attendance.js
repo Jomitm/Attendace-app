@@ -33,12 +33,12 @@
             return true;
         }
 
-        async checkOut(description = '', lat = null, lng = null, address = 'Detected Location', locationMismatched = false, explanation = '') {
+        async checkOut(description = '', lat = null, lng = null, address = 'Detected Location', locationMismatched = false, explanation = '', options = {}) {
             const user = window.AppAuth.getUser();
             if (!user || user.status !== 'in') throw new Error("User is not checked in");
 
             const checkInTime = new Date(user.lastCheckIn);
-            const checkOutTime = new Date();
+            const checkOutTime = options.checkOutTime ? new Date(options.checkOutTime) : new Date();
             const durationMs = checkOutTime - checkInTime;
 
             // Get Activity Stats
@@ -64,6 +64,11 @@
                 locationMismatched: locationMismatched,
                 locationExplanation: explanation || '',
                 activityScore: activityStats.score,
+                autoCheckout: !!options.autoCheckout,
+                autoCheckoutReason: options.autoCheckoutReason || '',
+                autoCheckoutAt: options.autoCheckoutAt || null,
+                autoCheckoutRequiresApproval: !!options.autoCheckoutRequiresApproval,
+                autoCheckoutExtraApproved: options.autoCheckoutExtraApproved ?? null,
                 synced: false // For future sync logic
             };
 

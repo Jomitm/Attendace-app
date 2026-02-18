@@ -4146,6 +4146,20 @@ textarea:focus {
         grid-template-columns: 1fr;
         max-height: 180px;
     }
+    .minutes-detail-modal .modal-body-grid {
+        grid-template-columns: 1fr !important;
+    }
+    .minutes-detail-modal .modal-body-grid > div {
+        padding: 1rem !important;
+    }
+    .minutes-detail-modal .action-item-row {
+        grid-template-columns: 1fr !important;
+        gap: 0.6rem !important;
+    }
+    .minutes-detail-modal .action-item-row input,
+    .minutes-detail-modal .action-item-row select {
+        width: 100% !important;
+    }
 }
 
 #new-minute-form {

@@ -379,11 +379,47 @@
 
     // --- Event Handlers ---
 
+    const getAutoCheckoutTime = (checkInDate) => {
+        const tenPm = new Date(checkInDate);
+        tenPm.setHours(22, 0, 0, 0);
+        const eightHoursLater = new Date(checkInDate.getTime() + (8 * 60 * 60 * 1000));
+        return eightHoursLater > tenPm ? eightHoursLater : tenPm;
+    };
+
+    const notifyAdminsAutoCheckout = async (staffUser, checkInDate, autoCheckoutAt) => {
+        try {
+            const users = await window.AppDB.getAll('users');
+            const dateStr = checkInDate.toISOString().split('T')[0];
+            const key = `auto-checkout-${staffUser.id}-${dateStr}`;
+            const message = `${staffUser.name} did not check out by 10:00 PM. Auto check-out applied (${autoCheckoutAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}). Approve extra hours if applicable.`;
+
+            const admins = users.filter(u => u.isAdmin || u.role === 'Administrator');
+            await Promise.all(admins.map(admin => {
+                if (!admin.notifications) admin.notifications = [];
+                const already = admin.notifications.some(n => n.key === key);
+                if (!already) {
+                    admin.notifications.unshift({
+                        key,
+                        type: 'auto_checkout',
+                        message,
+                        staffId: staffUser.id,
+                        date: new Date().toISOString()
+                    });
+                    return window.AppDB.put('users', admin);
+                }
+                return Promise.resolve();
+            }));
+        } catch (err) {
+            console.warn('Failed to notify admins about auto checkout:', err);
+        }
+    };
+
     function startTimer() {
         if (timerInterval) clearInterval(timerInterval);
 
         const updateTimerUI = async () => {
             const { status, lastCheckIn } = await window.AppAttendance.getStatus();
+            const user = window.AppAuth.getUser();
             const display = document.getElementById('timer-display');
             const countdownContainer = document.getElementById('countdown-container');
             const overtimeContainer = document.getElementById('overtime-container');
@@ -433,6 +469,44 @@
                             timerLabel.style.color = '#b45309';
                         }
                         return;
+                    }
+
+                    if (user && user.id) {
+                        const autoCheckoutAt = getAutoCheckoutTime(checkInDate);
+                        const autoKey = `auto-checkout-${user.id}-${checkInLocalDate}`;
+                        if (now >= autoCheckoutAt.getTime() && !sessionStorage.getItem(autoKey)) {
+                            sessionStorage.setItem(autoKey, '1');
+                            (async () => {
+                                try {
+                                    await window.AppAttendance.checkOut(
+                                        'Auto check-out: did not check out by 10:00 PM',
+                                        null,
+                                        null,
+                                        'Auto checkout',
+                                        false,
+                                        '',
+                                        {
+                                            autoCheckout: true,
+                                            autoCheckoutReason: 'Auto check-out at 10:00 PM',
+                                            autoCheckoutAt: autoCheckoutAt.toISOString(),
+                                            autoCheckoutRequiresApproval: true,
+                                            autoCheckoutExtraApproved: false,
+                                            checkOutTime: autoCheckoutAt.toISOString()
+                                        }
+                                    );
+                                    await notifyAdminsAutoCheckout(user, checkInDate, autoCheckoutAt);
+                                    const contentArea = document.getElementById('page-content');
+                                    if (contentArea) {
+                                        contentArea.innerHTML = await window.AppUI.renderDashboard();
+                                        if (window.setupDashboardEvents) window.setupDashboardEvents();
+                                    }
+                                } catch (e) {
+                                    console.warn('Auto check-out failed:', e);
+                                    sessionStorage.removeItem(autoKey);
+                                }
+                            })();
+                            return;
+                        }
                     }
 
                     // Countdown / Overtime Logic
@@ -1503,30 +1577,48 @@
             submitBtn.disabled = true;
             submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Locating & Saving...`;
 
-            // Fetch location during checkout - STRICT MODE
-            let pos = await getLocation(); // Will throw if failed/denied
+            // Fetch location during checkout - fallback to manual explanation if denied
+            let pos = null;
+            let locationError = null;
+            try {
+                pos = await getLocation();
+            } catch (err) {
+                locationError = err;
+            }
 
             // Detect mismatch for saving
             let locationMismatched = false;
             const checkInLoc = window.AppAuth.getUser()?.currentLocation;
 
-            // Try to use cached location first for speed, otherwise use fetched pos
-            const checkPos = (cachedLocation && (Date.now() - lastLocationFetch < LOCATION_CACHE_TIME))
-                ? cachedLocation
-                : pos;
+            if (pos) {
+                // Try to use cached location first for speed, otherwise use fetched pos
+                const checkPos = (cachedLocation && (Date.now() - lastLocationFetch < LOCATION_CACHE_TIME))
+                    ? cachedLocation
+                    : pos;
 
-            // Standardize pos to the one we are using for calculation/saving
-            pos = checkPos;
+                // Standardize pos to the one we are using for calculation/saving
+                pos = checkPos;
 
-            if (checkInLoc && checkInLoc.lat && checkInLoc.lng && pos.lat && pos.lng) {
-                const dist = calculateDistance(pos.lat, pos.lng, checkInLoc.lat, checkInLoc.lng);
-                if (dist > 500) locationMismatched = true;
+                if (checkInLoc && checkInLoc.lat && checkInLoc.lng && pos.lat && pos.lng) {
+                    const dist = calculateDistance(pos.lat, pos.lng, checkInLoc.lat, checkInLoc.lng);
+                    if (dist > 500) locationMismatched = true;
+                }
+            }
+
+            const explanation = form.locationExplanation ? form.locationExplanation.value.trim() : '';
+            if (!pos && !explanation) {
+                const mismatchDiv = document.getElementById('checkout-location-mismatch');
+                if (mismatchDiv) mismatchDiv.style.display = 'block';
+                alert("Location unavailable. Please provide a reason for checking out from a different location.");
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Complete Check-Out';
+                return;
             }
 
             // Create formatted address string if no address available
-            const formattedAddress = `Lat: ${Number(pos.lat).toFixed(4)}, Lng: ${Number(pos.lng).toFixed(4)}`;
-
-            const explanation = form.locationExplanation ? form.locationExplanation.value : '';
+            const formattedAddress = pos
+                ? `Lat: ${Number(pos.lat).toFixed(4)}, Lng: ${Number(pos.lng).toFixed(4)}`
+                : 'Location unavailable (reason provided)';
             const tomorrowGoal = form.tomorrowGoal ? form.tomorrowGoal.value.trim() : '';
 
             // 1. Save tomorrow's goal if provided
@@ -1536,7 +1628,14 @@
                 console.log("Tomorrow's goal saved:", tomorrowGoal);
             }
 
-            await window.AppAttendance.checkOut(description, pos.lat, pos.lng, formattedAddress, locationMismatched, explanation);
+            await window.AppAttendance.checkOut(
+                description,
+                pos ? pos.lat : null,
+                pos ? pos.lng : null,
+                formattedAddress,
+                locationMismatched || !pos,
+                explanation || (locationError ? String(locationError) : '')
+            );
 
             // Hide modal
             document.getElementById('checkout-modal').style.display = 'none';
@@ -2139,8 +2238,8 @@
                         </div>
                         <button onclick="this.closest('.modal-overlay').remove()" style="background:none; border:none; font-size:1.2rem; cursor:pointer;">&times;</button>
                     </div>
-                    <form onsubmit="window.app_submitCellOverride(event, '${userId}', '${dateStr}', '${existingLog?.id || ''}')">
-                        <div style="display:flex; flex-direction:column; gap:1rem;">
+                        <form onsubmit="window.app_submitCellOverride(event, '${userId}', '${dateStr}', '${existingLog?.id || ''}')">
+                            <div style="display:flex; flex-direction:column; gap:1rem;">
                             <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
                                 <div>
                                     <label style="display:block; font-size:0.85rem; margin-bottom:0.25rem;">Time In</label>
@@ -2165,6 +2264,12 @@
                                 <label style="display:block; font-size:0.85rem; margin-bottom:0.25rem;">Admin Reason</label>
                                 <textarea name="description" placeholder="Override reason..." style="width:100%; padding:0.75rem; border:1px solid #ddd; border-radius:8px; height:60px;">${existingLog?.workDescription || ''}</textarea>
                             </div>
+                            ${existingLog?.autoCheckoutRequiresApproval ? `
+                                <div style="display:flex; align-items:center; gap:0.5rem; padding:0.5rem 0.75rem; border:1px solid #fde68a; border-radius:8px; background:#fffbeb;">
+                                    <input type="checkbox" name="autoCheckoutExtraApproved" id="auto-extra-approve" ${existingLog?.autoCheckoutExtraApproved ? 'checked' : ''}>
+                                    <label for="auto-extra-approve" style="font-size:0.8rem; color:#92400e; cursor:pointer;">Approve extra hours for auto check-out</label>
+                                </div>
+                            ` : ''}
                             <div style="display:flex; gap:0.75rem;">
                                 <button type="submit" class="action-btn" style="flex:2;">${existingLog ? 'Update Log' : 'Create Log'}</button>
                                 ${existingLog ? `<button type="button" onclick="window.app_deleteCellLog('${existingLog.id}', '${userId}')" class="action-btn checkout" style="flex:1; padding:0;">Delete</button>` : ''}
@@ -2211,7 +2316,8 @@
             workDescription: fd.get('description') || 'Admin Override',
             location: 'Office (Override)',
             durationMs: (new Date(`1970-01-01T${checkOut}:00`) - new Date(`1970-01-01T${checkIn}:00`)),
-            isManualOverride: fd.get('isManualOverride') === 'on'
+            isManualOverride: fd.get('isManualOverride') === 'on',
+            autoCheckoutExtraApproved: fd.get('autoCheckoutExtraApproved') === 'on'
         };
 
         try {

@@ -310,8 +310,11 @@
                     const lateCutoff = window.AppConfig.LATE_CUTOFF_MINUTES || 555;
                     const earlyDeparture = window.AppConfig.EARLY_DEPARTURE_MINUTES || 1020;
 
-                    if (inMinutes !== null && inMinutes < lateCutoff) totalExtraMinutes += (lateCutoff - inMinutes);
-                    if (outMinutes !== null && outMinutes > earlyDeparture) totalExtraMinutes += (outMinutes - earlyDeparture);
+                    const allowExtra = !(log.autoCheckout && !log.autoCheckoutExtraApproved);
+                    if (allowExtra) {
+                        if (inMinutes !== null && inMinutes < lateCutoff) totalExtraMinutes += (lateCutoff - inMinutes);
+                        if (outMinutes !== null && outMinutes > earlyDeparture) totalExtraMinutes += (outMinutes - earlyDeparture);
+                    }
 
                     // CATEGORY Check
                     if (type === 'Work - Home') breakdown['Work - Home']++;
@@ -406,8 +409,11 @@
                     }
 
                     // EXTRA HOURS Check
-                    if (inMinutes !== null && inMinutes < lateCutoff) totalExtraMinutes += (lateCutoff - inMinutes);
-                    if (outMinutes !== null && outMinutes > earlyDeparture) totalExtraMinutes += (outMinutes - earlyDeparture);
+                    const allowExtra = !(log.autoCheckout && !log.autoCheckoutExtraApproved);
+                    if (allowExtra) {
+                        if (inMinutes !== null && inMinutes < lateCutoff) totalExtraMinutes += (lateCutoff - inMinutes);
+                        if (outMinutes !== null && outMinutes > earlyDeparture) totalExtraMinutes += (outMinutes - earlyDeparture);
+                    }
 
                     // CATEGORY Check
                     if (type === 'Work - Home') breakdown['Work - Home']++;
