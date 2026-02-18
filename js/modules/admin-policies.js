@@ -108,7 +108,7 @@
             };
 
             window.app_approveLeaveWithWarning = async (leaveId) => {
-                const comment = prompt("Reason for override:");
+                const comment = await window.appPrompt("Reason for override:", "", { title: 'Leave Override', confirmText: 'Approve With Reason', placeholder: 'Enter reason' });
                 if (!comment) return;
 
                 try {

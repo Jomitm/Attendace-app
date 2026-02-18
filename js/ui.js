@@ -2112,7 +2112,7 @@
                 const log = logs.find(l => l.id === logId);
                 const currentDesc = log ? log.workDescription : "";
 
-                const newDesc = prompt("Update Work Summary:", currentDesc || "");
+                const newDesc = await window.appPrompt("Update Work Summary:", currentDesc || "", { title: 'Update Work Summary', confirmText: 'Save' });
                 if (newDesc !== null) {
                     await window.AppAttendance.updateLog(logId, { workDescription: newDesc });
                     window.location.reload(); // Refresh to show update
@@ -3207,7 +3207,7 @@
             };
 
             window.app_approveMinute = async (id) => {
-                if (confirm("I confirm that I have reviewed these minutes and approve them as an accurate record.")) {
+                if (await window.appConfirm("I confirm that I have reviewed these minutes and approve them as an accurate record.")) {
                     try {
                         await window.AppMinutes.approveMinute(id);
                         alert("Minutes approved!");
@@ -3364,7 +3364,7 @@
             };
 
             window.app_deleteMinute = async (id) => {
-                if (confirm("Are you sure you want to delete this meeting record?")) {
+                if (await window.appConfirm("Are you sure you want to delete this meeting record?")) {
                     try {
                         await window.AppMinutes.deleteMinute(id);
                         window.location.reload();

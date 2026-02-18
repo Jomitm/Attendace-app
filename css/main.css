@@ -780,8 +780,8 @@ td {
     position: fixed;
     inset: 0;
     z-index: 1000;
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(4px);
+    background: linear-gradient(180deg, rgba(71, 36, 12, 0.18) 0%, rgba(15, 23, 42, 0.42) 100%);
+    backdrop-filter: blur(7px);
     display: flex;
     justify-content: center;
     align-items: center;
@@ -790,17 +790,87 @@ td {
 }
 
 .modal-content {
-    background: var(--bg-card);
-    padding: 2rem;
-    border-radius: var(--radius-lg);
+    background: linear-gradient(180deg, #fffef9 0%, #fff7ed 100%);
+    padding: 1.35rem;
+    border-radius: 1rem;
+    border: 1px solid #f5d0a6;
     width: 100%;
     max-width: 500px;
     max-height: 90vh;
     overflow-y: auto;
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    box-shadow: 0 22px 36px rgba(15, 23, 42, 0.24), 0 4px 12px rgba(120, 53, 15, 0.15);
     position: relative;
     animation: scaleIn var(--motion-med) var(--easing-emphasized);
     transition: transform var(--motion-med) var(--easing-emphasized);
+}
+
+.modal-content h2,
+.modal-content h3 {
+    color: #7c2d12;
+    letter-spacing: 0.01em;
+}
+
+.modal-content p,
+.modal-content label {
+    color: #78350f;
+}
+
+.modal-content input,
+.modal-content select,
+.modal-content textarea {
+    border-color: #f5d0a6 !important;
+    background: #fffefb !important;
+}
+
+.modal-content input:focus,
+.modal-content select:focus,
+.modal-content textarea:focus {
+    border-color: #fb923c !important;
+    box-shadow: 0 0 0 3px rgba(251, 146, 60, 0.16);
+}
+
+.app-system-dialog {
+    max-width: 460px;
+}
+
+.app-system-dialog-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.6rem;
+}
+
+.app-system-dialog-head h3 {
+    margin: 0;
+}
+
+.app-system-dialog-close {
+    width: 2rem;
+    height: 2rem;
+    border: 1px solid #fed7aa;
+    border-radius: 999px;
+    background: #fff7ed;
+    color: #9a3412;
+    font-size: 1.1rem;
+    cursor: pointer;
+}
+
+.app-system-dialog-body p {
+    margin: 0;
+    line-height: 1.5;
+}
+
+.app-system-dialog-input {
+    margin-top: 0.8rem;
+    width: 100%;
+}
+
+.app-system-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.55rem;
+    margin-top: 1rem;
 }
 
 @keyframes modalSlide {
@@ -6590,4 +6660,39 @@ textarea:focus {
     #day-plan-modal .day-plan-content {
         padding: 0.7rem !important;
     }
+}
+
+/* Global Modal Refresh: warm, fresh, professional */
+.annual-detail-modal,
+.notify-combined-modal,
+#day-plan-modal .day-plan-content,
+#task-details-modal .modal-content,
+#manual-admin-log-modal .modal-content,
+#cell-override-modal .modal-content,
+#staff-message-modal .modal-content,
+#staff-task-modal .modal-content {
+    background: linear-gradient(180deg, #fffef8 0%, #fff7ec 100%) !important;
+    border: 1px solid #f4d2ae !important;
+    box-shadow: 0 24px 44px rgba(15, 23, 42, 0.22), 0 4px 12px rgba(120, 53, 15, 0.12) !important;
+}
+
+.annual-detail-modal .annual-detail-item,
+#day-plan-modal .plan-block,
+#day-plan-modal .day-plan-block-shell {
+    background: rgba(255, 255, 255, 0.84) !important;
+    border-color: #f6d8b9 !important;
+}
+
+.modal-content button:not(.action-btn),
+.annual-detail-modal button:not(.action-btn),
+#day-plan-modal button:not(.action-btn):not(.day-plan-save-btn):not(.day-plan-discard-btn):not(.day-plan-add-task-btn) {
+    border-color: #f4d2ae !important;
+    background: #fff8f0 !important;
+    color: #7c2d12 !important;
+}
+
+.modal-content button:not(.action-btn):hover,
+.annual-detail-modal button:not(.action-btn):hover,
+#day-plan-modal button:not(.action-btn):not(.day-plan-save-btn):not(.day-plan-discard-btn):not(.day-plan-add-task-btn):hover {
+    background: #ffedd5 !important;
 }

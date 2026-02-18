@@ -117,6 +117,113 @@
         container.insertAdjacentHTML('beforeend', html);
     };
 
+    const escapeDialogHtml = (value) => {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    };
+
+    const renderDialogMessage = (message) => {
+        return escapeDialogHtml(message).replace(/\n/g, '<br>');
+    };
+
+    window.app_systemDialog = function ({
+        title = 'Notice',
+        message = '',
+        mode = 'alert',
+        defaultValue = '',
+        confirmText = 'OK',
+        cancelText = 'Cancel',
+        placeholder = ''
+    } = {}) {
+        return new Promise((resolve) => {
+            const modalId = `system-dialog-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            const inputId = `${modalId}-input`;
+            const isPrompt = mode === 'prompt';
+            const isConfirm = mode === 'confirm' || mode === 'prompt';
+            const html = `
+                <div class="modal-overlay app-system-dialog-overlay" id="${modalId}" style="display:flex;">
+                    <div class="modal-content app-system-dialog">
+                        <div class="app-system-dialog-head">
+                            <h3>${escapeDialogHtml(title)}</h3>
+                            <button type="button" class="app-system-dialog-close" aria-label="Close dialog">&times;</button>
+                        </div>
+                        <div class="app-system-dialog-body">
+                            <p>${renderDialogMessage(message)}</p>
+                            ${isPrompt ? `<input id="${inputId}" class="app-system-dialog-input" type="text" value="${escapeDialogHtml(defaultValue)}" placeholder="${escapeDialogHtml(placeholder)}" autocomplete="off">` : ''}
+                        </div>
+                        <div class="app-system-dialog-actions">
+                            ${isConfirm ? `<button type="button" class="action-btn secondary app-system-dialog-cancel">${escapeDialogHtml(cancelText)}</button>` : ''}
+                            <button type="button" class="action-btn app-system-dialog-confirm">${escapeDialogHtml(confirmText)}</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            if (typeof window.app_showModal === 'function') {
+                window.app_showModal(html, modalId);
+            } else {
+                (document.getElementById('modal-container') || document.body).insertAdjacentHTML('beforeend', html);
+            }
+
+            const modalEl = document.getElementById(modalId);
+            if (!modalEl) {
+                resolve(isPrompt ? null : false);
+                return;
+            }
+            const confirmBtn = modalEl.querySelector('.app-system-dialog-confirm');
+            const cancelBtn = modalEl.querySelector('.app-system-dialog-cancel');
+            const closeBtn = modalEl.querySelector('.app-system-dialog-close');
+            const inputEl = isPrompt ? modalEl.querySelector(`#${inputId}`) : null;
+
+            const cleanup = (result) => {
+                modalEl.remove();
+                resolve(result);
+            };
+
+            confirmBtn?.addEventListener('click', () => {
+                cleanup(isPrompt ? (inputEl ? inputEl.value : '') : true);
+            });
+            cancelBtn?.addEventListener('click', () => cleanup(isPrompt ? null : false));
+            closeBtn?.addEventListener('click', () => cleanup(isPrompt ? null : false));
+            modalEl.addEventListener('click', (ev) => {
+                if (ev.target === modalEl) cleanup(isPrompt ? null : false);
+            });
+            modalEl.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Escape') cleanup(isPrompt ? null : false);
+                if (ev.key === 'Enter') {
+                    ev.preventDefault();
+                    cleanup(isPrompt ? (inputEl ? inputEl.value : '') : true);
+                }
+            });
+
+            if (inputEl) {
+                inputEl.focus();
+                inputEl.select();
+            } else {
+                confirmBtn?.focus();
+            }
+        });
+    };
+
+    window.appAlert = (message, title = 'Notice') => window.app_systemDialog({ title, message, mode: 'alert', confirmText: 'OK' });
+    window.appConfirm = (message, title = 'Please Confirm') => window.app_systemDialog({ title, message, mode: 'confirm', confirmText: 'Confirm', cancelText: 'Cancel' });
+    window.appPrompt = (message, defaultValue = '', opts = {}) => window.app_systemDialog({
+        title: opts.title || 'Enter Details',
+        message,
+        mode: 'prompt',
+        defaultValue,
+        confirmText: opts.confirmText || 'Save',
+        cancelText: opts.cancelText || 'Cancel',
+        placeholder: opts.placeholder || ''
+    });
+    window.alert = (message) => {
+        window.appAlert(message);
+    };
+
     // Initialize Global App Logic
     // --- Yearly Plan / Calendar Logic ---
     window.app_openEventModal = () => {
@@ -586,7 +693,7 @@
                     if (!sessionStorage.getItem(stalePromptKey)) {
                         sessionStorage.setItem(stalePromptKey, '1');
                         setTimeout(async () => {
-                            const doAutoClose = confirm(
+                            const doAutoClose = await window.appConfirm(
                                 `You are still checked in from ${checkInDate.toLocaleString()}. Auto check-out this carried session now?`
                             );
                             if (!doAutoClose) return;
@@ -1109,7 +1216,7 @@
 
 
     window.app_deleteDayPlan = async (date, targetUserId = null) => {
-        if (!confirm("Are you sure you want to delete this work plan?")) return;
+        if (!await window.appConfirm("Are you sure you want to delete this work plan?")) return;
         const currentUser = window.AppAuth.getUser();
         const targetId = targetUserId || currentUser.id;
 
@@ -1306,7 +1413,7 @@
             const updatedUser = await window.AppDB.get('users', user.id);
             let rejectReason = '';
             if (response === 'rejected') {
-                rejectReason = prompt('Optional: add a rejection reason', '') || '';
+                rejectReason = (await window.appPrompt('Optional: add a rejection reason', '', { title: 'Reject Task', confirmText: 'Submit Reason' })) || '';
             }
             if (updatedUser && updatedUser.notifications) {
                 const notif = updatedUser.notifications[notifIdx];
@@ -1448,7 +1555,7 @@
     };
 
     window.app_deleteMeeting = async (id) => {
-        if (!confirm('Are you sure you want to delete this meeting?')) return;
+        if (!await window.appConfirm('Are you sure you want to delete this meeting?')) return;
 
         await window.AppDB.delete('meetings', id);
         window._selectedMeetingId = null;
@@ -1647,7 +1754,7 @@
         try {
             const allUsers = await window.AppDB.getAll('users');
             const names = allUsers.map(u => u.name).join(', ');
-            const chosen = prompt(`Delegate to which staff? Enter name.\nAvailable: ${names}`, '');
+            const chosen = await window.appPrompt(`Delegate to which staff? Enter name.\nAvailable: ${names}`, '', { title: 'Delegate Task', placeholder: 'Type staff name' });
             if (!chosen) return;
             const recipient = allUsers.find(u => u.name.toLowerCase() === chosen.toLowerCase());
             if (!recipient) {
@@ -2533,7 +2640,7 @@
         }
         let reason = '';
         if (response === 'rejected') {
-            reason = prompt('Optional: add a rejection reason', '') || '';
+            reason = (await window.appPrompt('Optional: add a rejection reason', '', { title: 'Reject Task', confirmText: 'Submit Reason' })) || '';
         }
         msg.status = response;
         msg.respondedAt = new Date().toISOString();
@@ -2613,7 +2720,7 @@
             const notif = updatedUser.notifications.find(n => n.id === notifId);
             if (!notif) throw new Error('Notification not found');
             let reason = '';
-            if (response === 'rejected') reason = prompt('Optional: add a rejection reason', '') || '';
+            if (response === 'rejected') reason = (await window.appPrompt('Optional: add a rejection reason', '', { title: 'Reject Item', confirmText: 'Submit Reason' })) || '';
             notif.status = response;
             notif.respondedAt = new Date().toISOString();
             if (reason) notif.rejectReason = reason;
@@ -2731,9 +2838,9 @@
             alert('Only administrators can assign tasks to other staff.');
             return;
         }
-        const taskText = prompt('Task to assign:', '');
+        const taskText = await window.appPrompt('Task to assign:', '', { title: 'Assign Task', placeholder: 'Enter task title', confirmText: 'Next' });
         if (!taskText || !taskText.trim()) return;
-        const dateInput = prompt('Task date (YYYY-MM-DD). Leave blank for today:', '');
+        const dateInput = await window.appPrompt('Task date (YYYY-MM-DD). Leave blank for today:', '', { title: 'Assign Task Date', placeholder: 'YYYY-MM-DD', confirmText: 'Create Task' });
         const date = dateInput && dateInput.trim()
             ? dateInput.trim()
             : new Date().toISOString().split('T')[0];
@@ -2933,7 +3040,7 @@
     };
 
     window.app_deleteLog = async (logId, userId) => {
-        if (!confirm("Are you sure you want to delete this attendance record?")) return;
+        if (!await window.appConfirm("Are you sure you want to delete this attendance record?")) return;
         try {
             await window.AppAttendance.deleteLog(logId);
             alert("Record deleted.");
@@ -2945,7 +3052,7 @@
 
     // --- Leave Management Handlers ---
     window.app_approveLeave = async (leaveId) => {
-        if (!confirm("Are you sure you want to APPROVE this leave request?")) return;
+        if (!await window.appConfirm("Are you sure you want to APPROVE this leave request?")) return;
         try {
             const user = window.AppAuth.getUser();
             await window.AppLeaves.updateLeaveStatus(leaveId, 'Approved', user.id);
@@ -2963,7 +3070,7 @@
     };
 
     window.app_rejectLeave = async (leaveId) => {
-        const reason = prompt("Enter rejection reason (optional):", "");
+        const reason = await window.appPrompt("Enter rejection reason (optional):", "", { title: 'Reject Leave', confirmText: 'Reject Leave' });
         if (reason === null) return; // Cancelled
 
         try {
@@ -2984,7 +3091,7 @@
 
     window.app_addLeaveComment = async (leaveId) => {
         const leave = await window.AppDB.get('leaves', leaveId);
-        const comment = prompt("Enter/Edit Admin Comment:", leave.adminComment || "");
+        const comment = await window.appPrompt("Enter/Edit Admin Comment:", leave.adminComment || "", { title: 'Admin Comment', confirmText: 'Save Comment' });
         if (comment === null) return;
 
         try {
@@ -3152,7 +3259,7 @@
     };
 
     window.app_deleteCellLog = async (logId, userId) => {
-        if (!confirm("Delete this attendance record?")) return;
+        if (!await window.appConfirm("Delete this attendance record?")) return;
         try {
             await window.AppAttendance.deleteLog(logId);
             document.getElementById('cell-override-modal')?.remove();
@@ -3174,7 +3281,7 @@
 
 
     window.app_deleteUser = async (userId) => {
-        if (confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
+        if (await window.appConfirm('Are you sure you want to delete this user? This action cannot be undone.')) {
             try {
                 await window.AppDB.delete('users', userId);
                 alert('User deleted successfully.');
@@ -3474,7 +3581,7 @@
                 return;
             }
 
-            if (!confirm('This will recalculate ratings for all users. Continue?')) {
+            if (!await window.appConfirm('This will recalculate ratings for all users. Continue?')) {
                 return;
             }
 
@@ -3495,7 +3602,7 @@
     // Removed old document.addEventListener calls for admin actions since we use global funcs now.
 
     window.app_triggerManualAudit = async () => {
-        if (!confirm("Trigger a manual location audit for all active staff?")) return;
+        if (!await window.appConfirm("Trigger a manual location audit for all active staff?")) return;
         const slotName = `Manual Audit @ ${new Date().toLocaleTimeString()}`;
         try {
             await window.AppDB.add('system_commands', {
