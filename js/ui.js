@@ -177,18 +177,7 @@
                             </div>
                         </div>
                         <div class="dashboard-staff-actions">
-                            <button class="dashboard-staff-btn" onclick="window.app_notifyUser('${u.id}')" title="Send message"><i class="fa-solid fa-message"></i></button>
-                            <button class="dashboard-staff-btn" onclick="window.app_quickAddTask('${u.id}')" title="Add task"><i class="fa-solid fa-list-check"></i></button>
-                            ${firstPending ? `
-                                ${firstPending.notif.planId ? `
-                                    <button class="dashboard-staff-btn accept" onclick="window.app_handleTagResponse('${firstPending.notif.planId}', ${firstPending.notif.taskIndex}, 'accepted', ${firstPending.idx})" title="Accept task"><i class="fa-solid fa-check"></i></button>
-                                    <button class="dashboard-staff-btn reject" onclick="window.app_handleTagResponse('${firstPending.notif.planId}', ${firstPending.notif.taskIndex}, 'rejected', ${firstPending.idx})" title="Reject task"><i class="fa-solid fa-xmark"></i></button>
-                                ` : `
-                                    <button class="dashboard-staff-btn accept" onclick="window.app_handleTagDecision('${firstPending.notif.id}', 'accepted')" title="Accept task"><i class="fa-solid fa-check"></i></button>
-                                    <button class="dashboard-staff-btn reject" onclick="window.app_handleTagDecision('${firstPending.notif.id}', 'rejected')" title="Reject task"><i class="fa-solid fa-xmark"></i></button>
-                                `}
-                            ` : ''}
-                            ${pending.length > 1 ? `<span class="dashboard-staff-pending">+${pending.length - 1}</span>` : ''}
+                            <button class="dashboard-staff-btn" onclick="window.location.hash = 'staff-directory'; window.app_openStaffThread('${u.id}')" title="Message"><i class="fa-solid fa-message"></i></button>
                         </div>
                     </div>
                 `;
