@@ -1201,10 +1201,18 @@
                                 );
                                 if (!alreadyNotified) {
                                     targetUser.notifications.push({
-                                        type: 'mention',
-                                        message: `${currentUser.name} tagged you in: "${p.task}" for ${date}`,
+                                        id: `tag_${Date.now()}_${uid}_${idx}`,
+                                        type: 'tag',
+                                        title: p.task || 'Tagged task',
+                                        description: p.subPlans && p.subPlans.length > 0 ? p.subPlans.join(', ') : '',
+                                        taggedById: currentUser.id,
+                                        taggedByName: currentUser.name,
+                                        taggedAt: new Date().toISOString(),
+                                        status: 'pending',
+                                        source: 'plan',
                                         planId: planId,
                                         taskIndex: idx,
+                                        message: `${currentUser.name} tagged you in: "${p.task}" for ${date}`,
                                         date: new Date().toLocaleString(),
                                         read: false
                                     });
@@ -1251,11 +1259,50 @@
             // 3. Save the updated plan
             await window.AppDB.put('work_plans', plan);
 
-            // 4. Dismiss the notification
+            // 4. Update notification status (do not remove)
             const updatedUser = await window.AppDB.get('users', user.id);
+            let rejectReason = '';
+            if (response === 'rejected') {
+                rejectReason = prompt('Optional: add a rejection reason', '') || '';
+            }
             if (updatedUser && updatedUser.notifications) {
-                updatedUser.notifications.splice(notifIdx, 1);
+                const notif = updatedUser.notifications[notifIdx];
+                if (notif) {
+                    notif.status = response;
+                    notif.respondedAt = new Date().toISOString();
+                    if (rejectReason) notif.rejectReason = rejectReason;
+                }
+                if (!updatedUser.tagHistory) updatedUser.tagHistory = [];
+                updatedUser.tagHistory.unshift({
+                    id: `taghist_${Date.now()}`,
+                    type: 'tag_response',
+                    title: notif?.title || plan.plans[taskIndex].task || 'Tagged task',
+                    taggedByName: notif?.taggedByName || plan.userName || 'Staff',
+                    status: response,
+                    reason: rejectReason,
+                    date: new Date().toISOString()
+                });
                 await window.AppDB.put('users', updatedUser);
+            }
+
+            // 4b. Notify the tagger
+            if (plan.userId) {
+                const tagger = await window.AppDB.get('users', plan.userId);
+                if (tagger) {
+                    if (!tagger.notifications) tagger.notifications = [];
+                    tagger.notifications.unshift({
+                        id: `tagresp_${Date.now()}`,
+                        type: 'tag_response',
+                        message: `${user.name} ${response} your tag request.`,
+                        title: plan.plans[taskIndex].task,
+                        taggedByName: user.name,
+                        status: response,
+                        reason: rejectReason,
+                        date: new Date().toISOString(),
+                        read: false
+                    });
+                    await window.AppDB.put('users', tagger);
+                }
             }
 
             // 5. Refresh UI
@@ -1862,21 +1909,52 @@
         e.preventDefault();
         const formData = new FormData(e.target);
         const toUserId = formData.get('toUserId');
-        const msg = formData.get('message');
+        const reminderMsg = formData.get('reminderMessage') || '';
+        const taskTitle = formData.get('taskTitle') || '';
+        const taskDesc = formData.get('taskDescription') || '';
+        const taskDue = formData.get('taskDueDate') || '';
 
         try {
+            if (!reminderMsg.trim() && !taskTitle.trim()) {
+                alert('Please enter a reminder or a task.');
+                return;
+            }
             // Check if user exists
             const user = await window.AppDB.get('users', toUserId);
             if (!user) throw new Error("User not found");
 
-            // Add notification
+            const currentUser = window.AppAuth.getUser();
+            const nowIso = new Date().toISOString();
+            // Add notification(s)
             if (!user.notifications) user.notifications = [];
-            user.notifications.unshift({
-                id: Date.now(),
-                message: msg,
-                date: new Date().toLocaleDateString(),
-                read: false
-            });
+            if (reminderMsg.trim()) {
+                user.notifications.unshift({
+                    id: `rem_${Date.now()}`,
+                    type: 'reminder',
+                    message: reminderMsg.trim(),
+                    taggedById: currentUser.id,
+                    taggedByName: currentUser.name,
+                    taggedAt: nowIso,
+                    status: 'pending',
+                    date: nowIso,
+                    read: false
+                });
+            }
+            if (taskTitle.trim()) {
+                user.notifications.unshift({
+                    id: `task_${Date.now()}`,
+                    type: 'task',
+                    title: taskTitle.trim(),
+                    description: taskDesc.trim(),
+                    taggedById: currentUser.id,
+                    taggedByName: currentUser.name,
+                    taggedAt: nowIso,
+                    status: 'pending',
+                    dueDate: taskDue || '',
+                    date: nowIso,
+                    read: false
+                });
+            }
 
             await window.AppAuth.updateUser(user);
             alert('Notification sent!');
@@ -1885,6 +1963,59 @@
             alert('Failed to send: ' + err.message);
         }
     }
+
+    window.app_handleTagDecision = async (notifId, response) => {
+        const user = window.AppAuth.getUser();
+        try {
+            const updatedUser = await window.AppDB.get('users', user.id);
+            if (!updatedUser || !updatedUser.notifications) throw new Error('Notification not found');
+            const notif = updatedUser.notifications.find(n => n.id === notifId);
+            if (!notif) throw new Error('Notification not found');
+            let reason = '';
+            if (response === 'rejected') reason = prompt('Optional: add a rejection reason', '') || '';
+            notif.status = response;
+            notif.respondedAt = new Date().toISOString();
+            if (reason) notif.rejectReason = reason;
+            if (!updatedUser.tagHistory) updatedUser.tagHistory = [];
+            updatedUser.tagHistory.unshift({
+                id: `taghist_${Date.now()}`,
+                type: 'tag_response',
+                title: notif.title || notif.message || 'Tagged item',
+                taggedByName: notif.taggedByName || 'Staff',
+                status: response,
+                reason,
+                date: new Date().toISOString()
+            });
+            await window.AppDB.put('users', updatedUser);
+
+            if (notif.taggedById) {
+                const tagger = await window.AppDB.get('users', notif.taggedById);
+                if (tagger) {
+                    if (!tagger.notifications) tagger.notifications = [];
+                    tagger.notifications.unshift({
+                        id: `tagresp_${Date.now()}`,
+                        type: 'tag_response',
+                        message: `${user.name} ${response} your ${notif.type || 'tag'}.`,
+                        title: notif.title || '',
+                        taggedByName: user.name,
+                        status: response,
+                        reason,
+                        date: new Date().toISOString(),
+                        read: false
+                    });
+                    await window.AppDB.put('users', tagger);
+                }
+            }
+
+            const contentArea = document.getElementById('page-content');
+            if (contentArea) {
+                contentArea.innerHTML = await window.AppUI.renderDashboard();
+                if (window.setupDashboardEvents) window.setupDashboardEvents();
+            }
+        } catch (err) {
+            alert('Failed to update tag: ' + err.message);
+        }
+    };
 
     document.addEventListener('auth-logout', () => window.AppAuth.logout());
 

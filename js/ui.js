@@ -140,27 +140,35 @@
                 </div>`;
         }
 
+        const nowMs = Date.now();
         const mentionNotifs = (notifications || [])
             .map((n, idx) => ({ n, idx }))
-            .filter(item => item.n.type === 'mention');
+            .filter(item => item.n.type === 'mention' || item.n.type === 'tag' || item.n.type === 'task');
 
         const pendingByName = {};
         mentionNotifs.forEach(({ n, idx }) => {
             const msg = String(n.message || '');
-            const name = msg.includes(' tagged you') ? msg.split(' tagged you')[0].trim() : '';
+            const name = n.taggedByName || (msg.includes(' tagged you') ? msg.split(' tagged you')[0].trim() : '');
             if (!name) return;
             if (!pendingByName[name]) pendingByName[name] = [];
             pendingByName[name].push({ notif: n, idx });
         });
 
+        const getNewestNotifTime = (u) => {
+            const items = (u.notifications || []).map(n => new Date(n.taggedAt || n.date || n.respondedAt || 0).getTime()).filter(Boolean);
+            return items.length ? Math.max(...items) : 0;
+        };
+
         const staffList = allUsers
             .filter(u => u.id !== currentUser.id)
-            .sort((a, b) => a.name.localeCompare(b.name))
+            .sort((a, b) => getNewestNotifTime(b) - getNewestNotifTime(a) || a.name.localeCompare(b.name))
             .map(u => {
                 const pending = pendingByName[u.name] || [];
                 const firstPending = pending[0];
+                const newest = getNewestNotifTime(u);
+                const isNew = newest && (nowMs - newest < 120000);
                 return `
-                    <div class="dashboard-staff-row">
+                    <div class="dashboard-staff-row ${isNew ? 'dashboard-staff-row-new' : ''}">
                         <div class="dashboard-staff-meta">
                             <img class="dashboard-staff-avatar" src="${u.avatar}" alt="${u.name}">
                             <div class="dashboard-staff-text">
@@ -172,8 +180,13 @@
                             <button class="dashboard-staff-btn" onclick="window.app_notifyUser('${u.id}')" title="Send message"><i class="fa-solid fa-message"></i></button>
                             <button class="dashboard-staff-btn" onclick="window.app_quickAddTask('${u.id}')" title="Add task"><i class="fa-solid fa-list-check"></i></button>
                             ${firstPending ? `
-                                <button class="dashboard-staff-btn accept" onclick="window.app_handleTagResponse('${firstPending.notif.planId}', ${firstPending.notif.taskIndex}, 'accepted', ${firstPending.idx})" title="Accept task"><i class="fa-solid fa-check"></i></button>
-                                <button class="dashboard-staff-btn reject" onclick="window.app_handleTagResponse('${firstPending.notif.planId}', ${firstPending.notif.taskIndex}, 'rejected', ${firstPending.idx})" title="Reject task"><i class="fa-solid fa-xmark"></i></button>
+                                ${firstPending.notif.planId ? `
+                                    <button class="dashboard-staff-btn accept" onclick="window.app_handleTagResponse('${firstPending.notif.planId}', ${firstPending.notif.taskIndex}, 'accepted', ${firstPending.idx})" title="Accept task"><i class="fa-solid fa-check"></i></button>
+                                    <button class="dashboard-staff-btn reject" onclick="window.app_handleTagResponse('${firstPending.notif.planId}', ${firstPending.notif.taskIndex}, 'rejected', ${firstPending.idx})" title="Reject task"><i class="fa-solid fa-xmark"></i></button>
+                                ` : `
+                                    <button class="dashboard-staff-btn accept" onclick="window.app_handleTagDecision('${firstPending.notif.id}', 'accepted')" title="Accept task"><i class="fa-solid fa-check"></i></button>
+                                    <button class="dashboard-staff-btn reject" onclick="window.app_handleTagDecision('${firstPending.notif.id}', 'rejected')" title="Reject task"><i class="fa-solid fa-xmark"></i></button>
+                                `}
                             ` : ''}
                             ${pending.length > 1 ? `<span class="dashboard-staff-pending">+${pending.length - 1}</span>` : ''}
                         </div>
@@ -188,6 +201,95 @@
                     ${staffList}
                 </div>
             </div>`;
+    };
+
+    const timeAgo = (isoOrDate) => {
+        const ts = new Date(isoOrDate).getTime();
+        if (!ts) return '';
+        const diff = Math.max(0, Date.now() - ts);
+        const mins = Math.floor(diff / 60000);
+        if (mins < 1) return 'just now';
+        if (mins < 60) return `${mins} mins ago`;
+        const hrs = Math.floor(mins / 60);
+        if (hrs < 24) return `${hrs} hrs ago`;
+        const days = Math.floor(hrs / 24);
+        return `${days} days ago`;
+    };
+
+    const renderTaggedItems = (notifications) => {
+        const tagged = (notifications || []).filter(n => n.type === 'tag' || n.type === 'task' || n.type === 'mention');
+        if (tagged.length === 0) return '';
+        return `
+            <div class="card full-width dashboard-tagged-card">
+                <div class="dashboard-tagged-head"><h4>Tagged Items</h4><span>Pending approvals</span></div>
+                <div class="dashboard-tagged-list">
+                    ${tagged.map(n => `
+                        <div class="dashboard-tagged-item">
+                            <div class="dashboard-tagged-main">
+                                <div class="dashboard-tagged-title">${n.title || 'Tagged item'}</div>
+                                <div class="dashboard-tagged-desc">${n.description || n.message || ''}</div>
+                                <div class="dashboard-tagged-meta">Tagged by ${n.taggedByName || 'Staff'} • ${timeAgo(n.taggedAt || n.date)}</div>
+                            </div>
+                            <div class="dashboard-tagged-status">
+                                <span class="dashboard-tagged-pill ${n.status || 'pending'}">${(n.status || 'pending').toUpperCase()}</span>
+                                ${n.status === 'pending' ? `
+                                    <div class="dashboard-tagged-actions">
+                                        ${n.planId ? `
+                                            <button class="dashboard-tagged-btn accept" onclick="window.app_handleTagResponse('${n.planId}', ${n.taskIndex}, 'accepted', ${notifications.indexOf(n)})">Approve</button>
+                                            <button class="dashboard-tagged-btn reject" onclick="window.app_handleTagResponse('${n.planId}', ${n.taskIndex}, 'rejected', ${notifications.indexOf(n)})">Reject</button>
+                                        ` : `
+                                            <button class="dashboard-tagged-btn accept" onclick="window.app_handleTagDecision('${n.id}', 'accepted')">Approve</button>
+                                            <button class="dashboard-tagged-btn reject" onclick="window.app_handleTagDecision('${n.id}', 'rejected')">Reject</button>
+                                        `}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    };
+
+    const renderNotificationPanel = (notifications, history) => {
+        const items = [
+            ...(notifications || []).map(n => ({
+                id: n.id,
+                name: n.taggedByName || 'System',
+                summary: n.message || (n.type === 'task' ? 'sent you a task' : 'sent you a reminder'),
+                snippet: n.title || n.description || '',
+                time: n.taggedAt || n.date,
+                status: n.status
+            })),
+            ...(history || []).map(h => ({
+                id: h.id,
+                name: h.taggedByName || 'System',
+                summary: `Tag ${h.status}`,
+                snippet: h.title || '',
+                time: h.date,
+                status: h.status
+            }))
+        ].sort((a, b) => new Date(b.time) - new Date(a.time));
+        if (items.length === 0) return '';
+        return `
+            <div class="card full-width dashboard-notifications-card">
+                <h4><i class="fa-solid fa-bell"></i> Notifications</h4>
+                <div class="dashboard-notifications-grid">
+                    ${items.map((n, idx) => `
+                        <div class="dashboard-notif-row">
+                            <div class="dashboard-notif-col">
+                                <div class="dashboard-notif-name">${n.name}</div>
+                                <div class="dashboard-notif-summary">${n.summary}</div>
+                            </div>
+                            <div class="dashboard-notif-col right">
+                                <div class="dashboard-notif-snippet">${n.snippet || '--'}</div>
+                                <div class="dashboard-notif-time">${timeAgo(n.time)}</div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
     };
 
     window.app_filterStaffActivity = (daysBack) => {
@@ -829,18 +931,37 @@
 
                 <!-- Send Notification Modal -->
                  <div id="notify-modal" class="modal-overlay" style="display: none;">
-                    <div class="modal-content">
-                        <h3>Send Notification</h3>
-                        <form id="notify-form" method="POST" style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
+                    <div class="modal-content notify-combined-modal">
+                        <h3>Send Reminder / Task</h3>
+                        <form id="notify-form" method="POST" class="notify-form">
                             <input type="hidden" name="toUserId" id="notify-user-id">
-                            <label>
-                                Message
-                                <textarea name="message" required rows="4" placeholder="Type your message here..." style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem; font-family: inherit;"></textarea>
-                            </label>
-                            
-                            <div style="display: flex; gap: 1rem; margin-top: 1rem;">
-                                <button type="button" onclick="document.getElementById('notify-modal').style.display = 'none'" style="flex: 1; padding: 0.75rem; border: 1px solid #ddd; background: white; border-radius: 0.5rem; cursor: pointer;">Cancel</button>
-                                <button type="submit" class="action-btn" style="flex: 1; padding: 0.75rem; border-radius: 0.5rem;">Send Message</button>
+                            <div class="notify-columns">
+                                <div class="notify-col">
+                                    <h4>Send Reminder</h4>
+                                    <label>
+                                        Message
+                                        <textarea name="reminderMessage" rows="5" placeholder="Type your reminder here..."></textarea>
+                                    </label>
+                                </div>
+                                <div class="notify-col">
+                                    <h4>Send Task</h4>
+                                    <label>
+                                        Task Title
+                                        <input type="text" name="taskTitle" placeholder="Short task title">
+                                    </label>
+                                    <label>
+                                        Task Details
+                                        <textarea name="taskDescription" rows="3" placeholder="Optional details..."></textarea>
+                                    </label>
+                                    <label>
+                                        Task Due Date
+                                        <input type="date" name="taskDueDate">
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="notify-actions">
+                                <button type="button" onclick="document.getElementById('notify-modal').style.display = 'none'" class="notify-cancel-btn">Cancel</button>
+                                <button type="submit" class="action-btn notify-send-btn">Send</button>
                             </div>
                         </form>
                     </div>
@@ -1210,6 +1331,7 @@
 
             const isCheckedIn = status.status === 'in';
             const notifications = user.notifications || [];
+            const tagHistory = user.tagHistory || [];
 
             // Helper for Admin Data Indicators
             const targetStaff = (allUsers || []).find(u => u.id === targetStaffId);
@@ -1232,37 +1354,8 @@
                 statusClass = 'in';
             }
 
-            // Notification Card HTML
-            let notifHTML = '';
-            if (notifications.length > 0) {
-                notifHTML = `
-                    <div class="card full-width" style="background: linear-gradient(to right, #fef3c7, #fff7ed); border-left: 5px solid #f59e0b;">
-                        <h4 style="color: #b45309; margin-bottom: 0.5rem;"><i class="fa-solid fa-bell"></i> Notifications</h4>
-                        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-                            ${notifications.map((n, idx) => {
-                    const isMention = n.type === 'mention';
-                    return `
-                                <div style="display: flex; justify-content: space-between; align-items: start; gap: 1rem; padding-bottom: 0.5rem; ${idx !== notifications.length - 1 ? 'border-bottom: 1px solid rgba(0,0,0,0.05);' : ''}">
-                                    <div style="flex:1;">
-                                        <p style="font-size: 0.95rem; color: #78350f;">${n.message}</p>
-                                        <small style="color: #92400e; font-size: 0.75rem;">${n.date}</small>
-                                        ${isMention ? `
-                                            <div style="display:flex; gap:0.5rem; margin-top:0.4rem;">
-                                                <button onclick="window.app_handleTagResponse('${n.planId}', ${n.taskIndex}, 'accepted', ${idx})" style="background:#10b981; color:white; border:none; padding:4px 10px; border-radius:6px; font-size:0.75rem; cursor:pointer; font-weight:600;"><i class="fa-solid fa-check"></i> Accept</button>
-                                                <button onclick="window.app_handleTagResponse('${n.planId}', ${n.taskIndex}, 'rejected', ${idx})" style="background:#ef4444; color:white; border:none; padding:4px 10px; border-radius:6px; font-size:0.75rem; cursor:pointer; font-weight:600;"><i class="fa-solid fa-xmark"></i> Reject</button>
-                                            </div>
-                                        ` : ''}
-                                    </div>
-                                    <button onclick="document.dispatchEvent(new CustomEvent('dismiss-notification', {detail: ${idx}}))" style="background: none; border: none; color: #b45309; cursor: pointer; padding: 4px;">
-                                        <i class="fa-solid fa-xmark"></i>
-                                    </button>
-                                </div>
-                            `;
-                }).join('')}
-                        </div>
-                    </div>
-                `;
-            }
+            const notifHTML = renderNotificationPanel(notifications, tagHistory);
+            const taggedHTML = renderTaggedItems(notifications);
 
             // Stats fetched in parallel above, variables ready.
 
@@ -1341,6 +1434,7 @@
             return `
                 <div class="dashboard-grid dashboard-modern dashboard-staff-view">
                     ${notifHTML}
+                    ${taggedHTML}
                     ${staffViewBannerHTML}
                     <div class="card full-width dashboard-hero-card">
                         <div class="dashboard-hero-orb dashboard-hero-orb-top"></div>
