@@ -1570,6 +1570,30 @@ textarea:focus {
     height: 28px;
     border-radius: 50%;
     border: 2px solid #e2e8f0;
+    position: relative;
+}
+
+.staff-status-dot {
+    position: absolute;
+    bottom: -2px;
+    right: -2px;
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    border: 2px solid #ffffff;
+    background: #94a3b8;
+}
+
+.staff-status-dot.online {
+    background: #22c55e;
+}
+
+.staff-status-dot.checkedin {
+    background: #ef4444;
+}
+
+.staff-status-dot.offline {
+    background: #94a3b8;
 }
 
 .dashboard-staff-text {
@@ -1938,6 +1962,12 @@ textarea:focus {
     height: 34px;
     border-radius: 50%;
     border: 2px solid #e2e8f0;
+}
+
+.staff-directory-avatar {
+    position: relative;
+    width: 34px;
+    height: 34px;
 }
 
 .staff-directory-info {

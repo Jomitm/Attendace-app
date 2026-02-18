@@ -159,6 +159,10 @@
             return items.length ? Math.max(...items) : 0;
         };
 
+        const isOnline = (u) => {
+            const lastSeen = u.lastSeen ? Number(u.lastSeen) : 0;
+            return lastSeen && (Date.now() - lastSeen < 60000);
+        };
         const staffList = allUsers
             .filter(u => u.id !== currentUser.id)
             .sort((a, b) => getNewestNotifTime(b) - getNewestNotifTime(a) || a.name.localeCompare(b.name))
@@ -167,10 +171,14 @@
                 const firstPending = pending[0];
                 const newest = getNewestNotifTime(u);
                 const isNew = newest && (nowMs - newest < 120000);
+                const statusClass = u.status === 'in' ? 'checkedin' : (isOnline(u) ? 'online' : 'offline');
                 return `
                     <div class="dashboard-staff-row ${isNew ? 'dashboard-staff-row-new' : ''}">
                         <div class="dashboard-staff-meta">
-                            <img class="dashboard-staff-avatar" src="${u.avatar}" alt="${u.name}">
+                            <div class="dashboard-staff-avatar">
+                                <img src="${u.avatar}" alt="${u.name}">
+                                <span class="staff-status-dot ${statusClass}"></span>
+                            </div>
                             <div class="dashboard-staff-text">
                                 <div class="dashboard-staff-name">${u.name}</div>
                                 <div class="dashboard-staff-role">${u.role || 'Staff'}</div>
@@ -1490,13 +1498,20 @@
                 }
             });
 
+            const isOnline = (u) => {
+                const lastSeen = u.lastSeen ? Number(u.lastSeen) : 0;
+                return lastSeen && (Date.now() - lastSeen < 60000);
+            };
+
             const staffList = others.map(u => {
                 const unread = unreadByUser[u.id] || 0;
                 const isActive = u.id === window.app_staffThreadId;
+                const statusClass = u.status === 'in' ? 'checkedin' : (isOnline(u) ? 'online' : 'offline');
                 return `
                     <button class="staff-directory-item ${isActive ? 'active' : ''}" onclick="window.app_openStaffThread('${u.id}')">
                         <div class="staff-directory-avatar">
                             <img src="${u.avatar}" alt="${u.name}">
+                            <span class="staff-status-dot ${statusClass}"></span>
                         </div>
                         <div class="staff-directory-info">
                             <div class="staff-directory-name">${u.name}</div>
