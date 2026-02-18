@@ -2120,6 +2120,17 @@
         if (reason) msg.rejectReason = reason;
         if (!msg.history) msg.history = [];
         msg.history.unshift({ action: response, byId: currentUser.id, byName: currentUser.name, at: msg.respondedAt, reason });
+
+        if (response === 'approved' && !msg.calendarSynced) {
+            const taskDate = msg.dueDate || new Date().toISOString().split('T')[0];
+            const recipientName = msg.toName || currentUser.name;
+            const details = `${msg.title}${msg.description ? ` - ${msg.description}` : ''}`;
+            if (window.AppCalendar) {
+                await window.AppCalendar.addWorkPlanTask(taskDate, msg.toId, `${details} (Responsible: ${recipientName})`);
+                await window.AppCalendar.addWorkPlanTask(taskDate, msg.fromId, `${details} (Assigned to ${recipientName})`);
+                msg.calendarSynced = true;
+            }
+        }
         await window.AppDB.put('staff_messages', msg);
 
         const sender = await window.AppDB.get('users', msg.fromId);
