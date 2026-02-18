@@ -1952,6 +1952,33 @@
         document.getElementById('notify-modal').style.display = 'flex';
     };
 
+    window.app_quickAddTask = async (userId) => {
+        const currentUser = window.AppAuth.getUser();
+        const isAdmin = currentUser && (currentUser.role === 'Administrator' || currentUser.isAdmin);
+        if (!isAdmin && userId !== currentUser.id) {
+            alert('Only administrators can assign tasks to other staff.');
+            return;
+        }
+        const taskText = prompt('Task to assign:', '');
+        if (!taskText || !taskText.trim()) return;
+        const dateInput = prompt('Task date (YYYY-MM-DD). Leave blank for today:', '');
+        const date = dateInput && dateInput.trim()
+            ? dateInput.trim()
+            : new Date().toISOString().split('T')[0];
+        try {
+            if (!window.AppCalendar) throw new Error('Calendar module not available.');
+            await window.AppCalendar.addWorkPlanTask(date, userId, taskText.trim());
+            alert('Task added successfully.');
+            const contentArea = document.getElementById('page-content');
+            if (contentArea) {
+                contentArea.innerHTML = await window.AppUI.renderDashboard();
+                if (window.setupDashboardEvents) window.setupDashboardEvents();
+            }
+        } catch (err) {
+            alert('Failed to add task: ' + err.message);
+        }
+    };
+
     window.app_viewLogs = async (userId) => {
         console.log("Viewing details for:", userId);
         const user = await window.AppDB.get('users', userId);

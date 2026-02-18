@@ -129,6 +129,67 @@
             </div>`;
     };
 
+    const renderStaffDirectory = (allUsers, notifications, currentUser) => {
+        if (!allUsers || allUsers.length === 0) {
+            return `
+                <div class="card dashboard-staff-directory-card">
+                    <div class="dashboard-staff-directory-head"><h4>Staff Directory</h4><span>Quick actions</span></div>
+                    <div class="dashboard-staff-directory-list">
+                        <div class="dashboard-activity-empty">No staff loaded.</div>
+                    </div>
+                </div>`;
+        }
+
+        const mentionNotifs = (notifications || [])
+            .map((n, idx) => ({ n, idx }))
+            .filter(item => item.n.type === 'mention');
+
+        const pendingByName = {};
+        mentionNotifs.forEach(({ n, idx }) => {
+            const msg = String(n.message || '');
+            const name = msg.includes(' tagged you') ? msg.split(' tagged you')[0].trim() : '';
+            if (!name) return;
+            if (!pendingByName[name]) pendingByName[name] = [];
+            pendingByName[name].push({ notif: n, idx });
+        });
+
+        const staffList = allUsers
+            .filter(u => u.id !== currentUser.id)
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map(u => {
+                const pending = pendingByName[u.name] || [];
+                const firstPending = pending[0];
+                return `
+                    <div class="dashboard-staff-row">
+                        <div class="dashboard-staff-meta">
+                            <img class="dashboard-staff-avatar" src="${u.avatar}" alt="${u.name}">
+                            <div class="dashboard-staff-text">
+                                <div class="dashboard-staff-name">${u.name}</div>
+                                <div class="dashboard-staff-role">${u.role || 'Staff'}</div>
+                            </div>
+                        </div>
+                        <div class="dashboard-staff-actions">
+                            <button class="dashboard-staff-btn" onclick="window.app_notifyUser('${u.id}')" title="Send message"><i class="fa-solid fa-message"></i></button>
+                            <button class="dashboard-staff-btn" onclick="window.app_quickAddTask('${u.id}')" title="Add task"><i class="fa-solid fa-list-check"></i></button>
+                            ${firstPending ? `
+                                <button class="dashboard-staff-btn accept" onclick="window.app_handleTagResponse('${firstPending.notif.planId}', ${firstPending.notif.taskIndex}, 'accepted', ${firstPending.idx})" title="Accept task"><i class="fa-solid fa-check"></i></button>
+                                <button class="dashboard-staff-btn reject" onclick="window.app_handleTagResponse('${firstPending.notif.planId}', ${firstPending.notif.taskIndex}, 'rejected', ${firstPending.idx})" title="Reject task"><i class="fa-solid fa-xmark"></i></button>
+                            ` : ''}
+                            ${pending.length > 1 ? `<span class="dashboard-staff-pending">+${pending.length - 1}</span>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+        return `
+            <div class="card dashboard-staff-directory-card">
+                <div class="dashboard-staff-directory-head"><h4>Staff Directory</h4><span>Message or assign</span></div>
+                <div class="dashboard-staff-directory-list">
+                    ${staffList}
+                </div>
+            </div>`;
+    };
+
     window.app_filterStaffActivity = (daysBack) => {
         const list = document.getElementById('staff-activity-list');
         if (!list) return;
@@ -1296,7 +1357,10 @@
                         </div>
                         <div class="card" style="flex: 1; min-width: 210px; padding: 1rem; margin-bottom: 0; display: flex; flex-direction: column; background: white; position: relative; ${!isViewingSelf ? 'border: 2px solid #fb923c;' : ''}"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;"><h4 style="margin: 0; font-size: 0.95rem; color: #1e1b4b;"><i class="fa-solid fa-history" style="color: #6366f1; margin-right: 6px;"></i> Recent Activity${!isViewingSelf ? ` <span style="font-size: 0.75rem; color: #f97316; font-weight: 800;">(${targetStaff?.name || 'Staff'})</span>` : ''}</h4><a href="#timesheet" onclick="window.location.hash = 'timesheet'; return false;" style="font-size: 0.7rem; color: #4338ca; text-decoration: none; font-weight: 600;">View All</a></div><div style="display: flex; flex-direction: column; gap: 0.75rem; flex: 1; overflow-y: auto; max-height: 250px; padding-right: 4px;">${recentLogs.length > 0 ? recentLogs.slice(0, 3).map(log => `<div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.5rem; border-bottom: 1px solid #f8fafc;"><div><div style="font-size: 0.8rem; font-weight: 600; color: #334155;">${log.date}</div><div style="font-size: 0.7rem; color: #64748b;">${log.checkIn} - ${log.checkOut || '<span style="color:#10b981;">Active</span>'}</div></div><div style="font-size: 0.8rem; font-weight: 700; color: #4338ca; background: #eef2ff; padding: 2px 8px; border-radius: 6px;">${log.duration || '--'}</div></div>`).join('') : '<p style="font-size: 0.8rem; color: #94a3b8; text-align: center; margin-top: 1rem;">No recent sessions</p>'}</div></div>
                         <div style="flex: 1.2; min-width: 210px; display: flex; flex-direction: column; ${!isViewingSelf ? 'border: 2px solid #fb923c; border-radius: 12px;' : ''}">${renderWorkLog(logs, collaborations, targetStaff, isViewingSelf)}</div>
-                        ${isAdmin ? `<div style="flex: 1.2; min-width: 210px; display: flex; flex-direction: column;">${renderActivityLog(staffActivities)}</div>` : ''}
+                        ${isAdmin ? `
+                            <div style="flex: 1.2; min-width: 210px; display: flex; flex-direction: column;">${renderActivityLog(staffActivities)}</div>
+                            <div style="flex: 1.2; min-width: 210px; display: flex; flex-direction: column;">${renderStaffDirectory(allUsers, notifications, user)}</div>
+                        ` : ''}
                     </div>
                     ${summaryHTML}
                 </div>`;

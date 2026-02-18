@@ -1500,6 +1500,133 @@ textarea:focus {
     max-height: 180px;
 }
 
+.dashboard-staff-directory-card {
+    padding: 0.75rem !important;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.dashboard-staff-directory-head {
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid #f1f5f9;
+    padding-bottom: 0.35rem;
+}
+
+.dashboard-staff-directory-head h4 {
+    margin: 0;
+    color: #1f2937;
+    font-size: 0.9rem;
+}
+
+.dashboard-staff-directory-head span {
+    font-size: 0.65rem;
+    color: #6b7280;
+}
+
+.dashboard-staff-directory-list {
+    flex: 1;
+    overflow-y: auto;
+    font-size: 0.75rem;
+    padding-right: 5px;
+    max-height: 180px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.dashboard-staff-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    padding: 0.45rem 0.5rem;
+    border: 1px solid #eef2f7;
+    border-radius: 10px;
+    background: #ffffff;
+}
+
+.dashboard-staff-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+.dashboard-staff-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid #e2e8f0;
+}
+
+.dashboard-staff-text {
+    min-width: 0;
+}
+
+.dashboard-staff-name {
+    font-weight: 700;
+    color: #1f2937;
+    font-size: 0.78rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 120px;
+}
+
+.dashboard-staff-role {
+    color: #94a3b8;
+    font-size: 0.68rem;
+}
+
+.dashboard-staff-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.dashboard-staff-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    color: #334155;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 0.75rem;
+}
+
+.dashboard-staff-btn:hover {
+    background: #eef2ff;
+    border-color: #c7d2fe;
+    color: #3730a3;
+}
+
+.dashboard-staff-btn.accept {
+    background: #ecfdf5;
+    border-color: #bbf7d0;
+    color: #166534;
+}
+
+.dashboard-staff-btn.reject {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: #991b1b;
+}
+
+.dashboard-staff-pending {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: #7c3aed;
+    background: #f3e8ff;
+    border-radius: 999px;
+    padding: 2px 6px;
+}
+
 .dashboard-activity-empty {
     color: #94a3b8;
     text-align: center;
