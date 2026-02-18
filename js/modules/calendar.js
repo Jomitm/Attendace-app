@@ -74,7 +74,7 @@
          * Add a single task to a user's work plan for a specific date
          * Used by Meeting Minutes to assign action items
          */
-        async addWorkPlanTask(date, userId, taskDescription, tags = []) {
+        async addWorkPlanTask(date, userId, taskDescription, tags = [], meta = {}) {
             let workPlan = await this.getWorkPlan(userId, date);
 
             // Create if not exists
@@ -96,12 +96,33 @@
             // Add the task
             if (!workPlan.plans) workPlan.plans = [];
 
+            if (meta.sourcePlanId !== undefined && meta.sourceTaskIndex !== undefined && meta.sourcePlanId !== null) {
+                const existing = workPlan.plans.find(p =>
+                    p.sourcePlanId === meta.sourcePlanId &&
+                    p.sourceTaskIndex === meta.sourceTaskIndex &&
+                    p.addedFrom === (meta.addedFrom || 'minutes')
+                );
+                if (existing) {
+                    existing.task = taskDescription;
+                    existing.subPlans = meta.subPlans || existing.subPlans || [];
+                    existing.tags = tags;
+                    existing.status = meta.status || existing.status || 'pending';
+                    existing.updatedAt = new Date().toISOString();
+                    workPlan.updatedAt = new Date().toISOString();
+                    return await this.db.put('work_plans', workPlan);
+                }
+            }
+
             workPlan.plans.push({
                 task: taskDescription,
-                subPlans: [],
+                subPlans: meta.subPlans || [],
                 tags: tags,
-                status: 'pending', // Default
-                addedFrom: 'minutes'
+                status: meta.status || 'pending', // Default
+                addedFrom: meta.addedFrom || 'minutes',
+                sourcePlanId: meta.sourcePlanId || null,
+                sourceTaskIndex: meta.sourceTaskIndex ?? null,
+                taggedById: meta.taggedById || null,
+                taggedByName: meta.taggedByName || null
             });
 
             workPlan.updatedAt = new Date().toISOString();

@@ -1227,6 +1227,33 @@
                         await window.AppDB.put('users', targetUser);
                     }
                 }
+
+                for (let idx = 0; idx < plans.length; idx++) {
+                    const p = plans[idx];
+                    if (!p.tags) continue;
+                    for (const t of p.tags) {
+                        if (t.id === targetId) continue;
+                        const recipient = allUsers.find(u => u.id === t.id);
+                        if (!recipient || !window.AppCalendar) continue;
+                        const details = p.subPlans && p.subPlans.length > 0 ? ` - ${p.subPlans.join(', ')}` : '';
+                        const taskText = `${p.task}${details} (Responsible: ${recipient.name})`;
+                        await window.AppCalendar.addWorkPlanTask(
+                            date,
+                            recipient.id,
+                            taskText,
+                            [{ id: currentUser.id, name: currentUser.name, status: 'pending' }],
+                            {
+                                addedFrom: 'tag',
+                                sourcePlanId: planId,
+                                sourceTaskIndex: idx,
+                                taggedById: currentUser.id,
+                                taggedByName: currentUser.name,
+                                status: 'pending',
+                                subPlans: p.subPlans || []
+                            }
+                        );
+                    }
+                }
             }
             alert("Plans saved successfully!");
             document.getElementById('day-plan-modal')?.remove();
@@ -2126,8 +2153,22 @@
             const recipientName = msg.toName || currentUser.name;
             const details = `${msg.title}${msg.description ? ` - ${msg.description}` : ''}`;
             if (window.AppCalendar) {
-                await window.AppCalendar.addWorkPlanTask(taskDate, msg.toId, `${details} (Responsible: ${recipientName})`);
-                await window.AppCalendar.addWorkPlanTask(taskDate, msg.fromId, `${details} (Assigned to ${recipientName})`);
+                await window.AppCalendar.addWorkPlanTask(taskDate, msg.toId, `${details} (Responsible: ${recipientName})`, [], {
+                    addedFrom: 'staff',
+                    sourcePlanId: msg.id,
+                    sourceTaskIndex: 0,
+                    taggedById: msg.fromId,
+                    taggedByName: msg.fromName,
+                    status: 'pending'
+                });
+                await window.AppCalendar.addWorkPlanTask(taskDate, msg.fromId, `${details} (Assigned to ${recipientName})`, [], {
+                    addedFrom: 'staff',
+                    sourcePlanId: msg.id,
+                    sourceTaskIndex: 1,
+                    taggedById: msg.fromId,
+                    taggedByName: msg.fromName,
+                    status: 'pending'
+                });
                 msg.calendarSynced = true;
             }
         }
