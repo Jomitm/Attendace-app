@@ -1465,6 +1465,9 @@
                         <div class="dashboard-hero-orb dashboard-hero-orb-top"></div>
                         <div class="dashboard-hero-orb dashboard-hero-orb-bottom"></div>
                         <div class="dashboard-hero-content"><div class="dashboard-hero-row"><div class="dashboard-hero-copy"><h2 class="dashboard-hero-title">Welcome back, ${user.name.split(' ')[0]}! 👋</h2><p class="dashboard-hero-date">${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>${user.rating !== undefined ? `<div class="dashboard-hero-chip-row"><div class="dashboard-hero-chip"><span class="dashboard-hero-chip-label">Your Rating:</span>${window.AppUI.renderStarRating(user.rating, true)}</div>${user.completionStats ? `<div class="dashboard-hero-chip"><i class="fa-solid fa-check-circle dashboard-hero-chip-icon"></i><span>${(user.completionStats.completionRate * 100).toFixed(0)}% Complete</span></div>` : ''}</div>` : ''}</div>${isAdmin ? `<div class="dashboard-viewing-box"><div class="dashboard-viewing-inner"><i class="fa-solid fa-users-viewfinder dashboard-viewing-icon"></i><div class="dashboard-viewing-meta"><div class="dashboard-viewing-head"><div class="dashboard-viewing-label">Viewing Summary For</div>${targetStaffId !== user.id ? '<span class="dashboard-viewing-state">STAFF VIEW ACTIVE</span>' : ''}</div><select onchange="window.app_changeSummaryStaff(this.value)" class="dashboard-viewing-select"><option value="${user.id}">My Own Summary</option><optgroup label="Staff Members">${(allUsers || []).filter(u => u.id !== user.id).sort((a, b) => a.name.localeCompare(b.name)).map(u => `<option value="${u.id}" ${u.id === targetStaffId ? 'selected' : ''}>${u.name}</option>`).join('')}</optgroup></select></div></div></div>` : ''}<div class="welcome-icon dashboard-hero-weather"><i class="fa-solid fa-cloud-sun dashboard-hero-weather-icon"></i></div></div></div>
+                        <button class="dashboard-refresh-link" onclick="window.app_forceRefresh()" title="Check of System Update">
+                            Check of System Update
+                        </button>
                     </div>
                     <div class="dashboard-primary-row">
                         <div class="card check-in-widget" style="flex: 1; min-width: 210px; padding: 1rem; display: flex; flex-direction: column; justify-content: space-between; margin-bottom: 0; background: white; border: 1px solid #eef2ff;">
@@ -1546,15 +1549,15 @@
                 `;
             }).join('');
 
-            const textHistory = textMessages.length ? textMessages.map(m => `
+            const textHistory = selected ? (textMessages.length ? textMessages.map(m => `
                 <div class="staff-message ${m.fromId === currentUser.id ? 'outgoing' : 'incoming'}">
                     <div class="staff-message-meta">${m.fromName} • ${new Date(m.createdAt).toLocaleString()}</div>
                     <div class="staff-message-body">${linkify(m.message || '')}</div>
                     ${m.link ? `<div class="staff-message-link"><a href="${m.link}" target="_blank" rel="noopener noreferrer">${m.link}</a></div>` : ''}
                 </div>
-            `).join('') : '<div class="staff-message-empty">No messages yet.</div>';
+            `).join('') : '<div class="staff-message-empty">No messages yet.</div>') : '<div class="staff-message-empty">Select a staff member to view messages.</div>';
 
-            const taskHistory = taskMessages.length ? taskMessages.map(m => `
+            const taskHistory = selected ? (taskMessages.length ? taskMessages.map(m => `
                 <div class="staff-task-card">
                     <div class="staff-task-head">
                         <div>
@@ -1572,7 +1575,7 @@
                     ` : ''}
                     ${m.rejectReason ? `<div class="staff-task-reason">Reason: ${escapeHtml(m.rejectReason)}</div>` : ''}
                 </div>
-            `).join('') : '<div class="staff-message-empty">No tasks yet.</div>';
+            `).join('') : '<div class="staff-message-empty">No tasks yet.</div>') : '<div class="staff-message-empty">Select a staff member to view tasks.</div>';
 
             return `
                 <div class="staff-directory-page">
@@ -1591,29 +1594,24 @@
                                 <h3>${selected ? selected.name : 'Select a staff member'}</h3>
                                 <span>${selected ? (selected.role || 'Staff') : ''}</span>
                             </div>
+                            <div class="staff-thread-actions">
+                                <button class="staff-thread-action-btn" ${selected ? '' : 'disabled'} onclick="window.app_openStaffMessageModal('${selected ? selected.id : ''}', '${selected ? escapeHtml(selected.name) : ''}')">
+                                    <i class="fa-solid fa-message"></i> Send Message
+                                </button>
+                                <button class="staff-thread-action-btn secondary" ${selected ? '' : 'disabled'} onclick="window.app_openStaffTaskModal('${selected ? selected.id : ''}', '${selected ? escapeHtml(selected.name) : ''}')">
+                                    <i class="fa-solid fa-list-check"></i> Send Task
+                                </button>
+                            </div>
                         </div>
                         <div class="staff-thread-columns">
                             <div class="staff-thread-column">
                                 <div class="staff-thread-column-head">Text Messages</div>
-                                <form class="staff-thread-form" onsubmit="window.app_sendStaffText(event)">
-                                    <input type="hidden" name="toUserId" value="${selected ? selected.id : ''}">
-                                    <textarea name="message" rows="3" placeholder="Type a message... (text + links only)"></textarea>
-                                    <input type="url" name="link" placeholder="Optional link (https://...)">
-                                    <button type="submit" class="action-btn">Send Message</button>
-                                </form>
                                 <div class="staff-thread-history">
                                     ${textHistory}
                                 </div>
                             </div>
                             <div class="staff-thread-column">
                                 <div class="staff-thread-column-head">Tasks</div>
-                                <form class="staff-thread-form" onsubmit="window.app_sendStaffTask(event)">
-                                    <input type="hidden" name="toUserId" value="${selected ? selected.id : ''}">
-                                    <input type="text" name="taskTitle" placeholder="Task title">
-                                    <textarea name="taskDescription" rows="2" placeholder="Task details"></textarea>
-                                    <input type="date" name="taskDueDate">
-                                    <button type="submit" class="action-btn">Send Task</button>
-                                </form>
                                 <div class="staff-thread-history">
                                     ${taskHistory}
                                 </div>
@@ -1629,8 +1627,18 @@
             const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
             const year = window.app_annualYear || today.getFullYear();
             const plans = await window.AppCalendar.getPlans();
+            const users = await window.AppDB.getAll('users').catch(() => []);
             window._currentPlans = plans;
             const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+            const userMap = {};
+            (users || []).forEach(u => { userMap[u.id] = u.name; });
+            const resolveName = (id, fallback) => userMap[id] || fallback || 'Staff';
+            const escapeHtml = (str) => String(str || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
 
             const filters = window.app_annualLegendFilters || {
                 leave: true,
@@ -1700,18 +1708,18 @@
                 }
                 monthsHTML += `
                     <div class="annual-month-card">
-                        <h4 style="margin-top:0; margin-bottom:1rem; color:var(--primary); font-size:1rem; border-bottom:1px solid #f1f5f9; padding-bottom:0.5rem; display:flex; justify-content:space-between;">
-                            ${monthNames[m]}
-                            <span style="font-size:0.7rem; color:#94a3b8; font-weight:400;">${year}</span>
-                        </h4>
+                        <div class="annual-month-head">
+                            <span class="annual-month-title">${monthNames[m]}</span>
+                            <span class="annual-month-year">${year}</span>
+                        </div>
                         <div class="annual-cal-mini">
-                            <div style="font-weight:700; color:#9ca3af; text-align:center;">S</div>
-                            <div style="font-weight:700; color:#9ca3af; text-align:center;">M</div>
-                            <div style="font-weight:700; color:#9ca3af; text-align:center;">T</div>
-                            <div style="font-weight:700; color:#9ca3af; text-align:center;">W</div>
-                            <div style="font-weight:700; color:#9ca3af; text-align:center;">T</div>
-                            <div style="font-weight:700; color:#9ca3af; text-align:center;">F</div>
-                            <div style="font-weight:700; color:#9ca3af; text-align:center;">S</div>
+                            <div class="annual-weekday">S</div>
+                            <div class="annual-weekday">M</div>
+                            <div class="annual-weekday">T</div>
+                            <div class="annual-weekday">W</div>
+                            <div class="annual-weekday">T</div>
+                            <div class="annual-weekday">F</div>
+                            <div class="annual-weekday">S</div>
                             ${daysHTML}
                         </div>
                     </div>`;
@@ -1727,8 +1735,29 @@
 
             const listItems = (() => {
                 const items = [];
-                const pushItem = (date, type, title, userId = null, plansRef = null) => {
-                    items.push({ date, type, title, userId, plansRef });
+                const pushItem = (item) => items.push(item);
+                const toStatusLabel = (status) => {
+                    if (!status) return '';
+                    const clean = String(status).replace(/_/g, '-').toLowerCase();
+                    const map = {
+                        'in-process': 'In Process',
+                        'to-be-started': 'To Be Started',
+                        'not-completed': 'Not Completed',
+                        'completed': 'Completed',
+                        'overdue': 'Overdue',
+                        'pending': 'Pending',
+                        'approved': 'Approved',
+                        'holiday': 'Holiday',
+                        'event': 'Event'
+                    };
+                    return map[clean] || clean.replace(/\b\w/g, c => c.toUpperCase());
+                };
+                const normalizeStatus = (date, status) => {
+                    if (status) return status;
+                    if (window.AppCalendar && date) {
+                        return window.AppCalendar.getSmartTaskStatus(date, status);
+                    }
+                    return 'pending';
                 };
 
                 if (window.AppAnalytics) {
@@ -1738,9 +1767,31 @@
                         const dt = d.toISOString().split('T')[0];
                         const dayType = window.AppAnalytics.getDayType(d);
                         if (dayType === 'Holiday') {
-                            pushItem(dt, 'holiday', 'Company Holiday (Weekend)');
+                            pushItem({
+                                date: dt,
+                                type: 'holiday',
+                                title: 'Company Holiday (Weekend)',
+                                staffName: 'All Staff',
+                                assignedBy: 'System',
+                                assignedTo: 'All Staff',
+                                selfAssigned: false,
+                                dueDate: dt,
+                                status: 'holiday',
+                                comments: ''
+                            });
                         } else if (dayType === 'Half Day') {
-                            pushItem(dt, 'event', 'Half Working Day (Sat)');
+                            pushItem({
+                                date: dt,
+                                type: 'event',
+                                title: 'Half Working Day (Sat)',
+                                staffName: 'All Staff',
+                                assignedBy: 'System',
+                                assignedTo: 'All Staff',
+                                selfAssigned: false,
+                                dueDate: dt,
+                                status: 'event',
+                                comments: ''
+                            });
                         }
                     }
                 }
@@ -1748,28 +1799,86 @@
                 (plans.leaves || []).forEach(l => {
                     const startDate = new Date(l.startDate);
                     const endDate = new Date(l.endDate || l.startDate);
+                    const staffName = resolveName(l.userId, l.userName);
                     for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
                         const dt = d.toISOString().split('T')[0];
                         if (!dt.startsWith(String(year))) continue;
-                        pushItem(dt, 'leave', `${l.userName || 'Staff'} (Leave)`, l.userId);
+                        pushItem({
+                            date: dt,
+                            type: 'leave',
+                            title: `${staffName} (${l.type || 'Leave'})`,
+                            staffName,
+                            assignedBy: staffName,
+                            assignedTo: staffName,
+                            selfAssigned: true,
+                            dueDate: l.endDate || l.startDate || dt,
+                            status: (l.status || 'approved').toLowerCase(),
+                            comments: l.reason || ''
+                        });
                     }
                 });
 
                 (plans.events || []).forEach(e => {
                     if (String(e.date || '').startsWith(String(year))) {
-                        pushItem(e.date, e.type || 'event', e.title || 'Company Event');
+                        pushItem({
+                            date: e.date,
+                            type: e.type || 'event',
+                            title: e.title || 'Company Event',
+                            staffName: 'All Staff',
+                            assignedBy: e.createdByName || 'Admin',
+                            assignedTo: 'All Staff',
+                            selfAssigned: false,
+                            dueDate: e.date,
+                            status: 'event',
+                            comments: e.description || ''
+                        });
                     }
                 });
 
                 (plans.workPlans || []).forEach(p => {
                     if (String(p.date || '').startsWith(String(year))) {
-                        let title = '';
+                        const planOwner = resolveName(p.userId, p.userName);
+                        const planDate = p.date;
                         if (p.plans && p.plans.length > 0) {
-                            title = `${p.userName}: ${p.plans.map(pl => pl.task).join('; ')}`;
+                            p.plans.forEach(task => {
+                                const assignedBy = task.taggedByName || planOwner;
+                                const assignedToId = task.assignedTo || p.userId;
+                                const assignedTo = resolveName(assignedToId, planOwner);
+                                const tags = (task.tags || []).map(t => t.name || t).filter(Boolean);
+                                const status = normalizeStatus(planDate, task.status);
+                                const comments = (task.subPlans && task.subPlans.length)
+                                    ? task.subPlans.join('; ')
+                                    : (task.comment || task.notes || '');
+                                pushItem({
+                                    date: planDate,
+                                    type: 'work',
+                                    title: task.task || 'Work Plan Task',
+                                    staffName: assignedTo,
+                                    assignedBy,
+                                    assignedTo,
+                                    selfAssigned: assignedBy === assignedTo,
+                                    dueDate: task.dueDate || planDate,
+                                    status,
+                                    comments,
+                                    tags
+                                });
+                            });
                         } else {
-                            title = `${p.userName}: ${p.plan || 'Work Plan'}`;
+                            const status = normalizeStatus(planDate, null);
+                            pushItem({
+                                date: planDate,
+                                type: 'work',
+                                title: p.plan || 'Work Plan',
+                                staffName: planOwner,
+                                assignedBy: planOwner,
+                                assignedTo: planOwner,
+                                selfAssigned: true,
+                                dueDate: planDate,
+                                status,
+                                comments: '',
+                                tags: []
+                            });
                         }
-                        pushItem(p.date, 'work', title, p.userId, p);
                     }
                 });
 
@@ -1777,22 +1886,27 @@
                     if (a.date !== b.date) return a.date.localeCompare(b.date);
                     return a.type.localeCompare(b.type);
                 });
+                items.forEach(item => {
+                    item.statusLabel = toStatusLabel(item.status);
+                    item.statusClass = String(item.status || 'pending').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+                });
                 return items;
             })();
+            window._annualListItems = listItems;
 
             return `
-                <div style="display:flex; flex-direction:column; gap:1.5rem;">
-                    <div class="card" style="padding:1.5rem; display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:1rem;">
-                        <div>
-                            <h2 style="margin:0; color:#1e1b4b; font-size:1.5rem;">NGO Annual Planning</h2>
-                            <p style="margin:0.25rem 0 0 0; color:#64748b; font-size:0.9rem;">Overview of all staff activities, leaves, and shared events for ${year}.</p>
+                <div class="annual-plan-shell">
+                    <div class="card annual-plan-header">
+                        <div class="annual-plan-title-wrap">
+                            <h2 class="annual-plan-title">NGO Annual Planning</h2>
+                            <p class="annual-plan-subtitle">Overview of all staff activities, leaves, and shared events for ${year}.</p>
                         </div>
-                        <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
-                            <div style="display:flex; background:#e0f2fe; padding:4px; border-radius:8px;">
-                                <button onclick="window.app_toggleAnnualView('grid')" style="border:none; background:${viewMode === 'grid' ? 'white' : 'transparent'}; color:${viewMode === 'grid' ? '#0284c7' : '#64748b'}; padding:6px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer; box-shadow:${viewMode === 'grid' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none'}; transition: all 0.2s;">
+                        <div class="annual-plan-controls">
+                            <div class="annual-view-toggle">
+                                <button onclick="window.app_toggleAnnualView('grid')" class="annual-toggle-btn ${viewMode === 'grid' ? 'active' : ''}">
                                     <i class="fa-solid fa-calendar-days"></i> Grid
                                 </button>
-                                <button onclick="window.app_toggleAnnualView('list')" style="border:none; background:${viewMode === 'list' ? 'white' : 'transparent'}; color:${viewMode === 'list' ? '#0284c7' : '#64748b'}; padding:6px 12px; border-radius:6px; font-size:0.8rem; font-weight:600; cursor:pointer; box-shadow:${viewMode === 'list' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none'}; transition: all 0.2s;">
+                                <button onclick="window.app_toggleAnnualView('list')" class="annual-toggle-btn ${viewMode === 'list' ? 'active' : ''}">
                                     <i class="fa-solid fa-list"></i> List
                                 </button>
                             </div>
@@ -1801,10 +1915,10 @@
                                 <i class="fa-solid fa-bullseye"></i> Today
                             </button>
 
-                            <div style="display:flex; background:#f1f5f9; border-radius:10px; padding:4px;">
-                                <button onclick="window.app_changeAnnualYear(-1)" style="border:none; background:none; padding:8px 12px; cursor:pointer; color:#475569;"><i class="fa-solid fa-chevron-left"></i></button>
-                                <div style="display:flex; align-items:center; padding:0 1rem; font-weight:700; color:#1e1b4b;">${year}</div>
-                                <button onclick="window.app_changeAnnualYear(1)" style="border:none; background:none; padding:8px 12px; cursor:pointer; color:#475569;"><i class="fa-solid fa-chevron-right"></i></button>
+                            <div class="annual-year-switch">
+                                <button onclick="window.app_changeAnnualYear(-1)" aria-label="Previous year"><i class="fa-solid fa-chevron-left"></i></button>
+                                <div class="annual-year-label">${year}</div>
+                                <button onclick="window.app_changeAnnualYear(1)" aria-label="Next year"><i class="fa-solid fa-chevron-right"></i></button>
                             </div>
                         </div>
                     </div>
@@ -1833,36 +1947,50 @@
                     </div>
 
                     <div id="annual-list-view" style="display:${viewMode === 'list' ? 'block' : 'none'};">
-                        <div class="card" style="padding:1rem;">
-                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
-                                <h4 style="margin:0;">Annual Timeline</h4>
-                                <span style="font-size:0.8rem; color:#64748b;">${year}</span>
+                        <div class="card annual-list-card">
+                            <div class="annual-list-head">
+                                <h4>Annual Timeline</h4>
+                                <div class="annual-list-actions">
+                                    <span>${year}</span>
+                                    <button class="annual-export-btn" onclick="window.AppReports.exportAnnualListViewCSV(window._annualListItems || [])" data-export="annual-list">
+                                        <i class="fa-solid fa-file-export"></i> Export Excel
+                                    </button>
+                                </div>
                             </div>
                             ${listItems.length === 0 ? `
-                                <div style="text-align:center; padding:2rem; color:#94a3b8;">No items found for this year.</div>
+                                <div class="annual-list-empty">No items found for this year.</div>
                             ` : `
-                                <div style="display:flex; flex-direction:column; gap:0.6rem;">
-                                    ${listItems.map(item => {
-                                        const chipStyle = item.type === 'leave'
-                                            ? 'background:#fee2e2;color:#991b1b;'
-                                            : item.type === 'work'
-                                                ? 'background:#e0e7ff;color:#3730a3;'
-                                                : item.type === 'holiday'
-                                                    ? 'background:#f1f5f9;color:#334155;'
-                                                    : 'background:#dcfce7;color:#166534;';
-                                        return `
-                                            <div style="display:flex; align-items:flex-start; gap:0.75rem; padding:0.7rem; border:1px solid #eef2f7; border-radius:12px;">
-                                                <div style="min-width:90px; font-size:0.8rem; color:#64748b;">${item.date}</div>
-                                                <div style="flex:1;">
-                                                    <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
-                                                        <span style="padding:2px 8px; border-radius:999px; font-size:0.7rem; font-weight:700; ${chipStyle}">${item.type.toUpperCase()}</span>
-                                                        <div style="font-size:0.9rem; color:#1f2937; font-weight:600;">${item.title}</div>
-                                                    </div>
-                                                    ${item.type === 'work' ? `<div style="margin-top:0.4rem;"><button class="action-btn secondary" style="padding:0.35rem 0.7rem; font-size:0.75rem;" onclick="window.app_openDayPlan('${item.date}', '${item.userId || ''}')">Open Day Plan</button></div>` : ''}
+                                <div class="annual-list-table-wrap">
+                                    <div class="annual-list-table">
+                                        <div class="annual-list-header">
+                                            <div>Date</div>
+                                            <div>Staff Name</div>
+                                            <div>Assigned By</div>
+                                            <div>Assigned To</div>
+                                            <div>Self Assigned</div>
+                                            <div>Due Date</div>
+                                            <div>Status</div>
+                                            <div>Comments</div>
+                                            <div>Tags</div>
+                                        </div>
+                                        ${listItems.map(item => {
+                                            const comments = escapeHtml(item.comments || '') || '—';
+                                            const tags = item.tags && item.tags.length ? escapeHtml(item.tags.join(', ')) : '—';
+                                            return `
+                                                <div class="annual-list-row">
+                                                    <div class="annual-list-cell">${escapeHtml(item.date || '—')}</div>
+                                                    <div class="annual-list-cell">${escapeHtml(item.staffName || '—')}</div>
+                                                    <div class="annual-list-cell">${escapeHtml(item.assignedBy || '—')}</div>
+                                                    <div class="annual-list-cell">${escapeHtml(item.assignedTo || item.staffName || '—')}</div>
+                                                    <div class="annual-list-cell">${item.selfAssigned ? 'Yes' : 'No'}</div>
+                                                    <div class="annual-list-cell">${escapeHtml(item.dueDate || item.date || '—')}</div>
+                                                    <div class="annual-list-cell"><span class="annual-list-status status-${item.statusClass}">${item.statusLabel || 'Pending'}</span></div>
+                                                    <div class="annual-list-cell annual-list-comments">${comments}</div>
+                                                    <div class="annual-list-cell annual-list-tags">${tags}</div>
                                                 </div>
-                                            </div>
-                                        `;
-                                    }).join('')}
+                                            `;
+                                        }).join('')}
+                                    </div>
                                 </div>
                             `}
                         </div>
@@ -2051,9 +2179,6 @@
                                         <p class="profile-roleline">${user.role} <span>|</span> ${user.dept || 'General'}</p>
                                     </div>
                                     <div style="display:flex; gap:0.5rem; flex-wrap:wrap; justify-content:flex-end;">
-                                        <button onclick="window.app_forceRefresh()" class="action-btn secondary profile-signout-btn" title="Force Refresh">
-                                            <i class="fa-solid fa-rotate-right"></i> Refresh
-                                        </button>
                                         <button onclick="window.AppAuth.logout()" class="action-btn secondary profile-signout-btn">
                                             <i class="fa-solid fa-right-from-bracket"></i> Sign Out
                                         </button>

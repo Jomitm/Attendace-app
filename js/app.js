@@ -292,8 +292,6 @@
                     contentArea.innerHTML = `<div style="padding:1rem; color:#b91c1c;">Policies module failed to load.</div>`;
                 }
             } else if (hash === 'annual-plan') {
-                // Auto-hide sidebar for better view
-                window.app_toggleSidebar(true);
                 contentArea.innerHTML = await window.AppUI.renderAnnualPlan();
             } else if (hash === 'timesheet') {
                 contentArea.innerHTML = await window.AppUI.renderTimesheet();
@@ -759,10 +757,31 @@
                 <div class="plan-block day-plan-block-shell" data-index="${idx}">
                     <div class="day-plan-block-body">
                         ${idx > 0 ? `<button type="button" onclick="this.closest('.plan-block').remove()" title="Remove this task" class="day-plan-remove-task-btn"><i class="fa-solid fa-times"></i></button>` : ''}
-                        <div class="day-plan-left-panel">
+                        <div class="day-plan-left-panel day-plan-main-panel">
                             <label class="day-plan-label">What will you work on?</label>
                             <p class="day-plan-help-text">Be specific. Use @ to tag collaborators.</p>
                             <textarea class="plan-task day-plan-task-input" required placeholder="Describe your plan for the day...">${task}</textarea>
+                            <div class="day-plan-collab-inline">
+                                <div class="day-plan-collab-head">
+                                    <span class="day-plan-mini-label">Collaborators</span>
+                                    <span class="day-plan-collab-hint">Type <b>@</b> in task text, then pick a teammate.</span>
+                                </div>
+                                <div class="tags-container day-plan-tags-inline">
+                                    ${tags.map(t => `
+                                        <div class="tag-chip day-plan-tag-chip" data-id="${t.id}" data-name="${t.name}" data-status="${t.status || 'pending'}">
+                                            <span class="day-plan-tag-main"><i class="fa-solid fa-at day-plan-tag-icon"></i>${t.name} <span class="day-plan-tag-pending">(${t.status || 'pending'})</span></span>
+                                            <i class="fa-solid fa-times day-plan-remove-collab-btn" onclick="window.app_removeTagHint(this)"></i>
+                                        </div>
+                                    `).join('')}
+                                    ${tags.length === 0 ? `
+                                        <div class="no-tags-placeholder day-plan-no-tags-placeholder">
+                                            <div class="day-plan-no-tags-icon-wrap"><i class="fa-solid fa-user-plus day-plan-no-tags-icon"></i></div>
+                                            <p class="day-plan-no-tags-title">No collaborators yet</p>
+                                            <p class="day-plan-no-tags-text">Use <b>@</b> in your task to tag teammates</p>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            </div>
                             <div class="day-plan-sub-section">
                                 <label class="day-plan-mini-label">Break into steps (optional)</label>
                                 <div class="sub-plans-list day-plan-sub-list">
@@ -775,25 +794,6 @@
                                     `).join('')}
                                 </div>
                                 <button type="button" onclick="window.app_addSubPlanRow(this)" class="day-plan-add-step-btn"><i class="fa-solid fa-plus"></i> Add Step</button>
-                            </div>
-                        </div>
-                        <div class="day-plan-right-panel">
-                            <label class="day-plan-label">Who's helping?</label>
-                            <p class="day-plan-collab-hint">Type <b>@</b> in task text, then pick a teammate.</p>
-                            <div class="tags-container">
-                                ${tags.map(t => `
-                                    <div class="tag-chip day-plan-tag-chip" data-id="${t.id}" data-name="${t.name}" data-status="${t.status || 'pending'}">
-                                        <span class="day-plan-tag-main"><i class="fa-solid fa-at day-plan-tag-icon"></i>${t.name} <span class="day-plan-tag-pending">(${t.status || 'pending'})</span></span>
-                                        <i class="fa-solid fa-times day-plan-remove-collab-btn" onclick="window.app_removeTagHint(this)"></i>
-                                    </div>
-                                `).join('')}
-                                ${tags.length === 0 ? `
-                                    <div class="no-tags-placeholder day-plan-no-tags-placeholder">
-                                        <div class="day-plan-no-tags-icon-wrap"><i class="fa-solid fa-user-plus day-plan-no-tags-icon"></i></div>
-                                        <p class="day-plan-no-tags-title">No collaborators yet</p>
-                                        <p class="day-plan-no-tags-text">Use <b>@</b> in your task to tag teammates</p>
-                                    </div>
-                                ` : ''}
                             </div>
                         </div>
                     </div>
@@ -886,25 +886,27 @@
         newBlock.innerHTML = `
             <div class="day-plan-block-body">
                 <button type="button" onclick="this.closest('.plan-block').remove()" title="Remove this task" class="day-plan-remove-task-btn"><i class="fa-solid fa-times"></i></button>
-                <div class="day-plan-left-panel">
+                <div class="day-plan-left-panel day-plan-main-panel">
                     <label class="day-plan-label">What will you work on?</label>
                     <p class="day-plan-help-text">Be specific. Use @ to tag collaborators.</p>
                     <textarea class="plan-task day-plan-task-input" required placeholder="Describe your plan for the day..."></textarea>
+                    <div class="day-plan-collab-inline">
+                        <div class="day-plan-collab-head">
+                            <span class="day-plan-mini-label">Collaborators</span>
+                            <span class="day-plan-collab-hint">Type <b>@</b> in task text, then pick a teammate.</span>
+                        </div>
+                        <div class="tags-container day-plan-tags-inline">
+                            <div class="no-tags-placeholder day-plan-no-tags-placeholder">
+                                <div class="day-plan-no-tags-icon-wrap"><i class="fa-solid fa-user-plus day-plan-no-tags-icon"></i></div>
+                                <p class="day-plan-no-tags-title">No collaborators yet</p>
+                                <p class="day-plan-no-tags-text">Use <b>@</b> in your task to tag teammates</p>
+                            </div>
+                        </div>
+                    </div>
                     <div class="day-plan-sub-section">
                         <label class="day-plan-mini-label">Break into steps (optional)</label>
                         <div class="sub-plans-list day-plan-sub-list"></div>
                         <button type="button" onclick="window.app_addSubPlanRow(this)" class="day-plan-add-step-btn"><i class="fa-solid fa-plus"></i> Add Step</button>
-                    </div>
-                </div>
-                <div class="day-plan-right-panel">
-                    <label class="day-plan-label">Who's helping?</label>
-                    <p class="day-plan-collab-hint">Type <b>@</b> in task text, then pick a teammate.</p>
-                    <div class="tags-container">
-                        <div class="no-tags-placeholder day-plan-no-tags-placeholder">
-                            <div class="day-plan-no-tags-icon-wrap"><i class="fa-solid fa-user-plus day-plan-no-tags-icon"></i></div>
-                            <p class="day-plan-no-tags-title">No collaborators yet</p>
-                            <p class="day-plan-no-tags-text">Use <b>@</b> in your task to tag teammates</p>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -2087,6 +2089,8 @@
             read: false
         });
         e.target.reset();
+        const messageModal = document.getElementById('staff-message-modal');
+        if (messageModal) messageModal.remove();
         const contentArea = document.getElementById('page-content');
         if (contentArea) {
             contentArea.innerHTML = await window.AppUI.renderStaffDirectoryPage();
@@ -2129,6 +2133,8 @@
             history: [{ action: 'created', byId: currentUser.id, byName: currentUser.name, at: new Date().toISOString() }]
         });
         e.target.reset();
+        const taskModal = document.getElementById('staff-task-modal');
+        if (taskModal) taskModal.remove();
         const contentArea = document.getElementById('page-content');
         if (contentArea) {
             contentArea.innerHTML = await window.AppUI.renderStaffDirectoryPage();
@@ -2136,6 +2142,63 @@
         if (window.app_updateStaffNavIndicator) {
             await window.app_updateStaffNavIndicator();
         }
+    };
+
+    window.app_openStaffMessageModal = (toUserId, toName) => {
+        if (!toUserId) {
+            alert('Select a staff member first.');
+            return;
+        }
+        const safeName = String(toName || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const html = `
+            <div class="modal-overlay" id="staff-message-modal" style="display:flex;">
+                <div class="modal-content staff-message-modal">
+                    <div class="staff-modal-head">
+                        <div>
+                            <h3>Send Message</h3>
+                            <span>To ${safeName}</span>
+                        </div>
+                        <button onclick="this.closest('.modal-overlay').remove()" class="staff-modal-close">&times;</button>
+                    </div>
+                    <form onsubmit="window.app_sendStaffText(event)" class="staff-modal-form">
+                        <input type="hidden" name="toUserId" value="${toUserId}">
+                        <textarea name="message" rows="4" placeholder="Type a message... (text + links only)" required></textarea>
+                        <input type="url" name="link" placeholder="Optional link (https://...)">
+                        <button type="submit" class="action-btn">Send Message</button>
+                    </form>
+                </div>
+            </div>
+        `;
+        window.app_showModal(html, 'staff-message-modal');
+    };
+
+    window.app_openStaffTaskModal = (toUserId, toName) => {
+        if (!toUserId) {
+            alert('Select a staff member first.');
+            return;
+        }
+        const safeName = String(toName || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const html = `
+            <div class="modal-overlay" id="staff-task-modal" style="display:flex;">
+                <div class="modal-content staff-message-modal">
+                    <div class="staff-modal-head">
+                        <div>
+                            <h3>Send Task</h3>
+                            <span>To ${safeName}</span>
+                        </div>
+                        <button onclick="this.closest('.modal-overlay').remove()" class="staff-modal-close">&times;</button>
+                    </div>
+                    <form onsubmit="window.app_sendStaffTask(event)" class="staff-modal-form">
+                        <input type="hidden" name="toUserId" value="${toUserId}">
+                        <input type="text" name="taskTitle" placeholder="Task title" required>
+                        <textarea name="taskDescription" rows="3" placeholder="Task details"></textarea>
+                        <input type="date" name="taskDueDate">
+                        <button type="submit" class="action-btn">Send Task</button>
+                    </form>
+                </div>
+            </div>
+        `;
+        window.app_showModal(html, 'staff-task-modal');
     };
 
     window.app_respondStaffTask = async (messageId, response) => {

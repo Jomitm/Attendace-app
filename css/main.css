@@ -876,18 +876,22 @@ td {
 /* Annual Plan Styles */
 .annual-plan-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 1.5rem;
-    padding: 0.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1rem;
+    padding: 0.35rem;
+    max-width: 980px;
+    justify-self: start;
 }
 
 .annual-month-card {
-    background: white;
-    border-radius: 16px;
-    padding: 1rem;
-    box-shadow: var(--shadow-sm);
-    border: 1px solid #f1f5f9;
-    transition: transform 0.2s;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    border-radius: 18px;
+    padding: 0.85rem;
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .annual-month-card:hover {
@@ -895,11 +899,55 @@ td {
     box-shadow: var(--shadow-md);
 }
 
+.annual-month-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at top right, rgba(99, 102, 241, 0.12), transparent 55%);
+    pointer-events: none;
+}
+
+.annual-month-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 0.45rem;
+    margin-bottom: 0.7rem;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+    position: relative;
+    z-index: 1;
+}
+
+.annual-month-title {
+    font-size: 0.98rem;
+    font-weight: 700;
+    color: #1e293b;
+}
+
+.annual-month-year {
+    font-size: 0.7rem;
+    color: #94a3b8;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
 .annual-cal-mini {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
-    gap: 2px;
-    font-size: 0.75rem;
+    gap: 4px;
+    font-size: 0.74rem;
+    position: relative;
+    z-index: 1;
+}
+
+.annual-weekday {
+    font-weight: 700;
+    color: #94a3b8;
+    text-align: center;
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
 }
 
 .annual-day {
@@ -907,39 +955,47 @@ td {
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 8px;
+    border-radius: 10px;
     position: relative;
     cursor: pointer;
     font-weight: 500;
-    color: #4b5563;
+    color: #334155;
+    background: #ffffff;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
     transition: transform var(--motion-fast) var(--easing-standard),
         box-shadow var(--motion-fast) var(--easing-standard),
         background var(--motion-fast) var(--easing-standard);
 }
 
 .annual-day:hover:not(.empty) {
-    background: #f3f4f6;
+    background: #e0f2fe;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 12px rgba(14, 116, 144, 0.18);
 }
 
 .annual-day.today {
-    background: var(--primary);
+    background: linear-gradient(135deg, var(--primary) 0%, #38bdf8 100%);
     color: white;
     font-weight: 700;
+    border-color: transparent;
+    box-shadow: 0 10px 18px rgba(37, 99, 235, 0.35);
 }
 
 .annual-day .dot-container {
     position: absolute;
-    bottom: 2px;
+    bottom: 3px;
     left: 50%;
     transform: translateX(-50%);
     display: flex;
-    gap: 2px;
+    gap: 3px;
 }
 
 .status-dot {
-    width: 4px;
-    height: 4px;
+    width: 5px;
+    height: 5px;
     border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9);
 }
 
 .dot-leave {
@@ -955,15 +1011,24 @@ td {
 }
 
 .annual-day.has-work {
-    border: 1.5px solid #e0e7ff;
+    border: 1.5px solid #a5b4fc;
 }
 
 .annual-day.work-overdue {
-    border-color: #fecaca;
+    border-color: #fca5a5;
+    background: #fff1f2;
 }
 
 .annual-day.work-completed {
-    border-color: #bbf7d0;
+    border-color: #86efac;
+    background: #ecfdf5;
+}
+
+.annual-day.empty {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    cursor: default;
 }
 
 .desktop-toggle-btn {
@@ -1397,6 +1462,37 @@ textarea:focus {
     padding: 6px 12px;
     border-radius: 20px;
     backdrop-filter: blur(10px);
+}
+
+.dashboard-refresh-link {
+    position: absolute;
+    right: 1rem;
+    bottom: 0.85rem;
+    background: none;
+    border: none;
+    color: #ff8b8b;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    text-decoration-thickness: 2px;
+    letter-spacing: 0.01em;
+    z-index: 2;
+}
+
+.dashboard-refresh-link:hover {
+    color: #ff5c5c;
+}
+
+@media (max-width: 640px) {
+    .dashboard-refresh-link {
+        position: relative;
+        right: auto;
+        bottom: auto;
+        margin-top: 0.5rem;
+        align-self: flex-end;
+    }
 }
 
 .dashboard-hero-chip-label {
@@ -2232,6 +2328,46 @@ textarea:focus {
     color: #64748b;
 }
 
+.staff-thread-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.staff-thread-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.staff-thread-action-btn {
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #0f172a;
+    border-radius: 10px;
+    padding: 0.45rem 0.75rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.staff-thread-action-btn.secondary {
+    background: #eff6ff;
+    border-color: #bfdbfe;
+    color: #1d4ed8;
+}
+
+.staff-thread-action-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 .staff-thread-columns {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -2251,6 +2387,50 @@ textarea:focus {
 .staff-thread-column-head {
     font-weight: 700;
     color: #1f2937;
+}
+
+.staff-message-modal {
+    width: min(560px, 92vw);
+}
+
+.staff-modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.8rem;
+}
+
+.staff-modal-head h3 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.staff-modal-head span {
+    font-size: 0.8rem;
+    color: #64748b;
+}
+
+.staff-modal-close {
+    background: none;
+    border: none;
+    font-size: 1.4rem;
+    cursor: pointer;
+    color: #64748b;
+}
+
+.staff-modal-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.staff-modal-form input,
+.staff-modal-form textarea {
+    padding: 0.65rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    font-family: inherit;
+    font-size: 0.9rem;
 }
 
 .staff-thread-form {
@@ -2965,11 +3145,138 @@ textarea:focus {
 }
 
 /* Annual Plan Enhancements */
+.annual-plan-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.annual-plan-header {
+    padding: 1.4rem;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 55%, #38bdf8 100%);
+    border: none;
+    color: #fff;
+    position: relative;
+    overflow: hidden;
+}
+
+.annual-plan-header::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 80% 20%, rgba(255, 255, 255, 0.25), transparent 45%);
+    pointer-events: none;
+}
+
+.annual-plan-title-wrap {
+    position: relative;
+    z-index: 1;
+}
+
+.annual-plan-title {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+}
+
+.annual-plan-subtitle {
+    margin: 0.35rem 0 0 0;
+    font-size: 0.9rem;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.annual-plan-controls {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    flex-wrap: wrap;
+    position: relative;
+    z-index: 1;
+}
+
+.annual-view-toggle {
+    display: flex;
+    background: rgba(255, 255, 255, 0.18);
+    padding: 4px;
+    border-radius: 12px;
+    backdrop-filter: blur(6px);
+}
+
+.annual-toggle-btn {
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.75);
+    padding: 6px 12px;
+    border-radius: 10px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.annual-toggle-btn.active {
+    background: #ffffff;
+    color: #1e40af;
+    box-shadow: 0 8px 16px rgba(15, 23, 42, 0.2);
+}
+
+.annual-year-switch {
+    display: flex;
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 12px;
+    padding: 4px;
+    gap: 4px;
+    align-items: center;
+    backdrop-filter: blur(6px);
+}
+
+.annual-year-switch button {
+    border: none;
+    background: transparent;
+    color: #e0f2fe;
+    padding: 6px 10px;
+    cursor: pointer;
+    border-radius: 10px;
+}
+
+.annual-year-switch button:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.annual-year-label {
+    color: #fff;
+    font-weight: 700;
+    padding: 0 0.65rem;
+    letter-spacing: 0.04em;
+}
+
 .annual-grid-layout {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 320px;
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
     gap: 1rem;
     align-items: start;
+}
+
+.annual-plan-grid {
+    width: 100%;
+    min-width: 0;
+}
+
+.annual-day-detail {
+    max-width: 100%;
+    min-width: 0;
+}
+
+@media (max-width: 1200px) {
+    .annual-grid-layout {
+        grid-template-columns: 1fr;
+    }
 }
 
 .annual-legend-bar {
@@ -3020,9 +3327,9 @@ textarea:focus {
 }
 
 .annual-day.selected {
-    outline: 2px solid var(--primary);
+    outline: 2px solid #38bdf8;
     outline-offset: 1px;
-    background: #ecfeff;
+    background: #e0f2fe;
 }
 
 .annual-day.annual-day-muted {
@@ -3113,6 +3420,164 @@ textarea:focus {
     padding: 1rem 0.5rem;
 }
 
+.annual-list-card {
+    padding: 1rem;
+}
+
+.annual-list-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 0.6rem;
+}
+
+.annual-list-head h4 {
+    margin: 0;
+    font-size: 1rem;
+}
+
+.annual-list-head span {
+    font-size: 0.8rem;
+    color: #64748b;
+    font-weight: 700;
+}
+
+.annual-list-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.annual-export-btn {
+    border: 1px solid #bfdbfe;
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-radius: 8px;
+    padding: 0.4rem 0.7rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.annual-export-btn:hover {
+    background: #dbeafe;
+}
+
+.annual-list-empty {
+    text-align: center;
+    padding: 2rem;
+    color: #94a3b8;
+}
+
+.annual-list-table-wrap {
+    overflow-x: auto;
+    padding-bottom: 0.5rem;
+}
+
+.annual-list-table {
+    min-width: 1180px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.annual-list-header,
+.annual-list-row {
+    display: grid;
+    grid-template-columns: 110px 160px 160px 160px 110px 120px 140px minmax(220px, 1fr) minmax(140px, 0.7fr);
+    gap: 0.6rem;
+    align-items: center;
+}
+
+.annual-list-header {
+    font-size: 0.7rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #64748b;
+    padding: 0.4rem 0.5rem;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.annual-list-row {
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 0.6rem 0.5rem;
+    background: #ffffff;
+    box-shadow: 0 10px 18px rgba(15, 23, 42, 0.05);
+}
+
+.annual-list-cell {
+    font-size: 0.78rem;
+    color: #334155;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.annual-list-status {
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+}
+
+.annual-list-comments,
+.annual-list-tags {
+    white-space: normal;
+    line-height: 1.25;
+}
+
+.annual-list-status.status-overdue {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
+.annual-list-status.status-in-process,
+.annual-list-status.status-in-processes {
+    background: #fef9c3;
+    color: #854d0e;
+}
+
+.annual-list-status.status-to-be-started,
+.annual-list-status.status-pending {
+    background: #e0f2fe;
+    color: #0369a1;
+}
+
+.annual-list-status.status-completed {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.annual-list-status.status-not-completed {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.annual-list-status.status-approved,
+.annual-list-status.status-event,
+.annual-list-status.status-holiday {
+    background: #f1f5f9;
+    color: #334155;
+}
+
+@media (max-width: 900px) {
+    .annual-list-table {
+        min-width: 980px;
+    }
+}
+
 .annual-today-btn {
     border: 1px solid #bfdbfe;
     background: #eff6ff;
@@ -3125,6 +3590,16 @@ textarea:focus {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
+}
+
+.annual-plan-header .annual-today-btn {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.35);
+    color: #ffffff;
+}
+
+.annual-plan-header .annual-today-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
 }
 
 @media (max-width: 1200px) {
@@ -5658,5 +6133,87 @@ textarea:focus {
 
     #day-plan-modal .day-plan-footer > div {
         min-width: 100% !important;
+    }
+}
+
+/* Day Plan compact single-column layout */
+#day-plan-modal .day-plan-block-body {
+    flex-direction: column !important;
+    min-height: 0 !important;
+}
+
+#day-plan-modal .day-plan-block-shell {
+    min-height: 0 !important;
+}
+
+#day-plan-modal .day-plan-left-panel {
+    border-right: none !important;
+    width: 100%;
+    padding: 0.9rem !important;
+}
+
+#day-plan-modal .day-plan-task-input {
+    height: 64px !important;
+}
+
+#day-plan-modal .day-plan-collab-inline {
+    margin: 0 0 0.5rem 0;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #f8fafc;
+}
+
+#day-plan-modal .day-plan-collab-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    margin-bottom: 0.3rem;
+}
+
+#day-plan-modal .day-plan-collab-hint {
+    font-size: 0.64rem !important;
+    color: #64748b;
+}
+
+#day-plan-modal .day-plan-tags-inline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    min-height: 26px;
+}
+
+#day-plan-modal .day-plan-no-tags-placeholder {
+    width: 100%;
+    padding: 0.3rem 0.4rem !important;
+    border-radius: 8px !important;
+    border: 1px dashed #cbd5e1 !important;
+    background: #ffffff !important;
+}
+
+#day-plan-modal .day-plan-no-tags-icon-wrap {
+    width: 20px !important;
+    height: 20px !important;
+    margin-bottom: 0.2rem !important;
+}
+
+#day-plan-modal .day-plan-no-tags-title {
+    font-size: 0.7rem !important;
+    margin-bottom: 0.1rem !important;
+}
+
+#day-plan-modal .day-plan-no-tags-text {
+    font-size: 0.64rem !important;
+}
+
+@media (max-width: 700px) {
+    #day-plan-modal .day-plan-collab-head {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    #day-plan-modal .day-plan-content {
+        padding: 0.7rem !important;
     }
 }

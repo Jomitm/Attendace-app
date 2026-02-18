@@ -308,16 +308,20 @@
 
         async exportAnnualListViewCSV(rows) {
             try {
-                // Pre-process rows for CSV (strip HTML from desc)
-                const data = rows.map(r => ({
-                    date: r.date,
-                    staff: r.staff,
-                    type: r.type,
-                    desc: r.desc.replace(/<br>/g, '\n').replace(/<[^>]*>/g, '') // Basic HTML strip
+                const data = (rows || []).map(r => ({
+                    date: r.date || '',
+                    staffName: r.staffName || r.staff || '',
+                    assignedBy: r.assignedBy || '',
+                    assignedTo: r.assignedTo || '',
+                    selfAssigned: r.selfAssigned ? 'Yes' : 'No',
+                    dueDate: r.dueDate || '',
+                    status: r.statusLabel || r.status || '',
+                    comments: r.comments || '',
+                    tags: Array.isArray(r.tags) ? r.tags.join(', ') : (r.tags || '')
                 }));
 
-                const headers = ['Date', 'Staff Name', 'Category', 'Description'];
-                const keys = ['date', 'staff', 'type', 'desc'];
+                const headers = ['Date', 'Staff Name', 'Assigned By', 'Assigned To', 'Self Assigned', 'Due Date', 'Completion Status', 'Comments', 'Tags'];
+                const keys = ['date', 'staffName', 'assignedBy', 'assignedTo', 'selfAssigned', 'dueDate', 'status', 'comments', 'tags'];
 
                 const csvContent = this.convertToCSV(data, headers, keys);
                 const fileName = `Annual_Plan_List_${new Date().toISOString().split('T')[0]}.csv`;
