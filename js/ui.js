@@ -253,8 +253,10 @@
 
     const renderNotificationPanel = (notifications, history) => {
         const items = [
-            ...(notifications || []).map(n => ({
+            ...(notifications || []).map((n, notifIndex) => ({
                 id: n.id,
+                notifIndex,
+                source: 'live',
                 name: n.taggedByName || 'System',
                 summary: n.message || (n.type === 'task' ? 'sent you a task' : 'sent you a reminder'),
                 snippet: n.title || n.description || '',
@@ -263,6 +265,8 @@
             })),
             ...(history || []).map(h => ({
                 id: h.id,
+                notifIndex: null,
+                source: 'history',
                 name: h.taggedByName || 'System',
                 summary: `Tag ${h.status}`,
                 snippet: h.title || '',
@@ -282,6 +286,11 @@
                                 <div class="dashboard-notif-summary">${n.summary}</div>
                             </div>
                             <div class="dashboard-notif-col right">
+                                ${n.source === 'live' && Number.isInteger(n.notifIndex) ? `
+                                    <button class="dashboard-notif-close" title="Dismiss" onclick="document.dispatchEvent(new CustomEvent('dismiss-notification', { detail: ${n.notifIndex} }))">
+                                        <i class="fa-solid fa-xmark"></i>
+                                    </button>
+                                ` : ''}
                                 <div class="dashboard-notif-snippet">${n.snippet || '--'}</div>
                                 <div class="dashboard-notif-time">${timeAgo(n.time)}</div>
                             </div>
@@ -627,16 +636,27 @@
                         </div>
 
                         <form id="checkout-form" onsubmit="window.app_submitCheckOut(event)">
-                            
-                            <!-- Today's Plan Reference (Enhanced) -->
-                            <div id="checkout-plan-ref" style="display:none; background:linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%); padding:1rem; border-radius:12px; border:2px solid #e9d5ff; margin-bottom:1.5rem;">
+                            <!-- Task Checklist Section -->
+                            <div id="checkout-task-checklist" style="margin-bottom:1.5rem; background:linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%); padding:1rem; border-radius:12px; border:2px solid #e9d5ff;">
                                 <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.75rem;">
                                     <div style="background:#a78bfa; color:white; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.7rem;">2</div>
-                                    <label style="font-size:0.85rem; font-weight:700; color:#6b21a8; margin:0;">✅ Your Planned Tasks for Today</label>
+                                    <label style="font-size:0.85rem; font-weight:700; color:#6b21a8; margin:0;">&#9989; Your Planned Tasks for Today</label>
                                 </div>
-                                <div id="checkout-plan-text" style="color:#7c3aed; margin-bottom:0.75rem; line-height:1.5; font-size:0.85rem; padding:0.75rem; background:white; border-radius:8px; border:1px solid #e9d5ff;"></div>
-                                <button type="button" onclick="window.app_useWorkPlan()" style="background:#8b5cf6; color:white; border:none; padding:8px 14px; border-radius:8px; font-size:0.85rem; cursor:pointer; font-weight:600; display:flex; align-items:center; gap:0.5rem; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed'; this.style.transform='translateY(-1px)'" onmouseout="this.style.background='#8b5cf6'; this.style.transform='translateY(0)'">
-                                    <i class="fa-solid fa-wand-magic-sparkles"></i> <span>✨ Use Plan as My Summary</span>
+                                <div id="checkout-plan-text" style="display:none;"></div>
+                                <div class="checkout-task-layout">
+                                    <div id="checkout-task-list" style="display:block; background:#ffffff; border:1px solid #e5e7eb; border-radius:10px; padding:0.75rem;">
+                                        <!-- Populated dynamically -->
+                                        <div style="font-size:0.8rem; color:#6b7280;">Loading tasks...</div>
+                                    </div>
+                                    <div id="delegate-panel" style="display:none; background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:0.75rem;">
+                                        <div style="font-size:0.85rem; font-weight:700; color:#334155; margin-bottom:0.5rem;">Available Staff</div>
+                                        <div id="delegate-list" style="display:flex; flex-direction:column; gap:0.4rem; margin-bottom:0.75rem;"></div>
+                                        <div style="font-size:0.75rem; font-weight:700; color:#64748b; margin-bottom:0.35rem;">Selected Task</div>
+                                        <div id="delegate-selected-task" style="font-size:0.85rem; color:#475569;"></div>
+                                    </div>
+                                </div>
+                                <button type="button" onclick="window.app_useWorkPlan()" style="background:#8b5cf6; color:white; border:none; padding:8px 14px; border-radius:10px; font-size:0.95rem; cursor:pointer; font-weight:700; display:flex; align-items:center; gap:0.5rem; margin-top:0.85rem;">
+                                    <i class="fa-solid fa-wand-magic-sparkles"></i> <span>&#10024; Use Plan as My Summary</span>
                                 </button>
                             </div>
 
@@ -1465,8 +1485,8 @@
                         <div class="dashboard-hero-orb dashboard-hero-orb-top"></div>
                         <div class="dashboard-hero-orb dashboard-hero-orb-bottom"></div>
                         <div class="dashboard-hero-content"><div class="dashboard-hero-row"><div class="dashboard-hero-copy"><h2 class="dashboard-hero-title">Welcome back, ${user.name.split(' ')[0]}! 👋</h2><p class="dashboard-hero-date">${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>${user.rating !== undefined ? `<div class="dashboard-hero-chip-row"><div class="dashboard-hero-chip"><span class="dashboard-hero-chip-label">Your Rating:</span>${window.AppUI.renderStarRating(user.rating, true)}</div>${user.completionStats ? `<div class="dashboard-hero-chip"><i class="fa-solid fa-check-circle dashboard-hero-chip-icon"></i><span>${(user.completionStats.completionRate * 100).toFixed(0)}% Complete</span></div>` : ''}</div>` : ''}</div>${isAdmin ? `<div class="dashboard-viewing-box"><div class="dashboard-viewing-inner"><i class="fa-solid fa-users-viewfinder dashboard-viewing-icon"></i><div class="dashboard-viewing-meta"><div class="dashboard-viewing-head"><div class="dashboard-viewing-label">Viewing Summary For</div>${targetStaffId !== user.id ? '<span class="dashboard-viewing-state">STAFF VIEW ACTIVE</span>' : ''}</div><select onchange="window.app_changeSummaryStaff(this.value)" class="dashboard-viewing-select"><option value="${user.id}">My Own Summary</option><optgroup label="Staff Members">${(allUsers || []).filter(u => u.id !== user.id).sort((a, b) => a.name.localeCompare(b.name)).map(u => `<option value="${u.id}" ${u.id === targetStaffId ? 'selected' : ''}>${u.name}</option>`).join('')}</optgroup></select></div></div></div>` : ''}<div class="welcome-icon dashboard-hero-weather"><i class="fa-solid fa-cloud-sun dashboard-hero-weather-icon"></i></div></div></div>
-                        <button class="dashboard-refresh-link" onclick="window.app_forceRefresh()" title="Check of System Update">
-                            Check of System Update
+                        <button class="dashboard-refresh-link" onclick="window.app_forceRefresh()" title="Check for System Update">
+                            Check for System Update
                         </button>
                     </div>
                     <div class="dashboard-primary-row">

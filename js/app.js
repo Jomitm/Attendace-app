@@ -1459,25 +1459,278 @@
 
 
     // Helper to postpone a task
-    window.app_postponeTask = async (planId, taskIndex, taskText) => {
-        const targetDate = prompt("When do you want to postpone this to? (YYYY-MM-DD)", new Date(Date.now() + 86400000).toISOString().split('T')[0]);
+    window.app_postponeTask = async (planId, taskIndex, targetDate) => {
         if (!targetDate) return;
-
         try {
             const user = window.AppAuth.getUser();
-            // 1. Mark as 'postponed' in today's plan
             await window.AppCalendar.updateTaskStatus(planId, taskIndex, 'postponed');
-
-            // 2. Add to target date's plan
-            await window.AppCalendar.addWorkPlanTask(targetDate, user.id, taskText);
-            if (window.AppStore && window.AppStore.invalidatePlans) {
-                window.AppStore.invalidatePlans(); // CACHE INVALIDATION
-            }
-
+            const plan = await window.AppDB.get('work_plans', planId);
+            const task = plan?.plans?.[taskIndex];
+            const details = (task && task.subPlans && task.subPlans.length) ? ` - ${task.subPlans.join(', ')}` : '';
+            const text = task ? `${task.task}${details}` : '';
+            const fromDate = plan?.date || new Date().toISOString().split('T')[0];
+            const cleanedText = text.replace(/\s*\(Postponed from [^)]+\)\s*$/i, '');
+            const postponedText = `${cleanedText} (Postponed from ${fromDate})`;
+            await window.AppCalendar.addWorkPlanTask(targetDate, user.id, postponedText, [], {
+                addedFrom: 'postponed',
+                sourcePlanId: planId,
+                sourceTaskIndex: taskIndex,
+                postponedFromDate: fromDate
+            });
+            if (window.AppStore && window.AppStore.invalidatePlans) window.AppStore.invalidatePlans();
             alert(`Task postponed to ${targetDate}`);
             if (typeof handleAttendance === 'function') await handleAttendance();
         } catch (err) {
             alert("Failed to postpone task: " + err.message);
+        }
+    };
+
+    window.app_openPostponeModal = function (planId, taskIndex) {
+        const modalId = 'postpone-task-modal';
+        document.getElementById(modalId)?.remove();
+        const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+        const html = `
+            <div class="modal-overlay" id="${modalId}" style="display:flex;">
+                <div class="modal-content" style="max-width:420px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.8rem;">
+                        <h3 style="margin:0; font-size:1.05rem;">Postpone Task</h3>
+                        <button type="button" onclick="document.getElementById('${modalId}')?.remove()" style="background:none; border:none; font-size:1.1rem; cursor:pointer;">&times;</button>
+                    </div>
+                    <label for="postpone-date-input" style="display:block; margin-bottom:0.35rem; font-size:0.85rem; color:#475569; font-weight:600;">Select date</label>
+                    <input id="postpone-date-input" type="date" value="${tomorrow}" style="width:100%; padding:0.6rem; border:1px solid #d1d5db; border-radius:8px;">
+                    <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1rem;">
+                        <button type="button" class="action-btn secondary" onclick="document.getElementById('${modalId}')?.remove()" style="padding:0.55rem 0.9rem;">Cancel</button>
+                        <button type="button" class="action-btn" onclick="window.app_confirmPostponeTask('${planId}', ${taskIndex})" style="padding:0.55rem 0.9rem;">Confirm</button>
+                    </div>
+                </div>
+            </div>`;
+        window.app_showModal(html, modalId);
+    };
+
+    window.app_confirmPostponeTask = async function (planId, taskIndex) {
+        const targetDate = document.getElementById('postpone-date-input')?.value;
+        if (!targetDate) return alert('Please select a date.');
+        document.getElementById('postpone-task-modal')?.remove();
+        await window.app_postponeTask(planId, taskIndex, targetDate);
+    };
+
+    window.app_openDelegateModal = async function (planId, taskIndex) {
+        const modalId = 'delegate-task-modal';
+        document.getElementById(modalId)?.remove();
+        const users = await window.AppDB.getAll('users').catch(() => []);
+        const currentUser = window.AppAuth.getUser();
+        const candidates = (users || []).filter(u => u.id !== currentUser.id);
+        window.app_delegateModalContext = { planId, taskIndex, selectedUserId: '' };
+        const list = candidates.map(u => `
+            <button type="button" class="delegate-picker-item" data-user-id="${u.id}" data-name="${(u.name || '').toLowerCase()}" onclick="window.app_selectDelegateUser('${u.id}')">
+                <img src="${u.avatar || ''}" alt="${u.name}" class="delegate-user-avatar">
+                <span>${u.name}</span>
+            </button>
+        `).join('');
+        const html = `
+            <div class="modal-overlay" id="${modalId}" style="display:flex;">
+                <div class="modal-content" style="max-width:480px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.8rem;">
+                        <h3 style="margin:0; font-size:1.05rem;">Delegate Task</h3>
+                        <button type="button" onclick="document.getElementById('${modalId}')?.remove()" style="background:none; border:none; font-size:1.1rem; cursor:pointer;">&times;</button>
+                    </div>
+                    <input id="delegate-search-input" type="text" placeholder="Search staff..." oninput="window.app_filterDelegateUsers(this.value)" style="width:100%; padding:0.6rem; border:1px solid #d1d5db; border-radius:8px; margin-bottom:0.7rem;">
+                    <div id="delegate-picker-list" class="delegate-picker-list">${list || '<div style="font-size:0.85rem; color:#64748b;">No staff available.</div>'}</div>
+                    <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1rem;">
+                        <button type="button" class="action-btn secondary" onclick="document.getElementById('${modalId}')?.remove()" style="padding:0.55rem 0.9rem;">Cancel</button>
+                        <button type="button" id="delegate-confirm-btn" class="action-btn" onclick="window.app_confirmDelegateTask()" style="padding:0.55rem 0.9rem;" disabled>Delegate</button>
+                    </div>
+                </div>
+            </div>`;
+        window.app_showModal(html, modalId);
+    };
+
+    window.app_filterDelegateUsers = function (query) {
+        const q = String(query || '').toLowerCase().trim();
+        Array.from(document.querySelectorAll('#delegate-picker-list .delegate-picker-item')).forEach(item => {
+            const name = item.getAttribute('data-name') || '';
+            item.style.display = (!q || name.includes(q)) ? 'flex' : 'none';
+        });
+    };
+
+    window.app_selectDelegateUser = function (userId) {
+        if (!window.app_delegateModalContext) return;
+        window.app_delegateModalContext.selectedUserId = userId;
+        Array.from(document.querySelectorAll('#delegate-picker-list .delegate-picker-item')).forEach(item => {
+            item.classList.toggle('selected', item.getAttribute('data-user-id') === userId);
+        });
+        const btn = document.getElementById('delegate-confirm-btn');
+        if (btn) btn.disabled = !userId;
+    };
+
+    window.app_confirmDelegateTask = async function () {
+        const ctx = window.app_delegateModalContext;
+        if (!ctx || !ctx.selectedUserId) return alert('Please select a staff member.');
+        document.getElementById('delegate-task-modal')?.remove();
+        await window.app_delegateTo(ctx.planId, ctx.taskIndex, ctx.selectedUserId);
+    };
+
+    window.app_formatTaskWithPostponeChip = function (text) {
+        const raw = String(text || '');
+        const match = raw.match(/^(.*)\s+\(Postponed from ([^)]+)\)\s*$/i);
+        if (!match) return raw;
+        const base = match[1].trim();
+        const fromDate = match[2].trim();
+        return `${base} <span class="postponed-source-chip">Postponed from ${fromDate}</span>`;
+    };
+
+    window.app_appendCompletedTaskToSummary = async function (planId, taskIndex) {
+        const plan = await window.AppDB.get('work_plans', planId);
+        const task = plan?.plans?.[taskIndex];
+        if (!task) return;
+        const details = (task.subPlans && task.subPlans.length) ? ` (${task.subPlans.join(', ')})` : '';
+        const line = `- ${task.task}${details}`;
+        const summaryTextarea = document.getElementById('checkout-work-summary');
+        const current = (summaryTextarea?.value || window.app_checkoutSummaryDraft || '').trim();
+        const exists = current.split('\n').some(l => l.trim() === line.trim());
+        const next = exists ? current : (current ? `${current}\n${line}` : line);
+        window.app_checkoutSummaryDraft = next;
+        if (summaryTextarea) {
+            summaryTextarea.value = next;
+            if (window.app_updateCharCounter) window.app_updateCharCounter(summaryTextarea);
+        }
+    };
+
+    window.app_handleChecklistAction = async function (planId, taskIndex, action) {
+        const checklistSection = document.getElementById('checkout-task-checklist');
+        const delegatePanel = document.getElementById('delegate-panel');
+        window.app_checkoutTaskActions = window.app_checkoutTaskActions || {};
+        const actionKey = `${planId}:${taskIndex}`;
+        if (!action) {
+            delete window.app_checkoutTaskActions[actionKey];
+            if (delegatePanel) delegatePanel.style.display = 'none';
+            if (checklistSection) checklistSection.classList.remove('delegate-open');
+            return;
+        }
+        window.app_checkoutTaskActions[actionKey] = action;
+        if (action === 'complete') {
+            if (delegatePanel) delegatePanel.style.display = 'none';
+            if (checklistSection) checklistSection.classList.remove('delegate-open');
+            await window.app_appendCompletedTaskToSummary(planId, taskIndex);
+            await window.app_markTaskCompleted(planId, taskIndex);
+            return;
+        }
+        if (action === 'postpone') {
+            if (delegatePanel) delegatePanel.style.display = 'none';
+            if (checklistSection) checklistSection.classList.remove('delegate-open');
+            await window.app_openPostponeModal(planId, taskIndex);
+            return;
+        }
+        if (action === 'delegate') {
+            if (delegatePanel) delegatePanel.style.display = 'none';
+            if (checklistSection) checklistSection.classList.remove('delegate-open');
+            await window.app_openDelegateModal(planId, taskIndex);
+        }
+    };
+    // Mark task completed (updates status and credit score via AppRating)
+    window.app_markTaskCompleted = async function (planId, taskIndex) {
+        try {
+            const today = new Date().toISOString().split('T')[0];
+            await window.AppCalendar.updateTaskStatus(planId, taskIndex, 'completed', today);
+            if (window.AppStore && window.AppStore.invalidatePlans) {
+                window.AppStore.invalidatePlans();
+            }
+            alert('Task marked as completed.');
+            if (typeof handleAttendance === 'function') await handleAttendance();
+        } catch (err) {
+            alert('Failed to mark completed: ' + err.message);
+        }
+    };
+
+    // Delegate task to another staff with acceptance and calendar entry
+    window.app_delegateTask = async function (planId, taskIndex) {
+        try {
+            const allUsers = await window.AppDB.getAll('users');
+            const names = allUsers.map(u => u.name).join(', ');
+            const chosen = prompt(`Delegate to which staff? Enter name.\nAvailable: ${names}`, '');
+            if (!chosen) return;
+            const recipient = allUsers.find(u => u.name.toLowerCase() === chosen.toLowerCase());
+            if (!recipient) {
+                alert('Staff not found.');
+                return;
+            }
+            await window.app_delegateTo(planId, taskIndex, recipient.id);
+        } catch (err) {
+            alert('Failed to delegate task: ' + err.message);
+        }
+    };
+
+    window.app_delegateTo = async function (planId, taskIndex, userId) {
+        try {
+            const plan = await window.AppDB.get('work_plans', planId);
+            if (!plan || !plan.plans || !plan.plans[taskIndex]) {
+                alert('Task not found.');
+                return;
+            }
+            const currentUser = window.AppAuth.getUser();
+            const task = plan.plans[taskIndex];
+            const details = (task.subPlans && task.subPlans.length) ? ` — ${task.subPlans.join(', ')}` : '';
+            const text = `${task.task}${details}`;
+
+            // Update original plan: add tag and mark as delegated (pending)
+            if (!task.tags) task.tags = [];
+            const users = await window.AppDB.getAll('users');
+            const recipient = users.find(u => u.id === userId);
+            if (!recipient) {
+                alert('Staff not found.');
+                return;
+            }
+            if (!task.tags.some(t => t.id === recipient.id)) {
+                task.tags.push({ id: recipient.id, name: recipient.name, status: 'pending' });
+            }
+            task.status = task.status || 'pending';
+            plan.updatedAt = new Date().toISOString();
+            await window.AppDB.put('work_plans', plan);
+
+            // Create task in recipient's calendar (same date) with pending status
+            await window.AppCalendar.addWorkPlanTask(
+                plan.date,
+                recipient.id,
+                text,
+                [{ id: currentUser.id, name: currentUser.name, status: 'pending' }],
+                {
+                    addedFrom: 'delegated',
+                    sourcePlanId: planId,
+                    sourceTaskIndex: taskIndex,
+                    taggedById: currentUser.id,
+                    taggedByName: currentUser.name,
+                    status: 'pending',
+                    subPlans: task.subPlans || []
+                }
+            );
+
+            // Notify recipient
+            const recUser = await window.AppDB.get('users', recipient.id);
+            if (recUser) {
+                if (!recUser.notifications) recUser.notifications = [];
+                recUser.notifications.unshift({
+                    id: `task_${Date.now()}`,
+                    type: 'task',
+                    title: task.task || 'Delegated task',
+                    description: task.subPlans && task.subPlans.length > 0 ? task.subPlans.join(', ') : '',
+                    taggedById: currentUser.id,
+                    taggedByName: currentUser.name,
+                    taggedAt: new Date().toISOString(),
+                    status: 'pending',
+                    source: 'delegation',
+                    date: new Date().toLocaleString(),
+                    read: false
+                });
+                await window.AppDB.put('users', recUser);
+            }
+
+            if (window.AppStore && window.AppStore.invalidatePlans) {
+                window.AppStore.invalidatePlans();
+            }
+            alert(`Task delegated to ${recipient.name}.`);
+            if (typeof handleAttendance === 'function') await handleAttendance();
+        } catch (err) {
+            alert('Failed to delegate task: ' + err.message);
         }
     };
 
@@ -1523,6 +1776,14 @@
                 const today = getLocalISO();
                 const workPlan = await window.AppCalendar.getWorkPlan(user.id, today);
                 const collaborations = await window.AppCalendar.getCollaborations(user.id, today);
+                if (window.app_checkoutSummaryDate !== today) {
+                    window.app_checkoutSummaryDate = today;
+                    window.app_checkoutSummaryDraft = '';
+                }
+                if (window.app_checkoutActionDate !== today) {
+                    window.app_checkoutActionDate = today;
+                    window.app_checkoutTaskActions = {};
+                }
 
                 // Ensure persistent modals are present
                 const modalContainer = document.getElementById('modal-container');
@@ -1533,13 +1794,10 @@
                 // Show Check-Out Modal
                 const modal = document.getElementById('checkout-modal');
                 if (modal) {
-                    const planRef = document.getElementById('checkout-plan-ref');
                     const planTextEl = document.getElementById('checkout-plan-text');
                     const descArea = modal.querySelector('textarea[name="description"]');
 
                     if (workPlan && (workPlan.plans || workPlan.plan)) {
-                        if (planRef) planRef.style.display = 'block';
-
                         let displayPlan = "";
                         let rawPlanText = "";
 
@@ -1547,20 +1805,23 @@
                             displayPlan = workPlan.plans.map((p, idx) => {
                                 let txt = `<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px; padding-bottom:12px; border-bottom:1px dashed #e9d5ff;">
                                     <div style="flex:1;">
-                                        <div style="font-weight:600; color:#4c1d95;">${p.task}</div>
+                                        <div style="font-weight:600; color:#4c1d95;">${window.app_formatTaskWithPostponeChip(p.task)}</div>
                                         ${p.subPlans && p.subPlans.length > 0 ? `<div style="font-size:0.75rem; color:#7c3aed; margin-top:2px;">👣 ${p.subPlans.join(', ')}</div>` : ''}
                                     </div>
                                     <div style="display:flex; gap:6px; flex-shrink:0;">
                                         ${p.status === 'completed'
                                         ? '<span style="font-size:0.75rem; color:#059669; font-weight:700;">✅ Done</span>'
-                                        : `<button type="button" onclick="window.app_postponeTask('${workPlan.id}', ${idx}, '${p.task}')" style="background:#f3e8ff; color:#7c3aed; border:1px solid #ddd6fe; border-radius:8px; padding:6px 12px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#ddd6fe'" onmouseout="this.style.background='#f3e8ff'">⌛ Postpone</button>`
+                                        : `<button type="button" onclick="window.app_postponeTask('${workPlan.id}', ${idx})" style="background:#f3e8ff; color:#7c3aed; border:1px solid #ddd6fe; border-radius:8px; padding:6px 12px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#ddd6fe'" onmouseout="this.style.background='#f3e8ff'">⌛ Postpone</button>`
                                     }
                                     </div>
                                 </div>`;
                                 return txt;
                             }).join('');
 
-                            rawPlanText = workPlan.plans.map(p => {
+                            const completedPlans = workPlan.plans.filter(p =>
+                                window.AppCalendar.getSmartTaskStatus(workPlan.date, p.status) === 'completed'
+                            );
+                            rawPlanText = completedPlans.map(p => {
                                 let txt = `• ${p.task}`;
                                 if (p.subPlans && p.subPlans.length > 0) txt += ` (${p.subPlans.join(', ')})`;
                                 return txt;
@@ -1593,20 +1854,76 @@
                             if (displayPlan) displayPlan += '\n\n' + collabText;
                             else displayPlan = collabText;
 
-                            if (rawPlanText) rawPlanText += '\n\n• ' + collabText;
-                            else rawPlanText = '• ' + collabText;
+                            // Keep summary focused on completed checklist tasks only.
                         }
 
                         if (planTextEl) planTextEl.innerHTML = displayPlan;
                         // Store raw text for the action button
                         if (planTextEl) planTextEl.dataset.rawText = rawPlanText;
 
-                        // Pre-fill only if the textarea is empty
-                        if (descArea && !descArea.value.trim()) {
-                            descArea.value = rawPlanText;
+                        // Do not auto-fill on open. Only preserve manual/complete-action draft if it exists.
+                        if (descArea && !descArea.value.trim() && window.app_checkoutSummaryDraft) {
+                            descArea.value = window.app_checkoutSummaryDraft;
+                            if (window.app_updateCharCounter) window.app_updateCharCounter(descArea);
                         }
-                    } else {
-                        if (planRef) planRef.style.display = 'none';
+                        // Populate checkout task checklist
+                        const taskListEl = document.getElementById('checkout-task-list');
+                        const delegatePanel = document.getElementById('delegate-panel');
+                        const delegateList = document.getElementById('delegate-list');
+                        const delegateSelTask = document.getElementById('delegate-selected-task');
+                        if (taskListEl) {
+                            if (workPlan && Array.isArray(workPlan.plans) && workPlan.plans.length > 0) {
+                                const allUsers = await window.AppDB.getAll('users').catch(() => []);
+                                const rows = workPlan.plans.map((p, idx) => {
+                                    const details = (p.subPlans && p.subPlans.length) ? ` — ${p.subPlans.join(', ')}` : '';
+                                    const text = `${p.task}${details}`;
+                                    const status = window.AppCalendar.getSmartTaskStatus(workPlan.date, p.status);
+                                    const actionKey = `${workPlan.id}:${idx}`;
+                                    const rememberedAction = window.app_checkoutTaskActions && window.app_checkoutTaskActions[actionKey]
+                                        ? window.app_checkoutTaskActions[actionKey]
+                                        : '';
+                                    const inferredAction = rememberedAction || (
+                                        (p.status === 'completed' || status === 'completed') ? 'complete' :
+                                            (p.status === 'postponed' ? 'postpone' : '')
+                                    );
+                                    const statusLabel = status === 'completed' ? 'Completed' :
+                                        status === 'in-process' ? 'In Process' :
+                                        status === 'overdue' ? 'Overdue' :
+                                        status === 'to-be-started' ? 'To Be Started' :
+                                        (p.status || 'Pending');
+                                    return `
+                                        <div class="checkout-task-row">
+                                            <div class="checkout-task-copy">
+                                                <div class="checkout-task-title">${window.app_formatTaskWithPostponeChip(text)}</div>
+                                                <div class="checkout-task-status">Status: ${statusLabel}</div>
+                                            </div>
+                                            <select onchange="window.app_handleChecklistAction('${workPlan.id}', ${idx}, this.value)" class="checkout-task-action-select">
+                                                <option value="" ${!inferredAction ? 'selected' : ''}>Choose Action</option>
+                                                <option value="complete" ${inferredAction === 'complete' ? 'selected' : ''}>Complete</option>
+                                                <option value="postpone" ${inferredAction === 'postpone' ? 'selected' : ''}>Postpone</option>
+                                                <option value="delegate" ${inferredAction === 'delegate' ? 'selected' : ''}>Delegate</option>
+                                            </select>
+                                        </div>`;
+                                }).join('');
+                                taskListEl.innerHTML = rows;
+
+                                if (delegatePanel && delegateList && delegateSelTask) {
+                                    delegatePanel.style.display = 'none';
+                                    const checklistSection = document.getElementById('checkout-task-checklist');
+                                    if (checklistSection) checklistSection.classList.remove('delegate-open');
+                                    const currentUser = window.AppAuth.getUser();
+                                    const candidates = (allUsers || []).filter(u => u.id !== currentUser.id);
+                                    delegateList.innerHTML = candidates.map(u => `
+                                        <button type="button" data-user-id="${u.id}" class="delegate-user-btn">
+                                            <img src="${u.avatar}" alt="${u.name}" class="delegate-user-avatar">
+                                            <span style="flex:1;">${u.name}</span>
+                                        </button>
+                                    `).join('');
+                                }
+                            } else {
+                                taskListEl.innerHTML = `<div style="font-size:0.8rem; color:#6b7280;">No tasks planned for today.</div>`;
+                            }
+                        }
                     }
 
                     modal.style.display = 'flex';
@@ -1726,6 +2043,8 @@
                 locationMismatched || !pos,
                 explanation || (locationError ? String(locationError) : '')
             );
+
+            window.app_checkoutSummaryDraft = '';
 
             // Hide modal
             document.getElementById('checkout-modal').style.display = 'none';
@@ -3307,7 +3626,7 @@
                         : 'background:#dcfce7;color:#166534;';
             const tasks = type === 'work' && Array.isArray(ev.plans) && ev.plans.length
                 ? `<ul style="margin:0.5rem 0 0 1rem; padding:0; color:#475569; font-size:0.8rem;">
-                    ${ev.plans.map(p => `<li>${p.task || 'Work plan item'}</li>`).join('')}
+                    ${ev.plans.map(p => `<li>${window.app_formatTaskWithPostponeChip(p.task || 'Work plan item')}</li>`).join('')}
                    </ul>`
                 : '';
             return `
@@ -3388,3 +3707,4 @@
 
     console.log("App.js Loaded & Globals Ready");
 })();
+
