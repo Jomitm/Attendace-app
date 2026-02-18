@@ -244,8 +244,8 @@
                 <img src="${user.avatar || 'https://ui-avatars.com/api/?name=User'}" alt="User">
                 <div>
                     <p class="user-name">${user.name || 'Staff Member'}</p>
-                    <p class="user-role">${user.role || 'Employee'}</p>
                 </div>
+                <i class="fa-solid fa-gear user-settings-icon"></i>
             `;
         }
 
