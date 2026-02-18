@@ -1333,18 +1333,23 @@
                 });
             }
 
-            const isCheckedIn = status.status === 'in';
-            const notifications = user.notifications || [];
-            const tagHistory = user.tagHistory || [];
-
             // Helper for Admin Data Indicators
             const targetStaff = (allUsers || []).find(u => u.id === targetStaffId);
             const isViewingSelf = targetStaffId === user.id;
+            const displayUser = (!isViewingSelf && targetStaff) ? targetStaff : user;
+            const isReadOnlyView = isAdmin && !isViewingSelf;
+            window.app_dashboardTargetUser = isReadOnlyView ? displayUser : null;
+            window.app_dashboardReadOnly = isReadOnlyView;
+
+            const statusData = isReadOnlyView
+                ? { status: displayUser.status || 'out', lastCheckIn: displayUser.lastCheckIn || null }
+                : status;
+            const isCheckedIn = statusData.status === 'in';
+            const notifications = user.notifications || [];
+            const tagHistory = user.tagHistory || [];
 
             // Rename for clarity in template
             const recentLogs = logs;
-            const statusData = status; // prevent conflict
-
             let timerHTML = '00 : 00 : 00';
             let btnText = 'Check-in';
             let btnClass = 'action-btn';
@@ -1356,6 +1361,22 @@
                 btnClass = 'action-btn checkout';
                 statusText = 'Checked In';
                 statusClass = 'in';
+            }
+
+            const formatElapsed = (ms) => {
+                const safeMs = Math.max(0, ms || 0);
+                let hrs = Math.floor(safeMs / (1000 * 60 * 60));
+                let mins = Math.floor((safeMs / (1000 * 60)) % 60);
+                let secs = Math.floor((safeMs / 1000) % 60);
+                hrs = (hrs < 10) ? "0" + hrs : hrs;
+                mins = (mins < 10) ? "0" + mins : mins;
+                secs = (secs < 10) ? "0" + secs : secs;
+                return `${hrs} : ${mins} : ${secs}`;
+            };
+
+            if (isCheckedIn && statusData.lastCheckIn) {
+                const lastTs = new Date(statusData.lastCheckIn).getTime();
+                timerHTML = formatElapsed(Date.now() - lastTs);
             }
 
             const notifHTML = renderNotificationPanel(notifications, tagHistory);
@@ -1447,12 +1468,12 @@
                     </div>
                     <div class="dashboard-primary-row">
                         <div class="card check-in-widget" style="flex: 1; min-width: 210px; padding: 1rem; display: flex; flex-direction: column; justify-content: space-between; margin-bottom: 0; background: white; border: 1px solid #eef2ff;">
-                            <div style="display: flex; align-items: center; justify-content: center; gap: 1rem; margin-bottom: 0.75rem;"><div style="position: relative;"><img src="${user.avatar}" alt="Profile" style="width: 48px; height: 48px; border-radius: 50%; border: 2px solid #e0e7ff;"><div style="position: absolute; bottom: 0; right: 0; width: 12px; height: 12px; border-radius: 50%; background: ${isCheckedIn ? '#10b981' : '#94a3b8'}; border: 2px solid white;"></div></div><div style="text-align: left;"><h4 style="font-size: 0.95rem; margin: 0; color: #1e1b4b;">${user.name}</h4><p class="text-muted" style="font-size: 0.75rem; margin: 0;">${user.role}</p></div></div>
+                            <div style="display: flex; align-items: center; justify-content: center; gap: 1rem; margin-bottom: 0.75rem;"><div style="position: relative;"><img src="${displayUser.avatar}" alt="Profile" style="width: 48px; height: 48px; border-radius: 50%; border: 2px solid #e0e7ff;"><div style="position: absolute; bottom: 0; right: 0; width: 12px; height: 12px; border-radius: 50%; background: ${isCheckedIn ? '#10b981' : '#94a3b8'}; border: 2px solid white;"></div></div><div style="text-align: left;"><h4 style="font-size: 0.95rem; margin: 0; color: #1e1b4b;">${displayUser.name}</h4><p class="text-muted" style="font-size: 0.75rem; margin: 0;">${displayUser.role}</p></div></div>
                             <div style="text-align:center; padding: 0.5rem 0;"><div class="timer-display" id="timer-display" style="font-size: 2.25rem; font-weight: 800; color: #1e1b4b; line-height: 1; letter-spacing: -1px;">${timerHTML}</div><div id="timer-label" style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; color: #64748b; margin-top: 6px; font-weight: 600;">Elapsed Time Today</div></div>
                             <div id="countdown-container" style="display: none; margin-bottom: 0.75rem; width: 100%;"><div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: #4b5563; margin-bottom: 4px;"><span id="countdown-label">Time to checkout</span><span id="countdown-value" style="font-weight: 600;">--:--:--</span></div><div style="width: 100%; height: 4px; background: #e5e7eb; border-radius: 2px; overflow: hidden;"><div id="countdown-progress" style="width: 0%; height: 100%; background: var(--primary); transition: width 1s linear;"></div></div></div>
                             <div id="overtime-container" style="display: none; background: #fff7ed; border: 1px solid #ffedd5; padding: 0.5rem; border-radius: 8px; margin-bottom: 0.75rem; text-align: center;"><div style="color: #c2410c; font-weight: 700; font-size: 0.8rem; margin-bottom: 2px;">OVERTIME</div><div id="overtime-value" style="color: #ea580c; font-size: 1.1rem; font-weight: 800; font-family: monospace;">00:00:00</div></div>
-                            <button class="${btnClass}" id="attendance-btn" style="width: 100%; padding: 0.75rem; font-size: 0.9rem; border-radius: 10px; margin-top: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; transition: all 0.3s ease;">${btnText} <i class="fa-solid fa-fingerprint"></i></button>
-                            <div class="location-text" id="location-text" style="font-size: 0.65rem; color: #94a3b8; text-align: center; margin-top: 0.5rem;"><i class="fa-solid fa-location-dot"></i><span>${isCheckedIn && user.currentLocation ? `Lat: ${Number(user.currentLocation.lat).toFixed(4)}, Lng: ${Number(user.currentLocation.lng).toFixed(4)}` : 'Waiting for location...'}</span></div>
+                            <button class="${btnClass}" id="attendance-btn" ${isReadOnlyView ? 'disabled' : ''} title="${isReadOnlyView ? 'View only: switch back to your dashboard to check in/out.' : ''}" style="width: 100%; padding: 0.75rem; font-size: 0.9rem; border-radius: 10px; margin-top: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; transition: all 0.3s ease; ${isReadOnlyView ? 'opacity:0.6; cursor:not-allowed;' : ''}">${btnText} <i class="fa-solid fa-fingerprint"></i></button>
+                            <div class="location-text" id="location-text" style="font-size: 0.65rem; color: #94a3b8; text-align: center; margin-top: 0.5rem;"><i class="fa-solid fa-location-dot"></i><span>${isCheckedIn && displayUser.currentLocation ? `Lat: ${Number(displayUser.currentLocation.lat).toFixed(4)}, Lng: ${Number(displayUser.currentLocation.lng).toFixed(4)}` : 'Waiting for location...'}</span></div>
                         </div>
                         <div class="card dashboard-recent-activity-card" style="flex: 1; min-width: 210px; padding: 1rem; margin-bottom: 0; display: flex; flex-direction: column; background: white; position: relative; ${!isViewingSelf ? 'border: 2px solid #fb923c;' : ''}"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;"><h4 style="margin: 0; font-size: 0.95rem; color: #1e1b4b;"><i class="fa-solid fa-history" style="color: #6366f1; margin-right: 6px;"></i> Recent Activity${!isViewingSelf ? ` <span style="font-size: 0.75rem; color: #f97316; font-weight: 800;">(${targetStaff?.name || 'Staff'})</span>` : ''}</h4><a href="#timesheet" onclick="window.location.hash = 'timesheet'; return false;" style="font-size: 0.7rem; color: #4338ca; text-decoration: none; font-weight: 600;">View All</a></div><div class="dashboard-recent-activity-list">${recentLogs.length > 0 ? recentLogs.map(log => `<div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.35rem; border-bottom: 1px solid #f8fafc;"><div><div style="font-size: 0.76rem; font-weight: 600; color: #334155;">${log.date}</div><div style="font-size: 0.66rem; color: #64748b;">${log.checkIn} - ${log.checkOut || '<span style="color:#10b981;">Active</span>'}</div></div><div style="font-size: 0.75rem; font-weight: 700; color: #4338ca; background: #eef2ff; padding: 2px 6px; border-radius: 6px;">${log.duration || '--'}</div></div>`).join('') : '<p style="font-size: 0.8rem; color: #94a3b8; text-align: center; margin-top: 1rem;">No recent sessions</p>'}</div></div>
                         <div style="flex: 1.2; min-width: 210px; display: flex; flex-direction: column; ${!isViewingSelf ? 'border: 2px solid #fb923c; border-radius: 12px;' : ''}">${renderWorkLog(logs, collaborations, targetStaff, isViewingSelf)}</div>

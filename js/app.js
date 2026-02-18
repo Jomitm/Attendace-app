@@ -419,11 +419,20 @@
         }
     };
 
-    function startTimer() {
+    function startTimer(targetUser = null, readOnly = false) {
         if (timerInterval) clearInterval(timerInterval);
 
         const updateTimerUI = async () => {
-            const { status, lastCheckIn } = await window.AppAttendance.getStatus();
+            let status = 'out';
+            let lastCheckIn = null;
+            if (targetUser) {
+                status = targetUser.status || 'out';
+                lastCheckIn = targetUser.lastCheckIn || null;
+            } else {
+                const statusInfo = await window.AppAttendance.getStatus();
+                status = statusInfo.status;
+                lastCheckIn = statusInfo.lastCheckIn;
+            }
             const user = window.AppAuth.getUser();
             const display = document.getElementById('timer-display');
             const countdownContainer = document.getElementById('countdown-container');
@@ -476,7 +485,7 @@
                         return;
                     }
 
-                    if (user && user.id) {
+                    if (!readOnly && user && user.id) {
                         const autoCheckoutAt = getAutoCheckoutTime(checkInDate);
                         const autoKey = `auto-checkout-${user.id}-${checkInLocalDate}`;
                         if (now >= autoCheckoutAt.getTime() && !sessionStorage.getItem(autoKey)) {
@@ -598,7 +607,7 @@
                 }
 
                 // Start Activity Monitor
-                if (window.AppActivity && window.AppActivity.start) window.AppActivity.start();
+                    if (!readOnly && window.AppActivity && window.AppActivity.start) window.AppActivity.start();
 
             } else {
                 if (display) {
@@ -1881,8 +1890,10 @@
 
     function setupDashboardEvents() {
         const btn = document.getElementById('attendance-btn');
-        if (btn) btn.addEventListener('click', handleAttendance);
-        startTimer();
+        const readOnly = !!window.app_dashboardReadOnly;
+        const targetUser = window.app_dashboardTargetUser || null;
+        if (btn && !readOnly) btn.addEventListener('click', handleAttendance);
+        startTimer(targetUser, readOnly);
     }
     window.setupDashboardEvents = setupDashboardEvents;
 
