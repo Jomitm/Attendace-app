@@ -5548,6 +5548,62 @@ textarea:focus {
     padding: 1rem;
 }
 
+.policies-manual-card {
+    padding: 1.2rem !important;
+}
+
+.policies-manual-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.26rem 0.62rem;
+    border-radius: 999px;
+    border: 1px solid #dbeafe;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.policies-manual-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+}
+
+.policies-manual-block {
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    border-radius: 12px;
+    padding: 0.8rem;
+}
+
+.policies-manual-block h4 {
+    margin: 0 0 0.45rem 0;
+    color: var(--text-main);
+    font-size: 0.92rem;
+}
+
+.policies-manual-block ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.policies-manual-block li {
+    display: flex;
+    gap: 0.42rem;
+    align-items: flex-start;
+    color: #334155;
+    font-size: 0.84rem;
+    line-height: 1.35;
+    margin-bottom: 0.32rem;
+}
+
+.policies-manual-block li i {
+    color: #2563eb;
+    margin-top: 0.2rem;
+}
+
 .text-right {
     text-align: right;
 }
@@ -5559,7 +5615,8 @@ textarea:focus {
 
     .policies-balance-card,
     .policies-guidelines,
-    .policies-holidays {
+    .policies-holidays,
+    .policies-manual-card {
         padding: 0.9rem !important;
     }
 
@@ -5570,6 +5627,10 @@ textarea:focus {
 
     .policies-leave-grid {
         grid-template-columns: 1fr 1fr;
+    }
+
+    .policies-manual-grid {
+        grid-template-columns: 1fr;
     }
 }
 

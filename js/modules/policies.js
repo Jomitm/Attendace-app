@@ -104,7 +104,7 @@
                         <h3><i class="fa-solid fa-clock"></i> Working at CRWI</h3>
                         <div class="policies-hours-box">
                             <label>Standard Hours</label>
-                            <div>9:00 AM - 6:00 PM</div>
+                            <div>9:00 AM - 5:00 PM</div>
                             <p>Monday to Saturday (2nd/4th Saturday Off)</p>
                         </div>
                         <div class="policies-guidelines-list">
@@ -139,6 +139,52 @@
                         ` : ''}
                         <div id="holidays-container" class="table-container policies-holidays-table">
                             ${holidaysTable}
+                        </div>
+                    </section>
+
+                    <section class="card full-width policies-manual-card">
+                        <div class="policies-row-head">
+                            <h3><i class="fa-solid fa-book-open-reader"></i> Attendance User Manual</h3>
+                            <span class="policies-manual-chip">Live Rule Guide</span>
+                        </div>
+
+                        <div class="policies-manual-grid">
+                            <div class="policies-manual-block">
+                                <h4>Standard Timing</h4>
+                                <ul>
+                                    <li><i class="fa-solid fa-caret-right"></i>Office timing is <strong>9:00 AM to 5:00 PM</strong>.</li>
+                                    <li><i class="fa-solid fa-caret-right"></i>Late starts after <strong>9:15 AM</strong>.</li>
+                                    <li><i class="fa-solid fa-caret-right"></i>2nd and 4th Saturday are holidays.</li>
+                                </ul>
+                            </div>
+
+                            <div class="policies-manual-block">
+                                <h4>Status Decision</h4>
+                                <ul>
+                                    <li><i class="fa-solid fa-caret-right"></i>If worked <strong>&lt; 4h</strong>: Absent.</li>
+                                    <li><i class="fa-solid fa-caret-right"></i>If worked <strong>4h to &lt; 8h</strong>: Half Day.</li>
+                                    <li><i class="fa-solid fa-caret-right"></i>If worked <strong>&ge; 8h</strong>: Present.</li>
+                                    <li><i class="fa-solid fa-caret-right"></i>For morning entry, late bands still apply.</li>
+                                </ul>
+                            </div>
+
+                            <div class="policies-manual-block">
+                                <h4>Late and Penalty</h4>
+                                <ul>
+                                    <li><i class="fa-solid fa-caret-right"></i>Every <strong>3 Late marks</strong> = <strong>0.5 day deduction</strong>.</li>
+                                    <li><i class="fa-solid fa-caret-right"></i>Late waived when eligible by worked-hour rules.</li>
+                                    <li><i class="fa-solid fa-caret-right"></i>Late count is tracked in reports and salary.</li>
+                                </ul>
+                            </div>
+
+                            <div class="policies-manual-block">
+                                <h4>Extra Hours Offset</h4>
+                                <ul>
+                                    <li><i class="fa-solid fa-caret-right"></i>Extra hours above threshold are tracked.</li>
+                                    <li><i class="fa-solid fa-caret-right"></i>Each <strong>4 extra hours</strong> offsets <strong>0.5 day penalty</strong>.</li>
+                                    <li><i class="fa-solid fa-caret-right"></i>Salary uses effective penalty after offset.</li>
+                                </ul>
+                            </div>
                         </div>
                     </section>
                 </div>

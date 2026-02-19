@@ -7,7 +7,7 @@
         // Attendance Timings (HH:mm 24-hour format)
         WORK_START_TIME: "09:00",
         LATE_CUTOFF_TIME: "09:15",
-        WORK_END_TIME: "18:00", // 6:00 PM
+        WORK_END_TIME: "17:00", // 5:00 PM
 
         // Derived Minutes for easy calculation
         // 9:15 AM = 9 * 60 + 15 = 555
@@ -17,8 +17,8 @@
         POST_NOON_END_MINUTES: 810, // 13:30
         AFTERNOON_START_MINUTES: 720, // 12:00 PM
 
-        // 6:00 PM = 18 * 60 = 1080
-        EARLY_DEPARTURE_MINUTES: 1080,
+        // 5:00 PM = 17 * 60 = 1020
+        EARLY_DEPARTURE_MINUTES: 1020,
 
         // Financial Year
         FY_START_MONTH: 3, // April (0-indexed 3)
