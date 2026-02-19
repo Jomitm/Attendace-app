@@ -619,9 +619,6 @@
             return `
                 <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; padding: 1rem;">
                     <div class="card" style="width: 100%; max-width: 360px; text-align: center; padding: 1.5rem;">
-                        <button onclick="window.AppAuth.resetData()" style="position: absolute; top: 0.75rem; right: 0.75rem; background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 0.75rem;">
-                             <i class="fa-solid fa-rotate-right"></i> Reset
-                        </button>
                         <div class="logo-circle" style="width: 48px; height: 48px; margin: 0 auto 1rem auto;">
                             <img src="https://ui-avatars.com/api/?name=CRWI&background=random" alt="Logo">
                         </div>
