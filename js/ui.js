@@ -1735,6 +1735,7 @@
             const year = window.app_annualYear || today.getFullYear();
             const plans = await window.AppCalendar.getPlans();
             const users = await window.AppDB.getAll('users').catch(() => []);
+            const attendanceLogs = await window.AppDB.getAll('attendance').catch(() => []);
             window._currentPlans = plans;
             const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
             const userMap = {};
@@ -1777,12 +1778,21 @@
                 });
             });
             const filteredLeaves = (plans.leaves || []).filter(l => matchesStaff(resolveName(l.userId, l.userName)));
+            const filteredAttendanceLogs = (attendanceLogs || []).filter(l => {
+                const dt = String(l.date || '');
+                if (!dt.startsWith(String(year))) return false;
+                const logUserId = l.user_id || l.userId;
+                const logUserName = resolveName(logUserId, '');
+                if (!staffNeedle) return true;
+                return matchesStaff(logUserName);
+            });
 
             const getDayMarkers = (d, m, y) => {
                 const dateStr = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                 const hasLeave = filteredLeaves.some(l => dateStr >= l.startDate && dateStr <= l.endDate);
                 const hasEvent = !staffNeedle && (plans.events || []).some(e => e.date === dateStr);
-                const hasWork = filteredWorkPlans.some(p => p.date === dateStr);
+                const hasLogWork = filteredAttendanceLogs.some(l => l.date === dateStr);
+                const hasWork = filteredWorkPlans.some(p => p.date === dateStr) || hasLogWork;
                 let workStatus = '';
                 if (hasWork) {
                     const daily = filteredWorkPlans.filter(p => p.date === dateStr);
@@ -1795,6 +1805,7 @@
                             else if (s === 'completed' && worst !== 'overdue' && worst !== 'in-process') worst = 'completed';
                         });
                     });
+                    if (hasLogWork && worst === 'to-be-started') worst = 'completed';
                     workStatus = worst;
                 }
                 return { hasLeave, hasEvent, hasWork, workStatus };
@@ -1852,7 +1863,17 @@
 
             const viewMode = window.app_annualViewMode || 'grid';
             const detailEvents = selectedDate ? window.app_getDayEvents(selectedDate, plans, { includeAuto: false }) : [];
-            const filteredDetailEvents = detailEvents.filter(ev => {
+            const detailManualEvents = selectedDate
+                ? filteredAttendanceLogs
+                    .filter(l => l.date === selectedDate)
+                    .map(l => {
+                        const uid = l.user_id || l.userId;
+                        const uname = resolveName(uid, 'Staff');
+                        const summary = (l.workDescription || l.location || '').trim() || 'Manual log entry';
+                        return { type: 'work', title: `${uname}: ${summary}` };
+                    })
+                : [];
+            const filteredDetailEvents = [...detailEvents, ...detailManualEvents].filter(ev => {
                 if (!staffNeedle) return true;
                 if (ev.type === 'work') {
                     const title = ev.title || '';
@@ -2021,6 +2042,25 @@
                             });
                         }
                     }
+                });
+
+                filteredAttendanceLogs.forEach(l => {
+                    const logUserId = l.user_id || l.userId;
+                    const staffName = resolveName(logUserId, 'Staff');
+                    const summary = (l.workDescription || l.location || '').trim() || 'Manual log entry';
+                    pushItem({
+                        date: l.date,
+                        type: 'work',
+                        title: summary,
+                        staffName,
+                        assignedBy: staffName,
+                        assignedTo: staffName,
+                        selfAssigned: true,
+                        dueDate: l.date,
+                        status: 'completed',
+                        comments: summary,
+                        tags: ['Manual Log']
+                    });
                 });
 
                 items.sort((a, b) => {
@@ -2197,7 +2237,8 @@
             });
             const logsByDate = {};
             monthLogs.forEach(log => {
-                if (!logsByDate[log.date]) logsByDate[log.date] = log;
+                if (!logsByDate[log.date]) logsByDate[log.date] = [];
+                logsByDate[log.date].push(log);
             });
             const plansByDate = {};
             userMonthPlans.forEach(plan => {
@@ -2210,6 +2251,14 @@
                     plansByDate[plan.date].push(plan.plan);
                 }
             });
+            window._timesheetLogsByDate = logsByDate;
+            window._timesheetPlansByDate = plansByDate;
+            const esc = (s) => String(s || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
 
             // Calculate Monthly Summary Stats (from logs shown)
             let totalMins = 0;
@@ -2254,6 +2303,47 @@
             window.app_toggleTimesheetViewSelect = (mode) => {
                 window.app_switchTimesheetPanel(mode, null);
             };
+            window.app_openTimesheetDayDetail = (dateStr) => {
+                const dayLogs = (window._timesheetLogsByDate && window._timesheetLogsByDate[dateStr]) || [];
+                const dayPlans = (window._timesheetPlansByDate && window._timesheetPlansByDate[dateStr]) || [];
+                const logsHtml = dayLogs.length
+                    ? dayLogs.map(l => `
+                        <div class="timesheet-day-detail-item">
+                            <div class="timesheet-day-detail-head">
+                                <span>${esc(l.checkIn || '--')} - ${esc(l.checkOut || '--')}</span>
+                                <span class="timesheet-day-status-chip">${esc(l.type || 'Present')}</span>
+                            </div>
+                            <div class="timesheet-day-detail-text">${esc(l.workDescription || l.location || 'No summary')}</div>
+                            ${l.id && l.id !== 'active_now' ? `<button type="button" class="action-btn secondary" onclick="window.app_editWorkSummary('${l.id}')">Edit</button>` : ''}
+                        </div>
+                    `).join('')
+                    : `<div class="timesheet-day-detail-empty">No attendance logs for this date.</div>`;
+                const plansHtml = dayPlans.length
+                    ? dayPlans.map(p => `<div class="timesheet-day-plan-item">${esc(p)}</div>`).join('')
+                    : `<div class="timesheet-day-detail-empty">No planned tasks for this date.</div>`;
+                const modalId = `timesheet-day-detail-${Date.now()}`;
+                const html = `
+                    <div class="modal-overlay" id="${modalId}" style="display:flex;">
+                        <div class="modal-content" style="max-width:560px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                                <h3 style="margin:0;">${esc(dateStr)} Details</h3>
+                                <button type="button" class="app-system-dialog-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+                            </div>
+                            <div style="display:grid; gap:0.9rem;">
+                                <div>
+                                    <h4 style="margin:0 0 0.45rem 0; color:#334155;">Logged Work</h4>
+                                    ${logsHtml}
+                                </div>
+                                <div>
+                                    <h4 style="margin:0 0 0.45rem 0; color:#334155;">Planned Tasks</h4>
+                                    ${plansHtml}
+                                </div>
+                            </div>
+                        </div>
+                    </div>`;
+                if (typeof window.app_showModal === 'function') window.app_showModal(html, modalId);
+                else (document.getElementById('modal-container') || document.body).insertAdjacentHTML('beforeend', html);
+            };
 
             const renderCalendar = () => {
                 const firstDay = new Date(viewYear, viewMonth, 1).getDay();
@@ -2264,7 +2354,8 @@
                 }
                 for (let day = 1; day <= daysInMonth; day++) {
                     const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                    const dayLog = logsByDate[dateStr];
+                    const dayLogs = logsByDate[dateStr] || [];
+                    const dayLog = dayLogs.length ? dayLogs[0] : null;
                     const dayPlans = plansByDate[dateStr] || [];
                     const isToday = dateStr === new Date().toISOString().split('T')[0];
                     const attendanceClass = dayLog
@@ -2273,11 +2364,16 @@
                     const attendanceText = dayLog
                         ? (dayLog.type || 'Present')
                         : 'No log';
-                    const plansHTML = dayPlans.length
-                        ? dayPlans.slice(0, 2).map(task => `<div class="timesheet-cal-plan">${task}</div>`).join('') + (dayPlans.length > 2 ? `<div class="timesheet-cal-more">+${dayPlans.length - 2} more</div>` : '')
+                    const logSummaries = dayLogs
+                        .map(l => (l.workDescription || l.location || '').trim())
+                        .filter(Boolean);
+                    const plansHTML = logSummaries.length
+                        ? logSummaries.slice(0, 2).map(text => `<div class="timesheet-cal-plan">${esc(text)}</div>`).join('') + (logSummaries.length > 2 ? `<div class="timesheet-cal-more">+${logSummaries.length - 2} more logs</div>` : '')
+                        : dayPlans.length
+                            ? dayPlans.slice(0, 2).map(task => `<div class="timesheet-cal-plan">${esc(task)}</div>`).join('') + (dayPlans.length > 2 ? `<div class="timesheet-cal-more">+${dayPlans.length - 2} more</div>` : '')
                         : `<div class="timesheet-cal-empty">No plans</div>`;
                     grid += `
-                        <div class="timesheet-cal-day ${isToday ? 'today' : ''}">
+                        <div class="timesheet-cal-day ${isToday ? 'today' : ''}" onclick="window.app_openTimesheetDayDetail('${dateStr}')" style="cursor:pointer;">
                             <div class="timesheet-cal-day-head">
                                 <span class="timesheet-cal-date">${day}</span>
                                 <span class="timesheet-cal-attendance ${attendanceClass}">${attendanceText}</span>

@@ -1067,6 +1067,56 @@ td {
     color: #94a3b8;
 }
 
+.timesheet-day-detail-item {
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 0.55rem;
+    background: #fff;
+    margin-bottom: 0.45rem;
+}
+
+.timesheet-day-detail-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.3rem;
+    font-size: 0.78rem;
+    color: #334155;
+    font-weight: 700;
+}
+
+.timesheet-day-status-chip {
+    background: #eef2ff;
+    border: 1px solid #dbeafe;
+    border-radius: 999px;
+    padding: 0.12rem 0.45rem;
+    font-size: 0.68rem;
+}
+
+.timesheet-day-detail-text {
+    font-size: 0.8rem;
+    color: #1e293b;
+    margin-bottom: 0.5rem;
+    line-height: 1.35;
+}
+
+.timesheet-day-plan-item {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 0.4rem 0.5rem;
+    font-size: 0.78rem;
+    color: #334155;
+    margin-bottom: 0.35rem;
+}
+
+.timesheet-day-detail-empty {
+    font-size: 0.78rem;
+    color: #94a3b8;
+    padding: 0.4rem 0.2rem;
+}
+
 @media (max-width: 900px) {
     .annual-staff-filter {
         width: 100%;
