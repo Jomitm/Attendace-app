@@ -873,6 +873,190 @@ td {
     margin-top: 1rem;
 }
 
+.annual-staff-filter {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    border: 1px solid #d6def5;
+    background: #ffffff;
+    border-radius: 10px;
+    padding: 0.38rem 0.55rem;
+    min-width: 210px;
+}
+
+.annual-staff-filter i {
+    color: #6366f1;
+    font-size: 0.8rem;
+}
+
+.annual-staff-filter input {
+    border: none;
+    outline: none;
+    background: transparent;
+    width: 100%;
+    font-size: 0.82rem;
+    color: #334155;
+}
+
+.timesheet-view-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.timesheet-month-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.timesheet-month-switch button {
+    border: 1px solid #d6def5;
+    background: #fff;
+    color: #334155;
+    border-radius: 8px;
+    min-width: 32px;
+    height: 32px;
+    cursor: pointer;
+}
+
+.timesheet-month-label {
+    min-width: 132px;
+    text-align: center;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #3730a3;
+    padding: 0 0.35rem;
+}
+
+.timesheet-today-btn {
+    padding: 0 0.6rem;
+    min-width: auto !important;
+    font-weight: 700;
+}
+
+.timesheet-calendar-wrap {
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    background: #fff;
+    overflow: hidden;
+}
+
+.timesheet-calendar-weekdays {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    background: #f8fafc;
+}
+
+.timesheet-calendar-weekdays div {
+    padding: 0.55rem 0.45rem;
+    text-align: center;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #64748b;
+    border-right: 1px solid #eef2f7;
+}
+
+.timesheet-calendar-weekdays div:last-child {
+    border-right: none;
+}
+
+.timesheet-calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 0;
+}
+
+.timesheet-cal-day {
+    min-height: 128px;
+    border-right: 1px solid #eef2f7;
+    border-top: 1px solid #eef2f7;
+    padding: 0.45rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.timesheet-cal-day.empty {
+    background: #f8fafc;
+}
+
+.timesheet-cal-day.today {
+    background: #f8faff;
+}
+
+.timesheet-cal-day-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.timesheet-cal-date {
+    font-size: 0.82rem;
+    font-weight: 800;
+    color: #334155;
+}
+
+.timesheet-cal-attendance {
+    font-size: 0.68rem;
+    font-weight: 700;
+    border-radius: 999px;
+    padding: 0.15rem 0.45rem;
+    border: 1px solid #e2e8f0;
+    color: #64748b;
+}
+
+.timesheet-cal-attendance.present {
+    background: #ecfdf3;
+    color: #166534;
+    border-color: #bbf7d0;
+}
+
+.timesheet-cal-attendance.late {
+    background: #fff7ed;
+    color: #9a3412;
+    border-color: #fed7aa;
+}
+
+.timesheet-cal-plans {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.timesheet-cal-plan {
+    font-size: 0.72rem;
+    color: #1e293b;
+    background: #eef2ff;
+    border: 1px solid #dbeafe;
+    border-radius: 7px;
+    padding: 0.28rem 0.35rem;
+    line-height: 1.25;
+}
+
+.timesheet-cal-empty,
+.timesheet-cal-more {
+    font-size: 0.68rem;
+    color: #94a3b8;
+}
+
+@media (max-width: 900px) {
+    .annual-staff-filter {
+        width: 100%;
+        min-width: 0;
+        order: -1;
+    }
+    .timesheet-month-label {
+        min-width: 104px;
+        font-size: 0.74rem;
+    }
+    .timesheet-cal-day {
+        min-height: 112px;
+        padding: 0.32rem;
+    }
+}
+
 @keyframes modalSlide {
     from {
         opacity: 0;

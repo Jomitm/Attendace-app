@@ -3712,12 +3712,7 @@
 
     window.app_changeAnnualYear = (delta) => {
         window.app_annualYear = (window.app_annualYear || new Date().getFullYear()) + delta;
-        window.AppUI.renderAnnualPlan().then(html => {
-            const contentArea = document.getElementById('page-content');
-            if (contentArea) {
-                contentArea.innerHTML = html;
-            }
-        });
+        window.app_renderAnnualPlanPage();
     };
 
     window.app_toggleAnnualLegendFilter = (key) => {
@@ -3731,12 +3726,7 @@
         if (Object.prototype.hasOwnProperty.call(filters, key)) {
             filters[key] = !filters[key];
             window.app_annualLegendFilters = filters;
-            window.AppUI.renderAnnualPlan().then(html => {
-                const contentArea = document.getElementById('page-content');
-                if (contentArea) {
-                    contentArea.innerHTML = html;
-                }
-            });
+            window.app_renderAnnualPlanPage();
         }
     };
 
@@ -3801,25 +3791,56 @@
 
     window.app_toggleAnnualView = (mode) => {
         window.app_annualViewMode = mode;
-        window.AppUI.renderAnnualPlan().then(html => {
-            const contentArea = document.getElementById('page-content');
-            if (contentArea) {
-                contentArea.innerHTML = html;
-            }
-        });
+        window.app_renderAnnualPlanPage();
     };
 
     window.app_jumpToAnnualToday = () => {
         const today = new Date();
         window.app_annualYear = today.getFullYear();
         window.app_selectedAnnualDate = today.toISOString().split('T')[0];
-        window.AppUI.renderAnnualPlan().then(html => {
-            const contentArea = document.getElementById('page-content');
-            if (contentArea) {
-                contentArea.innerHTML = html;
-            }
+        window.app_renderAnnualPlanPage().then(() => {
             window.app_showAnnualDayDetails(window.app_selectedAnnualDate);
         });
+    };
+
+    window.app_renderAnnualPlanPage = async () => {
+        const contentArea = document.getElementById('page-content');
+        if (!contentArea) return;
+        contentArea.innerHTML = await window.AppUI.renderAnnualPlan();
+    };
+
+    window.app_setAnnualStaffFilter = (value) => {
+        window.app_annualStaffFilter = String(value || '').trim();
+        window.app_renderAnnualPlanPage();
+    };
+
+    window.app_renderTimesheetPage = async () => {
+        const contentArea = document.getElementById('page-content');
+        if (!contentArea) return;
+        contentArea.innerHTML = await window.AppUI.renderTimesheet();
+    };
+
+    window.app_setTimesheetView = (mode) => {
+        window.app_timesheetViewMode = mode === 'calendar' ? 'calendar' : 'list';
+        window.app_renderTimesheetPage();
+    };
+
+    window.app_changeTimesheetMonth = (delta) => {
+        const today = new Date();
+        const currentMonth = Number.isInteger(window.app_timesheetMonth) ? window.app_timesheetMonth : today.getMonth();
+        const currentYear = Number.isInteger(window.app_timesheetYear) ? window.app_timesheetYear : today.getFullYear();
+        const d = new Date(currentYear, currentMonth, 1);
+        d.setMonth(d.getMonth() + delta);
+        window.app_timesheetMonth = d.getMonth();
+        window.app_timesheetYear = d.getFullYear();
+        window.app_renderTimesheetPage();
+    };
+
+    window.app_jumpTimesheetToday = () => {
+        const today = new Date();
+        window.app_timesheetMonth = today.getMonth();
+        window.app_timesheetYear = today.getFullYear();
+        window.app_renderTimesheetPage();
     };
 
     window.app_closeModal = (el) => {

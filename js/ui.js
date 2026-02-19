@@ -1713,6 +1713,23 @@
         },
 
         async renderAnnualPlan() {
+            if (typeof window.app_setAnnualStaffFilter !== 'function') {
+                window.app_setAnnualStaffFilter = async (value) => {
+                    window.app_annualStaffFilter = String(value || '').trim();
+                    const contentArea = document.getElementById('page-content');
+                    if (!contentArea) return;
+                    contentArea.innerHTML = await window.AppUI.renderAnnualPlan();
+                };
+            }
+            if (typeof window.app_toggleAnnualView !== 'function') {
+                window.app_toggleAnnualView = async (mode) => {
+                    window.app_annualViewMode = mode;
+                    const contentArea = document.getElementById('page-content');
+                    if (!contentArea) return;
+                    contentArea.innerHTML = await window.AppUI.renderAnnualPlan();
+                };
+            }
+
             const today = new Date();
             const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
             const year = window.app_annualYear || today.getFullYear();
@@ -1742,15 +1759,33 @@
             let selectedDate = window.app_selectedAnnualDate || (year === today.getFullYear() ? todayStr : null);
             if (selectedDate && !selectedDate.startsWith(`${year}-`)) selectedDate = null;
             window.app_selectedAnnualDate = selectedDate;
+            const annualStaffFilter = String(window.app_annualStaffFilter || '').trim();
+            const staffNeedle = annualStaffFilter.toLowerCase();
+            const staffOptions = (users || []).map(u => `<option value="${escapeHtml(u.name)}"></option>`).join('');
+            const matchesStaff = (name) => {
+                if (!staffNeedle) return true;
+                return String(name || '').toLowerCase().includes(staffNeedle);
+            };
+            const filteredWorkPlans = (plans.workPlans || []).filter(p => {
+                if (!staffNeedle) return true;
+                const ownerName = resolveName(p.userId, p.userName);
+                if (matchesStaff(ownerName)) return true;
+                return (p.plans || []).some(task => {
+                    const assigneeName = resolveName(task.assignedTo || p.userId, ownerName);
+                    const tagNames = (task.tags || []).map(t => t.name || t).join(' ');
+                    return matchesStaff(assigneeName) || matchesStaff(tagNames);
+                });
+            });
+            const filteredLeaves = (plans.leaves || []).filter(l => matchesStaff(resolveName(l.userId, l.userName)));
 
             const getDayMarkers = (d, m, y) => {
                 const dateStr = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                const hasLeave = (plans.leaves || []).some(l => dateStr >= l.startDate && dateStr <= l.endDate);
-                const hasEvent = (plans.events || []).some(e => e.date === dateStr);
-                const hasWork = (plans.workPlans || []).some(p => p.date === dateStr);
+                const hasLeave = filteredLeaves.some(l => dateStr >= l.startDate && dateStr <= l.endDate);
+                const hasEvent = !staffNeedle && (plans.events || []).some(e => e.date === dateStr);
+                const hasWork = filteredWorkPlans.some(p => p.date === dateStr);
                 let workStatus = '';
                 if (hasWork) {
-                    const daily = plans.workPlans.filter(p => p.date === dateStr);
+                    const daily = filteredWorkPlans.filter(p => p.date === dateStr);
                     let worst = 'to-be-started';
                     daily.forEach(p => {
                         (p.plans || []).forEach(task => {
@@ -1817,7 +1852,23 @@
 
             const viewMode = window.app_annualViewMode || 'grid';
             const detailEvents = selectedDate ? window.app_getDayEvents(selectedDate, plans, { includeAuto: false }) : [];
-            const detailCards = detailEvents.length ? detailEvents.map(ev => {
+            const filteredDetailEvents = detailEvents.filter(ev => {
+                if (!staffNeedle) return true;
+                if (ev.type === 'work') {
+                    const title = ev.title || '';
+                    if (matchesStaff(title)) return true;
+                    return (ev.plans || []).some(task => {
+                        const assigneeName = resolveName(task.assignedTo || ev.userId, ev.userName);
+                        const tagNames = (task.tags || []).map(t => t.name || t).join(' ');
+                        return matchesStaff(assigneeName) || matchesStaff(tagNames) || matchesStaff(task.task || '');
+                    });
+                }
+                if (ev.type === 'leave') {
+                    return matchesStaff(ev.title || '');
+                }
+                return false;
+            });
+            const detailCards = filteredDetailEvents.length ? filteredDetailEvents.map(ev => {
                 const type = ev.type || 'event';
                 const tagStyle = type === 'leave' ? 'background:#fee2e2;color:#991b1b;' : type === 'work' ? 'background:#e0e7ff;color:#3730a3;' : 'background:#dcfce7;color:#166534;';
                 return `<div class="annual-detail-item"><span class="annual-detail-tag" style="${tagStyle}">${type.toUpperCase()}</span><div class="annual-detail-title">${ev.title}</div></div>`;
@@ -1850,7 +1901,7 @@
                     return 'pending';
                 };
 
-                if (window.AppAnalytics) {
+                if (!staffNeedle && window.AppAnalytics) {
                     const start = new Date(year, 0, 1);
                     const end = new Date(year, 11, 31);
                     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
@@ -1886,7 +1937,7 @@
                     }
                 }
 
-                (plans.leaves || []).forEach(l => {
+                filteredLeaves.forEach(l => {
                     const startDate = new Date(l.startDate);
                     const endDate = new Date(l.endDate || l.startDate);
                     const staffName = resolveName(l.userId, l.userName);
@@ -1909,7 +1960,7 @@
                 });
 
                 (plans.events || []).forEach(e => {
-                    if (String(e.date || '').startsWith(String(year))) {
+                    if (!staffNeedle && String(e.date || '').startsWith(String(year))) {
                         pushItem({
                             date: e.date,
                             type: e.type || 'event',
@@ -1925,7 +1976,7 @@
                     }
                 });
 
-                (plans.workPlans || []).forEach(p => {
+                filteredWorkPlans.forEach(p => {
                     if (String(p.date || '').startsWith(String(year))) {
                         const planOwner = resolveName(p.userId, p.userName);
                         const planDate = p.date;
@@ -1992,6 +2043,11 @@
                             <p class="annual-plan-subtitle">Overview of all staff activities, leaves, and shared events for ${year}.</p>
                         </div>
                         <div class="annual-plan-controls">
+                            <div class="annual-staff-filter">
+                                <i class="fa-solid fa-user"></i>
+                                <input type="text" list="annual-staff-names" value="${escapeHtml(annualStaffFilter)}" placeholder="Filter by staff name" oninput="window.app_setAnnualStaffFilter(this.value)">
+                                <datalist id="annual-staff-names">${staffOptions}</datalist>
+                            </div>
                             <div class="annual-view-toggle">
                                 <button onclick="window.app_toggleAnnualView('grid')" class="annual-toggle-btn ${viewMode === 'grid' ? 'active' : ''}">
                                     <i class="fa-solid fa-calendar-days"></i> Grid
@@ -2090,8 +2146,70 @@
 
 
         async renderTimesheet() {
+            if (typeof window.app_setTimesheetView !== 'function') {
+                window.app_setTimesheetView = async (mode) => {
+                    window.app_timesheetViewMode = mode === 'calendar' ? 'calendar' : 'list';
+                    const contentArea = document.getElementById('page-content');
+                    if (!contentArea) return;
+                    contentArea.innerHTML = await window.AppUI.renderTimesheet();
+                };
+            }
+            if (typeof window.app_changeTimesheetMonth !== 'function') {
+                window.app_changeTimesheetMonth = async (delta) => {
+                    const now = new Date();
+                    const currentMonth = Number.isInteger(window.app_timesheetMonth) ? window.app_timesheetMonth : now.getMonth();
+                    const currentYear = Number.isInteger(window.app_timesheetYear) ? window.app_timesheetYear : now.getFullYear();
+                    const d = new Date(currentYear, currentMonth, 1);
+                    d.setMonth(d.getMonth() + delta);
+                    window.app_timesheetMonth = d.getMonth();
+                    window.app_timesheetYear = d.getFullYear();
+                    const contentArea = document.getElementById('page-content');
+                    if (!contentArea) return;
+                    contentArea.innerHTML = await window.AppUI.renderTimesheet();
+                };
+            }
+            if (typeof window.app_jumpTimesheetToday !== 'function') {
+                window.app_jumpTimesheetToday = async () => {
+                    const now = new Date();
+                    window.app_timesheetMonth = now.getMonth();
+                    window.app_timesheetYear = now.getFullYear();
+                    const contentArea = document.getElementById('page-content');
+                    if (!contentArea) return;
+                    contentArea.innerHTML = await window.AppUI.renderTimesheet();
+                };
+            }
+
             const user = window.AppAuth.getUser();
             const logs = await window.AppAttendance.getLogs();
+            const plansData = await window.AppCalendar.getPlans().catch(() => ({ workPlans: [] }));
+            const today = new Date();
+            const viewMode = window.app_timesheetViewMode || 'list';
+            const viewMonth = Number.isInteger(window.app_timesheetMonth) ? window.app_timesheetMonth : today.getMonth();
+            const viewYear = Number.isInteger(window.app_timesheetYear) ? window.app_timesheetYear : today.getFullYear();
+            window.app_timesheetMonth = viewMonth;
+            window.app_timesheetYear = viewYear;
+            const monthLabel = new Date(viewYear, viewMonth, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+            const monthStart = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-01`;
+            const monthEnd = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-31`;
+            const monthLogs = logs.filter(l => l.date && l.date >= monthStart && l.date <= monthEnd);
+            const userMonthPlans = (plansData.workPlans || []).filter(p => {
+                return p.userId === user.id && p.date && p.date >= monthStart && p.date <= monthEnd;
+            });
+            const logsByDate = {};
+            monthLogs.forEach(log => {
+                if (!logsByDate[log.date]) logsByDate[log.date] = log;
+            });
+            const plansByDate = {};
+            userMonthPlans.forEach(plan => {
+                if (!plansByDate[plan.date]) plansByDate[plan.date] = [];
+                if (Array.isArray(plan.plans) && plan.plans.length) {
+                    plan.plans.forEach(task => {
+                        plansByDate[plan.date].push(task.task || 'Planned task');
+                    });
+                } else if (plan.plan) {
+                    plansByDate[plan.date].push(plan.plan);
+                }
+            });
 
             // Calculate Monthly Summary Stats (from logs shown)
             let totalMins = 0;
@@ -2117,6 +2235,45 @@
                     await window.AppAttendance.updateLog(logId, { workDescription: newDesc });
                     window.location.reload(); // Refresh to show update
                 }
+            };
+
+            const renderCalendar = () => {
+                const firstDay = new Date(viewYear, viewMonth, 1).getDay();
+                const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+                let grid = '';
+                for (let i = 0; i < firstDay; i++) {
+                    grid += `<div class="timesheet-cal-day empty"></div>`;
+                }
+                for (let day = 1; day <= daysInMonth; day++) {
+                    const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                    const dayLog = logsByDate[dateStr];
+                    const dayPlans = plansByDate[dateStr] || [];
+                    const isToday = dateStr === new Date().toISOString().split('T')[0];
+                    const attendanceClass = dayLog
+                        ? (dayLog.type === 'Late' ? 'late' : 'present')
+                        : 'none';
+                    const attendanceText = dayLog
+                        ? (dayLog.type || 'Present')
+                        : 'No log';
+                    const plansHTML = dayPlans.length
+                        ? dayPlans.slice(0, 2).map(task => `<div class="timesheet-cal-plan">${task}</div>`).join('') + (dayPlans.length > 2 ? `<div class="timesheet-cal-more">+${dayPlans.length - 2} more</div>` : '')
+                        : `<div class="timesheet-cal-empty">No plans</div>`;
+                    grid += `
+                        <div class="timesheet-cal-day ${isToday ? 'today' : ''}">
+                            <div class="timesheet-cal-day-head">
+                                <span class="timesheet-cal-date">${day}</span>
+                                <span class="timesheet-cal-attendance ${attendanceClass}">${attendanceText}</span>
+                            </div>
+                            <div class="timesheet-cal-plans">${plansHTML}</div>
+                        </div>`;
+                }
+                return `
+                    <div class="timesheet-calendar-wrap">
+                        <div class="timesheet-calendar-weekdays">
+                            <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
+                        </div>
+                        <div class="timesheet-calendar-grid">${grid}</div>
+                    </div>`;
             };
 
             return `
@@ -2156,19 +2313,22 @@
                     </div>
 
                     <div class="timesheet-modern-toolbar">
-                        <div class="filter-group">
-                            <i class="fa-solid fa-filter"></i>
-                            <select>
-                                <option>February 2026</option>
-                                <option>January 2026</option>
-                            </select>
+                        <div class="timesheet-view-toggle">
+                            <button class="annual-toggle-btn ${viewMode === 'list' ? 'active' : ''}" onclick="window.app_setTimesheetView('list')"><i class="fa-solid fa-list"></i> List View</button>
+                            <button class="annual-toggle-btn ${viewMode === 'calendar' ? 'active' : ''}" onclick="window.app_setTimesheetView('calendar')"><i class="fa-solid fa-calendar-days"></i> Calendar View</button>
+                        </div>
+                        <div class="timesheet-month-switch">
+                            <button type="button" onclick="window.app_changeTimesheetMonth(-1)"><i class="fa-solid fa-chevron-left"></i></button>
+                            <div class="timesheet-month-label">${monthLabel}</div>
+                            <button type="button" onclick="window.app_changeTimesheetMonth(1)"><i class="fa-solid fa-chevron-right"></i></button>
+                            <button type="button" class="timesheet-today-btn" onclick="window.app_jumpTimesheetToday()">Today</button>
                         </div>
                         <button class="timesheet-export-btn" onclick="window.AppReports?.exportUserLogs('${user.id}')">
                             <i class="fa-solid fa-download"></i> Export CSV
                         </button>
                     </div>
 
-                    <div class="table-container mobile-table-card timesheet-modern-table-wrap">
+                    <div class="table-container mobile-table-card timesheet-modern-table-wrap" style="display:${viewMode === 'list' ? 'block' : 'none'};">
                         <table class="compact-table timesheet-modern-table">
                             <thead>
                                 <tr>
@@ -2217,6 +2377,9 @@
                     : `<tr><td colspan="5" class="timesheet-empty-row">No attendance records found for this period.</td></tr>`}
                             </tbody>
                         </table>
+                    </div>
+                    <div style="display:${viewMode === 'calendar' ? 'block' : 'none'};">
+                        ${renderCalendar()}
                     </div>
                 </div>
             `;
