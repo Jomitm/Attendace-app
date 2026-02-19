@@ -1145,7 +1145,7 @@
 
                 const today = new Date();
                 const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-                const plan = await window.AppCalendar.getWorkPlan(user.id, dateStr);
+                const plan = await window.AppCalendar.getWorkPlan(user.id, dateStr, { includeAnnual: true, mergeAnnual: true });
                 const planItems = Array.isArray(plan?.plans) ? plan.plans : [];
                 const hasModernPlans = planItems.length > 0;
                 const hasLegacyPlan = !!plan?.plan;
@@ -1737,6 +1737,22 @@
                     contentArea.innerHTML = await window.AppUI.renderAnnualPlan();
                 };
             }
+            if (typeof window.app_setAnnualListSearch !== 'function') {
+                window.app_setAnnualListSearch = async (value) => {
+                    window.app_annualListSearch = String(value || '').trim();
+                    const contentArea = document.getElementById('page-content');
+                    if (!contentArea) return;
+                    contentArea.innerHTML = await window.AppUI.renderAnnualPlan();
+                };
+            }
+            if (typeof window.app_setAnnualListSort !== 'function') {
+                window.app_setAnnualListSort = async (value) => {
+                    window.app_annualListSort = String(value || 'date-asc').trim();
+                    const contentArea = document.getElementById('page-content');
+                    if (!contentArea) return;
+                    contentArea.innerHTML = await window.AppUI.renderAnnualPlan();
+                };
+            }
 
             const today = new Date();
             const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -1771,12 +1787,17 @@
             window.app_selectedAnnualDate = selectedDate;
             const annualStaffFilter = String(window.app_annualStaffFilter || '').trim();
             const staffNeedle = annualStaffFilter.toLowerCase();
+            const annualListSearch = String(window.app_annualListSearch || '').trim();
+            const annualListNeedle = annualListSearch.toLowerCase();
+            const annualListSort = String(window.app_annualListSort || 'date-asc');
             const staffOptions = (users || []).map(u => `<option value="${escapeHtml(u.name)}"></option>`).join('');
             const matchesStaff = (name) => {
                 if (!staffNeedle) return true;
                 return String(name || '').toLowerCase().includes(staffNeedle);
             };
             const filteredWorkPlans = (plans.workPlans || []).filter(p => {
+                const isAnnualPlan = (p.planScope || 'personal') === 'annual';
+                if (isAnnualPlan) return true;
                 if (!staffNeedle) return true;
                 const ownerName = resolveName(p.userId, p.userName);
                 if (matchesStaff(ownerName)) return true;
@@ -1885,6 +1906,7 @@
             const filteredDetailEvents = [...detailEvents, ...detailManualEvents].filter(ev => {
                 if (!staffNeedle) return true;
                 if (ev.type === 'work') {
+                    if ((ev.planScope || 'personal') === 'annual') return true;
                     const title = ev.title || '';
                     if (matchesStaff(title)) return true;
                     return (ev.plans || []).some(task => {
@@ -1948,7 +1970,8 @@
                                 selfAssigned: false,
                                 dueDate: dt,
                                 status: 'holiday',
-                                comments: ''
+                                comments: '',
+                                scope: 'Shared'
                             });
                         } else if (dayType === 'Half Day') {
                             pushItem({
@@ -1961,7 +1984,8 @@
                                 selfAssigned: false,
                                 dueDate: dt,
                                 status: 'event',
-                                comments: ''
+                                comments: '',
+                                scope: 'Shared'
                             });
                         }
                     }
@@ -1984,7 +2008,8 @@
                             selfAssigned: true,
                             dueDate: l.endDate || l.startDate || dt,
                             status: (l.status || 'approved').toLowerCase(),
-                            comments: l.reason || ''
+                            comments: l.reason || '',
+                            scope: 'Personal'
                         });
                     }
                 });
@@ -2001,20 +2026,25 @@
                             selfAssigned: false,
                             dueDate: e.date,
                             status: 'event',
-                            comments: e.description || ''
+                            comments: e.description || '',
+                            scope: 'Shared'
                         });
                     }
                 });
 
                 filteredWorkPlans.forEach(p => {
                     if (String(p.date || '').startsWith(String(year))) {
-                        const planOwner = resolveName(p.userId, p.userName);
+                        const isAnnualPlan = (p.planScope || 'personal') === 'annual';
+                        const planOwner = isAnnualPlan ? 'All Staff' : resolveName(p.userId, p.userName);
+                        const scopeLabel = isAnnualPlan ? 'Annual' : 'Personal';
                         const planDate = p.date;
                         if (p.plans && p.plans.length > 0) {
                             p.plans.forEach(task => {
-                                const assignedBy = task.taggedByName || planOwner;
+                                const assignedBy = isAnnualPlan
+                                    ? (p.createdByName || task.taggedByName || 'Admin')
+                                    : (task.taggedByName || planOwner);
                                 const assignedToId = task.assignedTo || p.userId;
-                                const assignedTo = resolveName(assignedToId, planOwner);
+                                const assignedTo = isAnnualPlan ? 'All Staff' : resolveName(assignedToId, planOwner);
                                 const tags = (task.tags || []).map(t => t.name || t).filter(Boolean);
                                 const status = normalizeStatus(planDate, task.status);
                                 const comments = (task.subPlans && task.subPlans.length)
@@ -2031,7 +2061,8 @@
                                     dueDate: task.dueDate || planDate,
                                     status,
                                     comments,
-                                    tags
+                                    tags,
+                                    scope: scopeLabel
                                 });
                             });
                         } else {
@@ -2047,7 +2078,8 @@
                                 dueDate: planDate,
                                 status,
                                 comments: '',
-                                tags: []
+                                tags: [],
+                                scope: scopeLabel
                             });
                         }
                     }
@@ -2068,7 +2100,8 @@
                         dueDate: l.date,
                         status: 'completed',
                         comments: summary,
-                        tags: ['Manual Log']
+                        tags: ['Manual Log'],
+                        scope: 'Personal'
                     });
                 });
 
@@ -2080,7 +2113,34 @@
                     item.statusLabel = toStatusLabel(item.status);
                     item.statusClass = String(item.status || 'pending').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
                 });
-                return items;
+                let filteredItems = items;
+                if (annualListNeedle) {
+                    filteredItems = items.filter(item => {
+                        const haystack = [
+                            item.date,
+                            item.staffName,
+                            item.title,
+                            item.assignedBy,
+                            item.assignedTo,
+                            item.statusLabel,
+                            item.comments,
+                            item.scope,
+                            Array.isArray(item.tags) ? item.tags.join(' ') : ''
+                        ].join(' ').toLowerCase();
+                        return haystack.includes(annualListNeedle);
+                    });
+                }
+
+                const comparators = {
+                    'date-asc': (a, b) => String(a.date || '').localeCompare(String(b.date || '')),
+                    'date-desc': (a, b) => String(b.date || '').localeCompare(String(a.date || '')),
+                    'staff-asc': (a, b) => String(a.staffName || '').localeCompare(String(b.staffName || '')),
+                    'staff-desc': (a, b) => String(b.staffName || '').localeCompare(String(a.staffName || '')),
+                    'status-asc': (a, b) => String(a.statusLabel || '').localeCompare(String(b.statusLabel || '')),
+                    'status-desc': (a, b) => String(b.statusLabel || '').localeCompare(String(a.statusLabel || ''))
+                };
+                const sorter = comparators[annualListSort] || comparators['date-asc'];
+                return filteredItems.slice().sort(sorter);
             })();
             window._annualListItems = listItems;
 
@@ -2146,6 +2206,18 @@
                             <div class="annual-list-head">
                                 <h4>Annual Timeline</h4>
                                 <div class="annual-list-actions">
+                                    <div class="annual-list-search-wrap">
+                                        <i class="fa-solid fa-magnifying-glass"></i>
+                                        <input type="text" value="${escapeHtml(annualListSearch)}" placeholder="Search date, staff, status, comments, tags, assigned task" oninput="window.app_setAnnualListSearch(this.value)">
+                                    </div>
+                                    <select class="annual-list-sort-select" onchange="window.app_setAnnualListSort(this.value)">
+                                        <option value="date-asc" ${annualListSort === 'date-asc' ? 'selected' : ''}>Date: Oldest First</option>
+                                        <option value="date-desc" ${annualListSort === 'date-desc' ? 'selected' : ''}>Date: Newest First</option>
+                                        <option value="staff-asc" ${annualListSort === 'staff-asc' ? 'selected' : ''}>Staff: A-Z</option>
+                                        <option value="staff-desc" ${annualListSort === 'staff-desc' ? 'selected' : ''}>Staff: Z-A</option>
+                                        <option value="status-asc" ${annualListSort === 'status-asc' ? 'selected' : ''}>Status: A-Z</option>
+                                        <option value="status-desc" ${annualListSort === 'status-desc' ? 'selected' : ''}>Status: Z-A</option>
+                                    </select>
                                     <span>${year}</span>
                                     <button class="annual-export-btn" onclick="window.AppReports.exportAnnualListViewCSV(window._annualListItems || [])" data-export="annual-list">
                                         <i class="fa-solid fa-file-export"></i> Export Excel
@@ -2160,6 +2232,7 @@
                                         <div class="annual-list-header">
                                             <div>Date</div>
                                             <div>Staff Name</div>
+                                            <div>Assigned Task</div>
                                             <div>Assigned By</div>
                                             <div>Assigned To</div>
                                             <div>Self Assigned</div>
@@ -2167,21 +2240,24 @@
                                             <div>Status</div>
                                             <div>Comments</div>
                                             <div>Tags</div>
+                                            <div>Scope</div>
                                         </div>
                                         ${listItems.map(item => {
-                                            const comments = escapeHtml(item.comments || '') || '—';
-                                            const tags = item.tags && item.tags.length ? escapeHtml(item.tags.join(', ')) : '—';
+                                            const comments = escapeHtml(item.comments || '') || '--';
+                                            const tags = item.tags && item.tags.length ? escapeHtml(item.tags.join(', ')) : '--';
                                             return `
                                                 <div class="annual-list-row">
-                                                    <div class="annual-list-cell">${escapeHtml(item.date || '—')}</div>
-                                                    <div class="annual-list-cell">${escapeHtml(item.staffName || '—')}</div>
-                                                    <div class="annual-list-cell">${escapeHtml(item.assignedBy || '—')}</div>
-                                                    <div class="annual-list-cell">${escapeHtml(item.assignedTo || item.staffName || '—')}</div>
+                                                    <div class="annual-list-cell">${escapeHtml(item.date || '--')}</div>
+                                                    <div class="annual-list-cell">${escapeHtml(item.staffName || '--')}</div>
+                                                    <div class="annual-list-cell annual-list-task">${escapeHtml(item.title || '--')}</div>
+                                                    <div class="annual-list-cell">${escapeHtml(item.assignedBy || '--')}</div>
+                                                    <div class="annual-list-cell">${escapeHtml(item.assignedTo || item.staffName || '--')}</div>
                                                     <div class="annual-list-cell">${item.selfAssigned ? 'Yes' : 'No'}</div>
-                                                    <div class="annual-list-cell">${escapeHtml(item.dueDate || item.date || '—')}</div>
+                                                    <div class="annual-list-cell">${escapeHtml(item.dueDate || item.date || '--')}</div>
                                                     <div class="annual-list-cell"><span class="annual-list-status status-${item.statusClass}">${item.statusLabel || 'Pending'}</span></div>
                                                     <div class="annual-list-cell annual-list-comments">${comments}</div>
                                                     <div class="annual-list-cell annual-list-tags">${tags}</div>
+                                                    <div class="annual-list-cell">${escapeHtml(item.scope || '--')}</div>
                                                 </div>
                                             `;
                                         }).join('')}

@@ -849,13 +849,15 @@
         });
         (plans.workPlans || []).forEach(p => {
             if (p.date === dateStr) {
+                const isAnnualPlan = (p.planScope || 'personal') === 'annual';
+                const titlePrefix = isAnnualPlan ? 'All Staff (Annual)' : (p.userName || 'Staff');
                 let title = '';
                 if (p.plans && p.plans.length > 0) {
-                    title = `${p.userName}: ${p.plans.map(pl => pl.task).join('; ')}`;
+                    title = `${titlePrefix}: ${p.plans.map(pl => pl.task).join('; ')}`;
                 } else {
-                    title = `${p.userName}: ${p.plan || 'Work Plan'}`;
+                    title = `${titlePrefix}: ${p.plan || 'Work Plan'}`;
                 }
-                evs.push({ title: title, type: 'work', userId: p.userId, plans: p.plans, date: dateStr });
+                evs.push({ title: title, type: 'work', userId: p.userId, plans: p.plans, date: dateStr, planScope: p.planScope || 'personal' });
             }
         });
         if (!dedupe) return evs;
@@ -870,14 +872,21 @@
         });
     };
 
-    window.app_openDayPlan = async (date, targetUserId = null) => {
+    window.app_openDayPlan = async (date, targetUserId = null, forcedScope = null) => {
         const currentUser = window.AppAuth.getUser();
         const targetId = targetUserId || currentUser.id;
         const allUsers = await window.AppDB.getAll('users');
         const isAdmin = currentUser.role === 'Administrator' || currentUser.isAdmin;
         const isEditingOther = targetId !== currentUser.id;
 
-        const myWorkPlan = await window.AppCalendar.getWorkPlan(targetId, date);
+        const myWorkPlan = await window.AppCalendar.getWorkPlan(targetId, date, forcedScope
+            ? { includeAnnual: true, planScope: forcedScope }
+            : { includeAnnual: true });
+        const initialPlanScope = forcedScope === 'annual'
+            ? 'annual'
+            : forcedScope === 'personal'
+                ? 'personal'
+                : (myWorkPlan?.planScope === 'annual' ? 'annual' : 'personal');
 
         const blockFromPlan = (plan = {}, idx = 0) => {
             const task = plan.task || '';
@@ -975,6 +984,13 @@
                         </div>
                     </div>
                     <form onsubmit="window.app_saveDayPlan(event, '${date}', '${targetId}')">
+                        <div style="display:flex; align-items:center; gap:0.6rem; margin-bottom:0.75rem; padding:0.6rem; border:1px solid #dbeafe; border-radius:10px; background:#f8fbff;">
+                            <label class="day-plan-mini-label" for="day-plan-scope-select" style="margin:0;">Plan Type</label>
+                            <select id="day-plan-scope-select" class="day-plan-select" style="max-width:220px;" onchange="window.app_openDayPlan('${date}', '${targetId}', this.value)">
+                                <option value="personal" ${initialPlanScope === 'personal' ? 'selected' : ''}>Personal Plan</option>
+                                <option value="annual" ${initialPlanScope === 'annual' ? 'selected' : ''}>Annual Plan (All Staff)</option>
+                            </select>
+                        </div>
                         <div id="plans-container">
                             ${initialBlocks.map((p, idx) => blockFromPlan(p, idx)).join('')}
                         </div>
@@ -1301,13 +1317,15 @@
 
 
 
-    window.app_deleteDayPlan = async (date, targetUserId = null) => {
+    window.app_deleteDayPlan = async (date, targetUserId = null, planScope = null) => {
         if (!await window.appConfirm("Are you sure you want to delete this work plan?")) return;
         const currentUser = window.AppAuth.getUser();
         const targetId = targetUserId || currentUser.id;
+        const scopeSelect = document.getElementById('day-plan-scope-select');
+        const resolvedScope = planScope || (scopeSelect ? scopeSelect.value : 'personal');
 
         try {
-            await window.AppCalendar.deleteWorkPlan(date, targetId);
+            await window.AppCalendar.deleteWorkPlan(date, targetId, { planScope: resolvedScope });
             if (window.AppStore && window.AppStore.invalidatePlans) {
                 window.AppStore.invalidatePlans(); // CACHE INVALIDATION
             }
@@ -1330,6 +1348,8 @@
         e.preventDefault();
         const currentUser = window.AppAuth.getUser();
         const targetId = targetUserId || currentUser.id;
+        const scopeSelect = document.getElementById('day-plan-scope-select');
+        const planScope = scopeSelect && scopeSelect.value === 'annual' ? 'annual' : 'personal';
 
         const planBlocks = document.querySelectorAll('.plan-block');
         const plans = [];
@@ -1366,10 +1386,11 @@
         }
 
         try {
-            await window.AppCalendar.setWorkPlan(date, plans, targetId);
+            await window.AppCalendar.setWorkPlan(date, plans, targetId, { planScope });
             if (window.AppStore && window.AppStore.invalidatePlans) {
                 window.AppStore.invalidatePlans(); // CACHE INVALIDATION
             }
+            const planId = window.AppCalendar.getWorkPlanId(date, targetId, planScope);
 
             const allUsers = await window.AppDB.getAll('users');
 
@@ -1398,7 +1419,6 @@
             });
 
             if (distinctTaggedUsers.size > 0) {
-                const planId = `plan_${targetId}_${date}`;
                 for (const uid of distinctTaggedUsers) {
                     const targetUser = allUsers.find(u => u.id === uid);
                     if (targetUser && uid !== currentUser.id) {
@@ -1964,7 +1984,7 @@
                 // Pre-fill Checkout Description from Work Plan
                 const user = window.AppAuth.getUser();
                 const today = getLocalISO();
-                const workPlan = await window.AppCalendar.getWorkPlan(user.id, today);
+                const workPlan = await window.AppCalendar.getWorkPlan(user.id, today, { includeAnnual: true, mergeAnnual: true });
                 const collaborations = await window.AppCalendar.getCollaborations(user.id, today);
                 if (window.app_checkoutSummaryDate !== today) {
                     window.app_checkoutSummaryDate = today;
@@ -2001,7 +2021,7 @@
                                     <div style="display:flex; gap:6px; flex-shrink:0;">
                                         ${p.status === 'completed'
                                         ? '<span style="font-size:0.75rem; color:#059669; font-weight:700;">✅ Done</span>'
-                                        : `<button type="button" onclick="window.app_postponeTask('${workPlan.id}', ${idx})" style="background:#f3e8ff; color:#7c3aed; border:1px solid #ddd6fe; border-radius:8px; padding:6px 12px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#ddd6fe'" onmouseout="this.style.background='#f3e8ff'">⌛ Postpone</button>`
+                                        : `<button type="button" onclick="window.app_postponeTask('${p._planId || workPlan.id}', ${typeof p._taskIndex === 'number' ? p._taskIndex : idx})" style="background:#f3e8ff; color:#7c3aed; border:1px solid #ddd6fe; border-radius:8px; padding:6px 12px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#ddd6fe'" onmouseout="this.style.background='#f3e8ff'">⌛ Postpone</button>`
                                     }
                                     </div>
                                 </div>`;
@@ -2067,8 +2087,10 @@
                                 const rows = workPlan.plans.map((p, idx) => {
                                     const details = (p.subPlans && p.subPlans.length) ? ` — ${p.subPlans.join(', ')}` : '';
                                     const text = `${p.task}${details}`;
-                                    const status = window.AppCalendar.getSmartTaskStatus(workPlan.date, p.status);
-                                    const actionKey = `${workPlan.id}:${idx}`;
+                                    const planIdForTask = p._planId || workPlan.id;
+                                    const taskIndexForTask = typeof p._taskIndex === 'number' ? p._taskIndex : idx;
+                                    const status = window.AppCalendar.getSmartTaskStatus(p._planDate || workPlan.date, p.status);
+                                    const actionKey = `${planIdForTask}:${taskIndexForTask}`;
                                     const rememberedAction = window.app_checkoutTaskActions && window.app_checkoutTaskActions[actionKey]
                                         ? window.app_checkoutTaskActions[actionKey]
                                         : '';
@@ -2087,7 +2109,7 @@
                                                 <div class="checkout-task-title">${window.app_formatTaskWithPostponeChip(text)}</div>
                                                 <div class="checkout-task-status">Status: ${statusLabel}</div>
                                             </div>
-                                            <select onchange="window.app_handleChecklistAction('${workPlan.id}', ${idx}, this.value)" class="checkout-task-action-select">
+                                            <select onchange="window.app_handleChecklistAction('${planIdForTask}', ${taskIndexForTask}, this.value)" class="checkout-task-action-select">
                                                 <option value="" ${!inferredAction ? 'selected' : ''}>Choose Action</option>
                                                 <option value="complete" ${inferredAction === 'complete' ? 'selected' : ''}>Complete</option>
                                                 <option value="postpone" ${inferredAction === 'postpone' ? 'selected' : ''}>Postpone</option>
@@ -4175,6 +4197,16 @@
 
     window.app_setAnnualStaffFilter = (value) => {
         window.app_annualStaffFilter = String(value || '').trim();
+        window.app_renderAnnualPlanPage();
+    };
+
+    window.app_setAnnualListSearch = (value) => {
+        window.app_annualListSearch = String(value || '').trim();
+        window.app_renderAnnualPlanPage();
+    };
+
+    window.app_setAnnualListSort = (value) => {
+        window.app_annualListSort = String(value || 'date-asc').trim();
         window.app_renderAnnualPlanPage();
     };
 

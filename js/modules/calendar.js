@@ -8,6 +8,16 @@
             this.db = window.AppDB;
         }
 
+        normalizePlanScope(scope) {
+            return String(scope || '').toLowerCase() === 'annual' ? 'annual' : 'personal';
+        }
+
+        getWorkPlanId(date, targetUserId = null, planScope = 'personal') {
+            const scope = this.normalizePlanScope(planScope);
+            if (scope === 'annual') return `plan_annual_${date}`;
+            return `plan_${targetUserId}_${date}`;
+        }
+
         /**
          * Get all plans (approved leaves, company events, and work plans)
          */
@@ -46,10 +56,11 @@
          * Set/Add a work plan for a specific day
          * Updated to handle multiple plans and tagged coworkers
          */
-        async setWorkPlan(date, plans = [], targetUserId = null) {
+        async setWorkPlan(date, plans = [], targetUserId = null, options = {}) {
             const currentUser = window.AppAuth.getUser();
             if (!currentUser) throw new Error("Not authenticated");
 
+            const planScope = this.normalizePlanScope(options.planScope);
             const targetId = targetUserId || currentUser.id;
             const allUsers = await this.db.getAll('users');
             const targetUser = allUsers.find(u => u.id === targetId);
@@ -60,11 +71,14 @@
             }
 
             const workPlan = {
-                id: `plan_${targetId}_${date}`,
-                userId: targetId,
-                userName: targetUser.name,
+                id: this.getWorkPlanId(date, targetId, planScope),
+                userId: planScope === 'annual' ? 'annual_shared' : targetId,
+                userName: planScope === 'annual' ? 'All Staff' : targetUser.name,
                 date: date,
                 plans: plans, // Array of { task, subPlans, tags: [{id, name}] }
+                planScope,
+                createdById: currentUser.id,
+                createdByName: currentUser.name || 'Admin',
                 updatedAt: new Date().toISOString()
             };
             return await this.db.put('work_plans', workPlan);
@@ -132,18 +146,65 @@
         /**
          * Delete a work plan for a specific day
          */
-        async deleteWorkPlan(date, targetUserId = null) {
+        async deleteWorkPlan(date, targetUserId = null, options = {}) {
             const currentUser = window.AppAuth.getUser();
             if (!currentUser) throw new Error("Not authenticated");
+            const planScope = this.normalizePlanScope(options.planScope);
             const targetId = targetUserId || currentUser.id;
-            return await this.db.delete('work_plans', `plan_${targetId}_${date}`);
+            return await this.db.delete('work_plans', this.getWorkPlanId(date, targetId, planScope));
         }
 
         /**
          * Get work plan for a specific day and user
          */
-        async getWorkPlan(userId, date) {
-            return await this.db.get('work_plans', `plan_${userId}_${date}`);
+        async getWorkPlan(userId, date, options = {}) {
+            const includeAnnual = !!options.includeAnnual;
+            const mergeAnnual = !!options.mergeAnnual;
+            const planScope = options.planScope ? this.normalizePlanScope(options.planScope) : null;
+            const preferAnnual = !!options.preferAnnual;
+
+            if (planScope) {
+                return await this.db.get('work_plans', this.getWorkPlanId(date, userId, planScope));
+            }
+
+            const personalPlan = await this.db.get('work_plans', this.getWorkPlanId(date, userId, 'personal'));
+            if (!includeAnnual) return personalPlan;
+
+            const annualPlan = await this.db.get('work_plans', this.getWorkPlanId(date, userId, 'annual'));
+            if (mergeAnnual && annualPlan && personalPlan) {
+                const mergedPlans = [];
+                (annualPlan.plans || []).forEach((task, idx) => {
+                    mergedPlans.push({
+                        ...task,
+                        _planId: annualPlan.id,
+                        _taskIndex: idx,
+                        _planDate: annualPlan.date,
+                        _planScope: 'annual'
+                    });
+                });
+                (personalPlan.plans || []).forEach((task, idx) => {
+                    mergedPlans.push({
+                        ...task,
+                        _planId: personalPlan.id,
+                        _taskIndex: idx,
+                        _planDate: personalPlan.date,
+                        _planScope: 'personal'
+                    });
+                });
+                return {
+                    id: `plan_merged_${userId}_${date}`,
+                    userId,
+                    userName: personalPlan.userName || 'Staff',
+                    date,
+                    planScope: 'mixed',
+                    plans: mergedPlans,
+                    personalPlanId: personalPlan.id,
+                    annualPlanId: annualPlan.id
+                };
+            }
+
+            if (preferAnnual) return annualPlan || personalPlan;
+            return personalPlan || annualPlan;
         }
 
         /**

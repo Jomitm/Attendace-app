@@ -4165,7 +4165,43 @@ textarea:focus {
 .annual-list-actions {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 0.6rem;
+}
+
+.annual-list-search-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    border: 1px solid #dbeafe;
+    background: #f8fbff;
+    border-radius: 8px;
+    padding: 0.3rem 0.55rem;
+    min-width: 290px;
+}
+
+.annual-list-search-wrap i {
+    color: #64748b;
+    font-size: 0.75rem;
+}
+
+.annual-list-search-wrap input {
+    border: none;
+    outline: none;
+    background: transparent;
+    width: 100%;
+    font-size: 0.76rem;
+    color: #0f172a;
+}
+
+.annual-list-sort-select {
+    border: 1px solid #bfdbfe;
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-radius: 8px;
+    padding: 0.36rem 0.5rem;
+    font-size: 0.74rem;
+    font-weight: 700;
 }
 
 .annual-export-btn {
@@ -4207,7 +4243,7 @@ textarea:focus {
 .annual-list-header,
 .annual-list-row {
     display: grid;
-    grid-template-columns: 110px 160px 160px 160px 110px 120px 140px minmax(220px, 1fr) minmax(140px, 0.7fr);
+    grid-template-columns: 110px 150px minmax(220px, 1fr) 150px 150px 100px 115px 130px minmax(220px, 0.9fr) minmax(130px, 0.7fr) 90px;
     gap: 0.6rem;
     align-items: center;
 }
@@ -4256,6 +4292,12 @@ textarea:focus {
     line-height: 1.25;
 }
 
+.annual-list-task {
+    font-weight: 600;
+    white-space: normal;
+    line-height: 1.25;
+}
+
 .annual-list-status.status-overdue {
     background: #fee2e2;
     color: #b91c1c;
@@ -4292,7 +4334,7 @@ textarea:focus {
 
 @media (max-width: 900px) {
     .annual-list-table {
-        min-width: 980px;
+        min-width: 1380px;
     }
 }
 
