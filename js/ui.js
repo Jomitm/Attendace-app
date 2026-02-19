@@ -2237,6 +2237,19 @@
                 }
             };
 
+            window.app_switchTimesheetPanel = (mode, btn) => {
+                const selectedMode = mode === 'calendar' ? 'calendar' : 'list';
+                window.app_timesheetViewMode = selectedMode;
+                const listPanel = document.getElementById('timesheet-list-panel');
+                const calendarPanel = document.getElementById('timesheet-calendar-panel');
+                if (listPanel) listPanel.style.display = selectedMode === 'list' ? 'block' : 'none';
+                if (calendarPanel) calendarPanel.style.display = selectedMode === 'calendar' ? 'block' : 'none';
+                const wrap = btn && btn.closest ? btn.closest('.timesheet-view-toggle') : null;
+                const buttons = wrap ? wrap.querySelectorAll('.annual-toggle-btn') : [];
+                buttons.forEach(b => b.classList.remove('active'));
+                if (btn && btn.classList) btn.classList.add('active');
+            };
+
             const renderCalendar = () => {
                 const firstDay = new Date(viewYear, viewMonth, 1).getDay();
                 const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
@@ -2314,8 +2327,8 @@
 
                     <div class="timesheet-modern-toolbar">
                         <div class="timesheet-view-toggle">
-                            <button class="annual-toggle-btn ${viewMode === 'list' ? 'active' : ''}" onclick="window.app_setTimesheetView('list')"><i class="fa-solid fa-list"></i> List View</button>
-                            <button class="annual-toggle-btn ${viewMode === 'calendar' ? 'active' : ''}" onclick="window.app_setTimesheetView('calendar')"><i class="fa-solid fa-calendar-days"></i> Calendar View</button>
+                            <button class="annual-toggle-btn ${viewMode === 'list' ? 'active' : ''}" onclick="window.app_switchTimesheetPanel('list', this)"><i class="fa-solid fa-list"></i> List View</button>
+                            <button class="annual-toggle-btn ${viewMode === 'calendar' ? 'active' : ''}" onclick="window.app_switchTimesheetPanel('calendar', this)"><i class="fa-solid fa-calendar-days"></i> Calendar View</button>
                         </div>
                         <div class="timesheet-month-switch">
                             <button type="button" onclick="window.app_changeTimesheetMonth(-1)"><i class="fa-solid fa-chevron-left"></i></button>
@@ -2328,7 +2341,7 @@
                         </button>
                     </div>
 
-                    <div class="table-container mobile-table-card timesheet-modern-table-wrap" style="display:${viewMode === 'list' ? 'block' : 'none'};">
+                    <div id="timesheet-list-panel" class="table-container mobile-table-card timesheet-modern-table-wrap" style="display:${viewMode === 'list' ? 'block' : 'none'};">
                         <table class="compact-table timesheet-modern-table">
                             <thead>
                                 <tr>
@@ -2378,7 +2391,7 @@
                             </tbody>
                         </table>
                     </div>
-                    <div style="display:${viewMode === 'calendar' ? 'block' : 'none'};">
+                    <div id="timesheet-calendar-panel" style="display:${viewMode === 'calendar' ? 'block' : 'none'};">
                         ${renderCalendar()}
                     </div>
                 </div>
