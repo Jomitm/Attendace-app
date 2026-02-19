@@ -732,6 +732,13 @@
 
     window.getLocation = function getLocation() {
         return new Promise(async (resolve, reject) => {
+            const host = (window.location && window.location.hostname) ? window.location.hostname : '';
+            const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+            if (!window.isSecureContext && !isLocalhost) {
+                reject('Location requires HTTPS on mobile. Open this app using an HTTPS URL and allow location access.');
+                return;
+            }
+
             // Check Cache first
             const now = Date.now();
             if (cachedLocation && (now - lastLocationFetch < LOCATION_CACHE_TIME)) {
@@ -743,6 +750,18 @@
             if (!navigator.geolocation) {
                 reject('Geolocation is not supported by your browser.');
                 return;
+            }
+
+            try {
+                if (navigator.permissions && navigator.permissions.query) {
+                    const perm = await navigator.permissions.query({ name: 'geolocation' });
+                    if (perm && perm.state === 'denied') {
+                        reject('Location permission is blocked. Enable location for this site in browser settings and try again.');
+                        return;
+                    }
+                }
+            } catch (_) {
+                // Ignore permissions API errors and continue to browser prompt flow.
             }
 
             const getPosition = (options) => {
@@ -782,8 +801,8 @@
                     console.error("Low Accuracy Failed:", err2.message);
                     let msg = 'Unable to retrieve location.';
                     if (err2.code === 1) msg = 'Location permission denied.';
-                    else if (err2.code === 2) msg = 'Location unavailable.';
-                    else if (err2.code === 3) msg = 'Location request timed out.';
+                    else if (err2.code === 2) msg = 'Location unavailable. Ensure GPS/Location Services are turned on.';
+                    else if (err2.code === 3) msg = 'Location request timed out. Move to open sky or better network and try again.';
                     reject(msg);
                 }
             }
@@ -1866,26 +1885,10 @@
         try {
             if (status === 'out') {
                 if (btn) btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Locating...`;
-                let checkInLat = null;
-                let checkInLng = null;
-                let checkInAddress = 'Unknown Location';
-                try {
-                    const pos = await getLocation();
-                    checkInLat = pos.lat;
-                    checkInLng = pos.lng;
-                    checkInAddress = `Lat: ${pos.lat.toFixed(4)}, Lng: ${pos.lng.toFixed(4)}`;
-                    if (locationText) locationText.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${checkInAddress}`;
-                } catch (locErr) {
-                    const fallbackMsg = `Location access was denied on this device.\n\nYou can still check in now and continue, then allow location later in browser settings.`;
-                    const continueWithoutLocation = await window.appConfirm(fallbackMsg, 'Location Permission Needed');
-                    if (!continueWithoutLocation) {
-                        throw new Error('Check-in cancelled because location permission was denied.');
-                    }
-                    checkInAddress = 'Location unavailable (permission denied)';
-                    if (locationText) locationText.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${checkInAddress}`;
-                }
-
-                await window.AppAttendance.checkIn(checkInLat, checkInLng, checkInAddress);
+                const pos = await getLocation();
+                const checkInAddress = `Lat: ${pos.lat.toFixed(4)}, Lng: ${pos.lng.toFixed(4)}`;
+                if (locationText) locationText.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${checkInAddress}`;
+                await window.AppAttendance.checkIn(pos.lat, pos.lng, checkInAddress);
                 contentArea.innerHTML = await window.AppUI.renderDashboard();
                 setupDashboardEvents();
                 // Check if a reminder popup is needed
@@ -2352,11 +2355,29 @@
         else if (id === 'checkout-form') window.app_submitCheckOut(e);
         else if (id === 'add-user-form') handleAddUser(e);
         else if (id === 'login-form') {
-            const fd = new FormData(e.target);
-            window.AppAuth.login(fd.get('username'), fd.get('password')).then(success => {
-                if (success) window.location.reload();
-                else alert('Invalid Credentials');
-            });
+            (async () => {
+                const fd = new FormData(e.target);
+                try {
+                    const pos = await getLocation();
+                    const success = await window.AppAuth.login(fd.get('username'), fd.get('password'));
+                    if (!success) {
+                        alert('Invalid Credentials');
+                        return;
+                    }
+                    const currentUser = window.AppAuth.getUser();
+                    if (currentUser) {
+                        currentUser.lastLoginLocation = {
+                            lat: pos.lat,
+                            lng: pos.lng,
+                            capturedAt: Date.now()
+                        };
+                        await window.AppDB.put('users', currentUser);
+                    }
+                    window.location.reload();
+                } catch (locErr) {
+                    alert(`Login blocked: ${String(locErr)}\n\nPlease enable location and try again.`);
+                }
+            })();
         }
         else if (id === 'edit-user-form') {
             console.log("Routing to app_submitEditUser...");
