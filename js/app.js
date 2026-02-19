@@ -997,8 +997,69 @@
         }
     };
 
+    window.app_getAnnualDayStaffPlans = (dateStr) => {
+        const plans = window._currentPlans || {};
+        const userMap = window._annualUserMap || {};
+        const workPlans = (plans.workPlans || []).filter(p => p.date === dateStr);
+        return workPlans.map(p => {
+            const ownerName = userMap[p.userId] || p.userName || 'Staff';
+            const tasks = (p.plans && p.plans.length)
+                ? p.plans.map(t => t.task || 'Planned task').filter(Boolean)
+                : [p.plan || 'Planned task'];
+            return { name: ownerName, tasks };
+        });
+    };
+
+    window.app_showAnnualHoverPreview = (event, dateStr) => {
+        const modalId = 'annual-hover-preview';
+        document.getElementById(modalId)?.remove();
+        const dayPlans = window.app_getAnnualDayStaffPlans(dateStr);
+        const body = dayPlans.length
+            ? dayPlans.map(row => `
+                <div style="margin-bottom:0.45rem;">
+                    <div style="font-size:0.76rem; font-weight:700; color:#334155;">${row.name}</div>
+                    <div style="font-size:0.72rem; color:#64748b;">${row.tasks.slice(0, 2).join(' | ')}${row.tasks.length > 2 ? ` (+${row.tasks.length - 2} more)` : ''}</div>
+                </div>
+            `).join('')
+            : `<div style="font-size:0.74rem; color:#94a3b8;">No staff plans for this date</div>`;
+        const html = `
+            <div id="${modalId}" style="position:fixed; z-index:12000; left:${Math.min((event.clientX || 0) + 12, window.innerWidth - 290)}px; top:${Math.min((event.clientY || 0) + 12, window.innerHeight - 220)}px; width:280px; background:#fff; border:1px solid #dbeafe; border-radius:12px; box-shadow:0 12px 26px rgba(15,23,42,0.18); padding:0.65rem;">
+                <div style="font-size:0.76rem; font-weight:800; color:#1e3a8a; margin-bottom:0.5rem;">${dateStr} Plans</div>
+                ${body}
+            </div>`;
+        (document.getElementById('modal-container') || document.body).insertAdjacentHTML('beforeend', html);
+    };
+
+    window.app_hideAnnualHoverPreview = () => {
+        document.getElementById('annual-hover-preview')?.remove();
+    };
+
     window.app_openAnnualDayPlan = async (dateStr) => {
-        await window.app_openDayPlan(dateStr);
+        window.app_hideAnnualHoverPreview();
+        const modalId = `annual-day-click-${Date.now()}`;
+        const dayPlans = window.app_getAnnualDayStaffPlans(dateStr);
+        const body = dayPlans.length
+            ? dayPlans.map(row => `
+                <div style="border:1px solid #e2e8f0; border-radius:10px; padding:0.55rem; margin-bottom:0.45rem;">
+                    <div style="font-size:0.8rem; font-weight:700; color:#334155; margin-bottom:0.25rem;">${row.name}</div>
+                    <div style="font-size:0.76rem; color:#64748b;">${row.tasks.join(' | ')}</div>
+                </div>
+            `).join('')
+            : `<div style="font-size:0.8rem; color:#94a3b8;">No plans yet for this date.</div>`;
+        const html = `
+            <div class="modal-overlay" id="${modalId}" style="display:flex;">
+                <div class="modal-content" style="max-width:560px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.7rem;">
+                        <h3 style="margin:0;">${dateStr}</h3>
+                        <button type="button" class="app-system-dialog-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+                    </div>
+                    <div style="max-height:46vh; overflow:auto; margin-bottom:0.75rem;">${body}</div>
+                    <button type="button" class="action-btn" style="width:100%;" onclick="this.closest('.modal-overlay').remove(); window.app_openDayPlan('${dateStr}')">
+                        <i class="fa-solid fa-pen-to-square"></i> Add / Edit Day Plan
+                    </button>
+                </div>
+            </div>`;
+        window.app_showModal(html, modalId);
     };
 
     window.app_addPlanBlockUI = async () => {

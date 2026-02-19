@@ -408,13 +408,12 @@
     };
 
     const renderStaffActivityList = (allLogs, daysBack) => {
-        const todayStr = new Date().toISOString().split('T')[0];
         const cutoffDate = new Date();
         cutoffDate.setDate(cutoffDate.getDate() - daysBack);
         cutoffDate.setHours(0, 0, 0, 0);
         const filtered = allLogs.filter(log => {
             const logDate = new Date(log.date);
-            return log.date !== todayStr && logDate >= cutoffDate;
+            return logDate >= cutoffDate;
         });
         if (filtered.length === 0) return '<div class="dashboard-activity-empty">No team activities found for the requested period.</div>';
         const deduped = [];
@@ -444,11 +443,12 @@
             const showDate = log.date !== lastDate;
             if (showDate) { html += `<div class="dashboard-activity-date">${log.date}</div>`; lastDate = log.date; }
             let statusBadge = '';
-            if (log.status || log.type === 'work') {
-                const status = window.AppCalendar.getSmartTaskStatus(log.date, log.status);
+            const effectiveStatus = log.status || (log.type === 'attendance' ? 'completed' : '');
+            if (effectiveStatus || log.type === 'work') {
+                const status = window.AppCalendar.getSmartTaskStatus(log.date, effectiveStatus);
                 statusBadge = `<div class="dashboard-activity-status-row">${window.AppUI.renderTaskStatusBadge(status)}${isAdminUser ? `<div class="dashboard-activity-edit-wrap"><button onclick="window.app_openDayPlan('${log.date}', '${log.userId}')" class="dashboard-activity-edit-btn" title="Edit/Reassign"><i class="fa-solid fa-pen-to-square"></i></button></div>` : ''}</div>`;
             }
-            html += `<div class="dashboard-staff-activity-item"><div class="dashboard-staff-name">${log.staffName}</div><div class="dashboard-activity-desc dashboard-staff-activity-desc">${log._displayDesc}</div>${statusBadge}<div class="dashboard-activity-meta">${log.checkOut || (log.status === 'completed' ? 'Completed' : 'Work Plan')}</div></div>`;
+            html += `<div class="dashboard-staff-activity-item"><div class="dashboard-staff-name">${log.staffName}</div><div class="dashboard-activity-desc dashboard-staff-activity-desc">${log._displayDesc}</div>${statusBadge}<div class="dashboard-activity-meta">${log.checkOut || (effectiveStatus === 'completed' ? 'Completed' : 'Work Plan')}</div></div>`;
         });
         return html;
     };
@@ -1740,6 +1740,7 @@
             const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
             const userMap = {};
             (users || []).forEach(u => { userMap[u.id] = u.name; });
+            window._annualUserMap = userMap;
             const resolveName = (id, fallback) => userMap[id] || fallback || 'Staff';
             const escapeHtml = (str) => String(str || '')
                 .replace(/&/g, '&amp;')
@@ -1833,7 +1834,7 @@
                     const mutedClass = hasAnyVisible ? '' : 'annual-day-muted';
 
                     daysHTML += `
-                        <div class="annual-day ${isToday ? 'today' : ''} ${bgClass} ${selectedClass} ${mutedClass}" onclick="window.app_openAnnualDayPlan('${dateStr}')">
+                        <div class="annual-day ${isToday ? 'today' : ''} ${bgClass} ${selectedClass} ${mutedClass}" onclick="window.app_openAnnualDayPlan('${dateStr}')" onmouseenter="window.app_showAnnualHoverPreview(event, '${dateStr}')" onmouseleave="window.app_hideAnnualHoverPreview()">
                             ${d}
                             <div class="dot-container">
                                 ${showLeave ? '<span class="status-dot dot-leave"></span>' : ''}
