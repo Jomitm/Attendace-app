@@ -236,6 +236,9 @@
                 leaves: 0,
                 unpaidLeaves: 0,
                 penalty: 0,
+                penaltyOffset: 0,
+                effectivePenalty: 0,
+                extraWorkedHours: 0,
                 earlyDepartures: 0,
                 label: startOfMonth.toLocaleDateString('default', { month: 'long', year: 'numeric' }),
                 breakdown: breakdown,
@@ -245,7 +248,6 @@
 
             let totalLateMinutes = 0;
             let totalExtraMinutes = 0;
-            const weeklyGraceCount = {};
 
             userLogs.forEach(log => {
                 const logDate = new Date(log.date);
@@ -267,21 +269,12 @@
                             dayEarlyCredit = lateCutoff - inMinutes;
                         }
 
-                        // LATE Check
-                        if (inMinutes !== null && inMinutes > lateCutoff) {
-                            const weekKey = `${logDate.getFullYear()}-W${this.getWeekNumber(logDate)}`;
-                            if (!weeklyGraceCount[weekKey]) weeklyGraceCount[weekKey] = 0;
-
-                            weeklyGraceCount[weekKey]++;
-                            const graceLimit = window.AppConfig.LATE_GRACE_COUNT || 3;
-                            if (weeklyGraceCount[weekKey] > graceLimit) {
-                                // 4th+ time in a week = Half Day Salary loss
-                                stats.penalty += 0.5;
-                            }
-
+                        // LATE Check: prefer stored policy decision, fallback to old logs
+                        const isLateCountable = log.lateCountable === true || (!Object.prototype.hasOwnProperty.call(log, 'lateCountable') && inMinutes !== null && inMinutes > lateCutoff);
+                        if (isLateCountable) {
                             breakdown['Late']++;
                             stats.late++;
-                            totalLateMinutes += (inMinutes - lateCutoff);
+                            if (inMinutes !== null) totalLateMinutes += Math.max(0, (inMinutes - lateCutoff));
                         }
 
                         // EARLY DEPARTURE Check
@@ -310,10 +303,17 @@
                     const lateCutoff = window.AppConfig.LATE_CUTOFF_MINUTES || 555;
                     const earlyDeparture = window.AppConfig.EARLY_DEPARTURE_MINUTES || 1020;
 
-                    const allowExtra = !(log.autoCheckout && !log.autoCheckoutExtraApproved);
-                    if (allowExtra) {
-                        if (inMinutes !== null && inMinutes < lateCutoff) totalExtraMinutes += (lateCutoff - inMinutes);
-                        if (outMinutes !== null && outMinutes > earlyDeparture) totalExtraMinutes += (outMinutes - earlyDeparture);
+                    const storedExtraMinutes = typeof log.extraWorkedMs === 'number'
+                        ? Math.max(0, Math.round(log.extraWorkedMs / (1000 * 60)))
+                        : 0;
+                    if (storedExtraMinutes > 0) {
+                        totalExtraMinutes += storedExtraMinutes;
+                    } else {
+                        const allowExtra = !(log.autoCheckout && !log.autoCheckoutExtraApproved);
+                        if (allowExtra) {
+                            if (inMinutes !== null && inMinutes < lateCutoff) totalExtraMinutes += (lateCutoff - inMinutes);
+                            if (outMinutes !== null && outMinutes > earlyDeparture) totalExtraMinutes += (outMinutes - earlyDeparture);
+                        }
                     }
 
                     // CATEGORY Check
@@ -343,6 +343,12 @@
             // but I'll keep it for lates that WERE within grace but still marked.
             // Actually, let's simplify to match the request exactly.
 
+            stats.extraWorkedHours = Number((totalExtraMinutes / 60).toFixed(2));
+            stats.penalty = Math.floor((stats.late || 0) / (window.AppConfig.LATE_GRACE_COUNT || 3)) * (window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
+            const offsetStepHours = window.AppConfig.EXTRA_HOURS_FOR_HALF_DAY_OFFSET || 4;
+            const penaltyStepDays = window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5;
+            stats.penaltyOffset = Math.floor((stats.extraWorkedHours || 0) / offsetStepHours) * penaltyStepDays;
+            stats.effectivePenalty = Math.max(0, stats.penalty - stats.penaltyOffset);
             stats.totalLateDuration = this.formatDuration(totalLateMinutes);
             stats.totalExtraDuration = this.formatDuration(totalExtraMinutes);
 
@@ -367,14 +373,15 @@
                 leaves: 0,
                 earlyDepartures: 0,
                 penaltyLeaves: 0,
+                penaltyOffset: 0,
+                effectivePenalty: 0,
+                extraWorkedHours: 0,
                 label: label,
                 breakdown: breakdown,
                 totalLateDuration: '0h 0m',
                 totalExtraDuration: '0h 0m'
             };
 
-            const monthlyLates = {}; // Keep for tracking, but penalty is now weekly
-            const weeklyGraceCount = {};
             let totalLateMinutes = 0;
             let totalExtraMinutes = 0;
 
@@ -387,18 +394,10 @@
 
                     // LATE Check
                     const lateCutoff = window.AppConfig.LATE_CUTOFF_MINUTES || 555;
-                    if (inMinutes !== null && inMinutes > lateCutoff) {
+                    const isLateCountable = log.lateCountable === true || (!Object.prototype.hasOwnProperty.call(log, 'lateCountable') && inMinutes !== null && inMinutes > lateCutoff);
+                    if (isLateCountable) {
                         breakdown['Late']++;
-                        totalLateMinutes += (inMinutes - lateCutoff);
-
-                        const weekKey = `${logDate.getFullYear()}-W${this.getWeekNumber(logDate)}`;
-                        if (!weeklyGraceCount[weekKey]) weeklyGraceCount[weekKey] = 0;
-
-                        weeklyGraceCount[weekKey]++;
-                        if (weeklyGraceCount[weekKey] > 3) {
-                            // 4th+ time in a week = Half Day Salary loss
-                            stats.penaltyLeaves += 0.5;
-                        }
+                        if (inMinutes !== null) totalLateMinutes += Math.max(0, (inMinutes - lateCutoff));
                     }
 
                     // EARLY DEPARTURE Check
@@ -409,10 +408,17 @@
                     }
 
                     // EXTRA HOURS Check
-                    const allowExtra = !(log.autoCheckout && !log.autoCheckoutExtraApproved);
-                    if (allowExtra) {
-                        if (inMinutes !== null && inMinutes < lateCutoff) totalExtraMinutes += (lateCutoff - inMinutes);
-                        if (outMinutes !== null && outMinutes > earlyDeparture) totalExtraMinutes += (outMinutes - earlyDeparture);
+                    const storedExtraMinutes = typeof log.extraWorkedMs === 'number'
+                        ? Math.max(0, Math.round(log.extraWorkedMs / (1000 * 60)))
+                        : 0;
+                    if (storedExtraMinutes > 0) {
+                        totalExtraMinutes += storedExtraMinutes;
+                    } else {
+                        const allowExtra = !(log.autoCheckout && !log.autoCheckoutExtraApproved);
+                        if (allowExtra) {
+                            if (inMinutes !== null && inMinutes < lateCutoff) totalExtraMinutes += (lateCutoff - inMinutes);
+                            if (outMinutes !== null && outMinutes > earlyDeparture) totalExtraMinutes += (outMinutes - earlyDeparture);
+                        }
                     }
 
                     // CATEGORY Check
@@ -436,13 +442,15 @@
             stats.present = breakdown['Present'] + breakdown['Work - Home'] + breakdown['Training'];
             stats.leaves = breakdown['Sick Leave'] + breakdown['Casual Leave'] + breakdown['Earned Leave'] + breakdown['Paid Leave'] + breakdown['Maternity Leave'] + breakdown['Absent'];
             stats.late = breakdown['Late'];
+            stats.extraWorkedHours = Number((totalExtraMinutes / 60).toFixed(2));
             stats.totalLateDuration = this.formatDuration(totalLateMinutes);
             stats.totalExtraDuration = this.formatDuration(totalExtraMinutes);
 
-            // Apply Penalty (Monthly Reset)
-            Object.values(monthlyLates).forEach(count => {
-                if (count > 3) stats.penaltyLeaves += 0.5;
-            });
+            stats.penaltyLeaves = Math.floor((breakdown['Late'] || 0) / (window.AppConfig.LATE_GRACE_COUNT || 3)) * (window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
+            const offsetStepHours = window.AppConfig.EXTRA_HOURS_FOR_HALF_DAY_OFFSET || 4;
+            const penaltyStepDays = window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5;
+            stats.penaltyOffset = Math.floor((stats.extraWorkedHours || 0) / offsetStepHours) * penaltyStepDays;
+            stats.effectivePenalty = Math.max(0, stats.penaltyLeaves - stats.penaltyOffset);
 
             return stats;
         }

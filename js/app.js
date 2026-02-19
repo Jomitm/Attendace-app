@@ -357,7 +357,7 @@
         }
 
         // Admin Link logic
-        const adminLinks = document.querySelectorAll('a[data-page="admin"], a[data-page="salary"], a[data-page="master-sheet"]');
+        const adminLinks = document.querySelectorAll('a[data-page="admin"], a[data-page="salary"], a[data-page="master-sheet"], a[data-page="policy-test"]');
         adminLinks.forEach(link => {
             if (user.role === 'Administrator' || user.isAdmin) {
                 link.style.display = 'flex';
@@ -410,6 +410,12 @@
                     return;
                 }
                 contentArea.innerHTML = await window.AppUI.renderSalaryProcessing ? await window.AppUI.renderSalaryProcessing() : await window.AppUI.renderSalary();
+            } else if (hash === 'policy-test') {
+                if (user.role !== 'Administrator' && !user.isAdmin) {
+                    window.location.hash = 'dashboard';
+                    return;
+                }
+                contentArea.innerHTML = await window.AppUI.renderPolicyTest();
             } else if (hash === 'master-sheet') {
                 if (user.role !== 'Administrator' && !user.isAdmin) {
                     window.location.hash = 'dashboard';
@@ -438,7 +444,7 @@
 
     // --- Admin Link Logic ---
     function updateAdminVisibility(user) {
-        const adminLinks = document.querySelectorAll('a[data-page="admin"], a[data-page="salary"]');
+        const adminLinks = document.querySelectorAll('a[data-page="admin"], a[data-page="salary"], a[data-page="master-sheet"], a[data-page="policy-test"]');
         adminLinks.forEach(link => {
             if (user.role === 'Administrator' || user.isAdmin) {
                 link.style.display = 'flex';
@@ -2254,14 +2260,25 @@
             alert('End time must be after Start time');
             return;
         }
+        const date = formData.get('date');
+        const checkIn = formData.get('checkIn');
+        const checkOut = formData.get('checkOut');
+        const checkInDate = window.AppAttendance.buildDateTime(date, checkIn);
+        const checkOutDate = window.AppAttendance.buildDateTime(date, checkOut);
+        const durationMs = (checkInDate && checkOutDate) ? (checkOutDate - checkInDate) : 0;
+        const statusMeta = window.AppAttendance.evaluateAttendanceStatus(checkInDate || new Date(), durationMs);
+
         const logData = {
             date: formData.get('date'),
-            checkIn: formData.get('checkIn'),
-            checkOut: formData.get('checkOut'),
+            checkIn: checkIn,
+            checkOut: checkOut,
             duration: dur,
+            durationMs: durationMs,
             location: formData.get('location'),
             workDescription: formData.get('location'), // Save description here too
-            type: 'Manual'
+            type: statusMeta.status,
+            dayCredit: statusMeta.dayCredit,
+            lateCountable: statusMeta.lateCountable
         };
         await window.AppAttendance.addManualLog(logData);
         alert('Log added successfully!');
@@ -3479,6 +3496,149 @@
         return `${String(hours).padStart(2, '0')}:${m}`;
     }
 
+    const parseLogDateToISO = (value) => {
+        if (!value) return null;
+        const raw = String(value).trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+
+        // Let native parser handle locale formats first (e.g. 2/19/2026).
+        const native = new Date(raw);
+        if (!Number.isNaN(native.getTime())) {
+            const y = native.getFullYear();
+            const m = String(native.getMonth() + 1).padStart(2, '0');
+            const d = String(native.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+
+        // Support common dd/mm/yyyy or d/m/yyyy forms
+        const dm = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+        if (dm) {
+            const a = Number(dm[1]);
+            const b = Number(dm[2]);
+            const y = Number(dm[3]);
+            let day = a;
+            let month = b;
+
+            // If impossible month in day-first, try month-first interpretation.
+            if (month > 12 && a <= 12) {
+                month = a;
+                day = b;
+            }
+            if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+            return `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        }
+
+        return null;
+    };
+
+    window.app_runAttendancePolicyMigration = async () => {
+        const confirmed = await window.appConfirm(
+            "Recalculate historical attendance logs with the current policy? This updates stored status/credits for existing office logs.",
+            "Run Attendance Migration"
+        );
+        if (!confirmed) return;
+
+        try {
+            const logs = await window.AppDB.getAll('attendance');
+            let scanned = 0;
+            let updated = 0;
+            let skipped = 0;
+            const specialTypes = new Set([
+                'Work - Home',
+                'Training',
+                'On Duty',
+                'Holiday',
+                'National Holiday',
+                'Regional Holidays'
+            ]);
+
+            for (const log of logs) {
+                scanned++;
+                if (!log || !log.id || log.isManualOverride) {
+                    skipped++;
+                    continue;
+                }
+
+                const normalizedType = window.AppAttendance.normalizeType(log.type);
+                if (
+                    specialTypes.has(normalizedType) ||
+                    String(normalizedType).includes('Leave') ||
+                    normalizedType === 'Office'
+                ) {
+                    skipped++;
+                    continue;
+                }
+
+                if (!log.checkIn || !log.checkOut || log.checkOut === 'Active Now') {
+                    skipped++;
+                    continue;
+                }
+
+                const dateIso = parseLogDateToISO(log.date);
+                if (!dateIso) {
+                    skipped++;
+                    continue;
+                }
+
+                const in24 = convertTo24h(log.checkIn);
+                const out24 = convertTo24h(log.checkOut);
+                const inDt = window.AppAttendance.buildDateTime(dateIso, in24);
+                const outDt = window.AppAttendance.buildDateTime(dateIso, out24);
+
+                if (!inDt || !outDt || outDt <= inDt) {
+                    skipped++;
+                    continue;
+                }
+
+                const durationMs = outDt - inDt;
+                const statusMeta = window.AppAttendance.evaluateAttendanceStatus(inDt, durationMs);
+                const nextType = statusMeta.status;
+
+                const shouldUpdate =
+                    log.type !== nextType ||
+                    log.dayCredit !== statusMeta.dayCredit ||
+                    log.lateCountable !== statusMeta.lateCountable ||
+                    (log.extraWorkedMs || 0) !== (statusMeta.extraWorkedMs || 0) ||
+                    log.policyVersion !== 'v2';
+
+                if (!shouldUpdate) {
+                    skipped++;
+                    continue;
+                }
+
+                await window.AppDB.put('attendance', {
+                    ...log,
+                    type: nextType,
+                    dayCredit: statusMeta.dayCredit,
+                    lateCountable: statusMeta.lateCountable,
+                    extraWorkedMs: statusMeta.extraWorkedMs || 0,
+                    durationMs: typeof log.durationMs === 'number' ? log.durationMs : durationMs,
+                    policyVersion: 'v2'
+                });
+                updated++;
+            }
+
+            alert(`Migration complete.\nScanned: ${scanned}\nUpdated: ${updated}\nSkipped: ${skipped}`);
+
+            const hash = window.location.hash.slice(1);
+            const contentArea = document.getElementById('page-content');
+            if (!contentArea) return;
+            if (hash === 'policy-test') {
+                contentArea.innerHTML = await window.AppUI.renderPolicyTest();
+            } else if (hash === 'dashboard') {
+                contentArea.innerHTML = await window.AppUI.renderDashboard();
+                if (window.setupDashboardEvents) window.setupDashboardEvents();
+            } else if (hash === 'salary') {
+                contentArea.innerHTML = await window.AppUI.renderSalaryProcessing();
+            } else if (hash === 'timesheet') {
+                contentArea.innerHTML = await window.AppUI.renderTimesheet();
+            }
+        } catch (err) {
+            console.error("Attendance migration failed:", err);
+            alert("Migration failed: " + err.message);
+        }
+    };
+
 
     window.app_deleteUser = async (userId) => {
         if (await window.appConfirm('Are you sure you want to delete this user? This action cannot be undone.')) {
@@ -3502,8 +3662,12 @@
         const base = parseFloat(row.querySelector('.base-salary-input').value) || 0;
         const dailyRate = base / 22;
         const unpaid = parseFloat(row.querySelector('.unpaid-leaves-count').innerText) || 0;
-        const penaltyEl = row.querySelector('.penalty-count');
-        const penalty = penaltyEl ? (parseFloat(penaltyEl.dataset.penalty) || 0) : 0;
+        const lateCount = parseFloat(row.querySelector('.late-count')?.innerText || '0') || 0;
+        const rawLateDeductionDays = Math.floor(lateCount / (window.AppConfig.LATE_GRACE_COUNT || 3)) * (window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
+        const extraWorkedHours = parseFloat(row.querySelector('.extra-work-hours')?.innerText || '0') || 0;
+        const lateOffsetDays = Math.floor(extraWorkedHours / (window.AppConfig.EXTRA_HOURS_FOR_HALF_DAY_OFFSET || 4)) * (window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
+        const lateDeductionDays = Math.max(0, rawLateDeductionDays - lateOffsetDays);
+        const totalDeductionDays = unpaid + lateDeductionDays;
         const globalTds = parseFloat(document.getElementById('global-tds-percent').value) || 0;
         const tdsInput = row.querySelector('.tds-input');
         if (tdsInput && !tdsInput.dataset.manual) {
@@ -3511,21 +3675,31 @@
         }
         const tdsPercent = tdsInput ? (parseFloat(tdsInput.value) || 0) : globalTds;
 
-        const deduct = Math.round(dailyRate * (unpaid + penalty));
-        row.querySelector('.deduction-amount').innerText = '-₹' + deduct.toLocaleString();
+        const attendanceDeduction = Math.round(dailyRate * totalDeductionDays);
+        const lateDedDaysEl = row.querySelector('.late-deduction-days');
+        const lateDedRawEl = row.querySelector('.late-deduction-raw');
+        const penaltyOffsetEl = row.querySelector('.penalty-offset-days');
+        const totalDedDaysEl = row.querySelector('.deduction-days');
+        const attendanceDeductionEl = row.querySelector('.attendance-deduction-amount');
+        if (lateDedRawEl) lateDedRawEl.innerText = rawLateDeductionDays.toFixed(1);
+        if (penaltyOffsetEl) penaltyOffsetEl.innerText = lateOffsetDays.toFixed(1);
+        if (lateDedDaysEl) lateDedDaysEl.innerText = lateDeductionDays.toFixed(1);
+        if (totalDedDaysEl) totalDedDaysEl.innerText = totalDeductionDays.toFixed(1);
+        if (attendanceDeductionEl) attendanceDeductionEl.innerText = '-Rs ' + attendanceDeduction.toLocaleString();
+        row.querySelector('.deduction-amount').innerText = '-Rs ' + attendanceDeduction.toLocaleString();
 
         const adjInput = row.querySelector('.salary-input');
         if (!adjInput.dataset.manual) {
-            adjInput.value = Math.max(0, base - deduct);
+            adjInput.value = Math.max(0, base - attendanceDeduction);
         }
 
         const adjusted = parseFloat(adjInput.value) || 0;
         const tdsAmount = Math.round(adjusted * (tdsPercent / 100));
         const finalNet = Math.max(0, adjusted - tdsAmount);
 
-        row.querySelector('.tds-amount').innerText = '₹' + tdsAmount.toLocaleString();
+        row.querySelector('.tds-amount').innerText = 'Rs ' + tdsAmount.toLocaleString();
         row.querySelector('.tds-amount').dataset.value = tdsAmount;
-        row.querySelector('.final-net-salary').innerText = '₹' + finalNet.toLocaleString();
+        row.querySelector('.final-net-salary').innerText = 'Rs ' + finalNet.toLocaleString();
         row.querySelector('.final-net-salary').dataset.value = finalNet;
     };
 
@@ -3552,6 +3726,14 @@
             const rowTdsPercent = tdsInput ? (parseFloat(tdsInput.value) || 0) : globalTdsPercent;
             const tdsAmount = row.querySelector('.tds-amount').dataset.value || 0;
             const finalNet = row.querySelector('.final-net-salary').dataset.value || 0;
+            const unpaidLeaves = parseFloat(row.querySelector('.unpaid-leaves-count')?.innerText || '0') || 0;
+            const lateCount = parseFloat(row.querySelector('.late-count')?.innerText || '0') || 0;
+            const extraWorkedHours = parseFloat(row.querySelector('.extra-work-hours')?.innerText || '0') || 0;
+            const lateDeductionRawDays = parseFloat(row.querySelector('.late-deduction-raw')?.innerText || '0') || 0;
+            const penaltyOffsetDays = parseFloat(row.querySelector('.penalty-offset-days')?.innerText || '0') || 0;
+            const lateDeductionDays = parseFloat(row.querySelector('.late-deduction-days')?.innerText || '0') || 0;
+            const deductionDays = parseFloat(row.querySelector('.deduction-days')?.innerText || '0') || 0;
+            const attendanceDeduction = Number(String(row.querySelector('.attendance-deduction-amount')?.innerText || '0').replace(/[^0-9.-]+/g, ""));
 
             // Check if comment required
             if (row.querySelector('.comment-input').required && !comment) {
@@ -3565,7 +3747,15 @@
                 userId,
                 month: monthKey,
                 baseAmount: Number(baseSalaryInput),
+                attendanceDeduction: attendanceDeduction,
                 deductions: Number(row.querySelector('.deduction-amount').innerText.replace(/[^0-9.-]+/g, "")),
+                unpaidLeaves: unpaidLeaves,
+                lateCount: lateCount,
+                extraWorkedHours: extraWorkedHours,
+                lateDeductionRawDays: lateDeductionRawDays,
+                penaltyOffsetDays: penaltyOffsetDays,
+                lateDeductionDays: lateDeductionDays,
+                deductionDays: deductionDays,
                 adjustedAmount: Number(adjustedSalary),
                 tdsPercent: rowTdsPercent,
                 tdsAmount: Number(tdsAmount),
@@ -3610,24 +3800,32 @@
 
     window.app_exportSalaryCSV = () => {
         const rows = document.querySelectorAll('tr[data-user-id]');
-        let csv = 'Staff Name,Base Salary,Attendance (P/L/UL),Deductions,Adjusted Salary,TDS (%),TDS Amount,Final Net,Comment\n';
+        let csv = 'Staff Name,Base Salary,Present,Late,Unpaid Leaves,Extra Work Hours,Late Deduction Raw,Penalty Offset Days,Late Deduction Days,Total Deduction Days,Attendance Deduction,Total Deductions,Adjusted Salary,TDS (%),TDS Amount,Final Net,Comment\n';
 
         rows.forEach(row => {
             const name = row.querySelector('div[style*="font-weight: 600"]').innerText;
             const base = row.querySelector('.base-salary-input').value;
-            const attendance = row.querySelector('td:nth-child(3)').innerText.replace(/[\n|]/g, '').trim();
-            const deduct = row.querySelector('.deduction-amount').innerText.replace('₹', '').replace(',', '');
+            const present = row.querySelector('.present-count')?.innerText || '0';
+            const late = row.querySelector('.late-count')?.innerText || '0';
+            const unpaidLeaves = row.querySelector('.unpaid-leaves-count')?.innerText || '0';
+            const extraWorkedHours = row.querySelector('.extra-work-hours')?.innerText || '0';
+            const lateDeductionRaw = row.querySelector('.late-deduction-raw')?.innerText || '0';
+            const penaltyOffsetDays = row.querySelector('.penalty-offset-days')?.innerText || '0';
+            const lateDeductionDays = row.querySelector('.late-deduction-days')?.innerText || '0';
+            const deductionDays = row.querySelector('.deduction-days')?.innerText || '0';
+            const attendanceDeduction = (row.querySelector('.attendance-deduction-amount')?.innerText || '').replace(/[^0-9.-]+/g, '') || '0';
+            const deduct = (row.querySelector('.deduction-amount').innerText || '').replace(/[^0-9.-]+/g, '');
             const adjusted = row.querySelector('.salary-input').value;
             const globalTdsPercent = parseFloat(document.getElementById('global-tds-percent').value) || 0;
             const tdsInput = row.querySelector('.tds-input');
             const tdsP = tdsInput && tdsInput.value !== ''
                 ? tdsInput.value
                 : globalTdsPercent;
-            const tdsA = row.querySelector('.tds-amount').innerText.replace('₹', '').replace(',', '');
-            const net = row.querySelector('.final-net-salary').innerText.replace('₹', '').replace(',', '');
+            const tdsA = (row.querySelector('.tds-amount').innerText || '').replace(/[^0-9.-]+/g, '');
+            const net = (row.querySelector('.final-net-salary').innerText || '').replace(/[^0-9.-]+/g, '');
             const comment = row.querySelector('.comment-input').value;
 
-            csv += `"${name}",${base},"${attendance}",${deduct},${adjusted},${tdsP},${tdsA},${net},"${comment}"\n`;
+            csv += `"${name}",${base},${present},${late},${unpaidLeaves},${extraWorkedHours},${lateDeductionRaw},${penaltyOffsetDays},${lateDeductionDays},${deductionDays},${attendanceDeduction},${deduct},${adjusted},${tdsP},${tdsA},${net},"${comment}"\n`;
         });
 
         const blob = new Blob([csv], { type: 'text/csv' });
@@ -4035,4 +4233,3 @@
 
     console.log("App.js Loaded & Globals Ready");
 })();
-

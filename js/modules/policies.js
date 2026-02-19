@@ -39,8 +39,8 @@
 
                 lateCount = userLogs.filter(l => {
                     if (!l.checkIn) return false;
-                    const [h, m] = l.checkIn.split(':').map(Number);
-                    return (h > 9) || (h === 9 && m > 15);
+                    if (l.lateCountable === true) return true;
+                    return window.AppAttendance.normalizeType(l.type) === 'Late';
                 }).length;
             } catch (e) {
                 console.warn('Error calc lates', e);
@@ -91,7 +91,7 @@
                             <div class="policies-late-icon"><i class="fa-solid fa-clock"></i></div>
                             <div>
                                 <div class="policies-late-label">Late Arrivals This Week</div>
-                                <div class="policies-late-value">${lateCount} <span>/ 3 allowed</span></div>
+                                <div class="policies-late-value">${lateCount} <span>(${Math.floor(lateCount / 3)} block(s) reached)</span></div>
                             </div>
                         </div>
 
@@ -104,14 +104,15 @@
                         <h3><i class="fa-solid fa-clock"></i> Working at CRWI</h3>
                         <div class="policies-hours-box">
                             <label>Standard Hours</label>
-                            <div>9:00 AM - 5:00 PM</div>
-                            <p>Monday to Saturday</p>
+                            <div>9:00 AM - 6:00 PM</div>
+                            <p>Monday to Saturday (2nd/4th Saturday Off)</p>
                         </div>
                         <div class="policies-guidelines-list">
                             <label>Attendance Policy</label>
                             <ul>
                                 <li><i class="fa-solid fa-caret-right"></i>Late arrival is marked after <strong>9:15 AM</strong>.</li>
-                                <li><i class="fa-solid fa-caret-right"></i>More than <strong>3 late arrivals</strong> in a month leads to a half-day deduction.</li>
+                                <li><i class="fa-solid fa-caret-right"></i>Every <strong>3 Late marks</strong> causes a <strong>0.5 day salary deduction</strong> (mandatory).</li>
+                                <li><i class="fa-solid fa-caret-right"></i>Final status is decided using check-in band and net worked hours.</li>
                             </ul>
                         </div>
                         <div class="policies-zero-box">

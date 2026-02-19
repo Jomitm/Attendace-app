@@ -40,6 +40,7 @@
             const checkInTime = new Date(user.lastCheckIn);
             const checkOutTime = options.checkOutTime ? new Date(options.checkOutTime) : new Date();
             const durationMs = checkOutTime - checkInTime;
+            const statusMeta = this.evaluateAttendanceStatus(checkInTime, durationMs);
 
             // Get Activity Stats
             const activityStats = window.AppActivity ? window.AppActivity.getStats() : { score: 0 };
@@ -53,7 +54,11 @@
                 checkOut: checkOutTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 duration: this.msToTime(durationMs),
                 durationMs: durationMs, // Store raw ms for calculations
-                type: this.calculateStatus(checkInTime),
+                type: statusMeta.status,
+                dayCredit: statusMeta.dayCredit,
+                lateCountable: statusMeta.lateCountable,
+                extraWorkedMs: statusMeta.extraWorkedMs || 0,
+                policyVersion: 'v2',
                 location: user.currentLocation?.address || 'Checked In Location',
                 lat: user.currentLocation?.lat,
                 lng: user.currentLocation?.lng,
@@ -133,10 +138,25 @@
             const user = window.AppAuth.getUser();
             if (!user) return;
 
+            const checkInDate = this.buildDateTime(logData.date, logData.checkIn);
+            const checkOutDate = this.buildDateTime(logData.date, logData.checkOut);
+            const durationMs = (checkInDate && checkOutDate) ? (checkOutDate - checkInDate) : 0;
+            const statusMeta = this.evaluateAttendanceStatus(checkInDate || new Date(), durationMs);
+
+            const resolvedType = String(logData.type || '').trim();
+            const finalType = (!resolvedType || resolvedType === 'Manual')
+                ? statusMeta.status
+                : resolvedType;
+
             const newLog = {
                 id: String(Date.now()),
                 user_id: user.id,
                 ...logData,
+                type: finalType,
+                durationMs: typeof logData.durationMs === 'number' ? logData.durationMs : durationMs,
+                dayCredit: statusMeta.dayCredit,
+                lateCountable: finalType === 'Late',
+                extraWorkedMs: statusMeta.extraWorkedMs || 0,
                 synced: false
             };
 
@@ -220,30 +240,106 @@
             return `${hours}h ${minutes}m`;
         }
 
-        calculateStatus(checkInDateObj) {
-            const day = checkInDateObj.getDay(); // 0=Sun, 6=Sat
-            const hours = checkInDateObj.getHours();
-            const minutes = checkInDateObj.getMinutes();
+        buildDateTime(dateStr, timeStr) {
+            if (!dateStr || !timeStr) return null;
+            const iso = `${dateStr}T${timeStr}:00`;
+            const dt = new Date(iso);
+            return Number.isNaN(dt.getTime()) ? null : dt;
+        }
 
-            // Logic: Mon(1) - Fri(5)
-            // If before or at 9:15 AM -> Present
-            // If after 9:15 AM -> Late
-            // Sat/Sun -> default Present (or specific weekend logic if needed, user said 'except saturdays')
+        normalizeType(rawType) {
+            const type = String(rawType || '').trim();
+            if (!type || type === 'Manual') return 'Present';
+            if (type === 'Manual/WFH') return 'Work - Home';
+            return type;
+        }
 
-            const lateCutoff = window.AppConfig.LATE_CUTOFF_MINUTES || 555; // Default 09:15
-            const lateHours = Math.floor(lateCutoff / 60);
-            const lateMinutes = lateCutoff % 60;
+        getDayCredit(type) {
+            const normalized = this.normalizeType(type);
+            if (normalized === 'Half Day') return 0.5;
+            if (normalized === 'Absent') return 0;
+            if (
+                normalized === 'Present' ||
+                normalized === 'Present (Late Waived)' ||
+                normalized === 'Late' ||
+                normalized === 'Work - Home' ||
+                normalized === 'On Duty'
+            ) {
+                return 1;
+            }
+            return 0;
+        }
 
-            if (day >= 1 && day <= 5) {
-                // Check if late (after config time)
-                if (hours > lateHours || (hours === lateHours && minutes > lateMinutes)) {
-                    return 'Late';
-                }
-                return 'Present';
+        evaluateAttendanceStatus(checkInDateObj, durationMs = 0) {
+            if (!checkInDateObj || Number.isNaN(checkInDateObj.getTime())) {
+                return { status: 'Absent', dayCredit: 0, lateCountable: false, extraWorkedMs: 0 };
             }
 
-            // Default for weekends
-            return 'Present';
+            const day = checkInDateObj.getDay(); // 0=Sun, 6=Sat
+            if (day === 0) {
+                return { status: 'Present', dayCredit: 1, lateCountable: false, extraWorkedMs: 0 };
+            }
+
+            const checkInMins = (checkInDateObj.getHours() * 60) + checkInDateObj.getMinutes();
+            const netHours = Math.max(0, durationMs) / (1000 * 60 * 60);
+
+            const graceEnd = window.AppConfig.LATE_CUTOFF_MINUTES || 555; // 09:15
+            const minorLateEnd = window.AppConfig.MINOR_LATE_END_MINUTES || 615; // 10:15
+            const lateEnd = window.AppConfig.LATE_END_MINUTES || 720; // 12:00
+            const postNoonEnd = window.AppConfig.POST_NOON_END_MINUTES || 810; // 13:30
+            const afternoonStart = window.AppConfig.AFTERNOON_START_MINUTES || 720; // 12:00
+
+            let status = 'Present';
+            let lateCountable = false;
+            let extraWorkedMs = 0;
+
+            // Afternoon office entry rule: decision is purely by net worked hours
+            if (checkInMins >= afternoonStart) {
+                if (netHours >= 8) {
+                    status = 'Present';
+                } else if (netHours >= 4) {
+                    status = 'Half Day';
+                } else {
+                    status = 'Absent';
+                }
+                if (netHours > 4) {
+                    extraWorkedMs = Math.max(0, durationMs - (4 * 60 * 60 * 1000));
+                }
+                return {
+                    status,
+                    dayCredit: this.getDayCredit(status),
+                    lateCountable: false,
+                    extraWorkedMs
+                };
+            }
+
+            if (checkInMins > postNoonEnd) {
+                status = 'Absent';
+            } else if (checkInMins > lateEnd) {
+                status = netHours >= 4 ? 'Half Day' : 'Absent';
+            } else if (checkInMins > minorLateEnd) {
+                status = netHours >= 4 ? 'Half Day' : 'Absent';
+            } else if (checkInMins > graceEnd) {
+                if (netHours >= 8) {
+                    status = 'Present (Late Waived)';
+                } else {
+                    status = 'Late';
+                    lateCountable = true;
+                }
+            } else {
+                status = 'Present';
+            }
+
+            return {
+                status,
+                dayCredit: this.getDayCredit(status),
+                lateCountable,
+                extraWorkedMs
+            };
+        }
+
+        calculateStatus(checkInDateObj) {
+            return this.evaluateAttendanceStatus(checkInDateObj, 8 * 60 * 60 * 1000).status;
         }
     }
 

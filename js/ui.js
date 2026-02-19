@@ -2274,18 +2274,16 @@
             let lateCount = 0;
             const uniqueDays = new Set();
 
-            logs.forEach(log => {
+            monthLogs.forEach(log => {
                 if (log.durationMs) totalMins += (log.durationMs / (1000 * 60));
-                if (log.type === 'Late') lateCount++;
+                if (log.lateCountable || window.AppAttendance.normalizeType(log.type) === 'Late') lateCount++;
                 if (log.date) uniqueDays.add(log.date);
             });
 
             const totalHoursFormatted = `${Math.floor(totalMins / 60)}h ${Math.round(totalMins % 60)}m`;
+            const lateDeductionDays = Math.floor(lateCount / (window.AppConfig.LATE_GRACE_COUNT || 3)) * (window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
             const displayLogType = (rawType) => {
-                const type = String(rawType || '').trim();
-                if (!type) return 'Present';
-                if (type === 'Manual/WFH' || type === 'Work - Home') return 'Manual';
-                return type;
+                return window.AppAttendance.normalizeType(rawType);
             };
 
             // Helper for updating descriptions
@@ -2370,14 +2368,33 @@
                 for (let day = 1; day <= daysInMonth; day++) {
                     const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                     const dayLogs = logsByDate[dateStr] || [];
-                    const dayLog = dayLogs.length ? dayLogs[0] : null;
+                    const dayLog = dayLogs.length
+                        ? dayLogs.slice().sort((a, b) => {
+                            const score = (log) => {
+                                const t = displayLogType(log.type);
+                                if (t === 'Absent') return 4;
+                                if (t === 'Half Day') return 3;
+                                if (t === 'Late') return 2;
+                                if (t === 'Present (Late Waived)') return 1;
+                                return 0;
+                            };
+                            return score(b) - score(a);
+                        })[0]
+                        : null;
                     const dayPlans = plansByDate[dateStr] || [];
                     const isToday = dateStr === new Date().toISOString().split('T')[0];
+                    const dayType = dayLog ? displayLogType(dayLog.type) : '';
                     const attendanceClass = dayLog
-                        ? (dayLog.type === 'Late' ? 'late' : 'present')
+                        ? (dayType === 'Absent'
+                            ? 'absent'
+                            : dayType === 'Half Day'
+                                ? 'late'
+                                : dayType === 'Late'
+                                    ? 'late'
+                                    : 'present')
                         : 'none';
                     const attendanceText = dayLog
-                        ? displayLogType(dayLog.type)
+                        ? dayType
                         : 'No log';
                     const logSummaries = dayLogs
                         .map(l => (l.workDescription || l.location || '').trim())
@@ -2432,12 +2449,12 @@
                             <div class="value">${uniqueDays.size} <span class="timesheet-stat-sub">Days</span></div>
                         </div>
                         <div class="stat-card">
-                            <div class="label">Late Entries</div>
+                            <div class="label">Late Count</div>
                             <div class="value" style="color:${lateCount > 2 ? 'var(--accent)' : 'var(--text-main)'}">${lateCount}</div>
                         </div>
                         <div class="stat-card">
-                            <div class="label">Grace Used</div>
-                            <div class="value">${lateCount}/3 <span class="timesheet-stat-sub">Lates</span></div>
+                            <div class="label">Late Deduction</div>
+                            <div class="value">${lateDeductionDays.toFixed(1)} <span class="timesheet-stat-sub">Days</span></div>
                         </div>
                     </div>
 
@@ -2486,7 +2503,7 @@
                                         </td>
                                         <td data-label="Status">
                                             <div class="timesheet-status-col">
-                                                <span class="badge" style="background:${log.type === 'Late' ? '#fff1f2' : '#f0fdf4'}; color:${log.type === 'Late' ? '#be123c' : '#15803d'}; border:1px solid ${log.type === 'Late' ? '#fecaca' : '#dcfce7'};">${displayLogType(log.type)}</span>
+                                                <span class="badge" style="background:${displayLogType(log.type) === 'Absent' ? '#fef2f2' : (displayLogType(log.type) === 'Half Day' || displayLogType(log.type) === 'Late') ? '#fff7ed' : '#f0fdf4'}; color:${displayLogType(log.type) === 'Absent' ? '#991b1b' : (displayLogType(log.type) === 'Half Day' || displayLogType(log.type) === 'Late') ? '#c2410c' : '#15803d'}; border:1px solid ${displayLogType(log.type) === 'Absent' ? '#fecaca' : (displayLogType(log.type) === 'Half Day' || displayLogType(log.type) === 'Late') ? '#fed7aa' : '#dcfce7'};">${displayLogType(log.type)}</span>
                                                 <div class="timesheet-duration">${log.duration || '--'}</div>
                                             </div>
                                         </td>
@@ -2784,15 +2801,18 @@
                         const log = dayLogs
                             .slice()
                             .sort((a, b) => getLogPriority(b) - getLogPriority(a))[0];
-                        const type = log.type || 'Present';
+                        const type = window.AppAttendance.normalizeType(log.type);
                         cellContent = type.charAt(0).toUpperCase();
                         tooltip = `${log.checkIn} - ${log.checkOut || 'Active'}\n${type}`;
 
                         if (type === 'Present') { cellStyle = 'color: #10b981; font-weight: bold; font-size: 0.9rem;'; }
+                        else if (type === 'Present (Late Waived)') { cellStyle = 'color: #059669; font-weight: bold;'; cellContent = 'P'; }
                         else if (type === 'Late') { cellStyle = 'color: #f59e0b; font-weight: bold;'; cellContent = 'L'; }
+                        else if (type === 'Half Day') { cellStyle = 'color: #c2410c; font-weight: bold;'; cellContent = 'HD'; }
                         else if (type === 'Absent') { cellStyle = 'color: #ef4444; font-weight: bold;'; cellContent = 'A'; }
                         else if (type.includes('Leave')) { cellStyle = 'color: #8b5cf6; font-weight: bold;'; cellContent = 'C'; }
                         else if (type === 'Work - Home') { cellStyle = 'color: #0ea5e9; font-weight: bold;'; cellContent = 'W'; }
+                        else if (type === 'On Duty') { cellStyle = 'color: #0369a1; font-weight: bold;'; cellContent = 'D'; }
 
                         if (log.isManualOverride) {
                             cellStyle = 'color: #be185d; font-weight: bold; background: #fdf2f8;';
@@ -2851,10 +2871,12 @@
                         <div style="margin-top: 1rem; display: flex; gap: 1.5rem; font-size: 0.8rem; color: #666;">
                             <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#10b981; font-weight:bold;">P</span> Present</div>
                             <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#f59e0b; font-weight:bold;">L</span> Late</div>
+                            <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#c2410c; font-weight:bold;">HD</span> Half Day</div>
                             <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#ef4444; font-weight:bold;">A</span> Absent</div>
                             <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#64748b; font-weight:bold;">H</span> Holiday</div>
                             <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#8b5cf6; font-weight:bold;">C</span> Leave</div>
                             <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#0ea5e9; font-weight:bold;">W</span> WFH</div>
+                            <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#0369a1; font-weight:bold;">D</span> On Duty</div>
                             <div style="display:flex; align-items:center; gap:0.5rem;"><span style="color:#be185d; font-weight:bold; background:#fdf2f8; padding:0 3px;">P/A</span> Manual Override</div>
                         </div>
                     </div>
@@ -3221,6 +3243,7 @@
                                     <th>Staff Member</th>
                                     <th>Base Salary</th>
                                     <th>Attendance Summary</th>
+                                    <th>Deduction Days</th>
                                     <th>Deductions</th>
                                     <th>Adjusted Salary</th>
                                     <th>TDS %</th>
@@ -3236,7 +3259,11 @@
                 const userTds = typeof user.tdsPercent === 'number' ? user.tdsPercent : null;
                 const dailyRate = base / 22;
 
-                const totalDeductionDays = stats.unpaidLeaves + stats.penalty;
+                const rawLateDeductionDays = Math.floor((stats.late || 0) / (window.AppConfig.LATE_GRACE_COUNT || 3)) * (window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
+                const extraWorkedHours = Number(stats.extraWorkedHours || 0);
+                const lateOffsetDays = Math.floor(extraWorkedHours / (window.AppConfig.EXTRA_HOURS_FOR_HALF_DAY_OFFSET || 4)) * (window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
+                const lateDeductionDays = Math.max(0, rawLateDeductionDays - lateOffsetDays);
+                const totalDeductionDays = (stats.unpaidLeaves || 0) + lateDeductionDays;
                 const deductionAmount = Math.round(dailyRate * totalDeductionDays);
                 const calculatedSalary = Math.max(0, base - deductionAmount);
 
@@ -3254,12 +3281,19 @@
                                                     onchange="window.app_recalculateRow(this.closest('tr'))" />
                                             </td>
                                             <td style="font-size: 0.85rem;">
-                                                <span style="color: #10b981;">P: ${stats.present}</span> | 
-                                                <span style="color: #f59e0b;">L: ${stats.late}</span> | 
+                                                <span style="color: #10b981;">P: <span class="present-count">${stats.present}</span></span> |
+                                                <span style="color: #f59e0b;">L: <span class="late-count">${stats.late}</span></span> |
                                                 <span style="color: #991b1b;">ED: ${stats.earlyDepartures}</span> |
-                                                <span style="color: #ef4444;">UL: <span class="unpaid-leaves-count">${stats.unpaidLeaves}</span></span>
+                                                <span style="color: #ef4444;">UL: <span class="unpaid-leaves-count">${stats.unpaidLeaves}</span></span> |
+                                                <span style="color: #0f766e;">XH: <span class="extra-work-hours">${extraWorkedHours.toFixed(2)}</span></span>
                                             </td>
-                                            <td style="color: #ef4444; font-weight: 600;" class="deduction-amount">-₹${deductionAmount.toLocaleString()}</td>
+                                            <td style="font-size: 0.82rem;">
+                                                <div>Late Raw: <span class="late-deduction-raw">${rawLateDeductionDays.toFixed(1)}</span></div>
+                                                <div>Offset: <span class="penalty-offset-days">${lateOffsetDays.toFixed(1)}</span></div>
+                                                <div>Late Ded: <span class="late-deduction-days">${lateDeductionDays.toFixed(1)}</span></div>
+                                                <div>Total: <span class="deduction-days">${totalDeductionDays.toFixed(1)}</span></div>
+                                            </td>
+                                            <td style="color: #ef4444; font-weight: 600;" class="attendance-deduction-amount deduction-amount">-Rs ${deductionAmount.toLocaleString()}</td>
                                             <td>
                                                 <input type="number" class="salary-input" value="${calculatedSalary}" 
                                                     style="width: 100px; padding: 4px; border: 1px solid #ddd; border-radius: 10px;"
@@ -3271,8 +3305,8 @@
                                                     placeholder="${typeof userTds === 'number' ? '' : 'Global'}"
                                                     onchange="this.dataset.manual = 'true'; window.app_recalculateRow(this.closest('tr'))" />
                                             </td>
-                                            <td style="color: #64748b;" class="tds-amount">₹0</td>
-                                            <td style="font-weight: 700; color: #1e40af;" class="final-net-salary">₹${calculatedSalary.toLocaleString()}</td>
+                                            <td style="color: #64748b;" class="tds-amount">Rs 0</td>
+                                            <td style="font-weight: 700; color: #1e40af;" class="final-net-salary">Rs ${calculatedSalary.toLocaleString()}</td>
                                             <td>
                                                 <input type="text" class="comment-input" placeholder="Required if adjusted..."
                                                     style="width: 150px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;" />
@@ -3284,6 +3318,149 @@
                         </table>
                     </div>
                 </div>`;
+        },
+
+        async renderPolicyTest() {
+            if (typeof window.app_runPolicyTest !== 'function') {
+                window.app_runPolicyTest = () => {
+                    const date = document.getElementById('policy-test-date')?.value;
+                    const checkIn = document.getElementById('policy-test-checkin')?.value;
+                    const checkOut = document.getElementById('policy-test-checkout')?.value;
+                    const priorLateRaw = document.getElementById('policy-test-prior-late')?.value || '0';
+                    const output = document.getElementById('policy-test-output');
+                    if (!output) return;
+
+                    const priorLate = Math.max(0, parseInt(priorLateRaw, 10) || 0);
+                    const inDt = window.AppAttendance.buildDateTime(date, checkIn);
+                    const outDt = window.AppAttendance.buildDateTime(date, checkOut);
+
+                    if (!inDt || !outDt) {
+                        output.innerHTML = `<div style="color:#b91c1c; font-weight:600;">Enter valid date and times.</div>`;
+                        return;
+                    }
+
+                    const durationMs = outDt - inDt;
+                    if (durationMs <= 0) {
+                        output.innerHTML = `<div style="color:#b91c1c; font-weight:600;">Check-out must be after check-in.</div>`;
+                        return;
+                    }
+
+                    const result = window.AppAttendance.evaluateAttendanceStatus(inDt, durationMs);
+                    const graceCount = window.AppConfig.LATE_GRACE_COUNT || 3;
+                    const blockValue = window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5;
+                    const todaysLate = result.lateCountable ? 1 : 0;
+                    const totalLate = priorLate + todaysLate;
+                    const blocks = Math.floor(totalLate / graceCount);
+                    const rawDeductionDays = blocks * blockValue;
+                    const netHours = durationMs / (1000 * 60 * 60);
+                    const extraWorkedHours = Number(((result.extraWorkedMs || 0) / (1000 * 60 * 60)).toFixed(2));
+                    const offsetStepHours = window.AppConfig.EXTRA_HOURS_FOR_HALF_DAY_OFFSET || 4;
+                    const offsetDays = Math.floor(extraWorkedHours / offsetStepHours) * blockValue;
+                    const deductionDays = Math.max(0, rawDeductionDays - offsetDays);
+
+                    output.innerHTML = `
+                        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:0.7rem;">
+                            <div style="border:1px solid #e2e8f0; border-radius:10px; padding:0.7rem;">
+                                <div style="font-size:0.75rem; color:#64748b;">Final Status</div>
+                                <div style="font-size:1rem; font-weight:800; color:#0f172a;">${result.status}</div>
+                            </div>
+                            <div style="border:1px solid #e2e8f0; border-radius:10px; padding:0.7rem;">
+                                <div style="font-size:0.75rem; color:#64748b;">Net Hours</div>
+                                <div style="font-size:1rem; font-weight:800; color:#0f172a;">${netHours.toFixed(2)}h</div>
+                            </div>
+                            <div style="border:1px solid #e2e8f0; border-radius:10px; padding:0.7rem;">
+                                <div style="font-size:0.75rem; color:#64748b;">Late Countable</div>
+                                <div style="font-size:1rem; font-weight:800; color:#0f172a;">${result.lateCountable ? 'Yes' : 'No'}</div>
+                            </div>
+                            <div style="border:1px solid #e2e8f0; border-radius:10px; padding:0.7rem;">
+                                <div style="font-size:0.75rem; color:#64748b;">Day Credit</div>
+                                <div style="font-size:1rem; font-weight:800; color:#0f172a;">${result.dayCredit.toFixed(1)}</div>
+                            </div>
+                            <div style="border:1px solid #e2e8f0; border-radius:10px; padding:0.7rem;">
+                                <div style="font-size:0.75rem; color:#64748b;">Extra Worked</div>
+                                <div style="font-size:1rem; font-weight:800; color:#0f172a;">${extraWorkedHours.toFixed(2)}h</div>
+                            </div>
+                            <div style="border:1px solid #e2e8f0; border-radius:10px; padding:0.7rem;">
+                                <div style="font-size:0.75rem; color:#64748b;">Late Blocks</div>
+                                <div style="font-size:1rem; font-weight:800; color:#0f172a;">${blocks}</div>
+                            </div>
+                            <div style="border:1px solid #e2e8f0; border-radius:10px; padding:0.7rem;">
+                                <div style="font-size:0.75rem; color:#64748b;">Penalty Offset</div>
+                                <div style="font-size:1rem; font-weight:800; color:#0f172a;">${offsetDays.toFixed(1)} day(s)</div>
+                            </div>
+                            <div style="border:1px solid #e2e8f0; border-radius:10px; padding:0.7rem;">
+                                <div style="font-size:0.75rem; color:#64748b;">Late Deduction</div>
+                                <div style="font-size:1rem; font-weight:800; color:#0f172a;">${deductionDays.toFixed(1)} day(s)</div>
+                            </div>
+                        </div>
+                        <div style="margin-top:0.7rem; font-size:0.82rem; color:#475569;">
+                            Rule used: every ${graceCount} late marks = ${blockValue} day deduction, offset by each ${offsetStepHours} extra worked hours.
+                        </div>
+                    `;
+                };
+            }
+
+            if (typeof window.app_fillPolicySample !== 'function') {
+                window.app_fillPolicySample = (inTime, outTime, priorLate = 0) => {
+                    const inEl = document.getElementById('policy-test-checkin');
+                    const outEl = document.getElementById('policy-test-checkout');
+                    const priorEl = document.getElementById('policy-test-prior-late');
+                    if (inEl) inEl.value = inTime;
+                    if (outEl) outEl.value = outTime;
+                    if (priorEl) priorEl.value = String(priorLate);
+                    if (typeof window.app_runPolicyTest === 'function') window.app_runPolicyTest();
+                };
+            }
+
+            setTimeout(() => {
+                if (typeof window.app_runPolicyTest === 'function') window.app_runPolicyTest();
+            }, 0);
+
+            const today = new Date().toISOString().split('T')[0];
+            return `
+                <div class="card full-width">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem; margin-bottom:0.8rem;">
+                        <div>
+                            <h3 style="font-size:1.15rem; margin:0;">Policy Test Utility</h3>
+                            <p class="text-muted" style="font-size:0.82rem; margin-top:0.2rem;">Simulate attendance outcome and mandatory late deduction blocks.</p>
+                        </div>
+                        <div style="display:flex; gap:0.45rem; flex-wrap:wrap;">
+                            <button class="action-btn secondary" style="padding:0.45rem 0.7rem; font-size:0.78rem;" onclick="window.app_fillPolicySample('09:05', '18:05', 0)">On Time Full Day</button>
+                            <button class="action-btn secondary" style="padding:0.45rem 0.7rem; font-size:0.78rem;" onclick="window.app_fillPolicySample('09:35', '18:10', 2)">Late Waived</button>
+                            <button class="action-btn secondary" style="padding:0.45rem 0.7rem; font-size:0.78rem;" onclick="window.app_fillPolicySample('10:30', '14:35', 2)">Half Day</button>
+                            <button class="action-btn secondary" style="padding:0.45rem 0.7rem; font-size:0.78rem;" onclick="window.app_fillPolicySample('13:40', '17:10', 5)">Absent</button>
+                        </div>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:0.75rem; margin-bottom:0.9rem;">
+                        <div>
+                            <label style="display:block; font-size:0.75rem; color:#64748b; margin-bottom:0.2rem;">Date</label>
+                            <input id="policy-test-date" type="date" value="${today}" style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:8px;">
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:0.75rem; color:#64748b; margin-bottom:0.2rem;">Check-In</label>
+                            <input id="policy-test-checkin" type="time" value="09:15" style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:8px;">
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:0.75rem; color:#64748b; margin-bottom:0.2rem;">Check-Out</label>
+                            <input id="policy-test-checkout" type="time" value="18:00" style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:8px;">
+                        </div>
+                        <div>
+                            <label style="display:block; font-size:0.75rem; color:#64748b; margin-bottom:0.2rem;">Prior Late Count (month)</label>
+                            <input id="policy-test-prior-late" type="number" min="0" step="1" value="0" style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:8px;">
+                        </div>
+                    </div>
+
+                    <div style="display:flex; gap:0.6rem; margin-bottom:0.8rem;">
+                        <button class="action-btn" onclick="window.app_runPolicyTest()">Run Simulation</button>
+                        <button class="action-btn secondary" onclick="window.app_runAttendancePolicyMigration()">
+                            Recalculate Existing Logs
+                        </button>
+                    </div>
+
+                    <div id="policy-test-output" style="border:1px solid #e2e8f0; border-radius:10px; padding:0.8rem; background:#fafafa;"></div>
+                </div>
+            `;
         },
 
         async renderMinutes() {
@@ -4048,6 +4225,3 @@
         }
     }
 })();
-
-
-
