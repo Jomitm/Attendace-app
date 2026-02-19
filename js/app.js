@@ -1866,13 +1866,26 @@
         try {
             if (status === 'out') {
                 if (btn) btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Locating...`;
-                const pos = await getLocation();
-                if (locationText) locationText.innerHTML = `<i class="fa-solid fa-location-dot"></i> Lat: ${pos.lat.toFixed(4)}, Lng: ${pos.lng.toFixed(4)}`;
+                let checkInLat = null;
+                let checkInLng = null;
+                let checkInAddress = 'Unknown Location';
+                try {
+                    const pos = await getLocation();
+                    checkInLat = pos.lat;
+                    checkInLng = pos.lng;
+                    checkInAddress = `Lat: ${pos.lat.toFixed(4)}, Lng: ${pos.lng.toFixed(4)}`;
+                    if (locationText) locationText.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${checkInAddress}`;
+                } catch (locErr) {
+                    const fallbackMsg = `Location access was denied on this device.\n\nYou can still check in now and continue, then allow location later in browser settings.`;
+                    const continueWithoutLocation = await window.appConfirm(fallbackMsg, 'Location Permission Needed');
+                    if (!continueWithoutLocation) {
+                        throw new Error('Check-in cancelled because location permission was denied.');
+                    }
+                    checkInAddress = 'Location unavailable (permission denied)';
+                    if (locationText) locationText.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${checkInAddress}`;
+                }
 
-                if (locationText) locationText.innerHTML = `<i class="fa-solid fa-location-dot"></i> Lat: ${pos.lat.toFixed(4)}, Lng: ${pos.lng.toFixed(4)}`;
-
-                const address = `Lat: ${pos.lat.toFixed(4)}, Lng: ${pos.lng.toFixed(4)}`;
-                await window.AppAttendance.checkIn(pos.lat, pos.lng, address);
+                await window.AppAttendance.checkIn(checkInLat, checkInLng, checkInAddress);
                 contentArea.innerHTML = await window.AppUI.renderDashboard();
                 setupDashboardEvents();
                 // Check if a reminder popup is needed
