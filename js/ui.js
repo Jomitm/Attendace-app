@@ -3832,13 +3832,16 @@
                                         </div>
                                         <div id="minutes-attendee-chips" class="minutes-attendee-chips"></div>
                                         <div class="minutes-attendee-list">
-                                            ${allUsers.map(u => `
-                                                <label class="minutes-attendee-item" data-name="${u.name.toLowerCase()}">
-                                                    <input type="checkbox" value="${u.id}" onchange="window.app_toggleAttendeePick(this, '${u.name.replace(/'/g, "\\'")}')">
-                                                    <span class="minutes-attendee-name">${u.name}</span>
+                                            ${allUsers.map(u => {
+                    const displayName = String(u.name || u.username || 'Unknown');
+                    return `
+                                                <label class="minutes-attendee-item" data-name="${displayName.toLowerCase()}">
+                                                    <input type="checkbox" value="${u.id}" onchange="window.app_toggleAttendeePick(this, '${displayName.replace(/'/g, "\\'")}')">
+                                                    <span class="minutes-attendee-name">${displayName}</span>
                                                     <span class="minutes-attendee-role">${u.role || 'Staff'}</span>
                                                 </label>
-                                            `).join('')}
+                                            `;
+                }).join('')}
                                         </div>
                                     </div>
                                     <p class="minutes-help">Select staff who must approve these minutes.</p>

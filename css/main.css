@@ -3041,11 +3041,25 @@ textarea:focus {
 .staff-message-body {
     font-size: 0.85rem;
     color: #0f172a;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    line-height: 1.45;
+}
+
+.staff-message-body a {
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .staff-message-link a {
+    display: inline-block;
+    max-width: 100%;
     font-size: 0.75rem;
     color: #2563eb;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .staff-message-empty {
