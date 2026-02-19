@@ -2272,6 +2272,12 @@
             });
 
             const totalHoursFormatted = `${Math.floor(totalMins / 60)}h ${Math.round(totalMins % 60)}m`;
+            const displayLogType = (rawType) => {
+                const type = String(rawType || '').trim();
+                if (!type) return 'Present';
+                if (type === 'Manual/WFH' || type === 'Work - Home') return 'Manual';
+                return type;
+            };
 
             // Helper for updating descriptions
             window.app_editWorkSummary = async (logId) => {
@@ -2311,7 +2317,7 @@
                         <div class="timesheet-day-detail-item">
                             <div class="timesheet-day-detail-head">
                                 <span>${esc(l.checkIn || '--')} - ${esc(l.checkOut || '--')}</span>
-                                <span class="timesheet-day-status-chip">${esc(l.type || 'Present')}</span>
+                                <span class="timesheet-day-status-chip">${esc(displayLogType(l.type))}</span>
                             </div>
                             <div class="timesheet-day-detail-text">${esc(l.workDescription || l.location || 'No summary')}</div>
                             ${l.id && l.id !== 'active_now' ? `<button type="button" class="action-btn secondary" onclick="window.app_editWorkSummary('${l.id}')">Edit</button>` : ''}
@@ -2362,7 +2368,7 @@
                         ? (dayLog.type === 'Late' ? 'late' : 'present')
                         : 'none';
                     const attendanceText = dayLog
-                        ? (dayLog.type || 'Present')
+                        ? displayLogType(dayLog.type)
                         : 'No log';
                     const logSummaries = dayLogs
                         .map(l => (l.workDescription || l.location || '').trim())
@@ -2471,7 +2477,7 @@
                                         </td>
                                         <td data-label="Status">
                                             <div class="timesheet-status-col">
-                                                <span class="badge" style="background:${log.type === 'Late' ? '#fff1f2' : '#f0fdf4'}; color:${log.type === 'Late' ? '#be123c' : '#15803d'}; border:1px solid ${log.type === 'Late' ? '#fecaca' : '#dcfce7'};">${log.type || 'Present'}</span>
+                                                <span class="badge" style="background:${log.type === 'Late' ? '#fff1f2' : '#f0fdf4'}; color:${log.type === 'Late' ? '#be123c' : '#15803d'}; border:1px solid ${log.type === 'Late' ? '#fecaca' : '#dcfce7'};">${displayLogType(log.type)}</span>
                                                 <div class="timesheet-duration">${log.duration || '--'}</div>
                                             </div>
                                         </td>

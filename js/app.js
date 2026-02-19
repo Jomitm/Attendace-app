@@ -2200,7 +2200,7 @@
             duration: dur,
             location: formData.get('location'),
             workDescription: formData.get('location'), // Save description here too
-            type: 'Manual/WFH'
+            type: 'Manual'
         };
         await window.AppAttendance.addManualLog(logData);
         alert('Log added successfully!');
