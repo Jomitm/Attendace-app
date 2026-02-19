@@ -321,11 +321,16 @@
     };
 
     const renderNotificationPanel = (notifications, history) => {
+        const currentUser = window.AppAuth.getUser();
+        const isAdmin = currentUser && (currentUser.isAdmin || currentUser.role === 'Administrator');
         const items = [
             ...(notifications || []).map((n, notifIndex) => ({
                 id: n.id,
                 notifIndex,
                 source: 'live',
+                type: n.type,
+                minuteId: n.minuteId || '',
+                requesterId: n.taggedById || n.requesterId || '',
                 name: n.taggedByName || 'System',
                 summary: n.message || (n.type === 'task' ? 'sent you a task' : 'sent you a reminder'),
                 snippet: n.title || n.description || '',
@@ -359,6 +364,12 @@
                                     <button class="dashboard-notif-close" title="Dismiss" onclick="document.dispatchEvent(new CustomEvent('dismiss-notification', { detail: ${n.notifIndex} }))">
                                         <i class="fa-solid fa-xmark"></i>
                                     </button>
+                                ` : ''}
+                                ${isAdmin && n.source === 'live' && n.type === 'minute-access-request' ? `
+                                    <div style="display:flex; gap:0.4rem; justify-content:flex-end; margin-bottom:0.3rem;">
+                                        <button type="button" onclick="window.app_reviewMinuteAccessFromNotification(${n.notifIndex}, '${n.id}', 'approved')" style="background:#10b981; color:#fff; border:none; border-radius:6px; padding:0.28rem 0.55rem; font-size:0.72rem; cursor:pointer;">Approve</button>
+                                        <button type="button" onclick="window.app_reviewMinuteAccessFromNotification(${n.notifIndex}, '${n.id}', 'rejected')" style="background:#ef4444; color:#fff; border:none; border-radius:6px; padding:0.28rem 0.55rem; font-size:0.72rem; cursor:pointer;">Reject</button>
+                                    </div>
                                 ` : ''}
                                 <div class="dashboard-notif-snippet">${n.snippet || '--'}</div>
                                 <div class="dashboard-notif-time">${timeAgo(n.time)}</div>
@@ -3283,22 +3294,35 @@
             const allUsers = await window.AppDB.getAll('users');
             const currentUser = window.AppAuth.getUser();
 
-            // Filters based on user visibility
-            const visibleMinutes = minutes.filter(m => {
-                if (currentUser.isAdmin || currentUser.role === 'Administrator') return true;
-                if (!m.restrictedFrom) return true;
-                return !m.restrictedFrom.includes(currentUser.id);
-            }).sort((a, b) => new Date(b.date) - new Date(a.date));
+            const isAdminUser = currentUser.isAdmin || currentUser.role === 'Administrator';
+            const hasMinuteDetailAccess = (minute, user = currentUser) => {
+                if (!minute || !user) return false;
+                if (user.isAdmin || user.role === 'Administrator') return true;
+                if ((minute.restrictedFrom || []).includes(user.id)) return false;
+                if (minute.createdBy === user.id) return true;
+                if ((minute.attendeeIds || []).includes(user.id)) return true;
+                if ((minute.allowedViewers || []).includes(user.id)) return true;
+                return false;
+            };
+            const getMinuteRequestStatus = (minute, userId = currentUser.id) => {
+                const req = (minute.accessRequests || []).find(r => r.userId === userId);
+                return req ? req.status : '';
+            };
+            const visibleMinutes = (minutes || []).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
 
             // Setup Global Handlers for Minutes
             window.app_openMinuteDetails = async (id) => {
                 const minute = await (window.AppDB ? window.AppDB.get('minutes', id) : window.AppFirestore.collection('minutes').doc(id).get().then(d => d.data()));
                 if (!minute) return alert("Minute not found");
+                if (!hasMinuteDetailAccess(minute, currentUser)) {
+                    return alert("You can view subject and attendees. Request admin access to open full minutes.");
+                }
 
                 const isAttendee = (minute.attendeeIds || []).includes(currentUser.id);
                 const isAuthor = minute.createdBy === currentUser.id;
                 const isAdmin = currentUser.isAdmin || currentUser.role === 'Administrator';
                 const canEdit = (isAttendee || isAuthor || isAdmin) && !minute.locked;
+                const pendingAccessRequests = (minute.accessRequests || []).filter(r => r.status === 'pending');
 
                 const modal = document.createElement('div');
                 modal.id = 'minute-detail-modal';
@@ -3310,6 +3334,7 @@
                             <div>
                                 <h2 style="margin: 0; font-size: 1.25rem;">${minute.title}</h2>
                                 <p style="margin: 4px 0 0; font-size: 0.85rem; color: #64748b;">${new Date(minute.date).toLocaleDateString()} • Recorded by ${minute.createdByName}</p>
+                                <p style="margin: 4px 0 0; font-size: 0.8rem; color: #475569;">Attendees: ${(minute.attendeeIds || []).map(uid => allUsers.find(u => u.id === uid)?.name || 'Unknown').join(', ') || 'None'}</p>
                             </div>
                             <div style="display: flex; gap: 0.75rem; align-items: center;">
                                 ${minute.locked ? '<span class="badge in" style="background:#f0fdf4; color:#166534; border:1px solid #dcfce7; padding: 4px 12px;"><i class="fa-solid fa-lock"></i> LOCKED</span>' : ''}
@@ -3418,19 +3443,19 @@
                                     </div>
                                 </div>
 
-                                <!-- Visibility Restriction (Admin Only) -->
                                 ${isAdmin ? `
                                     <div style="padding: 1.5rem; background: #fffbeb; border-top: 1px solid #fef3c7;">
-                                        <label style="display: block; font-size: 0.7rem; font-weight: 700; color: #92400e; text-transform: uppercase; margin-bottom: 0.5rem;"><i class="fa-solid fa-shield-halved"></i> Visibility Control</label>
-                                        <div style="font-size: 0.75rem; color: #b45309; margin-bottom: 0.5rem;">Restrict staff from viewing this meeting:</div>
-                                        <div id="restricted-users-list" style="max-height: 120px; overflow-y: auto; background: white; border-radius: 6px; border: 1px solid #fde68a; padding: 0.5rem;">
-                                            ${allUsers.filter(u => u.role !== 'Administrator').map(u => `
-                                                <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; cursor: pointer; font-size: 0.8rem;">
-                                                    <input type="checkbox" value="${u.id}" ${minute.restrictedFrom?.includes(u.id) ? 'checked' : ''} onchange="window.app_toggleMinuteVisibility('${id}', '${u.id}', this.checked)">
-                                                    ${u.name}
-                                                </label>
-                                            `).join('')}
-                                        </div>
+                                        <label style="display: block; font-size: 0.7rem; font-weight: 700; color: #92400e; text-transform: uppercase; margin-bottom: 0.5rem;"><i class="fa-solid fa-user-check"></i> Access Requests</label>
+                                        ${pendingAccessRequests.length > 0 ? pendingAccessRequests.map(req => `
+                                            <div style="background:#fff; border:1px solid #fde68a; border-radius:8px; padding:0.6rem; margin-bottom:0.55rem;">
+                                                <div style="font-size:0.8rem; font-weight:700; color:#1f2937;">${req.userName || req.userId}</div>
+                                                <div style="font-size:0.7rem; color:#6b7280; margin-bottom:0.45rem;">Requested: ${new Date(req.requestedAt).toLocaleString()}</div>
+                                                <div style="display:flex; gap:0.45rem;">
+                                                    <button type="button" onclick="window.app_reviewMinuteAccess('${id}','${req.userId}','approved')" style="background:#10b981; color:#fff; border:none; border-radius:6px; padding:0.3rem 0.55rem; font-size:0.72rem; cursor:pointer;">Approve</button>
+                                                    <button type="button" onclick="window.app_reviewMinuteAccess('${id}','${req.userId}','rejected')" style="background:#ef4444; color:#fff; border:none; border-radius:6px; padding:0.3rem 0.55rem; font-size:0.72rem; cursor:pointer;">Reject</button>
+                                                </div>
+                                            </div>
+                                        `).join('') : '<div style="font-size:0.8rem; color:#9a3412;">No pending requests.</div>'}
                                     </div>
                                 ` : ''}
                             </div>
@@ -3503,6 +3528,119 @@
                     } catch (err) {
                         alert(err.message);
                     }
+                }
+            };
+
+            window.app_requestMinuteAccess = async (id) => {
+                try {
+                    const minute = await (window.AppDB ? window.AppDB.get('minutes', id) : window.AppFirestore.collection('minutes').doc(id).get().then(d => d.data()));
+                    if (!minute) throw new Error('Meeting minute not found');
+                    if (hasMinuteDetailAccess(minute, currentUser)) {
+                        alert('You already have access to full minutes.');
+                        return;
+                    }
+
+                    const now = new Date().toISOString();
+                    const accessRequests = Array.isArray(minute.accessRequests) ? minute.accessRequests.slice() : [];
+                    const existingIndex = accessRequests.findIndex(r => r.userId === currentUser.id);
+                    if (existingIndex >= 0 && accessRequests[existingIndex].status === 'pending') {
+                        alert('Your request is already pending admin review.');
+                        return;
+                    }
+
+                    const nextRequest = {
+                        userId: currentUser.id,
+                        userName: currentUser.name,
+                        requestedAt: now,
+                        status: 'pending',
+                        reviewedAt: '',
+                        reviewedBy: ''
+                    };
+                    if (existingIndex >= 0) accessRequests[existingIndex] = nextRequest;
+                    else accessRequests.push(nextRequest);
+
+                    await window.AppMinutes.updateMinute(id, { accessRequests }, "Access requested by non-attendee");
+
+                    if (window.AppDB) {
+                        const admins = allUsers.filter(u => u.isAdmin || u.role === 'Administrator');
+                        await Promise.all(admins.map(async (admin) => {
+                            const adminUser = await window.AppDB.get('users', admin.id);
+                            if (!adminUser) return;
+                            if (!adminUser.notifications) adminUser.notifications = [];
+                            adminUser.notifications.unshift({
+                                id: Date.now() + Math.random(),
+                                type: 'minute-access-request',
+                                title: 'Minutes Access Request',
+                                message: `${currentUser.name} requested access to "${minute.title}".`,
+                                minuteId: id,
+                                taggedById: currentUser.id,
+                                taggedByName: currentUser.name,
+                                status: 'pending',
+                                taggedAt: now,
+                                date: now
+                            });
+                            await window.AppDB.put('users', adminUser);
+                        }));
+                    }
+
+                    alert('Access request sent to admin.');
+                    window.location.reload();
+                } catch (err) {
+                    alert(err.message);
+                }
+            };
+
+            window.app_reviewMinuteAccess = async (minuteId, requesterId, decision) => {
+                try {
+                    if (!isAdminUser) return alert('Only admin can review requests.');
+                    const minute = await (window.AppDB ? window.AppDB.get('minutes', minuteId) : window.AppFirestore.collection('minutes').doc(minuteId).get().then(d => d.data()));
+                    if (!minute) throw new Error('Meeting minute not found');
+
+                    const accessRequests = Array.isArray(minute.accessRequests) ? minute.accessRequests.slice() : [];
+                    const reqIndex = accessRequests.findIndex(r => r.userId === requesterId);
+                    if (reqIndex < 0) throw new Error('Request not found');
+
+                    accessRequests[reqIndex] = {
+                        ...accessRequests[reqIndex],
+                        status: decision,
+                        reviewedAt: new Date().toISOString(),
+                        reviewedBy: currentUser.name
+                    };
+
+                    let allowedViewers = Array.isArray(minute.allowedViewers) ? minute.allowedViewers.slice() : [];
+                    if (decision === 'approved') {
+                        if (!allowedViewers.includes(requesterId)) allowedViewers.push(requesterId);
+                    } else {
+                        allowedViewers = allowedViewers.filter(uid => uid !== requesterId);
+                    }
+
+                    await window.AppMinutes.updateMinute(minuteId, { accessRequests, allowedViewers }, decision === 'approved' ? 'Admin approved minutes access' : 'Admin rejected minutes access');
+
+                    if (window.AppDB) {
+                        const requester = await window.AppDB.get('users', requesterId);
+                        if (requester) {
+                            if (!requester.notifications) requester.notifications = [];
+                            requester.notifications.unshift({
+                                id: Date.now() + Math.random(),
+                                type: 'minute-access-reviewed',
+                                title: 'Minutes Access Update',
+                                message: `Your request for "${minute.title}" was ${decision}.`,
+                                minuteId,
+                                taggedById: currentUser.id,
+                                taggedByName: currentUser.name,
+                                status: decision,
+                                taggedAt: new Date().toISOString(),
+                                date: new Date().toISOString()
+                            });
+                            await window.AppDB.put('users', requester);
+                        }
+                    }
+
+                    alert(`Request ${decision}.`);
+                    document.getElementById('minute-detail-modal')?.remove();
+                    window.location.reload();
+                } catch (err) {
+                    alert(err.message);
                 }
             };
 
@@ -3741,11 +3879,11 @@
                                     </thead>
                                     <tbody>
                                         ${visibleMinutes.length > 0 ? visibleMinutes.map(m => `
-                                            <tr class="minutes-row" onclick="if(!event.target.closest('button')) window.app_openMinuteDetails('${m.id}')">
+                                            <tr class="minutes-row" onclick="if(!event.target.closest('button') && ${hasMinuteDetailAccess(m) ? 'true' : 'false'}) window.app_openMinuteDetails('${m.id}')">
                                                 <td class="minutes-date-cell">${new Date(m.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</td>
                                                 <td>
                                                     <div class="minutes-title-cell">${m.title}</div>
-                                                    <div class="minutes-meta-cell">Recorded by ${m.createdByName}</div>
+                                                    <div class="minutes-meta-cell">Attendees: ${(m.attendeeIds || []).map(uid => allUsers.find(u => u.id === uid)?.name || 'Unknown').join(', ') || 'None'}</div>
                                                 </td>
                                                 <td style="text-align:center;">
                                                     ${m.locked
@@ -3758,9 +3896,16 @@
                                                             <i class="fa-solid fa-trash-can"></i>
                                                         </button>
                                                     ` : ''}
-                                                    <button class="icon-btn minutes-open-btn" title="Open Details">
-                                                        <i class="fa-solid fa-chevron-right"></i>
-                                                    </button>
+                                                    ${hasMinuteDetailAccess(m) ? `
+                                                        <button class="icon-btn minutes-open-btn" title="Open Details">
+                                                            <i class="fa-solid fa-chevron-right"></i>
+                                                        </button>
+                                                    ` : `
+                                                        ${getMinuteRequestStatus(m) ? `<span style="display:inline-block; padding:2px 8px; border-radius:999px; font-size:0.7rem; font-weight:700; margin-right:6px; ${getMinuteRequestStatus(m) === 'approved' ? 'background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;' : getMinuteRequestStatus(m) === 'rejected' ? 'background:#fef2f2;color:#991b1b;border:1px solid #fecaca;' : 'background:#fffbeb;color:#92400e;border:1px solid #fde68a;'}">${getMinuteRequestStatus(m)}</span>` : ''}
+                                                        <button onclick="event.stopPropagation(); window.app_requestMinuteAccess('${m.id}')" class="icon-btn" title="Request Access" style="width:auto; padding:0 10px; border-radius:8px; border:1px solid #f59e0b; color:#92400e;">
+                                                            Request
+                                                        </button>
+                                                    `}
                                                 </td>
                                             </tr>
                                         `).join('') : `

@@ -2862,6 +2862,111 @@
 
     document.addEventListener('auth-logout', () => window.AppAuth.logout());
 
+    window.app_reviewMinuteAccessFromNotification = async (notifIndex, notifId, decision) => {
+        try {
+            const currentUser = window.AppAuth.getUser();
+            const isAdmin = currentUser && (currentUser.isAdmin || currentUser.role === 'Administrator');
+            if (!isAdmin) {
+                alert('Only admin can review access requests.');
+                return;
+            }
+
+            const adminUser = await window.AppDB.get('users', currentUser.id);
+            if (!adminUser || !Array.isArray(adminUser.notifications)) {
+                alert('Notification not found.');
+                return;
+            }
+
+            let notif = null;
+            if (typeof notifIndex === 'number' && adminUser.notifications[notifIndex]) {
+                notif = adminUser.notifications[notifIndex];
+            }
+            if (!notif && notifId) {
+                notif = adminUser.notifications.find(n => String(n.id) === String(notifId));
+            }
+            if (!notif || notif.type !== 'minute-access-request') {
+                alert('This notification is no longer available.');
+                return;
+            }
+
+            const minuteId = notif.minuteId;
+            const requesterId = notif.taggedById || notif.requesterId;
+            if (!minuteId || !requesterId) {
+                alert('Invalid access request payload.');
+                return;
+            }
+
+            const minute = await window.AppDB.get('minutes', minuteId);
+            if (!minute) {
+                alert('Minute not found.');
+                return;
+            }
+
+            const accessRequests = Array.isArray(minute.accessRequests) ? minute.accessRequests.slice() : [];
+            const existingIndex = accessRequests.findIndex(r => r.userId === requesterId);
+            if (existingIndex < 0) {
+                accessRequests.push({
+                    userId: requesterId,
+                    userName: notif.taggedByName || 'Staff',
+                    requestedAt: notif.taggedAt || notif.date || new Date().toISOString(),
+                    status: 'pending',
+                    reviewedAt: '',
+                    reviewedBy: ''
+                });
+            }
+
+            const reqIndex = accessRequests.findIndex(r => r.userId === requesterId);
+            accessRequests[reqIndex] = {
+                ...accessRequests[reqIndex],
+                status: decision,
+                reviewedAt: new Date().toISOString(),
+                reviewedBy: currentUser.name
+            };
+
+            let allowedViewers = Array.isArray(minute.allowedViewers) ? minute.allowedViewers.slice() : [];
+            if (decision === 'approved') {
+                if (!allowedViewers.includes(requesterId)) allowedViewers.push(requesterId);
+            } else {
+                allowedViewers = allowedViewers.filter(uid => uid !== requesterId);
+            }
+
+            await window.AppMinutes.updateMinute(
+                minuteId,
+                { accessRequests, allowedViewers },
+                decision === 'approved' ? 'Admin approved minutes access from notification' : 'Admin rejected minutes access from notification'
+            );
+
+            const requester = await window.AppDB.get('users', requesterId);
+            if (requester) {
+                if (!requester.notifications) requester.notifications = [];
+                requester.notifications.unshift({
+                    id: Date.now() + Math.random(),
+                    type: 'minute-access-reviewed',
+                    title: 'Minutes Access Update',
+                    message: `Your request for "${minute.title}" was ${decision}.`,
+                    minuteId,
+                    taggedById: currentUser.id,
+                    taggedByName: currentUser.name,
+                    status: decision,
+                    taggedAt: new Date().toISOString(),
+                    date: new Date().toISOString()
+                });
+                await window.AppDB.put('users', requester);
+            }
+
+            const removeIndex = adminUser.notifications.findIndex(n => String(n.id) === String(notif.id));
+            if (removeIndex >= 0) {
+                adminUser.notifications.splice(removeIndex, 1);
+                await window.AppAuth.updateUser(adminUser);
+            }
+
+            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            if (window.setupDashboardEvents) window.setupDashboardEvents();
+        } catch (err) {
+            alert('Failed to review access request: ' + err.message);
+        }
+    };
+
     document.addEventListener('dismiss-notification', async (e) => {
         const index = e.detail;
         const user = window.AppAuth.getUser();

@@ -41,7 +41,9 @@ window.AppMinutes = (function () {
                 }],
                 approvals: {}, // userId: timestamp
                 locked: false,
-                restrictedFrom: [] // List of user IDs who cannot see this
+                restrictedFrom: [], // Legacy visibility restrictions
+                allowedViewers: [], // Non-attendees approved by admin for detailed view
+                accessRequests: [] // Access requests from non-attendees
             };
 
             if (window.AppDB) {
