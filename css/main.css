@@ -904,6 +904,32 @@ td {
     gap: 0.4rem;
 }
 
+.timesheet-view-mode-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    border: 1px solid #d6def5;
+    border-radius: 10px;
+    background: #fff;
+    padding: 0.3rem 0.45rem;
+}
+
+.timesheet-view-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #64748b;
+}
+
+.timesheet-view-select {
+    border: none;
+    background: transparent;
+    color: #1f2937;
+    font-weight: 700;
+    font-size: 0.8rem;
+    outline: none;
+    cursor: pointer;
+}
+
 .timesheet-month-switch {
     display: inline-flex;
     align-items: center;

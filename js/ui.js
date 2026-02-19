@@ -2242,12 +2242,17 @@
                 window.app_timesheetViewMode = selectedMode;
                 const listPanel = document.getElementById('timesheet-list-panel');
                 const calendarPanel = document.getElementById('timesheet-calendar-panel');
+                const viewSelect = document.getElementById('timesheet-view-select');
                 if (listPanel) listPanel.style.display = selectedMode === 'list' ? 'block' : 'none';
                 if (calendarPanel) calendarPanel.style.display = selectedMode === 'calendar' ? 'block' : 'none';
+                if (viewSelect) viewSelect.value = selectedMode;
                 const wrap = btn && btn.closest ? btn.closest('.timesheet-view-toggle') : null;
                 const buttons = wrap ? wrap.querySelectorAll('.annual-toggle-btn') : [];
                 buttons.forEach(b => b.classList.remove('active'));
                 if (btn && btn.classList) btn.classList.add('active');
+            };
+            window.app_toggleTimesheetViewSelect = (mode) => {
+                window.app_switchTimesheetPanel(mode, null);
             };
 
             const renderCalendar = () => {
@@ -2326,9 +2331,12 @@
                     </div>
 
                     <div class="timesheet-modern-toolbar">
-                        <div class="timesheet-view-toggle">
-                            <button class="annual-toggle-btn ${viewMode === 'list' ? 'active' : ''}" onclick="window.app_switchTimesheetPanel('list', this)"><i class="fa-solid fa-list"></i> List View</button>
-                            <button class="annual-toggle-btn ${viewMode === 'calendar' ? 'active' : ''}" onclick="window.app_switchTimesheetPanel('calendar', this)"><i class="fa-solid fa-calendar-days"></i> Calendar View</button>
+                        <div class="timesheet-view-mode-wrap">
+                            <label for="timesheet-view-select" class="timesheet-view-label">View</label>
+                            <select id="timesheet-view-select" class="timesheet-view-select" onchange="window.app_toggleTimesheetViewSelect(this.value)">
+                                <option value="list" ${viewMode === 'list' ? 'selected' : ''}>List View</option>
+                                <option value="calendar" ${viewMode === 'calendar' ? 'selected' : ''}>Calendar View</option>
+                            </select>
                         </div>
                         <div class="timesheet-month-switch">
                             <button type="button" onclick="window.app_changeTimesheetMonth(-1)"><i class="fa-solid fa-chevron-left"></i></button>
