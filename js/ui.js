@@ -1795,6 +1795,18 @@
                 if (!staffNeedle) return true;
                 return String(name || '').toLowerCase().includes(staffNeedle);
             };
+            const getTaskRangeBounds = (task, planDate) => {
+                const startDate = task?.startDate || planDate;
+                const endDate = task?.endDate || task?.startDate || planDate;
+                return { startDate, endDate };
+            };
+            const taskAppliesOnDate = (task, planDate, dateStr) => {
+                const { startDate, endDate } = getTaskRangeBounds(task, planDate);
+                if (!startDate || !endDate) return planDate === dateStr;
+                if (dateStr < startDate || dateStr > endDate) return false;
+                if (task?.completedDate && task.completedDate < dateStr) return false;
+                return true;
+            };
             const filteredWorkPlans = (plans.workPlans || []).filter(p => {
                 const isAnnualPlan = (p.planScope || 'personal') === 'annual';
                 if (isAnnualPlan) return true;
@@ -1822,14 +1834,25 @@
                 const hasLeave = filteredLeaves.some(l => dateStr >= l.startDate && dateStr <= l.endDate);
                 const hasEvent = !staffNeedle && (plans.events || []).some(e => e.date === dateStr);
                 const hasLogWork = filteredAttendanceLogs.some(l => l.date === dateStr);
-                const hasWork = filteredWorkPlans.some(p => p.date === dateStr) || hasLogWork;
+                const hasWork = filteredWorkPlans.some(p => {
+                    if (!Array.isArray(p.plans) || !p.plans.length) return p.date === dateStr;
+                    return p.plans.some(task => taskAppliesOnDate(task, p.date, dateStr));
+                }) || hasLogWork;
                 let workStatus = '';
+                let hasRangeEnd = false;
                 if (hasWork) {
-                    const daily = filteredWorkPlans.filter(p => p.date === dateStr);
+                    const daily = filteredWorkPlans.filter(p => {
+                        if (!Array.isArray(p.plans) || !p.plans.length) return p.date === dateStr;
+                        return p.plans.some(task => taskAppliesOnDate(task, p.date, dateStr));
+                    });
                     let worst = 'to-be-started';
                     daily.forEach(p => {
                         (p.plans || []).forEach(task => {
-                            const s = window.AppCalendar.getSmartTaskStatus(dateStr, task.status);
+                            if (!taskAppliesOnDate(task, p.date, dateStr)) return;
+                            const { endDate } = getTaskRangeBounds(task, p.date);
+                            if (endDate === dateStr) hasRangeEnd = true;
+                            const statusDate = task.completedDate || endDate || p.date || dateStr;
+                            const s = window.AppCalendar.getSmartTaskStatus(statusDate, task.status);
                             if (s === 'overdue') worst = 'overdue';
                             else if (s === 'in-process' && worst !== 'overdue') worst = 'in-process';
                             else if (s === 'completed' && worst !== 'overdue' && worst !== 'in-process') worst = 'completed';
@@ -1838,7 +1861,7 @@
                     if (hasLogWork && worst === 'to-be-started') worst = 'completed';
                     workStatus = worst;
                 }
-                return { hasLeave, hasEvent, hasWork, workStatus };
+                return { hasLeave, hasEvent, hasWork, workStatus, hasRangeEnd };
             };
 
             let monthsHTML = '';
@@ -1869,6 +1892,7 @@
                                 ${showLeave ? '<span class="status-dot dot-leave"></span>' : ''}
                                 ${showEvent ? '<span class="status-dot dot-event"></span>' : ''}
                                 ${showWorkByStatus ? '<span class="status-dot dot-work"></span>' : ''}
+                                ${markers.hasRangeEnd ? '<span class="status-dot" title="Task ends today" style="background:#f97316;"></span>' : ''}
                             </div>
                         </div>`;
                 }
@@ -2046,21 +2070,27 @@
                                 const assignedToId = task.assignedTo || p.userId;
                                 const assignedTo = isAnnualPlan ? 'All Staff' : resolveName(assignedToId, planOwner);
                                 const tags = (task.tags || []).map(t => t.name || t).filter(Boolean);
-                                const status = normalizeStatus(planDate, task.status);
+                                const { startDate, endDate } = getTaskRangeBounds(task, planDate);
+                                const statusDate = task.completedDate || endDate || planDate;
+                                const status = normalizeStatus(statusDate, task.status);
+                                const endedEarly = !!(task.completedDate && endDate && task.completedDate < endDate);
+                                const rangeNote = (startDate && endDate && startDate !== endDate)
+                                    ? `Range: ${startDate} to ${endDate}${endedEarly ? ` | Completed Early: ${task.completedDate}` : ''}`
+                                    : '';
                                 const comments = (task.subPlans && task.subPlans.length)
                                     ? task.subPlans.join('; ')
                                     : (task.comment || task.notes || '');
                                 pushItem({
-                                    date: planDate,
+                                    date: startDate || planDate,
                                     type: 'work',
                                     title: task.task || 'Work Plan Task',
                                     staffName: assignedTo,
                                     assignedBy,
                                     assignedTo,
                                     selfAssigned: assignedBy === assignedTo,
-                                    dueDate: task.dueDate || planDate,
+                                    dueDate: task.dueDate || endDate || planDate,
                                     status,
-                                    comments,
+                                    comments: [rangeNote, comments].filter(Boolean).join(' | '),
                                     tags,
                                     scope: scopeLabel
                                 });

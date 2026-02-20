@@ -817,15 +817,26 @@
 
     // --- Work Plan Logic ---
 
+    const app_getTaskRangeBounds = (task, planDate) => {
+        const startDate = task?.startDate || planDate;
+        const endDate = task?.endDate || task?.startDate || planDate;
+        return { startDate, endDate };
+    };
+
+    const app_taskAppliesOnDate = (task, planDate, dateStr) => {
+        const { startDate, endDate } = app_getTaskRangeBounds(task, planDate);
+        if (!startDate || !endDate) return planDate === dateStr;
+        if (dateStr < startDate || dateStr > endDate) return false;
+        if (task?.completedDate && task.completedDate < dateStr) return false;
+        return true;
+    };
+
     window.app_getDayEvents = (dateStr, plans, opts = {}) => {
         const includeAuto = opts.includeAuto !== false;
         const dedupe = opts.dedupe !== false;
         if (!plans) return [];
         if (Array.isArray(plans)) return plans.filter(p => p.date === dateStr);
         const dateObj = new Date(dateStr);
-        const year = dateObj.getFullYear();
-        const month = dateObj.getMonth();
-        const d = dateObj.getDate();
 
         const evs = [];
 
@@ -848,16 +859,20 @@
             if (e.date === dateStr) evs.push({ title: e.title, type: e.type || 'event', date: dateStr });
         });
         (plans.workPlans || []).forEach(p => {
-            if (p.date === dateStr) {
+            if (p.date <= dateStr) {
                 const isAnnualPlan = (p.planScope || 'personal') === 'annual';
                 const titlePrefix = isAnnualPlan ? 'All Staff (Annual)' : (p.userName || 'Staff');
                 let title = '';
                 if (p.plans && p.plans.length > 0) {
-                    title = `${titlePrefix}: ${p.plans.map(pl => pl.task).join('; ')}`;
+                    const activeTasks = p.plans.filter(task => app_taskAppliesOnDate(task, p.date, dateStr));
+                    if (!activeTasks.length) return;
+                    title = `${titlePrefix}: ${activeTasks.map(pl => pl.task).join('; ')}`;
+                    evs.push({ title: title, type: 'work', userId: p.userId, plans: activeTasks, date: dateStr, planScope: p.planScope || 'personal' });
                 } else {
+                    if (p.date !== dateStr) return;
                     title = `${titlePrefix}: ${p.plan || 'Work Plan'}`;
+                    evs.push({ title: title, type: 'work', userId: p.userId, plans: p.plans, date: dateStr, planScope: p.planScope || 'personal' });
                 }
-                evs.push({ title: title, type: 'work', userId: p.userId, plans: p.plans, date: dateStr, planScope: p.planScope || 'personal' });
             }
         });
         if (!dedupe) return evs;
@@ -893,13 +908,22 @@
             const subPlans = Array.isArray(plan.subPlans) ? plan.subPlans : [];
             const tags = Array.isArray(plan.tags) ? plan.tags : [];
             const assignedTo = plan.assignedTo || targetId;
+            const startDate = plan.startDate || '';
+            const endDate = plan.endDate || '';
 
             return `
                 <div class="plan-block day-plan-block-shell" data-index="${idx}">
                     <div class="day-plan-block-body">
                         ${idx > 0 ? `<button type="button" onclick="this.closest('.plan-block').remove()" title="Remove this task" class="day-plan-remove-task-btn"><i class="fa-solid fa-times"></i></button>` : ''}
                         <div class="day-plan-left-panel day-plan-main-panel">
-                            <label class="day-plan-label">What will you work on?</label>
+                            <div style="display:flex; gap:0.6rem; align-items:center; justify-content:space-between; flex-wrap:wrap;">
+                                <label class="day-plan-label" style="margin:0;">What will you work on?</label>
+                                <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; justify-content:flex-end;">
+                                    <input type="date" class="plan-start-date day-plan-select" value="${startDate}" title="From Date">
+                                    <input type="date" class="plan-end-date day-plan-select" value="${endDate}" title="To Date">
+                                    <span style="font-size:0.7rem; color:#64748b; font-weight:600;">Optional: use for multi-day task</span>
+                                </div>
+                            </div>
                             <p class="day-plan-help-text">Be specific. Use @ to tag collaborators.</p>
                             <textarea class="plan-task day-plan-task-input" required placeholder="Describe your plan for the day...">${task}</textarea>
                             <div class="day-plan-collab-inline">
@@ -936,6 +960,7 @@
                                 </div>
                                 <button type="button" onclick="window.app_addSubPlanRow(this)" class="day-plan-add-step-btn"><i class="fa-solid fa-plus"></i> Add Step</button>
                             </div>
+                            ${plan.completedDate ? `<div style="margin-top:0.35rem; font-size:0.72rem; color:#166534;">Completed on ${plan.completedDate}</div>` : ''}
                         </div>
                     </div>
                     <div class="day-plan-bottom-controls">
@@ -964,8 +989,8 @@
         const initialBlocks = (myWorkPlan && Array.isArray(myWorkPlan.plans) && myWorkPlan.plans.length > 0)
             ? myWorkPlan.plans
             : (myWorkPlan && myWorkPlan.plan)
-                ? [{ task: myWorkPlan.plan, subPlans: myWorkPlan.subPlans || [], tags: [], status: null, assignedTo: targetId }]
-                : [{ task: '', subPlans: [], tags: [], status: null, assignedTo: targetId }];
+                ? [{ task: myWorkPlan.plan, subPlans: myWorkPlan.subPlans || [], tags: [], status: null, assignedTo: targetId, startDate: date, endDate: date }]
+                : [{ task: '', subPlans: [], tags: [], status: null, assignedTo: targetId, startDate: date, endDate: date }];
 
         const targetUser = allUsers.find(u => u.id === targetId);
         const headerName = targetUser ? targetUser.name : 'Staff';
@@ -1022,14 +1047,31 @@
     window.app_getAnnualDayStaffPlans = (dateStr) => {
         const plans = window._currentPlans || {};
         const userMap = window._annualUserMap || {};
-        const workPlans = (plans.workPlans || []).filter(p => p.date === dateStr);
+        const workPlans = (plans.workPlans || []).filter(p => p.date <= dateStr);
         return workPlans.map(p => {
             const ownerName = userMap[p.userId] || p.userName || 'Staff';
             const tasks = (p.plans && p.plans.length)
-                ? p.plans.map(t => t.task || 'Planned task').filter(Boolean)
-                : [p.plan || 'Planned task'];
+                ? p.plans
+                    .filter(t => app_taskAppliesOnDate(t, p.date, dateStr))
+                    .map(t => {
+                        const { startDate, endDate } = app_getTaskRangeBounds(t, p.date);
+                        const isEndDate = endDate === dateStr;
+                        const isStartDate = startDate === dateStr;
+                        const endedEarly = t.completedDate && t.completedDate < endDate;
+                        const suffix = endedEarly && t.completedDate === dateStr
+                            ? ` (Completed Early)`
+                            : isEndDate
+                                ? ` (Ends Today)`
+                                : isStartDate
+                                    ? ` (Starts Today)`
+                                    : '';
+                        return `${t.task || 'Planned task'}${suffix}`;
+                    })
+                    .filter(Boolean)
+                : (p.date === dateStr ? [p.plan || 'Planned task'] : []);
+            if (!tasks.length) return null;
             return { name: ownerName, tasks };
-        });
+        }).filter(Boolean);
     };
 
     window.app_showAnnualHoverPreview = (event, dateStr) => {
@@ -1096,7 +1138,14 @@
             <div class="day-plan-block-body">
                 <button type="button" onclick="this.closest('.plan-block').remove()" title="Remove this task" class="day-plan-remove-task-btn"><i class="fa-solid fa-times"></i></button>
                 <div class="day-plan-left-panel day-plan-main-panel">
-                    <label class="day-plan-label">What will you work on?</label>
+                    <div style="display:flex; gap:0.6rem; align-items:center; justify-content:space-between; flex-wrap:wrap;">
+                        <label class="day-plan-label" style="margin:0;">What will you work on?</label>
+                        <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; justify-content:flex-end;">
+                            <input type="date" class="plan-start-date day-plan-select" title="From Date">
+                            <input type="date" class="plan-end-date day-plan-select" title="To Date">
+                            <span style="font-size:0.7rem; color:#64748b; font-weight:600;">Optional: use for multi-day task</span>
+                        </div>
+                    </div>
                     <p class="day-plan-help-text">Be specific. Use @ to tag collaborators.</p>
                     <textarea class="plan-task day-plan-task-input" required placeholder="Describe your plan for the day..."></textarea>
                     <div class="day-plan-collab-inline">
@@ -1140,6 +1189,12 @@
             </div>
         `;
         container.appendChild(newBlock);
+        const fromInput = newBlock.querySelector('.plan-start-date');
+        const toInput = newBlock.querySelector('.plan-end-date');
+        const dateMatch = document.querySelector('#day-plan-modal .day-plan-head p')?.textContent?.match(/\d{4}-\d{2}-\d{2}/);
+        const defaultDate = dateMatch ? dateMatch[0] : '';
+        if (fromInput) fromInput.value = defaultDate;
+        if (toInput) toInput.value = defaultDate;
         const ta = newBlock.querySelector('.plan-task');
         if (ta) ta.focus();
     };
@@ -1353,6 +1408,7 @@
 
         const planBlocks = document.querySelectorAll('.plan-block');
         const plans = [];
+        let validationError = '';
 
         planBlocks.forEach(block => {
             const task = block.querySelector('.plan-task').value.trim();
@@ -1367,21 +1423,41 @@
             const status = block.querySelector('.plan-status').value;
             const assigneeSelect = block.querySelector('.plan-assignee');
             const assignedTo = assigneeSelect ? assigneeSelect.value : targetId;
+            const startDateInput = block.querySelector('.plan-start-date');
+            const endDateInput = block.querySelector('.plan-end-date');
+            const startDate = startDateInput ? String(startDateInput.value || '').trim() : '';
+            const endDate = endDateInput ? String(endDateInput.value || '').trim() : '';
 
             if (task) {
+                if ((startDate && !endDate) || (!startDate && endDate)) {
+                    validationError = 'Please select both From Date and To Date for ranged tasks.';
+                    return;
+                }
+                if (startDate && endDate && endDate < startDate) {
+                    validationError = 'To Date cannot be earlier than From Date.';
+                    return;
+                }
+                const taskStartDate = startDate || date;
+                const taskEndDate = endDate || date;
                 plans.push({
                     task,
                     subPlans,
                     tags,
                     status: status || null,
                     assignedTo: assignedTo || null,
+                    startDate: taskStartDate,
+                    endDate: taskEndDate,
                     completedDate: status === 'completed' ? new Date().toISOString().split('T')[0] : null
                 });
             }
         });
 
         if (plans.length === 0) {
-            alert("Please add at least one task.");
+            alert(validationError || "Please add at least one task.");
+            return;
+        }
+        if (validationError) {
+            alert(validationError);
             return;
         }
 
