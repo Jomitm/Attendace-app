@@ -817,14 +817,64 @@
 
     // --- Work Plan Logic ---
 
-    const app_getTaskRangeBounds = (task, planDate) => {
-        const startDate = task?.startDate || planDate;
-        const endDate = task?.endDate || task?.startDate || planDate;
+    const app_isIsoDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
+    const app_monthIndexMap = {
+        january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+        july: 6, august: 7, september: 8, october: 9, november: 10, december: 11
+    };
+
+    const app_inferRangeFromText = (text = '') => {
+        const raw = String(text || '').trim();
+        if (!raw) return null;
+        const m = raw.match(/(\d{1,2})\s*-\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})/);
+        if (!m) return null;
+        const d1 = Number(m[1]);
+        const d2 = Number(m[2]);
+        const monthName = String(m[3] || '').toLowerCase();
+        const year = Number(m[4]);
+        const mi = app_monthIndexMap[monthName];
+        if (!Number.isInteger(d1) || !Number.isInteger(d2) || !Number.isInteger(mi) || !Number.isInteger(year)) return null;
+        const start = new Date(year, mi, d1);
+        const end = new Date(year, mi, d2);
+        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+        const startDate = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
+        const endDate = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
+        if (endDate < startDate) return null;
         return { startDate, endDate };
     };
 
-    const app_taskAppliesOnDate = (task, planDate, dateStr) => {
-        const { startDate, endDate } = app_getTaskRangeBounds(task, planDate);
+    const app_getTaskRangeBounds = (task, planDate, plansCtx = null) => {
+        const safePlanDate = app_isIsoDate(planDate) ? String(planDate) : null;
+        const rawStart = task?.startDate;
+        const rawEnd = task?.endDate;
+        const inferred = (!app_isIsoDate(rawStart) && !app_isIsoDate(rawEnd))
+            ? app_inferRangeFromText(task?.task || '')
+            : null;
+        let startDate = app_isIsoDate(rawStart) ? String(rawStart) : (inferred?.startDate || safePlanDate);
+        let endDate = app_isIsoDate(rawEnd) ? String(rawEnd) : (inferred?.endDate || startDate || safePlanDate);
+
+        // Backward-compat: tagged copies may not store range; inherit from source plan task.
+        if ((!app_isIsoDate(rawStart) || !app_isIsoDate(rawEnd)) && task?.sourcePlanId && plansCtx?.workPlans) {
+            const sourcePlan = (plansCtx.workPlans || []).find(p => p.id === task.sourcePlanId);
+            const srcIdx = Number.isInteger(task.sourceTaskIndex) ? task.sourceTaskIndex : Number(task.sourceTaskIndex);
+            const sourceTask = sourcePlan && Array.isArray(sourcePlan.plans) && Number.isInteger(srcIdx)
+                ? sourcePlan.plans[srcIdx]
+                : null;
+            if (sourceTask) {
+                const srcStart = app_isIsoDate(sourceTask.startDate) ? sourceTask.startDate : (sourcePlan.date || startDate);
+                const srcEnd = app_isIsoDate(sourceTask.endDate) ? sourceTask.endDate : (sourceTask.startDate || sourcePlan.date || endDate);
+                if (!app_isIsoDate(rawStart)) startDate = srcStart;
+                if (!app_isIsoDate(rawEnd)) endDate = srcEnd;
+            }
+        }
+        if (startDate && endDate && endDate < startDate) {
+            return { startDate, endDate: startDate };
+        }
+        return { startDate, endDate };
+    };
+
+    const app_taskAppliesOnDate = (task, planDate, dateStr, plansCtx = null) => {
+        const { startDate, endDate } = app_getTaskRangeBounds(task, planDate, plansCtx);
         if (!startDate || !endDate) return planDate === dateStr;
         if (dateStr < startDate || dateStr > endDate) return false;
         if (task?.completedDate && task.completedDate < dateStr) return false;
@@ -864,7 +914,7 @@
                 const titlePrefix = isAnnualPlan ? 'All Staff (Annual)' : (p.userName || 'Staff');
                 let title = '';
                 if (p.plans && p.plans.length > 0) {
-                    const activeTasks = p.plans.filter(task => app_taskAppliesOnDate(task, p.date, dateStr));
+                    const activeTasks = p.plans.filter(task => app_taskAppliesOnDate(task, p.date, dateStr, plans));
                     if (!activeTasks.length) return;
                     title = `${titlePrefix}: ${activeTasks.map(pl => pl.task).join('; ')}`;
                     evs.push({ title: title, type: 'work', userId: p.userId, plans: activeTasks, date: dateStr, planScope: p.planScope || 'personal' });
@@ -1048,30 +1098,95 @@
         const plans = window._currentPlans || {};
         const userMap = window._annualUserMap || {};
         const workPlans = (plans.workPlans || []).filter(p => p.date <= dateStr);
-        return workPlans.map(p => {
+        const rows = workPlans.map(p => {
             const ownerName = userMap[p.userId] || p.userName || 'Staff';
+            const ownerTaskMap = new Map();
+            const normalizeTopicKey = (text) => {
+                const raw = String(text || '').toLowerCase();
+                const noDateRange = raw.replace(/\d{1,2}\s*-\s*\d{1,2}\s+[a-z]+\s+\d{4}/g, ' ');
+                const noParens = noDateRange.replace(/\([^)]*\)/g, ' ');
+                const alpha = noParens.replace(/[^a-z\s]/g, ' ');
+                const words = alpha.split(/\s+/).filter(Boolean).slice(0, 8);
+                return words.join(' ');
+            };
+            const upsertOwnerTask = (rawText, suffix = '') => {
+                const base = String(rawText || 'Planned task').trim();
+                if (!base) return;
+                const norm = normalizeTopicKey(base) || base.toLowerCase().replace(/\s+/g, ' ');
+                const candidate = `${base}${suffix || ''}`;
+                if (!ownerTaskMap.has(norm)) {
+                    ownerTaskMap.set(norm, candidate);
+                    return;
+                }
+                const existing = ownerTaskMap.get(norm) || '';
+                // Prefer richer marker text over plain duplicates.
+                if (existing === base && candidate !== base) {
+                    ownerTaskMap.set(norm, candidate);
+                }
+            };
             const tasks = (p.plans && p.plans.length)
                 ? p.plans
-                    .filter(t => app_taskAppliesOnDate(t, p.date, dateStr))
+                    .filter(t => app_taskAppliesOnDate(t, p.date, dateStr, plans))
                     .map(t => {
-                        const { startDate, endDate } = app_getTaskRangeBounds(t, p.date);
+                        const { startDate, endDate } = app_getTaskRangeBounds(t, p.date, plans);
+                        const isMultiDay = !!(startDate && endDate && startDate !== endDate);
                         const isEndDate = endDate === dateStr;
                         const isStartDate = startDate === dateStr;
                         const endedEarly = t.completedDate && t.completedDate < endDate;
                         const suffix = endedEarly && t.completedDate === dateStr
                             ? ` (Completed Early)`
-                            : isEndDate
+                            : (isMultiDay && isEndDate)
                                 ? ` (Ends Today)`
-                                : isStartDate
+                            : (isMultiDay && isStartDate)
                                     ? ` (Starts Today)`
                                     : '';
-                        return `${t.task || 'Planned task'}${suffix}`;
+                        upsertOwnerTask(t.task || 'Planned task', suffix);
+                        return '';
                     })
                     .filter(Boolean)
-                : (p.date === dateStr ? [p.plan || 'Planned task'] : []);
-            if (!tasks.length) return null;
-            return { name: ownerName, tasks };
+                : (() => {
+                    if (p.date !== dateStr) return [];
+                    upsertOwnerTask(p.plan || 'Planned task', '');
+                    return [];
+                })();
+
+            const dedupedTasks = Array.from(ownerTaskMap.values());
+            if (!dedupedTasks.length && tasks.length) return { name: ownerName, tasks };
+            if (!dedupedTasks.length) return null;
+            return { name: ownerName, tasks: dedupedTasks };
         }).filter(Boolean);
+
+        // Merge duplicate owner groups that can come from mixed legacy/new plan docs.
+        const normalizeTopicKey = (text) => {
+            const raw = String(text || '').toLowerCase();
+            const noDateRange = raw.replace(/\d{1,2}\s*-\s*\d{1,2}\s+[a-z]+\s+\d{4}/g, ' ');
+            const noParens = noDateRange.replace(/\([^)]*\)/g, ' ');
+            const alpha = noParens.replace(/[^a-z\s]/g, ' ');
+            const words = alpha.split(/\s+/).filter(Boolean).slice(0, 8);
+            return words.join(' ');
+        };
+        const byOwner = new Map();
+        rows.forEach(row => {
+            const ownerKey = row.name || 'Staff';
+            if (!byOwner.has(ownerKey)) {
+                byOwner.set(ownerKey, new Map());
+            }
+            const bucket = byOwner.get(ownerKey);
+            (row.tasks || []).forEach(t => {
+                const topic = normalizeTopicKey(t) || String(t || '').toLowerCase();
+                if (!bucket.has(topic)) bucket.set(topic, t);
+                else {
+                    const existing = bucket.get(topic) || '';
+                    const candidate = String(t || '');
+                    if (existing.length < candidate.length) bucket.set(topic, candidate);
+                }
+            });
+        });
+
+        return Array.from(byOwner.entries()).map(([name, taskMap]) => ({
+            name,
+            tasks: Array.from(taskMap.values())
+        }));
     };
 
     window.app_showAnnualHoverPreview = (event, dateStr) => {
@@ -1549,7 +1664,9 @@
                                 taggedById: currentUser.id,
                                 taggedByName: currentUser.name,
                                 status: 'pending',
-                                subPlans: p.subPlans || []
+                                subPlans: p.subPlans || [],
+                                startDate: p.startDate || date,
+                                endDate: p.endDate || p.startDate || date
                             }
                         );
                     }

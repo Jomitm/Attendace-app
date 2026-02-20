@@ -1795,9 +1795,33 @@
                 if (!staffNeedle) return true;
                 return String(name || '').toLowerCase().includes(staffNeedle);
             };
+            const monthIndexMap = {
+                january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+                july: 6, august: 7, september: 8, october: 9, november: 10, december: 11
+            };
+            const inferRangeFromText = (text = '') => {
+                const raw = String(text || '').trim();
+                if (!raw) return null;
+                const m = raw.match(/(\d{1,2})\s*-\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})/);
+                if (!m) return null;
+                const d1 = Number(m[1]);
+                const d2 = Number(m[2]);
+                const monthName = String(m[3] || '').toLowerCase();
+                const yearNum = Number(m[4]);
+                const monthIdx = monthIndexMap[monthName];
+                if (!Number.isInteger(d1) || !Number.isInteger(d2) || !Number.isInteger(monthIdx) || !Number.isInteger(yearNum)) return null;
+                const start = new Date(yearNum, monthIdx, d1);
+                const end = new Date(yearNum, monthIdx, d2);
+                if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+                const startDate = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
+                const endDate = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
+                if (endDate < startDate) return null;
+                return { startDate, endDate };
+            };
             const getTaskRangeBounds = (task, planDate) => {
-                const startDate = task?.startDate || planDate;
-                const endDate = task?.endDate || task?.startDate || planDate;
+                const inferred = (!task?.startDate && !task?.endDate) ? inferRangeFromText(task?.task || '') : null;
+                const startDate = task?.startDate || inferred?.startDate || planDate;
+                const endDate = task?.endDate || inferred?.endDate || task?.startDate || planDate;
                 return { startDate, endDate };
             };
             const taskAppliesOnDate = (task, planDate, dateStr) => {
@@ -1849,8 +1873,9 @@
                     daily.forEach(p => {
                         (p.plans || []).forEach(task => {
                             if (!taskAppliesOnDate(task, p.date, dateStr)) return;
-                            const { endDate } = getTaskRangeBounds(task, p.date);
-                            if (endDate === dateStr) hasRangeEnd = true;
+                            const { startDate, endDate } = getTaskRangeBounds(task, p.date);
+                            const isMultiDay = !!(startDate && endDate && startDate !== endDate);
+                            if (isMultiDay && endDate === dateStr) hasRangeEnd = true;
                             const statusDate = task.completedDate || endDate || p.date || dateStr;
                             const s = window.AppCalendar.getSmartTaskStatus(statusDate, task.status);
                             if (s === 'overdue') worst = 'overdue';

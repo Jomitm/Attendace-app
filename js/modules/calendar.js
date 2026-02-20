@@ -121,6 +121,8 @@
                     existing.subPlans = meta.subPlans || existing.subPlans || [];
                     existing.tags = tags;
                     existing.status = meta.status || existing.status || 'pending';
+                    existing.startDate = meta.startDate || existing.startDate || date;
+                    existing.endDate = meta.endDate || existing.endDate || existing.startDate || date;
                     existing.updatedAt = new Date().toISOString();
                     workPlan.updatedAt = new Date().toISOString();
                     return await this.db.put('work_plans', workPlan);
@@ -132,6 +134,8 @@
                 subPlans: meta.subPlans || [],
                 tags: tags,
                 status: meta.status || 'pending', // Default
+                startDate: meta.startDate || date,
+                endDate: meta.endDate || meta.startDate || date,
                 addedFrom: meta.addedFrom || 'minutes',
                 sourcePlanId: meta.sourcePlanId || null,
                 sourceTaskIndex: meta.sourceTaskIndex ?? null,
