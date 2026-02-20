@@ -3918,18 +3918,95 @@
         row.querySelector('.final-net-salary').dataset.value = finalNet;
     };
 
+    const app_getLateDeductionMetricsFromRow = (row) => {
+        const unpaidLeaves = parseFloat(row.querySelector('.unpaid-leaves-count')?.innerText || '0') || 0;
+        const lateCount = parseFloat(row.querySelector('.late-count')?.innerText || '0') || 0;
+        const extraWorkedHours = parseFloat(row.querySelector('.extra-work-hours')?.innerText || '0') || 0;
+        const rawLateDeductionDays = Math.floor(lateCount / (window.AppConfig.LATE_GRACE_COUNT || 3)) * (window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
+        const penaltyOffsetDays = Math.floor(extraWorkedHours / (window.AppConfig.EXTRA_HOURS_FOR_HALF_DAY_OFFSET || 4)) * (window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
+        const lateDeductionDays = Math.max(0, rawLateDeductionDays - penaltyOffsetDays);
+        const deductionDays = unpaidLeaves + lateDeductionDays;
+        return { unpaidLeaves, lateCount, extraWorkedHours, rawLateDeductionDays, penaltyOffsetDays, lateDeductionDays, deductionDays };
+    };
+
     window.app_recalculateAllSalaries = () => {
         document.querySelectorAll('tr[data-user-id]').forEach(row => {
             window.app_recalculateRow(row);
         });
     };
 
+    const parsePayrollMonth = (value, fallbackDate = new Date()) => {
+        if (/^\d{4}-\d{2}$/.test(String(value || '').trim())) {
+            const [year, month] = String(value).split('-').map(Number);
+            if (Number.isFinite(year) && Number.isFinite(month) && month >= 1 && month <= 12) {
+                return { year, monthIndex: month - 1 };
+            }
+        }
+        return { year: fallbackDate.getFullYear(), monthIndex: fallbackDate.getMonth() };
+    };
+
+    window.app_toggleSalaryPeriodMode = function () {
+        const mode = document.getElementById('salary-period-mode')?.value || 'single';
+        const singleWrap = document.getElementById('salary-period-single-wrap');
+        const rangeWrap = document.getElementById('salary-period-range-wrap');
+        if (singleWrap) singleWrap.style.display = mode === 'range' ? 'none' : 'block';
+        if (rangeWrap) rangeWrap.style.display = mode === 'range' ? 'flex' : 'none';
+    };
+
+    window.app_getSalaryPayPeriodInfo = function () {
+        const now = new Date();
+        const mode = document.getElementById('salary-period-mode')?.value || 'single';
+        if (mode === 'range') {
+            const fromRaw = document.getElementById('salary-pay-period-from')?.value || '';
+            const toRaw = document.getElementById('salary-pay-period-to')?.value || '';
+            let from = parsePayrollMonth(fromRaw, now);
+            let to = parsePayrollMonth(toRaw, now);
+            const fromKeyNum = from.year * 100 + (from.monthIndex + 1);
+            const toKeyNum = to.year * 100 + (to.monthIndex + 1);
+            if (toKeyNum < fromKeyNum) {
+                const tmp = from;
+                from = to;
+                to = tmp;
+            }
+            const startDate = new Date(from.year, from.monthIndex, 1);
+            const endDate = new Date(to.year, to.monthIndex + 1, 0);
+            const fromKey = `${from.year}-${String(from.monthIndex + 1).padStart(2, '0')}`;
+            const toKey = `${to.year}-${String(to.monthIndex + 1).padStart(2, '0')}`;
+            return {
+                mode: 'range',
+                startDate,
+                endDate,
+                startKey: fromKey,
+                endKey: toKey,
+                key: `${fromKey}_to_${toKey}`,
+                label: `${startDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })} to ${endDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`
+            };
+        }
+
+        const singleRaw = document.getElementById('salary-pay-period')?.value || '';
+        const single = parsePayrollMonth(singleRaw, now);
+        const startDate = new Date(single.year, single.monthIndex, 1);
+        const endDate = new Date(single.year, single.monthIndex + 1, 0);
+        const key = `${single.year}-${String(single.monthIndex + 1).padStart(2, '0')}`;
+        return {
+            mode: 'single',
+            startDate,
+            endDate,
+            startKey: key,
+            endKey: key,
+            key,
+            label: startDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+        };
+    };
+
     window.app_saveAllSalaries = async () => {
         const rows = document.querySelectorAll('tr[data-user-id]');
         const salaryRecords = [];
         const userUpdates = [];
-        const today = new Date();
-        const monthKey = `${today.getFullYear()}-${today.getMonth() + 1}`;
+        const payPeriodInfo = window.app_getSalaryPayPeriodInfo();
+        const monthKey = payPeriodInfo.key;
+        const payDateInput = document.getElementById('salary-pay-date')?.value || '';
+        const payDateTs = payDateInput ? new Date(payDateInput).getTime() : Date.now();
         const globalTdsPercent = parseFloat(document.getElementById('global-tds-percent').value) || 0;
 
         for (const row of rows) {
@@ -3941,14 +4018,27 @@
             const rowTdsPercent = tdsInput ? (parseFloat(tdsInput.value) || 0) : globalTdsPercent;
             const tdsAmount = row.querySelector('.tds-amount').dataset.value || 0;
             const finalNet = row.querySelector('.final-net-salary').dataset.value || 0;
-            const unpaidLeaves = parseFloat(row.querySelector('.unpaid-leaves-count')?.innerText || '0') || 0;
-            const lateCount = parseFloat(row.querySelector('.late-count')?.innerText || '0') || 0;
-            const extraWorkedHours = parseFloat(row.querySelector('.extra-work-hours')?.innerText || '0') || 0;
-            const lateDeductionRawDays = parseFloat(row.querySelector('.late-deduction-raw')?.innerText || '0') || 0;
-            const penaltyOffsetDays = parseFloat(row.querySelector('.penalty-offset-days')?.innerText || '0') || 0;
-            const lateDeductionDays = parseFloat(row.querySelector('.late-deduction-days')?.innerText || '0') || 0;
-            const deductionDays = parseFloat(row.querySelector('.deduction-days')?.innerText || '0') || 0;
+            const lateMetrics = app_getLateDeductionMetricsFromRow(row);
+            const unpaidLeaves = lateMetrics.unpaidLeaves;
+            const lateCount = lateMetrics.lateCount;
+            const extraWorkedHours = lateMetrics.extraWorkedHours;
+            const lateDeductionRawDays = lateMetrics.rawLateDeductionDays;
+            const penaltyOffsetDays = lateMetrics.penaltyOffsetDays;
+            const lateDeductionDays = lateMetrics.lateDeductionDays;
+            const deductionDays = lateMetrics.deductionDays;
             const attendanceDeduction = Number(String(row.querySelector('.attendance-deduction-amount')?.innerText || '0').replace(/[^0-9.-]+/g, ""));
+            const employeeId = String(row.querySelector('.employee-id-input')?.value || '').trim();
+            const designation = String(row.querySelector('.designation-input')?.value || '').trim();
+            const department = String(row.querySelector('.department-input')?.value || '').trim();
+            const joinDate = String(row.querySelector('.join-date-input')?.value || '').trim();
+            const bankName = String(row.querySelector('.bank-name-input')?.value || '').trim();
+            const bankAccount = String(row.querySelector('.bank-account-input')?.value || '').trim();
+            const pan = String(row.querySelector('.pan-input')?.value || '').trim();
+            const uan = String(row.querySelector('.uan-input')?.value || '').trim();
+            const otherAllowances = Number(row.querySelector('.other-allowances-input')?.value || 0);
+            const providentFund = Number(row.querySelector('.pf-input')?.value || 0);
+            const professionalTax = Number(row.querySelector('.professional-tax-input')?.value || 0);
+            const loanAdvance = Number(row.querySelector('.loan-advance-input')?.value || 0);
 
             // Check if comment required
             if (row.querySelector('.comment-input').required && !comment) {
@@ -3961,7 +4051,24 @@
                 id: `salary_${userId}_${monthKey}`,
                 userId,
                 month: monthKey,
+                periodMode: payPeriodInfo.mode,
+                periodStart: payPeriodInfo.startKey,
+                periodEnd: payPeriodInfo.endKey,
+                periodLabel: payPeriodInfo.label,
+                payDate: payDateTs,
                 baseAmount: Number(baseSalaryInput),
+                otherAllowances: otherAllowances,
+                providentFund: providentFund,
+                professionalTax: professionalTax,
+                loanAdvance: loanAdvance,
+                employeeId: employeeId,
+                designation: designation,
+                department: department,
+                joinDate: joinDate || null,
+                bankName: bankName,
+                bankAccount: bankAccount,
+                pan: pan,
+                uan: uan,
                 attendanceDeduction: attendanceDeduction,
                 deductions: Number(row.querySelector('.deduction-amount').innerText.replace(/[^0-9.-]+/g, "")),
                 unpaidLeaves: unpaidLeaves,
@@ -3983,7 +4090,19 @@
             userUpdates.push({
                 id: userId,
                 baseSalary: Number(baseSalaryInput),
-                tdsPercent: rowTdsPercent
+                tdsPercent: rowTdsPercent,
+                employeeId: employeeId,
+                designation: designation,
+                dept: department,
+                joinDate: joinDate || null,
+                bankName: bankName,
+                bankAccount: bankAccount,
+                pan: pan,
+                uan: uan,
+                otherAllowances: otherAllowances,
+                providentFund: providentFund,
+                professionalTax: professionalTax,
+                loanAdvance: loanAdvance
             });
         }
 
@@ -3997,8 +4116,7 @@
             for (const update of userUpdates) {
                 const existingUser = await window.AppDB.get('users', update.id);
                 if (existingUser) {
-                    existingUser.baseSalary = update.baseSalary;
-                    existingUser.tdsPercent = update.tdsPercent;
+                    Object.assign(existingUser, update);
                     await window.AppDB.put('users', existingUser);
                 }
             }
@@ -4015,11 +4133,23 @@
 
     window.app_exportSalaryCSV = () => {
         const rows = document.querySelectorAll('tr[data-user-id]');
-        let csv = 'Staff Name,Base Salary,Present,Late,Unpaid Leaves,Extra Work Hours,Late Deduction Raw,Penalty Offset Days,Late Deduction Days,Total Deduction Days,Attendance Deduction,Total Deductions,Adjusted Salary,TDS (%),TDS Amount,Final Net,Comment\n';
+        let csv = 'Staff Name,Emp ID,Designation,Department,Join Date,Bank Name,Bank Account,PAN,UAN,Base Salary,Other Allowances,PF,Professional Tax,Loan Advance,Present,Late,Unpaid Leaves,Extra Work Hours,Late Deduction Raw,Penalty Offset Days,Late Deduction Days,Total Deduction Days,Attendance Deduction,Total Deductions,Adjusted Salary,TDS (%),TDS Amount,Final Net,Comment\n';
 
         rows.forEach(row => {
             const name = row.querySelector('div[style*="font-weight: 600"]').innerText;
             const base = row.querySelector('.base-salary-input').value;
+            const employeeId = row.querySelector('.employee-id-input')?.value || '';
+            const designation = row.querySelector('.designation-input')?.value || '';
+            const department = row.querySelector('.department-input')?.value || '';
+            const joinDate = row.querySelector('.join-date-input')?.value || '';
+            const bankName = row.querySelector('.bank-name-input')?.value || '';
+            const bankAccount = row.querySelector('.bank-account-input')?.value || '';
+            const pan = row.querySelector('.pan-input')?.value || '';
+            const uan = row.querySelector('.uan-input')?.value || '';
+            const otherAllowances = row.querySelector('.other-allowances-input')?.value || '0';
+            const providentFund = row.querySelector('.pf-input')?.value || '0';
+            const professionalTax = row.querySelector('.professional-tax-input')?.value || '0';
+            const loanAdvance = row.querySelector('.loan-advance-input')?.value || '0';
             const present = row.querySelector('.present-count')?.innerText || '0';
             const late = row.querySelector('.late-count')?.innerText || '0';
             const unpaidLeaves = row.querySelector('.unpaid-leaves-count')?.innerText || '0';
@@ -4040,16 +4170,214 @@
             const net = (row.querySelector('.final-net-salary').innerText || '').replace(/[^0-9.-]+/g, '');
             const comment = row.querySelector('.comment-input').value;
 
-            csv += `"${name}",${base},${present},${late},${unpaidLeaves},${extraWorkedHours},${lateDeductionRaw},${penaltyOffsetDays},${lateDeductionDays},${deductionDays},${attendanceDeduction},${deduct},${adjusted},${tdsP},${tdsA},${net},"${comment}"\n`;
+            csv += `"${name}","${employeeId}","${designation}","${department}","${joinDate}","${bankName}","${bankAccount}","${pan}","${uan}",${base},${otherAllowances},${providentFund},${professionalTax},${loanAdvance},${present},${late},${unpaidLeaves},${extraWorkedHours},${lateDeductionRaw},${penaltyOffsetDays},${lateDeductionDays},${deductionDays},${attendanceDeduction},${deduct},${adjusted},${tdsP},${tdsA},${net},"${comment}"\n`;
         });
 
         const blob = new Blob([csv], { type: 'text/csv' });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
-        const month = new Date().toLocaleDateString('default', { month: 'short', year: 'numeric' });
+        const payPeriodInfo = window.app_getSalaryPayPeriodInfo();
         a.setAttribute('href', url);
-        a.setAttribute('download', `Salaries_${month.replace(' ', '_')}.csv`);
+        a.setAttribute('download', `Salaries_${payPeriodInfo.key.replace(/[^a-zA-Z0-9_-]/g, '_')}.csv`);
         a.click();
+    };
+
+    const maskSensitiveValue = (value, visible = 4) => {
+        const raw = String(value || '').trim();
+        if (!raw) return 'NA';
+        if (raw.length <= visible) return raw;
+        return `${'*'.repeat(Math.max(0, raw.length - visible))}${raw.slice(-visible)}`;
+    };
+
+    const numberToWordsIndian = (num) => {
+        const n = Math.floor(Number(num) || 0);
+        if (n === 0) return 'Zero';
+        const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
+            'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+        const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+        const twoDigits = (x) => {
+            if (x < 20) return ones[x];
+            const t = Math.floor(x / 10);
+            const o = x % 10;
+            return `${tens[t]}${o ? ` ${ones[o]}` : ''}`.trim();
+        };
+        const threeDigits = (x) => {
+            const h = Math.floor(x / 100);
+            const r = x % 100;
+            if (!h) return twoDigits(r);
+            return `${ones[h]} Hundred${r ? ` ${twoDigits(r)}` : ''}`.trim();
+        };
+        let value = n;
+        const crore = Math.floor(value / 10000000); value %= 10000000;
+        const lakh = Math.floor(value / 100000); value %= 100000;
+        const thousand = Math.floor(value / 1000); value %= 1000;
+        const hundredPart = value;
+        const parts = [];
+        if (crore) parts.push(`${twoDigits(crore)} Crore`);
+        if (lakh) parts.push(`${twoDigits(lakh)} Lakh`);
+        if (thousand) parts.push(`${twoDigits(thousand)} Thousand`);
+        if (hundredPart) parts.push(threeDigits(hundredPart));
+        return parts.join(' ').trim();
+    };
+
+    window.app_printSalarySlip = function () {
+        const modal = document.getElementById('salary-slip-modal');
+        if (!modal) return;
+        const wrap = modal.querySelector('.salary-slip-print-root');
+        if (!wrap) return;
+        document.body.classList.add('salary-slip-print-mode');
+        wrap.classList.add('print-active');
+        setTimeout(() => {
+            window.print();
+            setTimeout(() => {
+                wrap.classList.remove('print-active');
+                document.body.classList.remove('salary-slip-print-mode');
+            }, 150);
+        }, 60);
+    };
+
+    window.app_generateSalarySlip = async function (userId) {
+        try {
+            const row = document.querySelector(`tr[data-user-id="${userId}"]`);
+            if (!row) {
+                alert('Unable to locate salary row for this user.');
+                return;
+            }
+            const user = await window.AppDB.get('users', userId);
+            if (!user) {
+                alert('User details not found.');
+                return;
+            }
+
+            const now = new Date();
+            const payPeriodInfo = window.app_getSalaryPayPeriodInfo();
+            const payPeriodLabel = payPeriodInfo.label;
+            const payPeriodStart = payPeriodInfo.startDate.toLocaleDateString('en-GB');
+            const payPeriodEnd = payPeriodInfo.endDate.toLocaleDateString('en-GB');
+            const payDateInput = document.getElementById('salary-pay-date')?.value || '';
+            const payDate = payDateInput ? new Date(payDateInput).toLocaleDateString('en-GB') : now.toLocaleDateString('en-GB');
+            const generatedAt = now.toLocaleString('en-GB');
+            const payrollRef = `CRWI-${payPeriodInfo.key.replace(/[^a-zA-Z0-9]/g, '')}-${userId}-${String(now.getTime()).slice(-5)}`;
+
+            const baseSalary = Number(row.querySelector('.base-salary-input')?.value || 0);
+            const adjustedSalary = Number(row.querySelector('.salary-input')?.value || 0);
+            const tdsPercent = Number(row.querySelector('.tds-input')?.value || 0);
+            const tdsAmount = Number((row.querySelector('.tds-amount')?.dataset?.value || '0'));
+            const finalNet = Number((row.querySelector('.final-net-salary')?.dataset?.value || '0'));
+            const attendanceDeduction = Number(String(row.querySelector('.attendance-deduction-amount')?.innerText || '0').replace(/[^0-9.-]+/g, '')) || 0;
+            const lateMetrics = app_getLateDeductionMetricsFromRow(row);
+            const lateRawDays = lateMetrics.rawLateDeductionDays;
+            const penaltyOffsetDays = lateMetrics.penaltyOffsetDays;
+            const lateDeductionDays = lateMetrics.lateDeductionDays;
+            const totalDeductionDays = lateMetrics.deductionDays;
+            const unpaidLeaves = lateMetrics.unpaidLeaves;
+            const lateCount = lateMetrics.lateCount;
+            const comment = String(row.querySelector('.comment-input')?.value || '').trim();
+            const otherAllowances = Number(row.querySelector('.other-allowances-input')?.value || user.otherAllowances || 0);
+            const grossEarnings = baseSalary + otherAllowances;
+            const loanAdvance = Number(row.querySelector('.loan-advance-input')?.value || user.loanAdvance || 0);
+            const pf = Number(row.querySelector('.pf-input')?.value || user.providentFund || 0);
+            const profTax = Number(row.querySelector('.professional-tax-input')?.value || user.professionalTax || 0);
+            const employeeId = String(row.querySelector('.employee-id-input')?.value || user.employeeId || user.username || user.id || '').trim();
+            const designation = String(row.querySelector('.designation-input')?.value || user.designation || user.role || '').trim();
+            const department = String(row.querySelector('.department-input')?.value || user.dept || user.department || '').trim();
+            const joinDateValue = String(row.querySelector('.join-date-input')?.value || user.joinDate || '').trim();
+            const bankName = String(row.querySelector('.bank-name-input')?.value || user.bankName || '').trim();
+            const bankAccount = String(row.querySelector('.bank-account-input')?.value || user.bankAccount || user.accountNumber || '').trim();
+            const pan = String(row.querySelector('.pan-input')?.value || user.pan || user.PAN || '').trim();
+            const uan = String(row.querySelector('.uan-input')?.value || user.uan || user.UAN || '').trim();
+            const totalDeductions = attendanceDeduction + tdsAmount + loanAdvance + pf + profTax;
+            const netSalaryInWords = `${numberToWordsIndian(finalNet)} Rupees Only`;
+
+            const deductionRows = [
+                { label: 'Attendance Deduction', amount: attendanceDeduction, remarks: `Unpaid Leaves: ${unpaidLeaves}, Late Count: ${lateCount}, Late Raw: ${lateRawDays.toFixed(1)}, Offset: ${penaltyOffsetDays.toFixed(1)}, Late Deduction: ${lateDeductionDays.toFixed(1)}, Total Deduction Days: ${totalDeductionDays.toFixed(1)}` },
+                { label: 'TDS', amount: tdsAmount, remarks: `Applied at ${tdsPercent.toFixed(2)}%` },
+                { label: 'Provident Fund', amount: pf, remarks: pf ? 'Configured as per employee profile' : 'NA' },
+                { label: 'Professional Tax', amount: profTax, remarks: profTax ? 'Configured as per employee profile' : 'NA' },
+                { label: 'Loan / Advance', amount: loanAdvance, remarks: loanAdvance ? 'Recovered in this cycle' : 'Nil' }
+            ];
+
+            const money = (v) => `Rs ${Number(v || 0).toLocaleString('en-IN')}`;
+
+            const html = `
+                <div class="modal-overlay" id="salary-slip-modal" style="display:flex;">
+                    <div class="salary-slip-modal-shell salary-slip-print-root">
+                        <div class="salary-slip-actions no-print">
+                            <button type="button" class="action-btn secondary" onclick="window.app_printSalarySlip()"><i class="fa-solid fa-print"></i> Print / Save PDF</button>
+                            <button type="button" class="action-btn secondary" title="Planned enhancement" disabled style="opacity:0.6; cursor:not-allowed;"><i class="fa-solid fa-file-pdf"></i> html2pdf (Later)</button>
+                            <button type="button" class="action-btn" onclick="window.app_closeModal(this)"><i class="fa-solid fa-xmark"></i> Close</button>
+                        </div>
+                        <div class="salary-slip-paper">
+                            <div class="salary-slip-header">
+                                <img src="Logo/LOGO USED IN WEB.png" alt="CRWI Logo" class="salary-slip-logo">
+                                <div class="salary-slip-org">
+                                    <h2>Conference Of Religious Women India</h2>
+                                    <div>CRI House, Women Section, Masihgarh, Sukhdev Vihar, New Friends Colony PO, New Delhi-110 025</div>
+                                    <div>Phone: 63649 19152 | Email: fin@crwi.org.in / executivedirector@crwi.org.in</div>
+                                </div>
+                            </div>
+                            <div class="salary-slip-title">
+                                <h3>Salary Slip</h3>
+                                <div>Pay Period: ${payPeriodLabel} (${payPeriodStart} to ${payPeriodEnd})</div>
+                                <div>Pay Date: ${payDate}</div>
+                            </div>
+
+                            <div class="salary-slip-section">
+                                <h4>Employee Details</h4>
+                                <div class="salary-slip-grid">
+                                    <div><b>Employee Name:</b> ${user.name || 'Staff'}</div>
+                                    <div><b>Employee ID:</b> ${employeeId || 'NA'}</div>
+                                    <div><b>Designation:</b> ${designation || 'NA'}</div>
+                                    <div><b>Department:</b> ${department || 'NA'}</div>
+                                    <div><b>Date of Joining:</b> ${joinDateValue ? new Date(joinDateValue).toLocaleDateString('en-GB') : 'NA'}</div>
+                                    <div><b>Bank Name:</b> ${bankName || 'NA'}</div>
+                                    <div><b>UAN:</b> ${maskSensitiveValue(uan)}</div>
+                                    <div><b>PAN:</b> ${maskSensitiveValue(pan)}</div>
+                                    <div><b>Bank A/C:</b> ${maskSensitiveValue(bankAccount)}</div>
+                                </div>
+                            </div>
+
+                            <div class="salary-slip-split">
+                                <div class="salary-slip-section">
+                                    <h4>Earnings</h4>
+                                    <table class="salary-slip-table">
+                                        <tr><td>Basic Salary</td><td>${money(baseSalary)}</td></tr>
+                                        <tr><td>HRA</td><td>NA</td></tr>
+                                        <tr><td>Conveyance Allowance</td><td>NA</td></tr>
+                                        <tr><td>Special Allowance</td><td>NA</td></tr>
+                                        <tr><td>Other Allowances</td><td>${money(otherAllowances)}</td></tr>
+                                        <tr class="total"><td>Gross Earnings</td><td>${money(grossEarnings)}</td></tr>
+                                    </table>
+                                </div>
+                                <div class="salary-slip-section">
+                                    <h4>Deductions (Breakdown)</h4>
+                                    <table class="salary-slip-table">
+                                        ${deductionRows.map(d => `<tr><td>${d.label}<div class="remark">${d.remarks}</div></td><td>${d.amount ? money(d.amount) : 'NA'}</td></tr>`).join('')}
+                                        <tr class="total"><td>Total Deductions</td><td>${money(totalDeductions)}</td></tr>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <div class="salary-slip-net">
+                                <div><b>Adjusted Salary:</b> ${money(adjustedSalary)}</div>
+                                <div><b>Net Salary:</b> ${money(finalNet)}</div>
+                                <div><b>Net Salary in Words:</b> ${netSalaryInWords}</div>
+                            </div>
+
+                            <div class="salary-slip-footer">
+                                <div>This is a system-generated salary slip and does not require a signature.</div>
+                                <div>Generated: ${generatedAt} | Payroll Ref ID: ${payrollRef}</div>
+                                ${comment ? `<div>Payroll Comment: ${comment}</div>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            window.app_showModal(html, 'salary-slip-modal');
+        } catch (err) {
+            console.error('Salary slip generation failed:', err);
+            alert(`Failed to generate salary slip: ${err.message}`);
+        }
     };
 
     // --- Admin Task Management Functions ---

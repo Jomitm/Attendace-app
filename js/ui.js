@@ -1978,6 +1978,7 @@
             const listItems = (() => {
                 const items = [];
                 const pushItem = (item) => items.push(item);
+                const seenEventKeys = new Set();
                 const toStatusLabel = (status) => {
                     if (!status) return '';
                     const clean = String(status).replace(/_/g, '-').toLowerCase();
@@ -2065,6 +2066,14 @@
 
                 (plans.events || []).forEach(e => {
                     if (!staffNeedle && String(e.date || '').startsWith(String(year))) {
+                        const eventKey = [
+                            String(e.date || '').trim(),
+                            String(e.title || '').trim().toLowerCase(),
+                            String(e.type || 'event').trim().toLowerCase(),
+                            String(e.createdById || e.createdByName || '').trim().toLowerCase()
+                        ].join('|');
+                        if (seenEventKeys.has(eventKey)) return;
+                        seenEventKeys.add(eventKey);
                         pushItem({
                             date: e.date,
                             type: e.type || 'event',
@@ -2160,17 +2169,39 @@
                     });
                 });
 
-                items.sort((a, b) => {
+                // Final safety dedupe for identical rows (common with repeated shared events/holidays).
+                const deduped = [];
+                const rowKeys = new Set();
+                items.forEach(item => {
+                    const key = [
+                        item.date || '',
+                        item.type || '',
+                        item.title || '',
+                        item.staffName || '',
+                        item.assignedBy || '',
+                        item.assignedTo || '',
+                        item.dueDate || '',
+                        item.status || '',
+                        item.comments || '',
+                        Array.isArray(item.tags) ? item.tags.join('|') : '',
+                        item.scope || ''
+                    ].join('|').toLowerCase();
+                    if (rowKeys.has(key)) return;
+                    rowKeys.add(key);
+                    deduped.push(item);
+                });
+
+                deduped.sort((a, b) => {
                     if (a.date !== b.date) return a.date.localeCompare(b.date);
                     return a.type.localeCompare(b.type);
                 });
-                items.forEach(item => {
+                deduped.forEach(item => {
                     item.statusLabel = toStatusLabel(item.status);
                     item.statusClass = String(item.status || 'pending').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
                 });
-                let filteredItems = items;
+                let filteredItems = deduped;
                 if (annualListNeedle) {
-                    filteredItems = items.filter(item => {
+                    filteredItems = deduped.filter(item => {
                         const haystack = [
                             item.date,
                             item.staffName,
@@ -2263,7 +2294,7 @@
                                 <div class="annual-list-actions">
                                     <div class="annual-list-search-wrap">
                                         <i class="fa-solid fa-magnifying-glass"></i>
-                                        <input type="text" value="${escapeHtml(annualListSearch)}" placeholder="Search date, staff, status, comments, tags, assigned task" oninput="window.app_setAnnualListSearch(this.value)">
+                                        <input type="text" value="${escapeHtml(annualListSearch)}" placeholder="Search date, staff, status, comments, tags, assigned task" title="Press Enter to search" onkeydown="if(event.key==='Enter'){event.preventDefault();window.app_setAnnualListSearch(this.value);}">
                                     </div>
                                     <select class="annual-list-sort-select" onchange="window.app_setAnnualListSort(this.value)">
                                         <option value="date-asc" ${annualListSort === 'date-asc' ? 'selected' : ''}>Date: Oldest First</option>
@@ -2668,12 +2699,80 @@
             try {
                 const user = window.AppAuth.getUser();
                 if (!user) return '<div class="card">User state lost. Please <a href="#" onclick="window.AppAuth.logout()">Login Again</a></div>';
+                const isAdmin = user.role === 'Administrator' || user.isAdmin;
+                const allUsers = isAdmin ? await window.AppDB.getAll('users') : [];
+                const targetProfileId = (isAdmin && window.app_profileTargetUserId) ? window.app_profileTargetUserId : user.id;
+                const profileUser = (isAdmin ? (allUsers.find(u => u.id === targetProfileId) || user) : user);
 
                 const [monthlyStats, yearlyStats, leaves] = await Promise.all([
-                    window.AppAnalytics.getUserMonthlyStats(user.id),
-                    window.AppAnalytics.getUserYearlyStats(user.id),
-                    window.AppLeaves.getUserLeaves(user.id)
+                    window.AppAnalytics.getUserMonthlyStats(profileUser.id),
+                    window.AppAnalytics.getUserYearlyStats(profileUser.id),
+                    window.AppLeaves.getUserLeaves(profileUser.id)
                 ]);
+
+                window.app_changeProfileStaff = async (staffId) => {
+                    window.app_profileTargetUserId = staffId || user.id;
+                    const contentArea = document.getElementById('page-content');
+                    if (contentArea) contentArea.innerHTML = await window.AppUI.renderProfile();
+                };
+
+                window.app_saveProfileEmployment = async () => {
+                    try {
+                        const actor = window.AppAuth.getUser();
+                        const actorIsAdmin = actor && (actor.role === 'Administrator' || actor.isAdmin);
+                        if (!actorIsAdmin) {
+                            alert('Only admin can edit employment and payroll details.');
+                            return;
+                        }
+                        const targetId = window.app_profileTargetUserId || actor.id;
+                        const targetUser = await window.AppDB.get('users', targetId);
+                        if (!targetUser) {
+                            alert('Selected staff record not found.');
+                            return;
+                        }
+
+                        const pick = (id) => String(document.getElementById(id)?.value || '').trim();
+                        const pickNum = (id) => Number(document.getElementById(id)?.value || 0);
+                        const joinDate = pick('profile-join-date');
+                        const panRaw = pick('profile-pan').toUpperCase().replace(/\s+/g, '');
+                        const panPattern = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+
+                        if (joinDate) {
+                            const today = new Date();
+                            const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+                            if (joinDate > todayStr) {
+                                alert('Join Date cannot be in the future.');
+                                return;
+                            }
+                        }
+                        if (panRaw && !panPattern.test(panRaw)) {
+                            alert('Invalid PAN format. Use format like ABCDE1234F');
+                            return;
+                        }
+
+                        targetUser.employeeId = pick('profile-employee-id');
+                        targetUser.designation = pick('profile-designation');
+                        targetUser.dept = pick('profile-department');
+                        targetUser.joinDate = joinDate || null;
+                        targetUser.baseSalary = pickNum('profile-base-salary');
+                        targetUser.otherAllowances = pickNum('profile-other-allowances');
+                        targetUser.bankName = pick('profile-bank-name');
+                        targetUser.bankAccount = pick('profile-bank-account');
+                        targetUser.pan = panRaw;
+                        targetUser.uan = pick('profile-uan');
+                        targetUser.providentFund = pickNum('profile-pf');
+                        targetUser.professionalTax = pickNum('profile-prof-tax');
+                        targetUser.loanAdvance = pickNum('profile-loan-advance');
+
+                        await window.AppDB.put('users', targetUser);
+                        alert('Profile payroll details saved.');
+                        const contentArea = document.getElementById('page-content');
+                        if (contentArea) contentArea.innerHTML = await window.AppUI.renderProfile();
+                    } catch (err) {
+                        console.error('Failed to save profile payroll details:', err);
+                        alert('Failed to save details: ' + err.message);
+                    }
+                };
 
                 window.app_triggerUpload = () => document.getElementById('profile-upload').click();
                 window.app_handlePhotoUpload = async (input) => {
@@ -2708,8 +2807,8 @@
                             <div class="profile-meta">
                                 <div class="profile-top-row">
                                     <div>
-                                        <h2 class="profile-name">${user.name}</h2>
-                                        <p class="profile-roleline">${user.role} <span>|</span> ${user.dept || 'General'}</p>
+                                        <h2 class="profile-name">${profileUser.name}</h2>
+                                        <p class="profile-roleline">${profileUser.role} <span>|</span> ${profileUser.dept || 'General'}</p>
                                     </div>
                                     <div style="display:flex; gap:0.5rem; flex-wrap:wrap; justify-content:flex-end;">
                                         <button onclick="window.AppAuth.logout()" class="action-btn secondary profile-signout-btn">
@@ -2718,10 +2817,19 @@
                                     </div>
                                 </div>
                                 <div class="profile-presence-wrap">
-                                    <span class="badge ${user.status === 'in' ? 'in' : 'out'} profile-presence-badge">${user.status === 'in' ? 'Online' : 'Offline'}</span>
+                                    <span class="badge ${profileUser.status === 'in' ? 'in' : 'out'} profile-presence-badge">${profileUser.status === 'in' ? 'Online' : 'Offline'}</span>
                                 </div>
                             </div>
                         </div>
+
+                        ${isAdmin ? `
+                        <div style="margin-bottom: 1rem; display:flex; gap:0.6rem; flex-wrap:wrap; align-items:center;">
+                            <label style="font-size:0.85rem; color:#475569; font-weight:600;">Editing Staff:</label>
+                            <select onchange="window.app_changeProfileStaff(this.value)" style="min-width:240px; padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                ${allUsers.sort((a, b) => a.name.localeCompare(b.name)).map(u => `<option value="${u.id}" ${u.id === profileUser.id ? 'selected' : ''}>${u.name}</option>`).join('')}
+                            </select>
+                        </div>
+                        ` : ''}
 
                         <div class="profile-info-grid">
                             <div class="profile-stats-col">
@@ -2741,7 +2849,7 @@
                                     </div>
                                     <div class="stat-card">
                                         <div class="label">Policy Rating</div>
-                                        <div class="value">${(user.rating || 5.0).toFixed(1)} <i class="fa-solid fa-star profile-star"></i></div>
+                                        <div class="value">${(profileUser.rating || 5.0).toFixed(1)} <i class="fa-solid fa-star profile-star"></i></div>
                                     </div>
                                 </div>
                             </div>
@@ -2753,26 +2861,88 @@
                                         <div class="profile-detail-icon"><i class="fa-solid fa-envelope"></i></div>
                                         <div>
                                             <div class="profile-detail-label">Email Address</div>
-                                            <div class="profile-detail-value">${user.username || 'N/A'}</div>
+                                            <div class="profile-detail-value">${profileUser.username || 'N/A'}</div>
                                         </div>
                                     </div>
                                     <div class="profile-detail-row">
                                         <div class="profile-detail-icon"><i class="fa-solid fa-id-card"></i></div>
                                         <div>
                                             <div class="profile-detail-label">Staff ID</div>
-                                            <div class="profile-detail-value">${user.id.toUpperCase()}</div>
+                                            <div class="profile-detail-value">${(profileUser.employeeId || profileUser.id || 'N/A').toUpperCase()}</div>
                                         </div>
                                     </div>
                                     <div class="profile-detail-row">
                                         <div class="profile-detail-icon"><i class="fa-solid fa-calendar-check"></i></div>
                                         <div>
                                             <div class="profile-detail-label">Joining Date</div>
-                                            <div class="profile-detail-value">${user.joinDate || 'Jan 01, 2024'}</div>
+                                            <div class="profile-detail-value">${profileUser.joinDate || 'N/A'}</div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
+
+                        ${isAdmin ? `
+                        <div style="margin-top: 1rem; border-top:1px solid #e2e8f0; padding-top:1rem;">
+                            <h3 class="profile-section-title">Employment & Payroll Details (Admin Editable)</h3>
+                            <div style="display:flex; flex-direction:column; gap:0.75rem;">
+                                <div style="font-size:0.78rem; color:#64748b; font-weight:700; text-transform:uppercase;">Employment</div>
+                                <div style="display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:0.6rem;">
+                                    <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Emp ID
+                                        <input id="profile-employee-id" type="text" value="${profileUser.employeeId || ''}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                    </label>
+                                    <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Designation
+                                        <input id="profile-designation" type="text" value="${profileUser.designation || profileUser.role || ''}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                    </label>
+                                    <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Department
+                                        <input id="profile-department" type="text" value="${profileUser.dept || ''}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                    </label>
+                                    <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Join Date
+                                        <input id="profile-join-date" type="date" value="${(typeof profileUser.joinDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(profileUser.joinDate)) ? profileUser.joinDate : ''}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                    </label>
+                                </div>
+
+                                <div style="font-size:0.78rem; color:#64748b; font-weight:700; text-transform:uppercase;">Salary Components</div>
+                                <div style="display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:0.6rem;">
+                                    <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Base Salary
+                                        <input id="profile-base-salary" type="number" min="0" value="${Number(profileUser.baseSalary || 0)}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                    </label>
+                                    <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Other Allowances
+                                        <input id="profile-other-allowances" type="number" min="0" value="${Number(profileUser.otherAllowances || 0)}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                    </label>
+                                    <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Provident Fund (PF)
+                                        <input id="profile-pf" type="number" min="0" value="${Number(profileUser.providentFund || 0)}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                    </label>
+                                    <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Professional Tax
+                                        <input id="profile-prof-tax" type="number" min="0" value="${Number(profileUser.professionalTax || 0)}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                    </label>
+                                    <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Loan / Advance
+                                        <input id="profile-loan-advance" type="number" min="0" value="${Number(profileUser.loanAdvance || 0)}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                    </label>
+                                </div>
+
+                                <div style="font-size:0.78rem; color:#64748b; font-weight:700; text-transform:uppercase;">Bank & Compliance</div>
+                                <div style="display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:0.6rem;">
+                                    <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Bank Name
+                                        <input id="profile-bank-name" type="text" value="${profileUser.bankName || ''}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                    </label>
+                                    <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Bank Account No
+                                        <input id="profile-bank-account" type="text" value="${profileUser.bankAccount || profileUser.accountNumber || ''}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                    </label>
+                                    <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">PAN
+                                        <input id="profile-pan" type="text" placeholder="ABCDE1234F" value="${profileUser.pan || profileUser.PAN || ''}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px; text-transform:uppercase;">
+                                    </label>
+                                    <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">UAN
+                                        <input id="profile-uan" type="text" value="${profileUser.uan || profileUser.UAN || ''}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                    </label>
+                                </div>
+                            </div>
+                            <div style="margin-top:0.7rem; display:flex; gap:0.5rem; align-items:center; justify-content:flex-end;">
+                                <span style="font-size:0.75rem; color:#64748b;">PAN is validated. Join Date cannot be future.</span>
+                                <button type="button" class="action-btn" onclick="window.app_saveProfileEmployment()"><i class="fa-solid fa-save"></i> Save Details</button>
+                            </div>
+                        </div>
+                        ` : ''}
                     </div>
 
                     <div class="card full-width profile-leave-card">
@@ -3342,6 +3512,10 @@
             const summary = await window.AppAnalytics.getSystemMonthlySummary();
             const today = new Date();
             const monthLabel = today.toLocaleDateString('default', { month: 'long', year: 'numeric' });
+            const payPeriodValue = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+            const payPeriodFromValue = payPeriodValue;
+            const payPeriodToValue = payPeriodValue;
+            const payDateValue = today.toISOString().split('T')[0];
 
             return `
                 <div class="card full-width">
@@ -3351,6 +3525,32 @@
                             <p class="text-muted" style="font-size: 0.8rem;">Period: ${monthLabel}</p>
                         </div>
                         <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <div style="background: #f8fafc; padding: 0.5rem 0.75rem; border-radius: 0.5rem; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 0.45rem;">
+                                <label for="salary-period-mode" style="font-weight: 600; color: #64748b; font-size: 0.8rem;">Mode:</label>
+                                <select id="salary-period-mode" onchange="window.app_toggleSalaryPeriodMode()" style="padding: 4px; border: 1px solid #cbd5e1; border-radius: 4px;">
+                                    <option value="single" selected>Single Month</option>
+                                    <option value="range">Multiple Months</option>
+                                </select>
+                            </div>
+                            <div style="background: #f8fafc; padding: 0.5rem 0.75rem; border-radius: 0.5rem; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 0.5rem;">
+                                <label for="salary-pay-period" style="font-weight: 600; color: #64748b; font-size: 0.8rem;">Pay Period:</label>
+                                <div id="salary-period-single-wrap">
+                                    <input type="month" id="salary-pay-period" value="${payPeriodValue}"
+                                        style="padding: 4px; border: 1px solid #cbd5e1; border-radius: 4px;" />
+                                </div>
+                                <div id="salary-period-range-wrap" style="display:none; align-items:center; gap:0.4rem;">
+                                    <input type="month" id="salary-pay-period-from" value="${payPeriodFromValue}"
+                                        style="padding: 4px; border: 1px solid #cbd5e1; border-radius: 4px;" />
+                                    <span style="color:#64748b; font-size:0.78rem;">to</span>
+                                    <input type="month" id="salary-pay-period-to" value="${payPeriodToValue}"
+                                        style="padding: 4px; border: 1px solid #cbd5e1; border-radius: 4px;" />
+                                </div>
+                            </div>
+                            <div style="background: #f8fafc; padding: 0.5rem 0.75rem; border-radius: 0.5rem; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 0.5rem;">
+                                <label for="salary-pay-date" style="font-weight: 600; color: #64748b; font-size: 0.8rem;">Pay Date:</label>
+                                <input type="date" id="salary-pay-date" value="${payDateValue}"
+                                    style="padding: 4px; border: 1px solid #cbd5e1; border-radius: 4px;" />
+                            </div>
                             <div style="background: #f8fafc; padding: 0.5rem 1rem; border-radius: 0.5rem; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 0.5rem;">
                                 <label style="font-weight: 600; color: #64748b; font-size: 0.85rem;">Global TDS:</label>
                                 <input type="number" id="global-tds-percent" value="0" min="0" max="100" 
@@ -3367,20 +3567,36 @@
                         </div>
                     </div>
 
-                    <div class="table-container">
-                        <table>
+                    <div class="table-container salary-processing-table-wrap">
+                        <table class="salary-processing-table">
                             <thead>
                                 <tr>
                                     <th>Staff Member</th>
+                                    <th>Emp ID</th>
+                                    <th>Designation</th>
+                                    <th>Department</th>
+                                    <th>Join Date</th>
                                     <th>Base Salary</th>
-                                    <th>Attendance Summary</th>
-                                    <th>Deduction Days</th>
+                                    <th>Other Allow.</th>
+                                    <th>Bank Name</th>
+                                    <th>Bank A/C</th>
+                                    <th>PAN</th>
+                                    <th>UAN</th>
+                                    <th>PF</th>
+                                    <th>Prof Tax</th>
+                                    <th>Loan/Adv</th>
+                                    <th>Present</th>
+                                    <th>Late</th>
+                                    <th>Early Exit</th>
+                                    <th>Unpaid Leaves</th>
+                                    <th>Extra Hours</th>
                                     <th>Deductions</th>
                                     <th>Adjusted Salary</th>
                                     <th>TDS %</th>
                                     <th>TDS Amount</th>
                                     <th>Final Net</th>
                                     <th>Comment</th>
+                                    <th>Action</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -3389,6 +3605,18 @@
                 const base = user.baseSalary || 0;
                 const userTds = typeof user.tdsPercent === 'number' ? user.tdsPercent : null;
                 const dailyRate = base / 22;
+                const employeeId = user.employeeId || user.username || user.id || '';
+                const designation = user.designation || user.role || '';
+                const department = user.dept || user.department || '';
+                const joinDate = user.joinDate ? new Date(user.joinDate).toISOString().split('T')[0] : '';
+                const bankName = user.bankName || '';
+                const bankAccount = user.bankAccount || user.accountNumber || '';
+                const pan = user.pan || user.PAN || '';
+                const uan = user.uan || user.UAN || '';
+                const otherAllowances = Number(user.otherAllowances || 0);
+                const providentFund = Number(user.providentFund || 0);
+                const professionalTax = Number(user.professionalTax || 0);
+                const loanAdvance = Number(user.loanAdvance || 0);
 
                 const rawLateDeductionDays = Math.floor((stats.late || 0) / (window.AppConfig.LATE_GRACE_COUNT || 3)) * (window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
                 const extraWorkedHours = Number(stats.extraWorkedHours || 0);
@@ -3407,22 +3635,72 @@
                                                 </div>
                                             </td>
                                             <td>
+                                                <input type="text" class="employee-id-input" value="${employeeId}" 
+                                                    style="width: 100px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;" />
+                                            </td>
+                                            <td>
+                                                <input type="text" class="designation-input" value="${designation}" 
+                                                    style="width: 120px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;" />
+                                            </td>
+                                            <td>
+                                                <input type="text" class="department-input" value="${department}" 
+                                                    style="width: 120px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;" />
+                                            </td>
+                                            <td>
+                                                <input type="date" class="join-date-input" value="${joinDate}" 
+                                                    style="width: 130px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;" />
+                                            </td>
+                                            <td>
                                                 <input type="number" class="base-salary-input" value="${base}" 
                                                     style="width: 90px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;"
                                                     onchange="window.app_recalculateRow(this.closest('tr'))" />
                                             </td>
-                                            <td style="font-size: 0.85rem;">
-                                                <span style="color: #10b981;">P: <span class="present-count">${stats.present}</span></span> |
-                                                <span style="color: #f59e0b;">L: <span class="late-count">${stats.late}</span></span> |
-                                                <span style="color: #991b1b;">ED: ${stats.earlyDepartures}</span> |
-                                                <span style="color: #ef4444;">UL: <span class="unpaid-leaves-count">${stats.unpaidLeaves}</span></span> |
-                                                <span style="color: #0f766e;">XH: <span class="extra-work-hours">${extraWorkedHours.toFixed(2)}</span></span>
+                                            <td>
+                                                <input type="number" class="other-allowances-input" value="${otherAllowances}" 
+                                                    style="width: 95px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;" />
                                             </td>
-                                            <td style="font-size: 0.82rem;">
-                                                <div>Late Raw: <span class="late-deduction-raw">${rawLateDeductionDays.toFixed(1)}</span></div>
-                                                <div>Offset: <span class="penalty-offset-days">${lateOffsetDays.toFixed(1)}</span></div>
-                                                <div>Late Ded: <span class="late-deduction-days">${lateDeductionDays.toFixed(1)}</span></div>
-                                                <div>Total: <span class="deduction-days">${totalDeductionDays.toFixed(1)}</span></div>
+                                            <td>
+                                                <input type="text" class="bank-name-input" value="${bankName}" 
+                                                    style="width: 150px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;" />
+                                            </td>
+                                            <td>
+                                                <input type="text" class="bank-account-input" value="${bankAccount}" 
+                                                    style="width: 140px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;" />
+                                            </td>
+                                            <td>
+                                                <input type="text" class="pan-input" value="${pan}" 
+                                                    style="width: 110px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;" />
+                                            </td>
+                                            <td>
+                                                <input type="text" class="uan-input" value="${uan}" 
+                                                    style="width: 130px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;" />
+                                            </td>
+                                            <td>
+                                                <input type="number" class="pf-input" value="${providentFund}" 
+                                                    style="width: 90px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;" />
+                                            </td>
+                                            <td>
+                                                <input type="number" class="professional-tax-input" value="${professionalTax}" 
+                                                    style="width: 95px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;" />
+                                            </td>
+                                            <td>
+                                                <input type="number" class="loan-advance-input" value="${loanAdvance}" 
+                                                    style="width: 95px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;" />
+                                            </td>
+                                            <td style="font-size: 0.85rem; color:#10b981; font-weight:600;">
+                                                <span class="present-count">${stats.present}</span>
+                                            </td>
+                                            <td style="font-size: 0.85rem; color:#f59e0b; font-weight:600;">
+                                                <span class="late-count">${stats.late}</span>
+                                            </td>
+                                            <td style="font-size: 0.85rem; color:#991b1b; font-weight:600;">
+                                                <span class="early-exit-count">${stats.earlyDepartures}</span>
+                                            </td>
+                                            <td style="font-size: 0.85rem; color:#ef4444; font-weight:600;">
+                                                <span class="unpaid-leaves-count">${stats.unpaidLeaves}</span>
+                                            </td>
+                                            <td style="font-size: 0.85rem; color:#0f766e; font-weight:600;">
+                                                <span class="extra-work-hours">${extraWorkedHours.toFixed(2)}</span>
                                             </td>
                                             <td style="color: #ef4444; font-weight: 600;" class="attendance-deduction-amount deduction-amount">-Rs ${deductionAmount.toLocaleString()}</td>
                                             <td>
@@ -3441,6 +3719,11 @@
                                             <td>
                                                 <input type="text" class="comment-input" placeholder="Required if adjusted..."
                                                     style="width: 150px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;" />
+                                            </td>
+                                            <td>
+                                                <button type="button" class="action-btn secondary" style="padding:0.45rem 0.7rem; font-size:0.8rem;" onclick="window.app_generateSalarySlip('${user.id}')">
+                                                    <i class="fa-solid fa-file-invoice"></i> Generate Slip
+                                                </button>
                                             </td>
                                         </tr>
                                     `;

@@ -41,9 +41,23 @@
                         userName: l.userName || userMap[l.userId] || 'Staff'
                     }));
 
+                const dedupedEvents = (() => {
+                    const unique = new Map();
+                    (events || []).forEach((e) => {
+                        const key = [
+                            String(e.date || '').trim(),
+                            String(e.title || '').trim().toLowerCase(),
+                            String(e.type || 'event').trim().toLowerCase(),
+                            String(e.createdById || e.createdByName || '').trim().toLowerCase()
+                        ].join('|');
+                        if (!unique.has(key)) unique.set(key, e);
+                    });
+                    return Array.from(unique.values());
+                })();
+
                 return {
                     leaves: enrichedLeaves,
-                    events: events || [],
+                    events: dedupedEvents,
                     workPlans: workPlans || []
                 };
             } catch (err) {
