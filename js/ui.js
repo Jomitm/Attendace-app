@@ -2805,71 +2805,7 @@
                 };
 
                 window.app_saveProfileEmployment = async () => {
-                    try {
-                        const actor = window.AppAuth.getUser();
-                        const actorIsAdmin = actor && (actor.role === 'Administrator' || actor.isAdmin);
-                        if (!actorIsAdmin) {
-                            alert('Only admin can edit employment and payroll details.');
-                            return;
-                        }
-                        const targetId = window.app_profileTargetUserId || actor.id;
-                        const targetUser = await window.AppDB.get('users', targetId);
-                        if (!targetUser) {
-                            alert('Selected staff record not found.');
-                            return;
-                        }
-
-                        const pick = (id) => String(document.getElementById(id)?.value || '').trim();
-                        const pickNum = (id) => Number(document.getElementById(id)?.value || 0);
-                        const joinDate = pick('profile-join-date');
-                        const deriveEmployeeId = (joinDateRaw, userIdRaw) => {
-                            const raw = String(joinDateRaw || '').trim();
-                            if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return 'NA';
-                            const compact = raw.replace(/-/g, '');
-                            const suffix = String(userIdRaw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-3) || 'USR';
-                            return `EMP-${compact}-${suffix}`;
-                        };
-                        const panRaw = pick('profile-pan').toUpperCase().replace(/\s+/g, '');
-                        const panPattern = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
-
-                        if (joinDate) {
-                            const today = new Date();
-                            const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-                            if (joinDate > todayStr) {
-                                alert('Join Date cannot be in the future.');
-                                return;
-                            }
-                        }
-                        if (panRaw && !panPattern.test(panRaw)) {
-                            alert('Invalid PAN format. Use format like ABCDE1234F');
-                            return;
-                        }
-
-                        const typedEmployeeId = pick('profile-employee-id');
-                        targetUser.employeeId = joinDate
-                            ? (typedEmployeeId || deriveEmployeeId(joinDate, targetUser.id))
-                            : 'NA';
-                        targetUser.designation = pick('profile-designation');
-                        targetUser.dept = pick('profile-department');
-                        targetUser.joinDate = joinDate || null;
-                        targetUser.baseSalary = pickNum('profile-base-salary');
-                        targetUser.otherAllowances = pickNum('profile-other-allowances');
-                        targetUser.bankName = pick('profile-bank-name');
-                        targetUser.bankAccount = pick('profile-bank-account');
-                        targetUser.pan = panRaw;
-                        targetUser.uan = pick('profile-uan');
-                        targetUser.providentFund = pickNum('profile-pf');
-                        targetUser.professionalTax = pickNum('profile-prof-tax');
-                        targetUser.loanAdvance = pickNum('profile-loan-advance');
-
-                        await window.AppDB.put('users', targetUser);
-                        alert('Profile payroll details saved.');
-                        const contentArea = document.getElementById('page-content');
-                        if (contentArea) contentArea.innerHTML = await window.AppUI.renderProfile();
-                    } catch (err) {
-                        console.error('Failed to save profile payroll details:', err);
-                        alert('Failed to save details: ' + err.message);
-                    }
+                    alert('Staff employment and payroll details are view-only on this profile page.');
                 };
 
                 window.app_triggerUpload = () => document.getElementById('profile-upload').click();
@@ -2980,67 +2916,64 @@
                             </div>
                         </div>
 
-                        ${isAdmin ? `
                         <div style="margin-top: 1rem; border-top:1px solid #e2e8f0; padding-top:1rem;">
-                            <h3 class="profile-section-title">Employment & Payroll Details (Admin Editable)</h3>
+                            <h3 class="profile-section-title">Employment & Payroll Details (Read-only)</h3>
                             <div style="display:flex; flex-direction:column; gap:0.75rem;">
                                 <div style="font-size:0.78rem; color:#64748b; font-weight:700; text-transform:uppercase;">Employment</div>
                                 <div style="display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:0.6rem;">
                                     <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Emp ID
-                                        <input id="profile-employee-id" type="text" value="${profileEmployeeId}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                        <input id="profile-employee-id" type="text" value="${profileEmployeeId}" readonly style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc;">
                                     </label>
                                     <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Designation
-                                        <input id="profile-designation" type="text" value="${profileUser.designation || profileUser.role || ''}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                        <input id="profile-designation" type="text" value="${profileUser.designation || profileUser.role || ''}" readonly style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc;">
                                     </label>
                                     <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Department
-                                        <input id="profile-department" type="text" value="${profileUser.dept || ''}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                        <input id="profile-department" type="text" value="${profileUser.dept || ''}" readonly style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc;">
                                     </label>
                                     <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Join Date
-                                        <input id="profile-join-date" type="date" value="${profileJoinDate}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                        <input id="profile-join-date" type="date" value="${profileJoinDate}" disabled style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc;">
                                     </label>
                                 </div>
 
                                 <div style="font-size:0.78rem; color:#64748b; font-weight:700; text-transform:uppercase;">Salary Components</div>
                                 <div style="display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:0.6rem;">
                                     <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Base Salary
-                                        <input id="profile-base-salary" type="number" min="0" value="${Number(profileUser.baseSalary || 0)}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                        <input id="profile-base-salary" type="number" min="0" value="${Number(profileUser.baseSalary || 0)}" readonly style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc;">
                                     </label>
                                     <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Other Allowances
-                                        <input id="profile-other-allowances" type="number" min="0" value="${Number(profileUser.otherAllowances || 0)}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                        <input id="profile-other-allowances" type="number" min="0" value="${Number(profileUser.otherAllowances || 0)}" readonly style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc;">
                                     </label>
                                     <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Provident Fund (PF)
-                                        <input id="profile-pf" type="number" min="0" value="${Number(profileUser.providentFund || 0)}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                        <input id="profile-pf" type="number" min="0" value="${Number(profileUser.providentFund || 0)}" readonly style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc;">
                                     </label>
                                     <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Professional Tax
-                                        <input id="profile-prof-tax" type="number" min="0" value="${Number(profileUser.professionalTax || 0)}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                        <input id="profile-prof-tax" type="number" min="0" value="${Number(profileUser.professionalTax || 0)}" readonly style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc;">
                                     </label>
                                     <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Loan / Advance
-                                        <input id="profile-loan-advance" type="number" min="0" value="${Number(profileUser.loanAdvance || 0)}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                        <input id="profile-loan-advance" type="number" min="0" value="${Number(profileUser.loanAdvance || 0)}" readonly style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc;">
                                     </label>
                                 </div>
 
                                 <div style="font-size:0.78rem; color:#64748b; font-weight:700; text-transform:uppercase;">Bank & Compliance</div>
                                 <div style="display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:0.6rem;">
                                     <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Bank Name
-                                        <input id="profile-bank-name" type="text" value="${profileUser.bankName || ''}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                        <input id="profile-bank-name" type="text" value="${profileUser.bankName || ''}" readonly style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc;">
                                     </label>
                                     <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Bank Account No
-                                        <input id="profile-bank-account" type="text" value="${profileUser.bankAccount || profileUser.accountNumber || ''}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                        <input id="profile-bank-account" type="text" value="${profileUser.bankAccount || profileUser.accountNumber || ''}" readonly style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc;">
                                     </label>
                                     <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">PAN
-                                        <input id="profile-pan" type="text" placeholder="ABCDE1234F" value="${profileUser.pan || profileUser.PAN || ''}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px; text-transform:uppercase;">
+                                        <input id="profile-pan" type="text" placeholder="ABCDE1234F" value="${profileUser.pan || profileUser.PAN || ''}" readonly style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px; text-transform:uppercase; background:#f8fafc;">
                                     </label>
                                     <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">UAN
-                                        <input id="profile-uan" type="text" value="${profileUser.uan || profileUser.UAN || ''}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                        <input id="profile-uan" type="text" value="${profileUser.uan || profileUser.UAN || ''}" readonly style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px; background:#f8fafc;">
                                     </label>
                                 </div>
                             </div>
                             <div style="margin-top:0.7rem; display:flex; gap:0.5rem; align-items:center; justify-content:flex-end;">
-                                <span style="font-size:0.75rem; color:#64748b;">PAN is validated. Join Date cannot be future.</span>
-                                <button type="button" class="action-btn" onclick="window.app_saveProfileEmployment()"><i class="fa-solid fa-save"></i> Save Details</button>
+                                <span style="font-size:0.75rem; color:#64748b;">These fields are view-only in staff profile.</span>
                             </div>
                         </div>
-                        ` : ''}
                     </div>
 
                     <div class="card full-width profile-leave-card">
