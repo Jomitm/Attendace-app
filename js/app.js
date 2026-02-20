@@ -2573,6 +2573,42 @@
 
         const isAdminEl = form.querySelector('[name="isAdmin"]');
         const isAdmin = !!(isAdminEl && isAdminEl.checked);
+        const deriveEmployeeId = (joinDateRaw, userIdRaw) => {
+            const joinDate = String(joinDateRaw || '').trim();
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(joinDate)) return 'NA';
+            const compact = joinDate.replace(/-/g, '');
+            const suffix = String(userIdRaw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-3) || 'USR';
+            return `EMP-${compact}-${suffix}`;
+        };
+        const pan = String(formData.get('pan') || '').trim().toUpperCase();
+        const bankIfsc = String(formData.get('bankIfsc') || '').trim().toUpperCase();
+        const joinDate = String(formData.get('joinDate') || '').trim();
+        const inputEmployeeId = String(formData.get('employeeId') || '').trim();
+        const panPattern = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+        const ifscPattern = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+
+        if (joinDate) {
+            const today = new Date();
+            const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+            if (joinDate > todayStr) {
+                alert('Join Date cannot be in the future.');
+                return;
+            }
+        }
+
+        if (pan && !panPattern.test(pan)) {
+            alert('Invalid PAN format. Use format like ABCDE1234F');
+            return;
+        }
+
+        if (bankIfsc && !ifscPattern.test(bankIfsc)) {
+            alert('Invalid IFSC format. Use format like SBIN0001234');
+            return;
+        }
+
+        const employeeId = joinDate
+            ? (inputEmployeeId || deriveEmployeeId(joinDate, id))
+            : 'NA';
 
         const userData = {
             id,
@@ -2583,7 +2619,20 @@
             dept: formData.get('dept'),
             email: (formData.get('email') || "").trim(),
             phone: (formData.get('phone') || "").trim(),
-            isAdmin
+            isAdmin,
+            employeeId,
+            joinDate: joinDate || null,
+            baseSalary: Number(formData.get('baseSalary') || 0),
+            otherAllowances: Number(formData.get('otherAllowances') || 0),
+            providentFund: Number(formData.get('providentFund') || 0),
+            professionalTax: Number(formData.get('professionalTax') || 0),
+            loanAdvance: Number(formData.get('loanAdvance') || 0),
+            tdsPercent: Number(formData.get('tdsPercent') || 0),
+            bankName: (formData.get('bankName') || '').trim(),
+            bankAccount: (formData.get('bankAccount') || '').trim(),
+            bankIfsc: bankIfsc,
+            pan: pan,
+            uan: (formData.get('uan') || '').trim()
         };
 
         console.log("Executing Update for User:", userData);
@@ -3244,6 +3293,23 @@
         const user = await window.AppDB.get('users', userId);
         console.log("User Data Found:", user);
         if (!user) return;
+        const normalizeIsoDate = (value) => {
+            const raw = String(value || '').trim();
+            if (!raw) return '';
+            if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+            const d = new Date(raw);
+            if (!Number.isNaN(d.getTime())) {
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            }
+            return '';
+        };
+        const deriveEmployeeId = (joinDateRaw, idRaw) => {
+            const joinDate = normalizeIsoDate(joinDateRaw);
+            if (!joinDate) return 'NA';
+            const compact = joinDate.replace(/-/g, '');
+            const suffix = String(idRaw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-3) || 'USR';
+            return `EMP-${compact}-${suffix}`;
+        };
         const form = document.getElementById('edit-user-form');
         form.querySelector('#edit-user-id').value = user.id;
         form.querySelector('#edit-user-name').value = user.name;
@@ -3254,6 +3320,22 @@
         form.querySelector('#edit-user-email').value = user.email;
         form.querySelector('#edit-user-phone').value = user.phone;
         form.querySelector('#edit-user-isAdmin').checked = !!(user.isAdmin || user.role === 'Administrator');
+        const normalizedJoinDate = normalizeIsoDate(user.joinDate);
+        form.querySelector('#edit-user-join-date').value = normalizedJoinDate;
+        form.querySelector('#edit-user-employee-id').value = normalizedJoinDate
+            ? (user.employeeId || deriveEmployeeId(normalizedJoinDate, user.id))
+            : 'NA';
+        form.querySelector('#edit-user-base-salary').value = Number(user.baseSalary || 0);
+        form.querySelector('#edit-user-other-allowances').value = Number(user.otherAllowances || 0);
+        form.querySelector('#edit-user-pf').value = Number(user.providentFund || 0);
+        form.querySelector('#edit-user-professional-tax').value = Number(user.professionalTax || 0);
+        form.querySelector('#edit-user-loan-advance').value = Number(user.loanAdvance || 0);
+        form.querySelector('#edit-user-tds-percent').value = Number(user.tdsPercent || 0);
+        form.querySelector('#edit-user-bank-name').value = user.bankName || '';
+        form.querySelector('#edit-user-bank-account').value = user.bankAccount || user.accountNumber || '';
+        form.querySelector('#edit-user-bank-ifsc').value = user.bankIfsc || user.ifsc || '';
+        form.querySelector('#edit-user-pan').value = user.pan || user.PAN || '';
+        form.querySelector('#edit-user-uan').value = user.uan || user.UAN || '';
         document.getElementById('edit-user-modal').style.display = 'flex';
     };
 
@@ -4027,10 +4109,18 @@
             const lateDeductionDays = lateMetrics.lateDeductionDays;
             const deductionDays = lateMetrics.deductionDays;
             const attendanceDeduction = Number(String(row.querySelector('.attendance-deduction-amount')?.innerText || '0').replace(/[^0-9.-]+/g, ""));
-            const employeeId = String(row.querySelector('.employee-id-input')?.value || '').trim();
+            const deriveEmployeeId = (joinDateRaw, userIdRaw) => {
+                const d = String(joinDateRaw || '').trim();
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return 'NA';
+                const compact = d.replace(/-/g, '');
+                const suffix = String(userIdRaw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-3) || 'USR';
+                return `EMP-${compact}-${suffix}`;
+            };
+            const rawEmployeeId = String(row.querySelector('.employee-id-input')?.value || '').trim();
             const designation = String(row.querySelector('.designation-input')?.value || '').trim();
             const department = String(row.querySelector('.department-input')?.value || '').trim();
             const joinDate = String(row.querySelector('.join-date-input')?.value || '').trim();
+            const employeeId = joinDate ? (rawEmployeeId || deriveEmployeeId(joinDate, userId)) : 'NA';
             const bankName = String(row.querySelector('.bank-name-input')?.value || '').trim();
             const bankAccount = String(row.querySelector('.bank-account-input')?.value || '').trim();
             const pan = String(row.querySelector('.pan-input')?.value || '').trim();
@@ -4278,7 +4368,11 @@
             const loanAdvance = Number(row.querySelector('.loan-advance-input')?.value || user.loanAdvance || 0);
             const pf = Number(row.querySelector('.pf-input')?.value || user.providentFund || 0);
             const profTax = Number(row.querySelector('.professional-tax-input')?.value || user.professionalTax || 0);
-            const employeeId = String(row.querySelector('.employee-id-input')?.value || user.employeeId || user.username || user.id || '').trim();
+            const joinDateCandidate = String(row.querySelector('.join-date-input')?.value || user.joinDate || '').trim();
+            const enteredEmployeeId = String(row.querySelector('.employee-id-input')?.value || user.employeeId || '').trim();
+            const employeeId = joinDateCandidate
+                ? (enteredEmployeeId || deriveEmployeeId(joinDateCandidate, user.id))
+                : 'NA';
             const designation = String(row.querySelector('.designation-input')?.value || user.designation || user.role || '').trim();
             const department = String(row.querySelector('.department-input')?.value || user.dept || user.department || '').trim();
             const joinDateValue = String(row.querySelector('.join-date-input')?.value || user.joinDate || '').trim();
@@ -4786,3 +4880,10 @@
 
     console.log("App.js Loaded & Globals Ready");
 })();
+            const deriveEmployeeId = (joinDateRaw, idRaw) => {
+                const joinDate = String(joinDateRaw || '').trim();
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(joinDate)) return 'NA';
+                const compact = joinDate.replace(/-/g, '');
+                const suffix = String(idRaw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-3) || 'USR';
+                return `EMP-${compact}-${suffix}`;
+            };

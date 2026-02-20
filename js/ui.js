@@ -1005,6 +1005,54 @@
                                 </label>
                             </div>
 
+                            <div style="border-top:1px solid #e2e8f0; padding-top:0.75rem; display:flex; flex-direction:column; gap:0.65rem;">
+                                <div style="font-size:0.78rem; color:#64748b; font-weight:700; text-transform:uppercase;">Employment & Payroll</div>
+                                <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:0.65rem;">
+                                    <label>Employee ID
+                                        <input type="text" name="employeeId" id="edit-user-employee-id" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                                    </label>
+                                    <label>Join Date
+                                        <input type="date" name="joinDate" id="edit-user-join-date" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                                    </label>
+                                    <label>Base Salary
+                                        <input type="number" min="0" name="baseSalary" id="edit-user-base-salary" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                                    </label>
+                                    <label>Other Allowances
+                                        <input type="number" min="0" name="otherAllowances" id="edit-user-other-allowances" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                                    </label>
+                                    <label>PF
+                                        <input type="number" min="0" name="providentFund" id="edit-user-pf" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                                    </label>
+                                    <label>Professional Tax
+                                        <input type="number" min="0" name="professionalTax" id="edit-user-professional-tax" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                                    </label>
+                                    <label>Loan / Advance
+                                        <input type="number" min="0" name="loanAdvance" id="edit-user-loan-advance" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                                    </label>
+                                    <label>TDS %
+                                        <input type="number" min="0" max="100" step="0.01" name="tdsPercent" id="edit-user-tds-percent" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                                    </label>
+                                </div>
+                                <div style="font-size:0.78rem; color:#64748b; font-weight:700; text-transform:uppercase;">Bank & Compliance</div>
+                                <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:0.65rem;">
+                                    <label>Bank Name
+                                        <input type="text" name="bankName" id="edit-user-bank-name" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                                    </label>
+                                    <label>Bank A/C
+                                        <input type="text" name="bankAccount" id="edit-user-bank-account" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                                    </label>
+                                    <label>IFSC Code
+                                        <input type="text" name="bankIfsc" id="edit-user-bank-ifsc" placeholder="SBIN0001234" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem; text-transform:uppercase;">
+                                    </label>
+                                    <label>PAN
+                                        <input type="text" name="pan" id="edit-user-pan" placeholder="ABCDE1234F" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem; text-transform:uppercase;">
+                                    </label>
+                                    <label>UAN
+                                        <input type="text" name="uan" id="edit-user-uan" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                                    </label>
+                                </div>
+                            </div>
+
                             <div style="display: flex; gap: 1rem; margin-top: 1rem;">
                                 <button type="button" onclick="document.getElementById('edit-user-modal').style.display = 'none'" style="flex: 1; padding: 0.75rem; border: 1px solid #ddd; background: white; border-radius: 0.5rem; cursor: pointer;">Cancel</button>
                                 <button type="submit" class="action-btn" style="flex: 1; padding: 0.75rem; border-radius: 0.5rem;">Update Details</button>
@@ -2703,6 +2751,19 @@
                 const allUsers = isAdmin ? await window.AppDB.getAll('users') : [];
                 const targetProfileId = (isAdmin && window.app_profileTargetUserId) ? window.app_profileTargetUserId : user.id;
                 const profileUser = (isAdmin ? (allUsers.find(u => u.id === targetProfileId) || user) : user);
+                const deriveEmployeeId = (joinDateRaw, userIdRaw) => {
+                    const raw = String(joinDateRaw || '').trim();
+                    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return 'NA';
+                    const compact = raw.replace(/-/g, '');
+                    const suffix = String(userIdRaw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-3) || 'USR';
+                    return `EMP-${compact}-${suffix}`;
+                };
+                const profileJoinDate = (typeof profileUser.joinDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(profileUser.joinDate))
+                    ? profileUser.joinDate
+                    : '';
+                const profileEmployeeId = profileJoinDate
+                    ? (profileUser.employeeId || deriveEmployeeId(profileJoinDate, profileUser.id))
+                    : 'NA';
 
                 const [monthlyStats, yearlyStats, leaves] = await Promise.all([
                     window.AppAnalytics.getUserMonthlyStats(profileUser.id),
@@ -2734,6 +2795,13 @@
                         const pick = (id) => String(document.getElementById(id)?.value || '').trim();
                         const pickNum = (id) => Number(document.getElementById(id)?.value || 0);
                         const joinDate = pick('profile-join-date');
+                        const deriveEmployeeId = (joinDateRaw, userIdRaw) => {
+                            const raw = String(joinDateRaw || '').trim();
+                            if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return 'NA';
+                            const compact = raw.replace(/-/g, '');
+                            const suffix = String(userIdRaw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-3) || 'USR';
+                            return `EMP-${compact}-${suffix}`;
+                        };
                         const panRaw = pick('profile-pan').toUpperCase().replace(/\s+/g, '');
                         const panPattern = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
@@ -2750,7 +2818,10 @@
                             return;
                         }
 
-                        targetUser.employeeId = pick('profile-employee-id');
+                        const typedEmployeeId = pick('profile-employee-id');
+                        targetUser.employeeId = joinDate
+                            ? (typedEmployeeId || deriveEmployeeId(joinDate, targetUser.id))
+                            : 'NA';
                         targetUser.designation = pick('profile-designation');
                         targetUser.dept = pick('profile-department');
                         targetUser.joinDate = joinDate || null;
@@ -2868,7 +2939,7 @@
                                         <div class="profile-detail-icon"><i class="fa-solid fa-id-card"></i></div>
                                         <div>
                                             <div class="profile-detail-label">Staff ID</div>
-                                            <div class="profile-detail-value">${(profileUser.employeeId || profileUser.id || 'N/A').toUpperCase()}</div>
+                                            <div class="profile-detail-value">${profileEmployeeId}</div>
                                         </div>
                                     </div>
                                     <div class="profile-detail-row">
@@ -2889,7 +2960,7 @@
                                 <div style="font-size:0.78rem; color:#64748b; font-weight:700; text-transform:uppercase;">Employment</div>
                                 <div style="display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:0.6rem;">
                                     <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Emp ID
-                                        <input id="profile-employee-id" type="text" value="${profileUser.employeeId || ''}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                        <input id="profile-employee-id" type="text" value="${profileEmployeeId}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
                                     </label>
                                     <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Designation
                                         <input id="profile-designation" type="text" value="${profileUser.designation || profileUser.role || ''}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
@@ -2898,7 +2969,7 @@
                                         <input id="profile-department" type="text" value="${profileUser.dept || ''}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
                                     </label>
                                     <label style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.76rem; color:#475569;">Join Date
-                                        <input id="profile-join-date" type="date" value="${(typeof profileUser.joinDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(profileUser.joinDate)) ? profileUser.joinDate : ''}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                        <input id="profile-join-date" type="date" value="${profileJoinDate}" style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:8px;">
                                     </label>
                                 </div>
 
@@ -3605,10 +3676,17 @@
                 const base = user.baseSalary || 0;
                 const userTds = typeof user.tdsPercent === 'number' ? user.tdsPercent : null;
                 const dailyRate = base / 22;
-                const employeeId = user.employeeId || user.username || user.id || '';
+                const deriveEmployeeId = (joinDateRaw, userIdRaw) => {
+                    const raw = String(joinDateRaw || '').trim();
+                    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return 'NA';
+                    const compact = raw.replace(/-/g, '');
+                    const suffix = String(userIdRaw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-3) || 'USR';
+                    return `EMP-${compact}-${suffix}`;
+                };
+                const joinDate = user.joinDate ? new Date(user.joinDate).toISOString().split('T')[0] : '';
+                const employeeId = joinDate ? (user.employeeId || deriveEmployeeId(joinDate, user.id)) : 'NA';
                 const designation = user.designation || user.role || '';
                 const department = user.dept || user.department || '';
-                const joinDate = user.joinDate ? new Date(user.joinDate).toISOString().split('T')[0] : '';
                 const bankName = user.bankName || '';
                 const bankAccount = user.bankAccount || user.accountNumber || '';
                 const pan = user.pan || user.PAN || '';
