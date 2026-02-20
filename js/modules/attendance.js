@@ -6,10 +6,53 @@
 (function () {
     class Attendance {
 
+        getAutoCheckoutTime(checkInDate) {
+            const tenPm = new Date(checkInDate);
+            tenPm.setHours(22, 0, 0, 0);
+            const eightHoursLater = new Date(checkInDate.getTime() + (8 * 60 * 60 * 1000));
+            return (eightHoursLater < tenPm) ? eightHoursLater : tenPm;
+        }
+
         async getStatus() {
             // Depend on AppAuth
-            const user = window.AppAuth.getUser();
+            const user = await (window.AppAuth.refreshCurrentUserFromDB
+                ? window.AppAuth.refreshCurrentUserFromDB()
+                : window.AppAuth.getUser());
             if (!user) return { status: 'out', lastCheckIn: null };
+
+            // Cross-device stale cleanup: never carry an "in" session into a new day.
+            if (user.status === 'in' && user.lastCheckIn) {
+                const checkInDate = new Date(user.lastCheckIn);
+                const now = new Date();
+                const checkInLocalDate = `${checkInDate.getFullYear()}-${String(checkInDate.getMonth() + 1).padStart(2, '0')}-${String(checkInDate.getDate()).padStart(2, '0')}`;
+                const todayLocalDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                if (checkInLocalDate < todayLocalDate) {
+                    const autoCheckoutAt = this.getAutoCheckoutTime(checkInDate);
+                    await this.checkOut(
+                        'Auto check-out: previous-day session closed on next sign-in',
+                        null,
+                        null,
+                        'Auto checkout',
+                        false,
+                        '',
+                        {
+                            autoCheckout: true,
+                            autoCheckoutReason: 'Cross-device stale session cleanup',
+                            autoCheckoutAt: autoCheckoutAt.toISOString(),
+                            autoCheckoutRequiresApproval: true,
+                            autoCheckoutExtraApproved: false,
+                            checkOutTime: autoCheckoutAt.toISOString()
+                        }
+                    );
+                    const refreshed = await (window.AppAuth.refreshCurrentUserFromDB
+                        ? window.AppAuth.refreshCurrentUserFromDB()
+                        : window.AppAuth.getUser());
+                    return {
+                        status: refreshed?.status || 'out',
+                        lastCheckIn: refreshed?.lastCheckIn || null
+                    };
+                }
+            }
             return {
                 status: user.status || 'out',
                 lastCheckIn: user.lastCheckIn

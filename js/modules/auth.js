@@ -24,6 +24,17 @@
             }
         }
 
+        async refreshCurrentUserFromDB() {
+            const sessionId = localStorage.getItem(this.sessionKey);
+            if (!sessionId) {
+                this.currentUser = null;
+                return null;
+            }
+            const latest = await window.AppDB.get('users', sessionId);
+            this.currentUser = latest || null;
+            return this.currentUser;
+        }
+
         /* SECURED: Seed Logic Disabled */
 
         async login(username, password) {
