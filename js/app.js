@@ -1,7 +1,7 @@
 /**
  * App Entry Point
  * Initializes modules and handles routing.
- * (Converted to IIFE for file:// support)
+ * (IIFE module wrapper)
  */
 (function () {
     // Shortcuts (Aliases)
@@ -12,6 +12,10 @@
     let adminListenerUnsubscribe = [];
     let cachedLocation = null;
     let lastLocationFetch = 0;
+    let attendanceActionInFlight = false;
+    let lastSyncedAttendanceStatus = null;
+    let userSyncRenderLock = false;
+    let suppressSyncToastUntil = 0;
     const LOCATION_CACHE_TIME = 30000; // 30 seconds cache
     window.app_annualYear = new Date().getFullYear();
 
@@ -61,6 +65,110 @@
     // --- UI Helpers ---
     const getLocalISO = (date = new Date()) => {
         return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    };
+
+    window.app_showAttendanceNotice = (message) => {
+        if (!message) return;
+        const host = document.getElementById('page-content');
+        if (!host) return;
+
+        const existing = document.getElementById('attendance-policy-notice');
+        if (existing) existing.remove();
+
+        const notice = document.createElement('div');
+        notice.id = 'attendance-policy-notice';
+        notice.style.background = '#fff7ed';
+        notice.style.border = '1px solid #fdba74';
+        notice.style.color = '#9a3412';
+        notice.style.padding = '0.85rem 1rem';
+        notice.style.borderRadius = '10px';
+        notice.style.marginBottom = '0.9rem';
+        notice.style.fontSize = '0.9rem';
+        notice.style.fontWeight = '600';
+        notice.innerHTML = `<i class="fa-solid fa-circle-info" style="margin-right:0.45rem;"></i>${message}`;
+
+        host.prepend(notice);
+        setTimeout(() => {
+            const el = document.getElementById('attendance-policy-notice');
+            if (el) el.remove();
+        }, 10000);
+    };
+
+    window.app_showSyncToast = (message = 'Status updated from another device.') => {
+        const id = 'app-sync-toast';
+        const old = document.getElementById(id);
+        if (old) old.remove();
+        const el = document.createElement('div');
+        el.id = id;
+        el.style.position = 'fixed';
+        el.style.top = '14px';
+        el.style.right = '14px';
+        el.style.zIndex = '10020';
+        el.style.background = '#0f172a';
+        el.style.color = '#f8fafc';
+        el.style.padding = '0.7rem 0.9rem';
+        el.style.borderRadius = '10px';
+        el.style.fontSize = '0.82rem';
+        el.style.fontWeight = '600';
+        el.style.boxShadow = '0 8px 25px rgba(15, 23, 42, 0.3)';
+        el.textContent = message;
+        document.body.appendChild(el);
+        setTimeout(() => {
+            const active = document.getElementById(id);
+            if (active) active.remove();
+        }, 2800);
+    };
+
+    const shouldShowCrossDeviceToast = () => {
+        return !attendanceActionInFlight && Date.now() > suppressSyncToastUntil;
+    };
+
+    const markLocalAttendanceMutation = () => {
+        suppressSyncToastUntil = Date.now() + 3500;
+    };
+
+    const handleUserSyncEvent = (ev) => {
+        const syncedUser = ev.detail;
+        if (!syncedUser) return;
+
+        const nextStatus = syncedUser.status || 'out';
+        if (lastSyncedAttendanceStatus === null) {
+            lastSyncedAttendanceStatus = nextStatus;
+            return;
+        }
+
+        const statusChanged = nextStatus !== lastSyncedAttendanceStatus;
+        lastSyncedAttendanceStatus = nextStatus;
+        if (!statusChanged || userSyncRenderLock) return;
+
+        const isDashboard = !window.location.hash || window.location.hash === '#dashboard';
+        const checkoutModal = document.getElementById('checkout-modal');
+        const isCheckoutOpen = !!(checkoutModal && checkoutModal.style.display === 'flex');
+
+        if (nextStatus === 'out' && isCheckoutOpen) {
+            checkoutModal.style.display = 'none';
+        }
+
+        if (!isDashboard) {
+            if (shouldShowCrossDeviceToast()) window.app_showSyncToast('Status updated from another device.');
+            return;
+        }
+
+        userSyncRenderLock = true;
+        (async () => {
+            try {
+                const page = document.getElementById('page-content');
+                if (page) {
+                    page.innerHTML = await window.AppUI.renderDashboard();
+                    if (window.setupDashboardEvents) window.setupDashboardEvents();
+                }
+                if (shouldShowCrossDeviceToast()) window.app_showSyncToast('Status updated from another device.');
+            } catch (err) {
+                console.warn('Realtime dashboard sync failed:', err);
+            } finally {
+                userSyncRenderLock = false;
+            }
+        })();
     };
     function toggleMobileSidebar(show) {
         const sidebar = document.querySelector('.sidebar');
@@ -284,8 +392,13 @@
     async function init() {
         window.app_initTheme();
         cleanURL();
+        window.addEventListener('app:user-sync', handleUserSyncEvent);
         try {
             await window.AppAuth.init();
+            const initialUser = window.AppAuth.getUser();
+            if (initialUser) {
+                lastSyncedAttendanceStatus = initialUser.status || 'out';
+            }
             registerSW();
 
             // Ensure Activity Command Listener starts even if not checked in
@@ -442,21 +555,6 @@
         }
     }
 
-    // --- Admin Link Logic ---
-    function updateAdminVisibility(user) {
-        const adminLinks = document.querySelectorAll('a[data-page="admin"], a[data-page="salary"], a[data-page="master-sheet"], a[data-page="policy-test"]');
-        adminLinks.forEach(link => {
-            if (user.role === 'Administrator' || user.isAdmin) {
-                link.style.display = 'flex';
-            } else {
-                link.style.setProperty('display', 'none', 'important');
-            }
-        });
-    }
-
-    // Router Helper (Call this inside router)
-    // Actually, I'll just integrate it.
-
     // --- Admin Realtime Listener ---
     function startAdminRealtimeListener() {
         // Clear previous listeners
@@ -495,41 +593,6 @@
 
     // --- Event Handlers ---
 
-    const getAutoCheckoutTime = (checkInDate) => {
-        const tenPm = new Date(checkInDate);
-        tenPm.setHours(22, 0, 0, 0);
-        const eightHoursLater = new Date(checkInDate.getTime() + (8 * 60 * 60 * 1000));
-        return eightHoursLater > tenPm ? eightHoursLater : tenPm;
-    };
-
-    const notifyAdminsAutoCheckout = async (staffUser, checkInDate, autoCheckoutAt) => {
-        try {
-            const users = await window.AppDB.getAll('users');
-            const dateStr = checkInDate.toISOString().split('T')[0];
-            const key = `auto-checkout-${staffUser.id}-${dateStr}`;
-            const message = `${staffUser.name} did not check out by 10:00 PM. Auto check-out applied (${autoCheckoutAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}). Approve extra hours if applicable.`;
-
-            const admins = users.filter(u => u.isAdmin || u.role === 'Administrator');
-            await Promise.all(admins.map(admin => {
-                if (!admin.notifications) admin.notifications = [];
-                const already = admin.notifications.some(n => n.key === key);
-                if (!already) {
-                    admin.notifications.unshift({
-                        key,
-                        type: 'auto_checkout',
-                        message,
-                        staffId: staffUser.id,
-                        date: new Date().toISOString()
-                    });
-                    return window.AppDB.put('users', admin);
-                }
-                return Promise.resolve();
-            }));
-        } catch (err) {
-            console.warn('Failed to notify admins about auto checkout:', err);
-        }
-    };
-
     function startTimer(targetUser = null, readOnly = false) {
         if (timerInterval) clearInterval(timerInterval);
 
@@ -544,7 +607,6 @@
                 status = statusInfo.status;
                 lastCheckIn = statusInfo.lastCheckIn;
             }
-            const user = window.AppAuth.getUser();
             const display = document.getElementById('timer-display');
             const countdownContainer = document.getElementById('countdown-container');
             const overtimeContainer = document.getElementById('overtime-container');
@@ -594,44 +656,6 @@
                             timerLabel.style.color = '#b45309';
                         }
                         return;
-                    }
-
-                    if (!readOnly && user && user.id) {
-                        const autoCheckoutAt = getAutoCheckoutTime(checkInDate);
-                        const autoKey = `auto-checkout-${user.id}-${checkInLocalDate}`;
-                        if (now >= autoCheckoutAt.getTime() && !sessionStorage.getItem(autoKey)) {
-                            sessionStorage.setItem(autoKey, '1');
-                            (async () => {
-                                try {
-                                    await window.AppAttendance.checkOut(
-                                        'Auto check-out: did not check out by 10:00 PM',
-                                        null,
-                                        null,
-                                        'Auto checkout',
-                                        false,
-                                        '',
-                                        {
-                                            autoCheckout: true,
-                                            autoCheckoutReason: 'Auto check-out at 10:00 PM',
-                                            autoCheckoutAt: autoCheckoutAt.toISOString(),
-                                            autoCheckoutRequiresApproval: true,
-                                            autoCheckoutExtraApproved: false,
-                                            checkOutTime: autoCheckoutAt.toISOString()
-                                        }
-                                    );
-                                    await notifyAdminsAutoCheckout(user, checkInDate, autoCheckoutAt);
-                                    const contentArea = document.getElementById('page-content');
-                                    if (contentArea) {
-                                        contentArea.innerHTML = await window.AppUI.renderDashboard();
-                                        if (window.setupDashboardEvents) window.setupDashboardEvents();
-                                    }
-                                } catch (e) {
-                                    console.warn('Auto check-out failed:', e);
-                                    sessionStorage.removeItem(autoKey);
-                                }
-                            })();
-                            return;
-                        }
                     }
 
                     // Countdown / Overtime Logic
@@ -693,30 +717,6 @@
 
                 }, 1000);
 
-                // Prompt once per stale check-in session to close it quickly.
-                if (isStaleSession) {
-                    const stalePromptKey = `stale-session-prompted-${lastCheckIn}`;
-                    if (!sessionStorage.getItem(stalePromptKey)) {
-                        sessionStorage.setItem(stalePromptKey, '1');
-                        setTimeout(async () => {
-                            const doAutoClose = await window.appConfirm(
-                                `You are still checked in from ${checkInDate.toLocaleString()}. Auto check-out this carried session now?`
-                            );
-                            if (!doAutoClose) return;
-                            try {
-                                await window.AppAttendance.checkOut('Auto check-out: carried session from previous day');
-                                const contentArea = document.getElementById('page-content');
-                                if (contentArea) {
-                                    contentArea.innerHTML = await window.AppUI.renderDashboard();
-                                    if (window.setupDashboardEvents) window.setupDashboardEvents();
-                                }
-                            } catch (e) {
-                                console.warn('Auto check-out for stale session failed:', e);
-                            }
-                        }, 250);
-                    }
-                }
-
                 // Start Activity Monitor
                     if (!readOnly && window.AppActivity && window.AppActivity.start) window.AppActivity.start();
 
@@ -737,7 +737,8 @@
     }
 
     window.getLocation = function getLocation() {
-        return new Promise(async (resolve, reject) => {
+        return new Promise((resolve, reject) => {
+            (async () => {
             const host = (window.location && window.location.hostname) ? window.location.hostname : '';
             const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host === '::1';
             if (!window.isSecureContext && !isLocalhost) {
@@ -812,6 +813,9 @@
                     reject(msg);
                 }
             }
+            })().catch((err) => {
+                reject(err && err.message ? err.message : 'Unable to retrieve location.');
+            });
         });
     }
 
@@ -937,9 +941,15 @@
         });
     };
 
+    const app_resolveTargetUserId = (targetUserId, currentUserId) => {
+        const raw = String(targetUserId ?? '').trim();
+        if (!raw || raw === 'undefined' || raw === 'null') return currentUserId;
+        return raw;
+    };
+
     window.app_openDayPlan = async (date, targetUserId = null, forcedScope = null) => {
         const currentUser = window.AppAuth.getUser();
-        const targetId = targetUserId || currentUser.id;
+        const targetId = app_resolveTargetUserId(targetUserId, currentUser.id);
         const allUsers = await window.AppDB.getAll('users');
         const isAdmin = currentUser.role === 'Administrator' || currentUser.isAdmin;
         const isEditingOther = targetId !== currentUser.id;
@@ -1458,6 +1468,28 @@
         }
     };
 
+    window.app_selectOvertimeReason = (buttonEl, reason, mode = 'overtime_work') => {
+        const textarea = document.getElementById('checkout-overtime-explanation');
+        const modeInput = document.getElementById('checkout-overtime-mode');
+
+        document.querySelectorAll('.overtime-reason-btn').forEach(btn => {
+            btn.style.background = '#fef3c7';
+            btn.style.borderColor = '#fcd34d';
+            btn.style.color = '#92400e';
+        });
+
+        if (buttonEl) {
+            buttonEl.style.background = '#f59e0b';
+            buttonEl.style.borderColor = '#f59e0b';
+            buttonEl.style.color = 'white';
+        }
+        if (modeInput) modeInput.value = mode;
+        if (textarea) {
+            textarea.value = reason;
+            textarea.focus();
+        }
+    };
+
     // Use work plan to fill checkout summary
     window.app_useWorkPlan = () => {
         const planTextEl = document.getElementById('checkout-plan-text');
@@ -1490,7 +1522,7 @@
     window.app_deleteDayPlan = async (date, targetUserId = null, planScope = null) => {
         if (!await window.appConfirm("Are you sure you want to delete this work plan?")) return;
         const currentUser = window.AppAuth.getUser();
-        const targetId = targetUserId || currentUser.id;
+        const targetId = app_resolveTargetUserId(targetUserId, currentUser.id);
         const scopeSelect = document.getElementById('day-plan-scope-select');
         const resolvedScope = planScope || (scopeSelect ? scopeSelect.value : 'personal');
 
@@ -1517,7 +1549,7 @@
     window.app_saveDayPlan = async (e, date, targetUserId = null) => {
         e.preventDefault();
         const currentUser = window.AppAuth.getUser();
-        const targetId = targetUserId || currentUser.id;
+        const targetId = app_resolveTargetUserId(targetUserId, currentUser.id);
         const scopeSelect = document.getElementById('day-plan-scope-select');
         const planScope = scopeSelect && scopeSelect.value === 'annual' ? 'annual' : 'personal';
 
@@ -2155,22 +2187,144 @@
         return R * c;
     }
 
+    const BASE_SHIFT_MS = 8 * 60 * 60 * 1000;
+    const OVERTIME_PROMPT_THRESHOLD_MS = 9 * 60 * 60 * 1000; // 8h + 1h
+
+    const parseLogDateTime = (dateStr, timeStr) => {
+        if (!dateStr || !timeStr) return null;
+        const date = String(dateStr).trim();
+        const time = String(timeStr).trim();
+        if (!date || !time || time.toLowerCase().includes('active now')) return null;
+
+        const dt = new Date(`${date}T${time}`);
+        if (!Number.isNaN(dt.getTime())) return dt;
+
+        const fallback = new Date(`${date} ${time}`);
+        return Number.isNaN(fallback.getTime()) ? null : fallback;
+    };
+
+    const hasManualLogDuringRange = async (userId, rangeStartMs, rangeEndMs) => {
+        if (!userId || !window.AppDB || rangeEndMs <= rangeStartMs) return false;
+        const logs = await window.AppDB.getAll('attendance');
+        const targetId = String(userId);
+
+        return (logs || []).some((log) => {
+            if (!log || String(log.user_id || '') !== targetId) return false;
+            if (!log.isManualOverride) return false;
+
+            const start = parseLogDateTime(log.date, log.checkIn);
+            const end = parseLogDateTime(log.date, log.checkOut);
+            if (!start || !end) return false;
+
+            let startMs = start.getTime();
+            let endMs = end.getTime();
+            if (endMs <= startMs) endMs += 24 * 60 * 60 * 1000;
+
+            const overlapStart = Math.max(rangeStartMs, startMs);
+            const overlapEnd = Math.min(rangeEndMs, endMs);
+            return overlapEnd > overlapStart;
+        });
+    };
+
+    const evaluateCheckoutOvertimePrompt = async (user) => {
+        const base = {
+            showPrompt: false,
+            hasManualLog: false,
+            overtimeStartMs: null,
+            overtimeEndMs: null
+        };
+        if (!user || !user.lastCheckIn) return base;
+
+        const checkInMs = Number(user.lastCheckIn);
+        if (!Number.isFinite(checkInMs)) return base;
+
+        const nowMs = Date.now();
+        const workedMs = nowMs - checkInMs;
+        if (workedMs <= OVERTIME_PROMPT_THRESHOLD_MS) return base;
+
+        const overtimeStartMs = checkInMs + BASE_SHIFT_MS;
+        const hasManualLog = await hasManualLogDuringRange(user.id, overtimeStartMs, nowMs);
+        if (hasManualLog) {
+            return {
+                showPrompt: false,
+                hasManualLog: true,
+                overtimeStartMs,
+                overtimeEndMs: nowMs
+            };
+        }
+
+        return {
+            showPrompt: true,
+            hasManualLog: false,
+            overtimeStartMs,
+            overtimeEndMs: nowMs
+        };
+    };
+
+    window.app_prepareCheckoutOvertimeSection = async (user) => {
+        const section = document.getElementById('checkout-overtime-section');
+        const explanation = document.getElementById('checkout-overtime-explanation');
+        const modeInput = document.getElementById('checkout-overtime-mode');
+        const reasonHint = document.getElementById('checkout-overtime-hint');
+
+        window.app_checkoutOvertimeState = {
+            showPrompt: false,
+            hasManualLog: false
+        };
+        if (!section || !explanation || !modeInput) return;
+
+        section.style.display = 'none';
+        explanation.required = false;
+        explanation.value = '';
+        modeInput.value = 'overtime_work';
+        document.querySelectorAll('.overtime-reason-btn').forEach(btn => {
+            btn.style.background = '#fef3c7';
+            btn.style.borderColor = '#fcd34d';
+            btn.style.color = '#92400e';
+        });
+
+        try {
+            const state = await evaluateCheckoutOvertimePrompt(user);
+            window.app_checkoutOvertimeState = state;
+            if (!state.showPrompt) return;
+
+            if (reasonHint) {
+                reasonHint.textContent = 'You worked over 1 hour extra. Please capture what was done during overtime.';
+            }
+            section.style.display = 'block';
+            explanation.required = true;
+        } catch (err) {
+            console.warn('Overtime prompt check failed:', err);
+        }
+    };
+
     async function handleAttendance() {
         const btn = document.getElementById('attendance-btn');
         const locationText = document.getElementById('location-text');
         const { status } = await window.AppAttendance.getStatus();
 
         if (btn) btn.disabled = true;
+        attendanceActionInFlight = true;
 
         try {
             if (status === 'out') {
                 if (btn) btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Locating...`;
-                const pos = await getLocation();
+                const pos = await window.getLocation();
                 const checkInAddress = `Lat: ${pos.lat.toFixed(4)}, Lng: ${pos.lng.toFixed(4)}`;
                 if (locationText) locationText.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${checkInAddress}`;
-                await window.AppAttendance.checkIn(pos.lat, pos.lng, checkInAddress);
+                const checkInResult = await window.AppAttendance.checkIn(pos.lat, pos.lng, checkInAddress);
+                if (checkInResult && checkInResult.conflict) {
+                    window.app_showSyncToast(checkInResult.message || 'Status updated from another device.');
+                    contentArea.innerHTML = await window.AppUI.renderDashboard();
+                    setupDashboardEvents();
+                    return;
+                }
+                markLocalAttendanceMutation();
                 contentArea.innerHTML = await window.AppUI.renderDashboard();
                 setupDashboardEvents();
+                if (checkInResult && checkInResult.resolvedMissedCheckout && checkInResult.noticeMessage) {
+                    window.app_showAttendanceNotice(checkInResult.noticeMessage);
+                }
                 // Check if a reminder popup is needed
                 await window.AppUI.checkDailyPlanReminder();
             } else {
@@ -2331,6 +2485,7 @@
                         }
                     }
 
+                    await window.app_prepareCheckoutOvertimeSection(user);
                     modal.style.display = 'flex';
                     if (btn) btn.disabled = false;
 
@@ -2344,7 +2499,7 @@
                     // Use an async IIFE to not block the UI from showing the modal
                     (async () => {
                         try {
-                            const currentPos = await getLocation();
+                            const currentPos = await window.getLocation();
                             const checkInLoc = user.currentLocation || user.lastLocation;
 
                             if (mismatchLoading) mismatchLoading.style.display = 'none';
@@ -2363,7 +2518,13 @@
                         }
                     })();
                 } else {
-                    await window.AppAttendance.checkOut();
+                    const result = await window.AppAttendance.checkOut();
+                    if (result && !result.conflict) {
+                        markLocalAttendanceMutation();
+                    }
+                    if (result && result.conflict) {
+                        window.app_showSyncToast(result.message || 'Status updated from another device.');
+                    }
                     const contentArea = document.getElementById('page-content');
                     contentArea.innerHTML = await window.AppUI.renderDashboard();
                     setupDashboardEvents();
@@ -2375,6 +2536,8 @@
                 btn.disabled = false;
                 btn.innerHTML = status === 'out' ? 'Check-in <i class="fa-solid fa-fingerprint"></i>' : 'Check-out <i class="fa-solid fa-fingerprint"></i>';
             }
+        } finally {
+            attendanceActionInFlight = false;
         }
     }
 
@@ -2384,6 +2547,7 @@
         const form = event.target;
         const description = form.description.value;
         const submitBtn = form.querySelector('button[type="submit"]');
+        attendanceActionInFlight = true;
 
         try {
             submitBtn.disabled = true;
@@ -2393,7 +2557,7 @@
             let pos = null;
             let locationError = null;
             try {
-                pos = await getLocation();
+                pos = await window.getLocation();
             } catch (err) {
                 locationError = err;
             }
@@ -2418,6 +2582,31 @@
             }
 
             const explanation = form.locationExplanation ? form.locationExplanation.value.trim() : '';
+            const overtimeState = window.app_checkoutOvertimeState || {};
+            const overtimeExplanation = form.overtimeExplanation ? form.overtimeExplanation.value.trim() : '';
+            const overtimeMode = form.overtimeMode ? String(form.overtimeMode.value || 'overtime_work') : 'overtime_work';
+            const checkOutOptions = {};
+
+            if (overtimeState.showPrompt) {
+                if (!overtimeExplanation) {
+                    alert('Please describe the overtime work before checkout.');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Complete Check-Out';
+                    return;
+                }
+                checkOutOptions.overtimePrompted = true;
+                checkOutOptions.overtimeExplanation = overtimeExplanation;
+                checkOutOptions.overtimeReasonTag = overtimeMode;
+
+                if (overtimeMode === 'forgot_checkout') {
+                    const checkInTs = Number(window.AppAuth.getUser()?.lastCheckIn);
+                    if (Number.isFinite(checkInTs)) {
+                        checkOutOptions.checkOutTime = new Date(checkInTs + BASE_SHIFT_MS).toISOString();
+                        checkOutOptions.overtimeCappedToEightHours = true;
+                    }
+                }
+            }
+
             if (!pos && !explanation) {
                 const mismatchDiv = document.getElementById('checkout-location-mismatch');
                 if (mismatchDiv) mismatchDiv.style.display = 'block';
@@ -2440,14 +2629,28 @@
                 console.log("Tomorrow's goal saved:", tomorrowGoal);
             }
 
-            await window.AppAttendance.checkOut(
+            const checkOutResult = await window.AppAttendance.checkOut(
                 description,
                 pos ? pos.lat : null,
                 pos ? pos.lng : null,
                 formattedAddress,
                 locationMismatched || !pos,
-                explanation || (locationError ? String(locationError) : '')
+                explanation || (locationError ? String(locationError) : ''),
+                checkOutOptions
             );
+
+            if (checkOutResult && checkOutResult.conflict) {
+                const modal = document.getElementById('checkout-modal');
+                if (modal) modal.style.display = 'none';
+                window.app_showSyncToast(checkOutResult.message || 'Status updated from another device.');
+                const contentArea = document.getElementById('page-content');
+                if (contentArea) {
+                    contentArea.innerHTML = await window.AppUI.renderDashboard();
+                    setupDashboardEvents();
+                }
+                return;
+            }
+            markLocalAttendanceMutation();
 
             window.app_checkoutSummaryDraft = '';
 
@@ -2464,6 +2667,8 @@
             alert("Check-out failed: " + err.message);
             submitBtn.disabled = false;
             submitBtn.textContent = 'Complete Check-Out';
+        } finally {
+            attendanceActionInFlight = false;
         }
     };
 
@@ -2700,7 +2905,7 @@
             (async () => {
                 const fd = new FormData(e.target);
                 try {
-                    const pos = await getLocation();
+                    const pos = await window.getLocation();
                     const success = await window.AppAuth.login(fd.get('username'), fd.get('password'));
                     if (!success) {
                         alert('Invalid Credentials');
@@ -3808,7 +4013,7 @@
         }
 
         // Support common dd/mm/yyyy or d/m/yyyy forms
-        const dm = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+        const dm = raw.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
         if (dm) {
             const a = Number(dm[1]);
             const b = Number(dm[2]);
@@ -4887,3 +5092,4 @@
                 const suffix = String(idRaw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-3) || 'USR';
                 return `EMP-${compact}-${suffix}`;
             };
+

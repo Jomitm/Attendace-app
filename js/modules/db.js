@@ -87,24 +87,6 @@
             }
         }
 
-        /* SECURED: Clear Logic Disabled
-        async clear(collectionName) {
-            // DANGEROUS IN PRODUCTION - Deletes all documents in collection
-            // Only used for Reset/Debug
-            try {
-                const snapshot = await this.db.collection(collectionName).get();
-                const batch = this.db.batch();
-                snapshot.docs.forEach((doc) => {
-                    batch.delete(doc.ref);
-                });
-                await batch.commit();
-            } catch (error) {
-                console.error(`Error clearing ${collectionName}:`, error);
-                throw error;
-            }
-        }
-        */
-
         async query(collectionName, field, operator, value) {
             try {
                 const snapshot = await this.db.collection(collectionName).where(field, operator, value).get();

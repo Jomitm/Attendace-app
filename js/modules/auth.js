@@ -1,7 +1,7 @@
 /**
  * Auth Module
  * Handles User Authentication and Session Management
- * (Converted to IIFE for file:// support)
+ * (IIFE module wrapper)
  */
 (function () {
     class Auth {
@@ -9,6 +9,7 @@
             this.currentUser = null;
             this.sessionKey = 'crwi_session_user';
             this.heartbeatInterval = null;
+            this.userDocUnsubscribe = null;
         }
 
         async init() {
@@ -20,6 +21,7 @@
                 this.currentUser = await window.AppDB.get('users', storedId);
                 if (this.currentUser) {
                     this.startHeartbeat();
+                    this.startCurrentUserSync();
                 }
             }
         }
@@ -34,8 +36,6 @@
             this.currentUser = latest || null;
             return this.currentUser;
         }
-
-        /* SECURED: Seed Logic Disabled */
 
         async login(username, password) {
             const users = await window.AppDB.getAll('users');
@@ -55,6 +55,7 @@
                 this.currentUser = user;
                 localStorage.setItem(this.sessionKey, user.id);
                 this.startHeartbeat();
+                this.startCurrentUserSync();
                 return true;
             } else {
                 // Debugging help for 'Invalid Credentials'
@@ -71,6 +72,7 @@
 
         logout() {
             this.stopHeartbeat();
+            this.stopCurrentUserSync();
             this.currentUser = null;
             localStorage.removeItem(this.sessionKey);
             window.location.reload();
@@ -117,19 +119,6 @@
             return true;
         }
 
-        /* SECURED: Reset Logic Disabled
-        async resetData() {
-            if (confirm('Are you sure you want to RESET ALL DATA? This will clear logs and users.')) {
-                this.stopHeartbeat();
-                await window.AppDB.clear('users');
-                await window.AppDB.clear('attendance');
-                localStorage.clear();
-                alert('Data reset. Reloading...');
-                window.location.reload();
-            }
-        }
-        */
-
         startHeartbeat() {
             if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
 
@@ -159,6 +148,39 @@
                 this.heartbeatInterval = null;
                 console.log("Presence Heartbeat stopped.");
             }
+        }
+
+        startCurrentUserSync() {
+            this.stopCurrentUserSync();
+
+            const sessionId = localStorage.getItem(this.sessionKey);
+            if (!sessionId || !window.AppFirestore) return;
+
+            try {
+                this.userDocUnsubscribe = window.AppFirestore
+                    .collection('users')
+                    .doc(String(sessionId))
+                    .onSnapshot((doc) => {
+                        if (!doc.exists) {
+                            this.currentUser = null;
+                            return;
+                        }
+                        const latestUser = { ...doc.data(), id: doc.id };
+                        this.currentUser = latestUser;
+                        window.dispatchEvent(new CustomEvent('app:user-sync', { detail: latestUser }));
+                    }, (err) => {
+                        console.warn("Current user realtime sync failed:", err);
+                    });
+            } catch (err) {
+                console.warn("Failed to start current user sync:", err);
+            }
+        }
+
+        stopCurrentUserSync() {
+            if (typeof this.userDocUnsubscribe === 'function') {
+                this.userDocUnsubscribe();
+            }
+            this.userDocUnsubscribe = null;
         }
     }
 

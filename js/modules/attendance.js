@@ -1,17 +1,10 @@
 /**
  * Attendance Module
  * Handles Check-in, Check-out, and Log Management
- * (Converted to IIFE for file:// support)
+ * (IIFE module wrapper)
  */
 (function () {
     class Attendance {
-
-        getAutoCheckoutTime(checkInDate) {
-            const tenPm = new Date(checkInDate);
-            tenPm.setHours(22, 0, 0, 0);
-            const eightHoursLater = new Date(checkInDate.getTime() + (8 * 60 * 60 * 1000));
-            return (eightHoursLater < tenPm) ? eightHoursLater : tenPm;
-        }
 
         async getStatus() {
             // Depend on AppAuth
@@ -20,39 +13,17 @@
                 : window.AppAuth.getUser());
             if (!user) return { status: 'out', lastCheckIn: null };
 
-            // Cross-device stale cleanup: never carry an "in" session into a new day.
             if (user.status === 'in' && user.lastCheckIn) {
                 const checkInDate = new Date(user.lastCheckIn);
                 const now = new Date();
                 const checkInLocalDate = `${checkInDate.getFullYear()}-${String(checkInDate.getMonth() + 1).padStart(2, '0')}-${String(checkInDate.getDate()).padStart(2, '0')}`;
                 const todayLocalDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
                 if (checkInLocalDate < todayLocalDate) {
-                    const autoCheckoutAt = this.getAutoCheckoutTime(checkInDate);
-                    await this.checkOut(
-                        'Auto check-out: previous-day session closed on next sign-in',
-                        null,
-                        null,
-                        'Auto checkout',
-                        false,
-                        '',
-                        {
-                            autoCheckout: true,
-                            autoCheckoutReason: 'Cross-device stale session cleanup',
-                            autoCheckoutAt: autoCheckoutAt.toISOString(),
-                            autoCheckoutRequiresApproval: true,
-                            autoCheckoutExtraApproved: false,
-                            checkOutTime: autoCheckoutAt.toISOString()
-                        }
-                    );
-                    const refreshed = await (window.AppAuth.refreshCurrentUserFromDB
-                        ? window.AppAuth.refreshCurrentUserFromDB()
-                        : window.AppAuth.getUser());
-                    return {
-                        status: refreshed?.status || 'out',
-                        lastCheckIn: refreshed?.lastCheckIn || null
-                    };
+                    // Treat prior-day open sessions as out so UI can run missed-checkout closure on next check-in.
+                    return { status: 'out', lastCheckIn: null, staleSession: true };
                 }
             }
+
             return {
                 status: user.status || 'out',
                 lastCheckIn: user.lastCheckIn
@@ -60,8 +31,82 @@
         }
 
         async checkIn(latitude, longitude, address = 'Unknown Location') {
-            const user = window.AppAuth.getUser();
+            const user = await (window.AppAuth.refreshCurrentUserFromDB
+                ? window.AppAuth.refreshCurrentUserFromDB()
+                : window.AppAuth.getUser());
             if (!user) throw new Error("User not authenticated");
+
+            let resolvedMissedCheckout = false;
+            let noticeMessage = '';
+
+            if (user.status === 'in' && user.lastCheckIn) {
+                const priorCheckInTime = new Date(user.lastCheckIn);
+                const now = new Date();
+                const priorLocalDate = `${priorCheckInTime.getFullYear()}-${String(priorCheckInTime.getMonth() + 1).padStart(2, '0')}-${String(priorCheckInTime.getDate()).padStart(2, '0')}`;
+                const todayLocalDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+                // Only close genuinely stale sessions; same-day open sessions are cross-device conflicts.
+                if (priorLocalDate < todayLocalDate) {
+                    const fixedDurationMs = 8 * 60 * 60 * 1000;
+                    const priorCheckOutTime = new Date(priorCheckInTime.getTime() + fixedDurationMs);
+                    const statusMeta = this.evaluateAttendanceStatus(priorCheckInTime, fixedDurationMs);
+                    const priorLocation = user.currentLocation || user.lastLocation || null;
+                    const closureTimestamp = new Date().toISOString();
+
+                    const missedLog = {
+                        id: String(Date.now()),
+                        user_id: user.id,
+                        date: priorCheckOutTime.toISOString().split('T')[0],
+                        checkIn: priorCheckInTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                        checkOut: priorCheckOutTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                        duration: this.msToTime(fixedDurationMs),
+                        durationMs: fixedDurationMs,
+                        type: statusMeta.status,
+                        dayCredit: statusMeta.dayCredit,
+                        lateCountable: statusMeta.lateCountable,
+                        extraWorkedMs: statusMeta.extraWorkedMs || 0,
+                        policyVersion: 'v2',
+                        location: priorLocation?.address || 'Missed checkout session',
+                        lat: priorLocation?.lat ?? null,
+                        lng: priorLocation?.lng ?? null,
+                        checkOutLocation: 'System closure on next check-in',
+                        outLat: null,
+                        outLng: null,
+                        workDescription: 'System closure: previous open session was closed at fixed 8 credited hours.',
+                        locationMismatched: false,
+                        locationExplanation: '',
+                        activityScore: 0,
+                        autoCheckout: false,
+                        autoCheckoutReason: '',
+                        autoCheckoutAt: null,
+                        autoCheckoutRequiresApproval: false,
+                        autoCheckoutExtraApproved: null,
+                        missedCheckoutResolved: true,
+                        missedCheckoutPolicy: 'fixed_8h_on_next_checkin',
+                        systemClosedAt: closureTimestamp,
+                        synced: false
+                    };
+
+                    await window.AppDB.add('attendance', missedLog);
+
+                    user.status = 'out';
+                    user.lastCheckOut = priorCheckOutTime.getTime();
+                    user.lastLocation = priorLocation;
+                    user.lastCheckOutLocation = { lat: null, lng: null, address: 'System closure on next check-in' };
+                    user.locationMismatched = false;
+                    user.lastCheckIn = null;
+                    user.currentLocation = null;
+
+                    resolvedMissedCheckout = true;
+                    noticeMessage = 'Previous open session was closed by policy at 8 credited hours because checkout was missed.';
+                } else {
+                    return {
+                        ok: false,
+                        conflict: true,
+                        message: 'Status updated from another device.'
+                    };
+                }
+            }
 
             // Update User State
             user.status = 'in';
@@ -73,12 +118,24 @@
             user.currentLocation = { lat: latitude, lng: longitude, address: locationString };
 
             await window.AppDB.put('users', user);
-            return true;
+            return {
+                ok: true,
+                resolvedMissedCheckout,
+                noticeMessage
+            };
         }
 
         async checkOut(description = '', lat = null, lng = null, address = 'Detected Location', locationMismatched = false, explanation = '', options = {}) {
-            const user = window.AppAuth.getUser();
-            if (!user || user.status !== 'in') throw new Error("User is not checked in");
+            const user = await (window.AppAuth.refreshCurrentUserFromDB
+                ? window.AppAuth.refreshCurrentUserFromDB()
+                : window.AppAuth.getUser());
+            if (!user || user.status !== 'in') {
+                return {
+                    ok: false,
+                    conflict: true,
+                    message: 'Status updated from another device.'
+                };
+            }
 
             const checkInTime = new Date(user.lastCheckIn);
             const checkOutTime = options.checkOutTime ? new Date(options.checkOutTime) : new Date();
@@ -117,6 +174,10 @@
                 autoCheckoutAt: options.autoCheckoutAt || null,
                 autoCheckoutRequiresApproval: !!options.autoCheckoutRequiresApproval,
                 autoCheckoutExtraApproved: options.autoCheckoutExtraApproved ?? null,
+                overtimePrompted: !!options.overtimePrompted,
+                overtimeReasonTag: options.overtimeReasonTag || '',
+                overtimeExplanation: options.overtimeExplanation || '',
+                overtimeCappedToEightHours: !!options.overtimeCappedToEightHours,
                 synced: false // For future sync logic
             };
 
@@ -139,7 +200,10 @@
             // Stop Activity Monitoring
             if (window.AppActivity) window.AppActivity.stop();
 
-            return true;
+            return {
+                ok: true,
+                conflict: false
+            };
         }
 
         async addAdminLog(userId, logData) {
@@ -389,3 +453,5 @@
     // Export to Window
     window.AppAttendance = new Attendance();
 })();
+
+

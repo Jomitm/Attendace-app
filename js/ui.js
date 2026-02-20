@@ -809,6 +809,33 @@
                                 <textarea name="locationExplanation" id="location-explanation" placeholder="Or explain here... (optional)" style="width: 100%; height: 70px; padding: 0.75rem; border: 2px solid #bae6fd; border-radius: 10px; resize: none; font-size: 0.85rem; font-family: inherit; transition: border-color 0.2s;" onfocus="this.style.borderColor='#0ea5e9'" onblur="this.style.borderColor='#bae6fd'"></textarea>
                             </div>
 
+                            <div id="checkout-overtime-section" style="display:none; margin-bottom: 1.5rem;">
+                                <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.75rem;">
+                                    <div style="background:#f59e0b; color:white; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.7rem;">5</div>
+                                    <label style="font-size:0.85rem; font-weight:700; color:#92400e; margin:0;">⏱ Overtime Work Details</label>
+                                </div>
+                                <div style="padding: 0.85rem; background: #fffbeb; border: 2px solid #fcd34d; border-radius: 10px; margin-bottom:0.75rem;">
+                                    <p id="checkout-overtime-hint" style="font-size:0.8rem; color:#92400e; margin:0; line-height:1.5;">
+                                        You worked over 1 hour extra. Please capture what was done during overtime.
+                                    </p>
+                                </div>
+
+                                <div style="display:flex; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.75rem;">
+                                    <button type="button" class="overtime-reason-btn" onclick="window.app_selectOvertimeReason(this, 'Field work during overtime', 'overtime_work')" style="background:#fef3c7; border:1px solid #fcd34d; color:#92400e; padding:6px 12px; border-radius:8px; font-size:0.8rem; cursor:pointer; font-weight:600;">
+                                        🚧 Field work
+                                    </button>
+                                    <button type="button" class="overtime-reason-btn" onclick="window.app_selectOvertimeReason(this, 'Client support and follow-up', 'overtime_work')" style="background:#fef3c7; border:1px solid #fcd34d; color:#92400e; padding:6px 12px; border-radius:8px; font-size:0.8rem; cursor:pointer; font-weight:600;">
+                                        🤝 Client support
+                                    </button>
+                                    <button type="button" class="overtime-reason-btn" onclick="window.app_selectOvertimeReason(this, 'Forgot to checkout', 'forgot_checkout')" style="background:#fef3c7; border:1px solid #fcd34d; color:#92400e; padding:6px 12px; border-radius:8px; font-size:0.8rem; cursor:pointer; font-weight:600;">
+                                        ⏰ Forgot to checkout
+                                    </button>
+                                </div>
+
+                                <input type="hidden" id="checkout-overtime-mode" name="overtimeMode" value="overtime_work">
+                                <textarea id="checkout-overtime-explanation" name="overtimeExplanation" placeholder="Describe the work done in overtime (required when shown)..." style="width: 100%; height: 80px; padding: 0.75rem; border: 2px solid #fcd34d; border-radius: 10px; resize: vertical; font-size: 0.85rem; font-family: inherit;" onfocus="this.style.borderColor='#f59e0b'" onblur="this.style.borderColor='#fcd34d'"></textarea>
+                            </div>
+
                             <!-- Action Buttons -->
                             <div style="display: flex; gap: 1rem; margin-top: 1.5rem; flex-wrap:wrap;">
                                 <button type="button" onclick="document.getElementById('checkout-modal').style.display = 'none'" style="flex: 1; min-width:180px; padding: 0.85rem; background: white; border: 2px solid #e2e8f0; border-radius: 10px; cursor: pointer; font-weight:600; color:#64748b; font-size:0.95rem; transition: all 0.2s; display:flex; align-items:center; justify-content:center; gap:0.5rem;" onmouseover="this.style.background='#f8fafc'; this.style.borderColor='#cbd5e1'" onmouseout="this.style.background='white'; this.style.borderColor='#e2e8f0'">
