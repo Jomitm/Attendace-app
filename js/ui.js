@@ -3663,6 +3663,9 @@
                 const totalDeductionDays = (stats.unpaidLeaves || 0) + lateDeductionDays;
                 const deductionAmount = Math.round(dailyRate * totalDeductionDays);
                 const calculatedSalary = Math.max(0, base - deductionAmount);
+                const initialTdsPercent = userTds !== null ? userTds : 0;
+                const initialTdsAmount = Math.round(calculatedSalary * (initialTdsPercent / 100));
+                const initialFinalNet = Math.max(0, calculatedSalary - initialTdsAmount);
 
                 return `
                                         <tr data-user-id="${user.id}" data-base-salary="${base}">
@@ -3691,7 +3694,8 @@
                                             <td>
                                                 <input type="number" class="base-salary-input" value="${base}" 
                                                     style="width: 90px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;"
-                                                    onchange="window.app_recalculateRow(this.closest('tr'))" />
+                                                    onchange="window.app_recalculateRow(this.closest('tr'))"
+                                                    oninput="window.app_recalculateRow(this.closest('tr'))" />
                                             </td>
                                             <td>
                                                 <input type="number" class="other-allowances-input" value="${otherAllowances}" 
@@ -3744,16 +3748,18 @@
                                             <td>
                                                 <input type="number" class="salary-input" value="${calculatedSalary}" 
                                                     style="width: 100px; padding: 4px; border: 1px solid #ddd; border-radius: 10px;"
-                                                    onchange="this.dataset.manual = 'true'; window.app_recalculateRow(this.closest('tr'))" />
+                                                    onchange="this.dataset.manual = 'true'; window.app_recalculateRow(this.closest('tr'))"
+                                                    oninput="this.dataset.manual = 'true'; window.app_recalculateRow(this.closest('tr'))" />
                                             </td>
                                             <td>
                                                 <input type="number" class="tds-input" value="${userTds !== null ? userTds : ''}" min="0" max="100"
                                                     style="width: 60px; padding: 4px; border: 1px solid #ddd; border-radius: 6px;"
                                                     placeholder="${typeof userTds === 'number' ? '' : 'Global'}"
-                                                    onchange="this.dataset.manual = 'true'; window.app_recalculateRow(this.closest('tr'))" />
+                                                    onchange="this.dataset.manual = 'true'; window.app_recalculateRow(this.closest('tr'))"
+                                                    oninput="this.dataset.manual = 'true'; window.app_recalculateRow(this.closest('tr'))" />
                                             </td>
-                                            <td style="color: #64748b;" class="tds-amount">Rs 0</td>
-                                            <td style="font-weight: 700; color: #1e40af;" class="final-net-salary">Rs ${calculatedSalary.toLocaleString()}</td>
+                                            <td style="color: #64748b;" class="tds-amount" data-value="${initialTdsAmount}">Rs ${initialTdsAmount.toLocaleString()}</td>
+                                            <td style="font-weight: 700; color: #1e40af;" class="final-net-salary" data-value="${initialFinalNet}">Rs ${initialFinalNet.toLocaleString()}</td>
                                             <td>
                                                 <input type="text" class="comment-input" placeholder="Required if adjusted..."
                                                     style="width: 150px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;" />
