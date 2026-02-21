@@ -1021,6 +1021,10 @@
                                 <input type="checkbox" name="isAdmin" id="edit-user-isAdmin" style="width: 1.2rem; height: 1.2rem;" onchange="const sel = document.getElementById('edit-user-role'); if(this.checked) sel.value = 'Administrator'; else if(sel.value === 'Administrator') sel.value = 'Employee';">
                                 <div style="font-weight: 600; color: #1e40af;">Grant Administrative Privileges</div>
                             </label>
+                            <label style="display: flex; align-items: center; gap: 0.5rem; background: #ecfdf5; padding: 0.75rem; border-radius: 0.5rem; cursor: pointer;">
+                                <input type="checkbox" name="canManageAttendanceSheet" id="edit-user-can-manage-attendance-sheet" style="width: 1.2rem; height: 1.2rem;">
+                                <div style="font-weight: 600; color: #166534;">Can manage attendance sheet</div>
+                            </label>
                              <div style="display: flex; gap: 1rem;">
                                 <label style="flex:1">
                                     Email
@@ -1188,6 +1192,10 @@
                             <label style="display: flex; align-items: center; gap: 0.5rem; background: #f0f7ff; padding: 0.75rem; border-radius: 0.5rem; cursor: pointer; margin-top: 0.5rem;">
                                 <input type="checkbox" name="isAdmin" id="add-user-isAdmin" style="width: 1.2rem; height: 1.2rem;" onchange="const sel = document.getElementById('add-user-role'); if(this.checked) sel.value = 'Administrator'; else if(sel.value === 'Administrator') sel.value = 'Employee';">
                                 <div style="font-weight: 600; color: #1e40af;">Grant Administrative Privileges</div>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 0.5rem; background: #ecfdf5; padding: 0.75rem; border-radius: 0.5rem; cursor: pointer;">
+                                <input type="checkbox" name="canManageAttendanceSheet" id="add-user-can-manage-attendance-sheet" style="width: 1.2rem; height: 1.2rem;">
+                                <div style="font-weight: 600; color: #166534;">Can manage attendance sheet</div>
                             </label>
                              <div style="display: flex; gap: 1rem;">
                                 <label style="flex:1">
@@ -3925,6 +3933,11 @@
             const minutes = await window.AppMinutes.getMinutes();
             const allUsers = await window.AppDB.getAll('users');
             const currentUser = window.AppAuth.getUser();
+            window.app_refreshMinutesView = async () => {
+                const page = document.getElementById('page-content');
+                if (!page) return;
+                page.innerHTML = await window.AppUI.renderMinutes();
+            };
 
             const isAdminUser = currentUser.isAdmin || currentUser.role === 'Administrator';
             const hasMinuteDetailAccess = (minute, user = currentUser) => {
@@ -3976,7 +3989,7 @@
                             </div>
                         </div>
                         
-                        <div class="modal-body-grid" style="flex: 1; display: grid; grid-template-columns: 1fr 350px; overflow: hidden;">
+                        <div class="modal-body-grid" style="flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 240px; overflow: hidden;">
                             <!-- Main Content Area -->
                             <div style="overflow-y: auto; padding: 2rem; background: white;">
                                 <div style="margin-bottom: 2rem;">
@@ -4042,49 +4055,49 @@
                             <!-- Sidebar -->
                             <div style="background: #f1f5f9; border-left: 1px solid #e2e8f0; display: flex; flex-direction: column; overflow: hidden;">
                                 <!-- Approvals -->
-                                <div style="padding: 1.5rem; border-bottom: 1px solid #e2e8f0;">
-                                    <label style="display: block; font-size: 0.7rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 1rem;">Approvals</label>
+                                <div style="padding: 0.65rem 0.6rem; border-bottom: 1px solid #e2e8f0;">
+                                    <label style="display: block; font-size: 0.62rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 0.45rem;">Approvals</label>
                                     ${(minute.attendeeIds || []).length > 0 ? (minute.attendeeIds || []).map(uid => {
                     const user = allUsers.find(u => u.id === uid);
                     const approvalDate = minute.approvals?.[uid];
                     return `
-                                            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; background: ${approvalDate ? '#f0fdf4' : 'white'}; padding: 0.5rem; border-radius: 8px; border: 1px solid ${approvalDate ? '#dcfce7' : '#e2e8f0'};">
-                                                <img src="${user?.avatar || 'https://via.placeholder.com/24'}" style="width: 24px; height: 24px; border-radius: 50%;">
+                                            <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.35rem; background: ${approvalDate ? '#f0fdf4' : 'white'}; padding: 0.32rem 0.38rem; border-radius: 6px; border: 1px solid ${approvalDate ? '#dcfce7' : '#e2e8f0'};">
+                                                <img src="${user?.avatar || 'https://via.placeholder.com/24'}" style="width: 18px; height: 18px; border-radius: 50%;">
                                                 <div class="dashboard-viewing-meta">
-                                                    <div style="font-size: 0.8rem; font-weight: 600;">${user?.name || 'Unknown'}</div>
-                                                    ${approvalDate ? `<div style="font-size: 0.65rem; color: #166534;">Approved: ${new Date(approvalDate).toLocaleDateString()}</div>` : '<div style="font-size: 0.65rem; color: #94a3b8;">Pending</div>'}
+                                                    <div style="font-size: 0.7rem; font-weight: 600; line-height:1.15;">${user?.name || 'Unknown'}</div>
+                                                    ${approvalDate ? `<div style="font-size: 0.58rem; color: #166534; line-height:1.15;">Approved: ${new Date(approvalDate).toLocaleDateString()}</div>` : '<div style="font-size: 0.58rem; color: #94a3b8; line-height:1.15;">Pending</div>'}
                                                 </div>
-                                                ${approvalDate ? '<i class="fa-solid fa-circle-check" style="color: #22c55e;"></i>' : '<i class="fa-regular fa-circle" style="color: #cbd5e1;"></i>'}
+                                                ${approvalDate ? '<i class="fa-solid fa-circle-check" style="color: #22c55e; font-size:0.78rem;"></i>' : '<i class="fa-regular fa-circle" style="color: #cbd5e1; font-size:0.78rem;"></i>'}
                                             </div>
                                         `;
-                }).join('') : '<div style="font-size: 0.8rem; color: #94a3b8; text-align: center; padding: 1rem;">No attendees assigned for approval.</div>'}
+                }).join('') : '<div style="font-size: 0.72rem; color: #94a3b8; text-align: center; padding: 0.75rem;">No attendees assigned for approval.</div>'}
                                 </div>
 
                                 <!-- Audit Log -->
-                                <div style="padding: 1.5rem; flex: 1; overflow-y: auto;">
-                                    <label style="display: block; font-size: 0.7rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 1rem;">Audit Trail</label>
-                                    <div style="display: flex; flex-direction: column; gap: 1rem;">
+                                <div style="padding: 0.7rem 0.6rem; flex: 1; overflow-y: auto;">
+                                    <label style="display: block; font-size: 0.62rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 0.45rem;">Audit Trail</label>
+                                    <div style="display: flex; flex-direction: column; gap: 0.45rem;">
                                         ${(minute.auditLog || []).slice().reverse().map(log => `
-                                            <div style="position: relative; padding-left: 1rem; border-left: 2px solid #cbd5e1;">
-                                                <div style="position: absolute; left: -5px; top: 0; width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; border: 2px solid #f1f5f9;"></div>
-                                                <div style="font-size: 0.75rem; font-weight: 700; color: #334155;">${log.userName}</div>
-                                                <div style="font-size: 0.8rem; color: #475569; margin: 2px 0;">${log.action}</div>
-                                                <div style="font-size: 0.65rem; color: #94a3b8;">${new Date(log.timestamp).toLocaleString()}</div>
+                                            <div style="position: relative; padding-left: 0.62rem; border-left: 2px solid #cbd5e1;">
+                                                <div style="position: absolute; left: -4px; top: 0; width: 6px; height: 6px; border-radius: 50%; background: #94a3b8; border: 2px solid #f1f5f9;"></div>
+                                                <div style="font-size: 0.66rem; font-weight: 700; color: #334155;">${log.userName}</div>
+                                                <div style="font-size: 0.68rem; color: #475569; margin: 1px 0;">${log.action}</div>
+                                                <div style="font-size: 0.56rem; color: #94a3b8;">${new Date(log.timestamp).toLocaleString()}</div>
                                             </div>
                                         `).join('')}
                                     </div>
                                 </div>
 
                                 ${isAdmin ? `
-                                    <div style="padding: 1.5rem; background: #fffbeb; border-top: 1px solid #fef3c7;">
-                                        <label style="display: block; font-size: 0.7rem; font-weight: 700; color: #92400e; text-transform: uppercase; margin-bottom: 0.5rem;"><i class="fa-solid fa-user-check"></i> Access Requests</label>
+                                    <div style="padding: 0.9rem 0.85rem; background: #fffbeb; border-top: 1px solid #fef3c7;">
+                                        <label style="display: block; font-size: 0.66rem; font-weight: 700; color: #92400e; text-transform: uppercase; margin-bottom: 0.4rem;"><i class="fa-solid fa-user-check"></i> Access Requests</label>
                                         ${pendingAccessRequests.length > 0 ? pendingAccessRequests.map(req => `
-                                            <div style="background:#fff; border:1px solid #fde68a; border-radius:8px; padding:0.6rem; margin-bottom:0.55rem;">
-                                                <div style="font-size:0.8rem; font-weight:700; color:#1f2937;">${req.userName || req.userId}</div>
-                                                <div style="font-size:0.7rem; color:#6b7280; margin-bottom:0.45rem;">Requested: ${new Date(req.requestedAt).toLocaleString()}</div>
+                                            <div style="background:#fff; border:1px solid #fde68a; border-radius:8px; padding:0.45rem; margin-bottom:0.45rem;">
+                                                <div style="font-size:0.74rem; font-weight:700; color:#1f2937;">${req.userName || req.userId}</div>
+                                                <div style="font-size:0.64rem; color:#6b7280; margin-bottom:0.35rem;">Requested: ${new Date(req.requestedAt).toLocaleString()}</div>
                                                 <div style="display:flex; gap:0.45rem;">
-                                                    <button type="button" onclick="window.app_reviewMinuteAccess('${id}','${req.userId}','approved')" style="background:#10b981; color:#fff; border:none; border-radius:6px; padding:0.3rem 0.55rem; font-size:0.72rem; cursor:pointer;">Approve</button>
-                                                    <button type="button" onclick="window.app_reviewMinuteAccess('${id}','${req.userId}','rejected')" style="background:#ef4444; color:#fff; border:none; border-radius:6px; padding:0.3rem 0.55rem; font-size:0.72rem; cursor:pointer;">Reject</button>
+                                                    <button type="button" onclick="window.app_reviewMinuteAccess('${id}','${req.userId}','approved')" style="background:#10b981; color:#fff; border:none; border-radius:6px; padding:0.25rem 0.45rem; font-size:0.68rem; cursor:pointer;">Approve</button>
+                                                    <button type="button" onclick="window.app_reviewMinuteAccess('${id}','${req.userId}','rejected')" style="background:#ef4444; color:#fff; border:none; border-radius:6px; padding:0.25rem 0.45rem; font-size:0.68rem; cursor:pointer;">Reject</button>
                                                 </div>
                                             </div>
                                         `).join('') : '<div style="font-size:0.8rem; color:#9a3412;">No pending requests.</div>'}
@@ -4144,7 +4157,7 @@
                     await window.AppMinutes.updateMinute(id, { content, actionItems }, "Edited discussion content and action items");
                     alert("Changes saved!");
                     document.getElementById('minute-detail-modal').remove();
-                    window.location.reload();
+                    await window.app_refreshMinutesView();
                 } catch (err) {
                     alert(err.message);
                 }
@@ -4156,7 +4169,7 @@
                         await window.AppMinutes.approveMinute(id);
                         alert("Minutes approved!");
                         document.getElementById('minute-detail-modal').remove();
-                        window.location.reload();
+                        await window.app_refreshMinutesView();
                     } catch (err) {
                         alert(err.message);
                     }
@@ -4216,7 +4229,7 @@
                     }
 
                     alert('Access request sent to admin.');
-                    window.location.reload();
+                    await window.app_refreshMinutesView();
                 } catch (err) {
                     alert(err.message);
                 }
@@ -4270,7 +4283,7 @@
 
                     alert(`Request ${decision}.`);
                     document.getElementById('minute-detail-modal')?.remove();
-                    window.location.reload();
+                    await window.app_refreshMinutesView();
                 } catch (err) {
                     alert(err.message);
                 }
@@ -4311,7 +4324,7 @@
 
                     await window.AppMinutes.updateMinute(minuteId, { actionItems }, `Action item ${newStatus}`);
                     document.getElementById('minute-detail-modal')?.remove();
-                    window.location.reload();
+                    await window.app_refreshMinutesView();
                 } catch (err) {
                     alert(err.message);
                 }
@@ -4414,7 +4427,7 @@
                 try {
                     await window.AppMinutes.addMinute({ title, date, attendeeIds, content, actionItems });
                     alert("Meeting minutes recorded!");
-                    window.location.reload();
+                    await window.app_refreshMinutesView();
                 } catch (err) {
                     alert(err.message);
                 }
@@ -4424,7 +4437,7 @@
                 if (await window.appConfirm("Are you sure you want to delete this meeting record?")) {
                     try {
                         await window.AppMinutes.deleteMinute(id);
-                        window.location.reload();
+                        await window.app_refreshMinutesView();
                     } catch (err) {
                         alert(err.message);
                     }

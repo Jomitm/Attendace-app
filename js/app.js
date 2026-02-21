@@ -10,6 +10,7 @@
     // App State
     let timerInterval = null;
     let adminListenerUnsubscribe = [];
+    let minutesListenerUnsubscribe = null;
     let cachedLocation = null;
     let lastLocationFetch = 0;
     let attendanceActionInFlight = false;
@@ -18,6 +19,15 @@
     let suppressSyncToastUntil = 0;
     const LOCATION_CACHE_TIME = 30000; // 30 seconds cache
     window.app_annualYear = new Date().getFullYear();
+
+    window.app_isAdminUser = (user = window.AppAuth?.getUser()) => {
+        return !!(user && (user.role === 'Administrator' || user.isAdmin));
+    };
+
+    window.app_canManageAttendanceSheet = (user = window.AppAuth?.getUser()) => {
+        if (!user) return false;
+        return window.app_isAdminUser(user) || !!user.canManageAttendanceSheet;
+    };
 
     // DOM Elements - queried dynamically or once if available
     const contentArea = document.getElementById('page-content');
@@ -438,6 +448,11 @@
             adminListenerUnsubscribe.forEach(u => typeof u === 'function' && u());
             adminListenerUnsubscribe = [];
         }
+        if (hash !== 'minutes' && typeof minutesListenerUnsubscribe === 'function') {
+            console.log("Cleaning up Minutes Realtime Listener.");
+            minutesListenerUnsubscribe();
+            minutesListenerUnsubscribe = null;
+        }
 
         // AUTH GUARD
         if (!user) {
@@ -470,9 +485,19 @@
         }
 
         // Admin Link logic
-        const adminLinks = document.querySelectorAll('a[data-page="admin"], a[data-page="salary"], a[data-page="master-sheet"], a[data-page="policy-test"]');
-        adminLinks.forEach(link => {
-            if (user.role === 'Administrator' || user.isAdmin) {
+        const isAdminUser = window.app_isAdminUser(user);
+        const canManageAttendanceSheet = window.app_canManageAttendanceSheet(user);
+        const strictAdminLinks = document.querySelectorAll('a[data-page="admin"], a[data-page="salary"], a[data-page="policy-test"]');
+        strictAdminLinks.forEach(link => {
+            if (isAdminUser) {
+                link.style.display = 'flex';
+            } else {
+                link.style.setProperty('display', 'none', 'important');
+            }
+        });
+        const attendanceSheetLinks = document.querySelectorAll('a[data-page="master-sheet"]');
+        attendanceSheetLinks.forEach(link => {
+            if (isAdminUser || canManageAttendanceSheet) {
                 link.style.display = 'flex';
             } else {
                 link.style.setProperty('display', 'none', 'important');
@@ -518,27 +543,28 @@
             } else if (hash === 'profile') {
                 contentArea.innerHTML = await window.AppUI.renderProfile();
             } else if (hash === 'salary') {
-                if (user.role !== 'Administrator' && !user.isAdmin) {
+                if (!window.app_isAdminUser(user)) {
                     window.location.hash = 'dashboard';
                     return;
                 }
                 contentArea.innerHTML = await window.AppUI.renderSalaryProcessing ? await window.AppUI.renderSalaryProcessing() : await window.AppUI.renderSalary();
             } else if (hash === 'policy-test') {
-                if (user.role !== 'Administrator' && !user.isAdmin) {
+                if (!window.app_isAdminUser(user)) {
                     window.location.hash = 'dashboard';
                     return;
                 }
                 contentArea.innerHTML = await window.AppUI.renderPolicyTest();
             } else if (hash === 'master-sheet') {
-                if (user.role !== 'Administrator' && !user.isAdmin) {
+                if (!window.app_canManageAttendanceSheet(user)) {
                     window.location.hash = 'dashboard';
                     return;
                 }
                 contentArea.innerHTML = await window.AppUI.renderMasterSheet();
             } else if (hash === 'minutes') {
                 contentArea.innerHTML = await window.AppUI.renderMinutes();
+                startMinutesRealtimeListener();
             } else if (hash === 'admin') {
-                if (user.role !== 'Administrator' && !user.isAdmin) {
+                if (!window.app_isAdminUser(user)) {
                     window.location.hash = 'dashboard';
                     return;
                 }
@@ -589,6 +615,26 @@
 
         // Listen for audit logs (manual trigger triggers these immediately)
         adminListenerUnsubscribe.push(window.AppDB.listen('location_audits', refreshAdminUI));
+    }
+
+    function startMinutesRealtimeListener() {
+        if (!window.AppDB || !window.AppDB.listen) return;
+        if (typeof minutesListenerUnsubscribe === 'function') {
+            minutesListenerUnsubscribe();
+            minutesListenerUnsubscribe = null;
+        }
+
+        const refreshMinutesUI = async () => {
+            const currentHash = window.location.hash.slice(1) || 'dashboard';
+            if (currentHash !== 'minutes') return;
+            if (document.getElementById('minute-detail-modal')) return;
+
+            const page = document.getElementById('page-content');
+            if (!page) return;
+            page.innerHTML = await window.AppUI.renderMinutes();
+        };
+
+        minutesListenerUnsubscribe = window.AppDB.listen('minutes', refreshMinutesUI);
     }
 
     // --- Event Handlers ---
@@ -2717,6 +2763,7 @@
         const email = formData.get('email').trim();
 
         const isAdmin = formData.get('isAdmin') === 'on' || formData.get('isAdmin') === 'true';
+        const canManageAttendanceSheet = formData.get('canManageAttendanceSheet') === 'on' || formData.get('canManageAttendanceSheet') === 'true';
 
         const userData = {
             id: 'u' + Date.now(),
@@ -2729,6 +2776,7 @@
             phone: formData.get('phone'),
             joinDate: formData.get('joinDate'),
             isAdmin: isAdmin,
+            canManageAttendanceSheet: canManageAttendanceSheet,
             avatar: `https://ui-avatars.com/api/?name=${formData.get('name')}&background=random&color=fff`,
             status: 'out',
             lastCheckIn: null
@@ -2740,6 +2788,7 @@
             if (userData.isAdmin || userData.role === 'Administrator') {
                 userData.isAdmin = true;
                 userData.role = 'Administrator';
+                userData.canManageAttendanceSheet = true;
             }
 
             await window.AppDB.add('users', userData);
@@ -2778,6 +2827,8 @@
 
         const isAdminEl = form.querySelector('[name="isAdmin"]');
         const isAdmin = !!(isAdminEl && isAdminEl.checked);
+        const canManageAttendanceSheetEl = form.querySelector('[name="canManageAttendanceSheet"]');
+        const canManageAttendanceSheet = !!(canManageAttendanceSheetEl && canManageAttendanceSheetEl.checked);
         const deriveEmployeeId = (joinDateRaw, userIdRaw) => {
             const joinDate = String(joinDateRaw || '').trim();
             if (!/^\d{4}-\d{2}-\d{2}$/.test(joinDate)) return 'NA';
@@ -2825,6 +2876,7 @@
             email: (formData.get('email') || "").trim(),
             phone: (formData.get('phone') || "").trim(),
             isAdmin,
+            canManageAttendanceSheet,
             employeeId,
             joinDate: joinDate || null,
             baseSalary: Number(formData.get('baseSalary') || 0),
@@ -2841,6 +2893,9 @@
         };
 
         console.log("Executing Update for User:", userData);
+        if (userData.isAdmin || userData.role === 'Administrator') {
+            userData.canManageAttendanceSheet = true;
+        }
 
         try {
             const success = await window.AppAuth.updateUser(userData);
@@ -3525,6 +3580,7 @@
         form.querySelector('#edit-user-email').value = user.email;
         form.querySelector('#edit-user-phone').value = user.phone;
         form.querySelector('#edit-user-isAdmin').checked = !!(user.isAdmin || user.role === 'Administrator');
+        form.querySelector('#edit-user-can-manage-attendance-sheet').checked = !!(user.canManageAttendanceSheet || user.isAdmin || user.role === 'Administrator');
         const normalizedJoinDate = normalizeIsoDate(user.joinDate);
         form.querySelector('#edit-user-join-date').value = normalizedJoinDate;
         form.querySelector('#edit-user-employee-id').value = normalizedJoinDate
@@ -3596,6 +3652,10 @@
     };
 
     window.app_viewLogs = async (userId) => {
+        if (!window.app_canManageAttendanceSheet()) {
+            alert("You do not have permission for this action.");
+            return;
+        }
         console.log("Viewing details for:", userId);
         const user = await window.AppDB.get('users', userId);
         let logs = await window.AppAttendance.getLogs(userId);
@@ -3668,6 +3728,10 @@
     };
 
     window.app_openManualLogModal = (userId) => {
+        if (!window.app_canManageAttendanceSheet()) {
+            alert("You do not have permission for this action.");
+            return;
+        }
         const html = `
             <div class="modal-overlay" id="manual-admin-log-modal" style="display:flex;">
                 <div class="modal-content">
@@ -3716,6 +3780,10 @@
     };
 
     window.app_submitManualLog = async (e, userId) => {
+        if (!window.app_canManageAttendanceSheet()) {
+            alert("You do not have permission for this action.");
+            return;
+        }
         e.preventDefault();
         const fd = new FormData(e.target);
         const checkIn = fd.get('checkIn');
@@ -3759,6 +3827,10 @@
     };
 
     window.app_deleteLog = async (logId, userId) => {
+        if (!window.app_canManageAttendanceSheet()) {
+            alert("You do not have permission for this action.");
+            return;
+        }
         if (!await window.appConfirm("Are you sure you want to delete this attendance record?")) return;
         try {
             await window.AppAttendance.deleteLog(logId);
@@ -3853,6 +3925,10 @@
     };
 
     window.app_exportMasterSheet = async () => {
+        if (!window.app_canManageAttendanceSheet()) {
+            alert("You do not have permission for this action.");
+            return;
+        }
         const month = parseInt(document.getElementById('sheet-month').value);
         const year = parseInt(document.getElementById('sheet-year').value);
         const users = await window.AppDB.getAll('users');
@@ -3867,6 +3943,10 @@
     };
 
     window.app_openCellOverride = async (userId, dateStr) => {
+        if (!window.app_canManageAttendanceSheet()) {
+            alert("You do not have permission for this action.");
+            return;
+        }
         const user = (await window.AppDB.getAll('users')).find(u => u.id === userId);
         const logs = await window.AppDB.getAll('attendance');
         const existingLog = logs.find(l => (l.userId === userId || l.user_id === userId) && l.date === dateStr);
@@ -3930,6 +4010,10 @@
     };
 
     window.app_submitCellOverride = async (e, userId, dateStr, logId) => {
+        if (!window.app_canManageAttendanceSheet()) {
+            alert("You do not have permission for this action.");
+            return;
+        }
         e.preventDefault();
         const fd = new FormData(e.target);
         const checkIn = fd.get('checkIn');
@@ -3978,6 +4062,10 @@
     };
 
     window.app_deleteCellLog = async (logId, userId) => {
+        if (!window.app_canManageAttendanceSheet()) {
+            alert("You do not have permission for this action.");
+            return;
+        }
         if (!await window.appConfirm("Delete this attendance record?")) return;
         try {
             await window.AppAttendance.deleteLog(logId);
@@ -4034,6 +4122,10 @@
     };
 
     window.app_runAttendancePolicyMigration = async () => {
+        if (!window.app_canManageAttendanceSheet()) {
+            alert("You do not have permission for this action.");
+            return;
+        }
         const confirmed = await window.appConfirm(
             "Recalculate historical attendance logs with the current policy? This updates stored status/credits for existing office logs.",
             "Run Attendance Migration"
@@ -4132,6 +4224,9 @@
                 if (window.setupDashboardEvents) window.setupDashboardEvents();
             } else if (hash === 'salary') {
                 contentArea.innerHTML = await window.AppUI.renderSalaryProcessing();
+                if (window.app_recalculateAllSalaries) {
+                    window.app_recalculateAllSalaries();
+                }
             } else if (hash === 'timesheet') {
                 contentArea.innerHTML = await window.AppUI.renderTimesheet();
             }
