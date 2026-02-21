@@ -5159,6 +5159,50 @@
         if (overlay) overlay.remove();
     };
 
+    window.app_getSystemUpdateNotes = () => ([
+        {
+            date: '2026-02-21',
+            summary: 'Check for System Update now shows this quick update popup before refreshing.'
+        },
+        {
+            date: '2026-02-21',
+            summary: 'The update action shortcut was changed from Ctrl+F5 to Ctrl+Shift+R.'
+        }
+    ]);
+
+    window.app_showSystemUpdatePopup = () => {
+        const modalId = 'system-update-modal';
+        const notes = (window.app_getSystemUpdateNotes() || []).slice(0, 5);
+        const listHtml = notes.length
+            ? notes.map(n => `
+                <li style="margin:0 0 0.7rem 0; color:#334155; line-height:1.45;">
+                    <span style="display:block; font-size:0.72rem; color:#64748b; font-weight:700;">${escapeDialogHtml(n.date || '')}</span>
+                    <span>${escapeDialogHtml(n.summary || '')}</span>
+                </li>
+            `).join('')
+            : '<li style="color:#64748b;">No update notes available.</li>';
+
+        const html = `
+            <div class="modal-overlay" id="${modalId}" style="display:flex;">
+                <div class="modal-content" style="max-width:560px;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.8rem;">
+                        <h3 style="margin:0; font-size:1.1rem;">System Updates</h3>
+                        <button type="button" onclick="this.closest('.modal-overlay').remove()" style="background:none; border:none; font-size:1.25rem; cursor:pointer;">&times;</button>
+                    </div>
+                    <p style="margin:0 0 0.8rem 0; color:#64748b; font-size:0.86rem;">Recent functionality changes</p>
+                    <ul style="margin:0; padding-left:1rem; max-height:260px; overflow:auto;">
+                        ${listHtml}
+                    </ul>
+                    <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top:1rem;">
+                        <button type="button" class="action-btn secondary" onclick="this.closest('.modal-overlay').remove()">Close</button>
+                        <button type="button" class="action-btn" onclick="this.closest('.modal-overlay').remove(); window.app_forceRefresh();">Update now (Ctrl+Shift+R)</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        window.app_showModal(html, modalId);
+    };
+
     window.app_forceRefresh = async () => {
         try {
             if (navigator.serviceWorker) {
