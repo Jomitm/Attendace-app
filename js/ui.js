@@ -3944,12 +3944,17 @@
             };
 
             const isAdminUser = currentUser.isAdmin || currentUser.role === 'Administrator';
+            const isMinuteTaskAssignee = (minute, userId) => {
+                if (!minute || !userId) return false;
+                return (minute.actionItems || []).some(item => item && item.assigneeId === userId);
+            };
             const hasMinuteDetailAccess = (minute, user = currentUser) => {
                 if (!minute || !user) return false;
                 if (user.isAdmin || user.role === 'Administrator') return true;
                 if ((minute.restrictedFrom || []).includes(user.id)) return false;
                 if (minute.createdBy === user.id) return true;
                 if ((minute.attendeeIds || []).includes(user.id)) return true;
+                if (isMinuteTaskAssignee(minute, user.id)) return true;
                 if ((minute.allowedViewers || []).includes(user.id)) return true;
                 return false;
             };
