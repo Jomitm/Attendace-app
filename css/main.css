@@ -7395,3 +7395,162 @@ textarea:focus {
 .salary-processing-table tbody td:nth-child(2) {
     box-shadow: 1px 0 0 #e2e8f0;
 }
+
+/* Day Plan: declutter, per-task scope, collapsible cards, and inline collaborators */
+#day-plan-modal .day-plan-content {
+    max-height: min(90vh, 920px);
+    overflow: auto;
+}
+
+#day-plan-modal .day-plan-block-shell {
+    border: 1px solid #dbe7ff;
+    border-radius: 14px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    margin-bottom: 0.85rem;
+    overflow: hidden;
+}
+
+#day-plan-modal .day-plan-block-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.7rem;
+    padding: 0.55rem 0.75rem;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f1f5ff;
+}
+
+#day-plan-modal .day-plan-block-head-main {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    min-width: 0;
+}
+
+#day-plan-modal .day-plan-task-summary {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #1e3a8a;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 48ch;
+}
+
+#day-plan-modal .day-plan-scope-pill {
+    font-size: 0.67rem;
+    font-weight: 700;
+    border-radius: 999px;
+    padding: 0.2rem 0.5rem;
+    color: #155e75;
+    background: #cffafe;
+    border: 1px solid #99f6e4;
+}
+
+#day-plan-modal .day-plan-block-head-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+#day-plan-modal .day-plan-collapse-btn {
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #334155;
+    border-radius: 8px;
+    padding: 0.34rem 0.52rem;
+    font-size: 0.74rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    cursor: pointer;
+}
+
+#day-plan-modal .day-plan-inline-work-controls {
+    border: 1px solid #dbeafe;
+    border-radius: 12px;
+    background: #f8fbff;
+    padding: 0.55rem;
+    margin-top: 0.5rem;
+}
+
+#day-plan-modal .day-plan-scope-select {
+    max-width: 190px;
+}
+
+#day-plan-modal .day-plan-collab-inline {
+    margin: 0.45rem 0 0.35rem 0;
+}
+
+#day-plan-modal .day-plan-collab-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+
+#day-plan-modal .day-plan-collab-option {
+    border: 1px solid #bfdbfe;
+    background: #eff6ff;
+    color: #1e40af;
+    border-radius: 999px;
+    padding: 0.24rem 0.56rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+#day-plan-modal .day-plan-collab-option.selected {
+    border-color: #16a34a;
+    background: #dcfce7;
+    color: #166534;
+}
+
+#day-plan-modal .day-plan-collab-empty {
+    font-size: 0.72rem;
+    color: #64748b;
+}
+
+#day-plan-modal .day-plan-tags-inline {
+    margin-top: 0.35rem;
+}
+
+#day-plan-modal .is-collapsed .day-plan-block-body,
+#day-plan-modal .is-collapsed .day-plan-bottom-controls {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    #day-plan-modal .day-plan-content {
+        width: 96%;
+        max-height: 94vh;
+        padding: 0.72rem !important;
+    }
+
+    #day-plan-modal .day-plan-task-summary {
+        max-width: 24ch;
+    }
+
+    #day-plan-modal .day-plan-block-head {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    #day-plan-modal .day-plan-block-head-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    #day-plan-modal .day-plan-collab-picker {
+        max-height: 108px;
+        overflow: auto;
+        padding-right: 0.1rem;
+    }
+
+    #day-plan-modal .day-plan-footer {
+        position: sticky;
+        bottom: 0;
+        background: #ffffff;
+        padding-top: 0.65rem;
+    }
+}

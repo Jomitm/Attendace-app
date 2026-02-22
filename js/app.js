@@ -1034,21 +1034,98 @@
         return raw;
     };
 
+    const app_escapeHtml = (value) => String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    const app_escapeJsSingleQuote = (value) => String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+    const app_getTaskSummary = (taskText = '') => {
+        const clean = String(taskText || '').replace(/\s+/g, ' ').trim();
+        if (!clean) return 'New task';
+        return clean.length > 72 ? `${clean.slice(0, 72)}...` : clean;
+    };
+
+    const app_renderNoCollaboratorsPlaceholder = () => `
+        <div class="no-tags-placeholder day-plan-no-tags-placeholder">
+            <div class="day-plan-no-tags-icon-wrap"><i class="fa-solid fa-user-plus day-plan-no-tags-icon"></i></div>
+            <p class="day-plan-no-tags-title">No collaborators yet</p>
+            <p class="day-plan-no-tags-text">Pick collaborators below or use @ mention.</p>
+        </div>
+    `;
+
+    const app_buildCollaboratorChip = (userId, userName, status = 'pending') => `
+        <div class="tag-chip day-plan-tag-chip" data-id="${app_escapeHtml(userId)}" data-name="${app_escapeHtml(userName)}" data-status="${app_escapeHtml(status)}">
+            <span class="day-plan-tag-main"><i class="fa-solid fa-at day-plan-tag-icon"></i>${app_escapeHtml(userName)} <span class="day-plan-tag-pending">(${app_escapeHtml(status)})</span></span>
+            <i class="fa-solid fa-times day-plan-remove-collab-btn" onclick="window.app_removeTagHint(this)"></i>
+        </div>
+    `;
+
+    window.app_refreshPlanBlockSummary = (block) => {
+        if (!block) return;
+        const taskInput = block.querySelector('.plan-task');
+        const summaryEl = block.querySelector('.day-plan-task-summary');
+        const scopeSelect = block.querySelector('.plan-scope');
+        const scopePill = block.querySelector('.day-plan-scope-pill');
+        const summary = app_getTaskSummary(taskInput ? taskInput.value : '');
+        if (summaryEl) summaryEl.textContent = summary;
+        if (scopePill && scopeSelect) scopePill.textContent = scopeSelect.value === 'annual' ? 'Annual Plan' : 'Personal Plan';
+    };
+
+    window.app_togglePlanBlockCollapse = (btn) => {
+        const block = btn.closest('.plan-block');
+        if (!block) return;
+        block.classList.toggle('is-collapsed');
+        const collapsed = block.classList.contains('is-collapsed');
+        const icon = btn.querySelector('i');
+        if (icon) {
+            icon.classList.toggle('fa-chevron-down', !collapsed);
+            icon.classList.toggle('fa-chevron-up', collapsed);
+        }
+        const label = btn.querySelector('.day-plan-collapse-label');
+        if (label) label.textContent = collapsed ? 'Expand' : 'Minimize';
+        window.app_refreshPlanBlockSummary(block);
+    };
+
+    window.app_toggleTaskCollaborator = (btn, userId, userName) => {
+        const block = btn.closest('.plan-block');
+        if (!block) return;
+        const tagsContainer = block.querySelector('.tags-container');
+        if (!tagsContainer) return;
+
+        const escapedId = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(userId) : userId.replace(/"/g, '\\"');
+        const existing = tagsContainer.querySelector(`[data-id="${escapedId}"]`);
+        if (existing) {
+            existing.remove();
+            btn.classList.remove('selected');
+        } else {
+            const placeholder = tagsContainer.querySelector('.no-tags-placeholder');
+            if (placeholder) placeholder.remove();
+            tagsContainer.insertAdjacentHTML('beforeend', app_buildCollaboratorChip(userId, userName, 'pending'));
+            btn.classList.add('selected');
+        }
+
+        if (tagsContainer.querySelectorAll('.tag-chip').length === 0) {
+            tagsContainer.innerHTML = app_renderNoCollaboratorsPlaceholder();
+        }
+    };
+
     window.app_openDayPlan = async (date, targetUserId = null, forcedScope = null) => {
         const currentUser = window.AppAuth.getUser();
         const targetId = app_resolveTargetUserId(targetUserId, currentUser.id);
         const allUsers = await window.AppDB.getAll('users');
         const isAdmin = currentUser.role === 'Administrator' || currentUser.isAdmin;
         const isEditingOther = targetId !== currentUser.id;
+        const defaultScope = forcedScope === 'annual' ? 'annual' : 'personal';
+        window.app_currentDayPlanTargetId = targetId;
 
-        const myWorkPlan = await window.AppCalendar.getWorkPlan(targetId, date, forcedScope
-            ? { includeAnnual: true, planScope: forcedScope }
-            : { includeAnnual: true });
-        const initialPlanScope = forcedScope === 'annual'
-            ? 'annual'
-            : forcedScope === 'personal'
-                ? 'personal'
-                : (myWorkPlan?.planScope === 'annual' ? 'annual' : 'personal');
+        const personalWorkPlan = await window.AppCalendar.getWorkPlan(targetId, date, { planScope: 'personal' });
+        const annualWorkPlan = await window.AppCalendar.getWorkPlan(targetId, date, { planScope: 'annual' });
+        const hasAnyExistingPlan = !!(personalWorkPlan || annualWorkPlan);
+        const selectableCollaborators = allUsers.filter(u => u.id !== targetId);
 
         const blockFromPlan = (plan = {}, idx = 0) => {
             const task = plan.task || '';
@@ -1057,11 +1134,36 @@
             const assignedTo = plan.assignedTo || targetId;
             const startDate = plan.startDate || '';
             const endDate = plan.endDate || '';
+            const taskScope = String(plan.planScope || plan._planScope || defaultScope) === 'annual' ? 'annual' : 'personal';
+            const summary = app_getTaskSummary(task);
+            const tagIdSet = new Set(tags.map(t => String(t.id || '')));
+            const collaboratorButtons = selectableCollaborators.map(u => `
+                <button
+                    type="button"
+                    class="day-plan-collab-option ${tagIdSet.has(String(u.id)) ? 'selected' : ''}"
+                    data-id="${app_escapeHtml(u.id)}"
+                    onclick="window.app_toggleTaskCollaborator(this, '${app_escapeJsSingleQuote(u.id)}', '${app_escapeJsSingleQuote(u.name)}')"
+                    title="Add or remove ${app_escapeHtml(u.name)}"
+                >${app_escapeHtml(u.name)}</button>
+            `).join('');
 
             return `
                 <div class="plan-block day-plan-block-shell" data-index="${idx}">
+                    <div class="day-plan-block-head">
+                        <div class="day-plan-block-head-main">
+                            <span class="day-plan-index-badge-step">${idx + 1}</span>
+                            <span class="day-plan-task-summary">${app_escapeHtml(summary)}</span>
+                            <span class="day-plan-scope-pill">${taskScope === 'annual' ? 'Annual Plan' : 'Personal Plan'}</span>
+                        </div>
+                        <div class="day-plan-block-head-actions">
+                            ${idx > 0 ? `<button type="button" onclick="this.closest('.plan-block').remove()" title="Remove this task" class="day-plan-remove-task-btn"><i class="fa-solid fa-times"></i></button>` : ''}
+                            <button type="button" class="day-plan-collapse-btn" onclick="window.app_togglePlanBlockCollapse(this)">
+                                <i class="fa-solid fa-chevron-down"></i>
+                                <span class="day-plan-collapse-label">Minimize</span>
+                            </button>
+                        </div>
+                    </div>
                     <div class="day-plan-block-body">
-                        ${idx > 0 ? `<button type="button" onclick="this.closest('.plan-block').remove()" title="Remove this task" class="day-plan-remove-task-btn"><i class="fa-solid fa-times"></i></button>` : ''}
                         <div class="day-plan-left-panel day-plan-main-panel">
                             <div style="display:flex; gap:0.6rem; align-items:center; justify-content:space-between; flex-wrap:wrap;">
                                 <label class="day-plan-label" style="margin:0;">What will you work on?</label>
@@ -1071,27 +1173,28 @@
                                     <span style="font-size:0.7rem; color:#64748b; font-weight:600;">Optional: use for multi-day task</span>
                                 </div>
                             </div>
-                            <p class="day-plan-help-text">Be specific. Use @ to tag collaborators.</p>
+                            <p class="day-plan-help-text">Be specific. Pick collaborators here or use @ mention.</p>
                             <textarea class="plan-task day-plan-task-input" required placeholder="Describe your plan for the day...">${task}</textarea>
-                            <div class="day-plan-collab-inline">
-                                <div class="day-plan-collab-head">
-                                    <span class="day-plan-mini-label">Collaborators</span>
-                                    <span class="day-plan-collab-hint">Type <b>@</b> in task text, then pick a teammate.</span>
+                            <div class="day-plan-inline-work-controls">
+                                <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
+                                    <label class="day-plan-mini-label" style="margin:0;">Plan Type</label>
+                                    <select class="plan-scope day-plan-select day-plan-scope-select">
+                                        <option value="personal" ${taskScope === 'personal' ? 'selected' : ''}>Personal Plan</option>
+                                        <option value="annual" ${taskScope === 'annual' ? 'selected' : ''}>Annual Plan</option>
+                                    </select>
+                                </div>
+                                <div class="day-plan-collab-inline">
+                                    <div class="day-plan-collab-head">
+                                        <span class="day-plan-mini-label">Collaborators</span>
+                                        <span class="day-plan-collab-hint">Selected collaborators are highlighted.</span>
+                                    </div>
+                                    <div class="day-plan-collab-picker">
+                                        ${collaboratorButtons || '<span class="day-plan-collab-empty">No teammates available.</span>'}
+                                    </div>
                                 </div>
                                 <div class="tags-container day-plan-tags-inline">
-                                    ${tags.map(t => `
-                                        <div class="tag-chip day-plan-tag-chip" data-id="${t.id}" data-name="${t.name}" data-status="${t.status || 'pending'}">
-                                            <span class="day-plan-tag-main"><i class="fa-solid fa-at day-plan-tag-icon"></i>${t.name} <span class="day-plan-tag-pending">(${t.status || 'pending'})</span></span>
-                                            <i class="fa-solid fa-times day-plan-remove-collab-btn" onclick="window.app_removeTagHint(this)"></i>
-                                        </div>
-                                    `).join('')}
-                                    ${tags.length === 0 ? `
-                                        <div class="no-tags-placeholder day-plan-no-tags-placeholder">
-                                            <div class="day-plan-no-tags-icon-wrap"><i class="fa-solid fa-user-plus day-plan-no-tags-icon"></i></div>
-                                            <p class="day-plan-no-tags-title">No collaborators yet</p>
-                                            <p class="day-plan-no-tags-text">Use <b>@</b> in your task to tag teammates</p>
-                                        </div>
-                                    ` : ''}
+                                    ${tags.map(t => app_buildCollaboratorChip(t.id, t.name, t.status || 'pending')).join('')}
+                                    ${tags.length === 0 ? app_renderNoCollaboratorsPlaceholder() : ''}
                                 </div>
                             </div>
                             <div class="day-plan-sub-section">
@@ -1133,11 +1236,42 @@
             `;
         };
 
-        const initialBlocks = (myWorkPlan && Array.isArray(myWorkPlan.plans) && myWorkPlan.plans.length > 0)
-            ? myWorkPlan.plans
-            : (myWorkPlan && myWorkPlan.plan)
-                ? [{ task: myWorkPlan.plan, subPlans: myWorkPlan.subPlans || [], tags: [], status: null, assignedTo: targetId, startDate: date, endDate: date }]
-                : [{ task: '', subPlans: [], tags: [], status: null, assignedTo: targetId, startDate: date, endDate: date }];
+        const normalizeScopedPlans = (workPlan, scope) => {
+            if (!workPlan) return [];
+            if (Array.isArray(workPlan.plans) && workPlan.plans.length > 0) {
+                return workPlan.plans.map(p => ({ ...p, planScope: scope }));
+            }
+            if (workPlan.plan) {
+                return [{
+                    task: workPlan.plan,
+                    subPlans: workPlan.subPlans || [],
+                    tags: [],
+                    status: null,
+                    assignedTo: targetId,
+                    startDate: date,
+                    endDate: date,
+                    planScope: scope
+                }];
+            }
+            return [];
+        };
+
+        const initialBlocks = [
+            ...normalizeScopedPlans(personalWorkPlan, 'personal'),
+            ...normalizeScopedPlans(annualWorkPlan, 'annual')
+        ];
+        if (initialBlocks.length === 0) {
+            initialBlocks.push({
+                task: '',
+                subPlans: [],
+                tags: [],
+                status: null,
+                assignedTo: targetId,
+                startDate: date,
+                endDate: date,
+                planScope: defaultScope
+            });
+        }
 
         const targetUser = allUsers.find(u => u.id === targetId);
         const headerName = targetUser ? targetUser.name : 'Staff';
@@ -1151,19 +1285,16 @@
                             <p>${date}${isEditingOther ? ` - Editing for ${headerName}` : ''}</p>
                         </div>
                         <div style="display:flex; gap:0.5rem;">
-                            ${myWorkPlan ? `<button type="button" onclick="window.app_deleteDayPlan('${date}', '${targetId}')" class="day-plan-delete-btn" title="Delete plan"><i class="fa-solid fa-trash"></i></button>` : ''}
+                            ${hasAnyExistingPlan ? `<button type="button" onclick="window.app_deleteDayPlan('${date}', '${targetId}')" class="day-plan-delete-btn" title="Delete plan"><i class="fa-solid fa-trash"></i></button>` : ''}
                             <button type="button" onclick="this.closest('.modal-overlay').remove()" class="day-plan-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
                         </div>
                     </div>
-                    <form onsubmit="window.app_saveDayPlan(event, '${date}', '${targetId}')">
-                        <div style="display:flex; align-items:center; gap:0.6rem; margin-bottom:0.75rem; padding:0.6rem; border:1px solid #dbeafe; border-radius:10px; background:#f8fbff;">
-                            <label class="day-plan-mini-label" for="day-plan-scope-select" style="margin:0;">Plan Type</label>
-                            <select id="day-plan-scope-select" class="day-plan-select" style="max-width:220px;" onchange="window.app_openDayPlan('${date}', '${targetId}', this.value)">
-                                <option value="personal" ${initialPlanScope === 'personal' ? 'selected' : ''}>Personal Plan</option>
-                                <option value="annual" ${initialPlanScope === 'annual' ? 'selected' : ''}>Annual Plan (All Staff)</option>
-                            </select>
-                        </div>
-                        <div id="plans-container">
+                    <form
+                        onsubmit="window.app_saveDayPlan(event, '${date}', '${targetId}')"
+                        data-had-personal="${personalWorkPlan ? '1' : '0'}"
+                        data-had-annual="${annualWorkPlan ? '1' : '0'}"
+                    >
+                        <div id="plans-container" data-default-scope="${defaultScope}">
                             ${initialBlocks.map((p, idx) => blockFromPlan(p, idx)).join('')}
                         </div>
                         <div class="day-plan-footer">
@@ -1184,10 +1315,19 @@
         const container = document.getElementById('plans-container');
         if (container) {
             container.addEventListener('input', (e) => {
+                const block = e.target.closest('.plan-block');
+                if (block) window.app_refreshPlanBlockSummary(block);
                 if (e.target.classList.contains('plan-task')) {
-                    window.app_checkMentions(e.target, allUsers.filter(u => u.id !== targetId));
+                    window.app_checkMentions(e.target, selectableCollaborators);
                 }
             });
+            container.addEventListener('change', (e) => {
+                if (e.target.classList.contains('plan-scope')) {
+                    const block = e.target.closest('.plan-block');
+                    if (block) window.app_refreshPlanBlockSummary(block);
+                }
+            });
+            container.querySelectorAll('.plan-block').forEach(window.app_refreshPlanBlockSummary);
         }
     };
 
@@ -1344,11 +1484,36 @@
         const allUsers = await window.AppDB.getAll('users');
         const currentUser = window.AppAuth.getUser();
         const isAdmin = currentUser.role === 'Administrator' || currentUser.isAdmin;
+        const targetId = app_resolveTargetUserId(window.app_currentDayPlanTargetId, currentUser.id);
+        const defaultScope = container.dataset.defaultScope === 'annual' ? 'annual' : 'personal';
+        const selectableCollaborators = allUsers.filter(u => u.id !== targetId);
+        const collaboratorButtons = selectableCollaborators.map(u => `
+            <button
+                type="button"
+                class="day-plan-collab-option"
+                data-id="${app_escapeHtml(u.id)}"
+                onclick="window.app_toggleTaskCollaborator(this, '${app_escapeJsSingleQuote(u.id)}', '${app_escapeJsSingleQuote(u.name)}')"
+                title="Add or remove ${app_escapeHtml(u.name)}"
+            >${app_escapeHtml(u.name)}</button>
+        `).join('');
         const newBlock = document.createElement('div');
         newBlock.className = 'plan-block day-plan-block-shell';
         newBlock.innerHTML = `
+            <div class="day-plan-block-head">
+                <div class="day-plan-block-head-main">
+                    <span class="day-plan-index-badge-step">${container.querySelectorAll('.plan-block').length + 1}</span>
+                    <span class="day-plan-task-summary">New task</span>
+                    <span class="day-plan-scope-pill">${defaultScope === 'annual' ? 'Annual Plan' : 'Personal Plan'}</span>
+                </div>
+                <div class="day-plan-block-head-actions">
+                    <button type="button" onclick="this.closest('.plan-block').remove()" title="Remove this task" class="day-plan-remove-task-btn"><i class="fa-solid fa-times"></i></button>
+                    <button type="button" class="day-plan-collapse-btn" onclick="window.app_togglePlanBlockCollapse(this)">
+                        <i class="fa-solid fa-chevron-down"></i>
+                        <span class="day-plan-collapse-label">Minimize</span>
+                    </button>
+                </div>
+            </div>
             <div class="day-plan-block-body">
-                <button type="button" onclick="this.closest('.plan-block').remove()" title="Remove this task" class="day-plan-remove-task-btn"><i class="fa-solid fa-times"></i></button>
                 <div class="day-plan-left-panel day-plan-main-panel">
                     <div style="display:flex; gap:0.6rem; align-items:center; justify-content:space-between; flex-wrap:wrap;">
                         <label class="day-plan-label" style="margin:0;">What will you work on?</label>
@@ -1358,19 +1523,27 @@
                             <span style="font-size:0.7rem; color:#64748b; font-weight:600;">Optional: use for multi-day task</span>
                         </div>
                     </div>
-                    <p class="day-plan-help-text">Be specific. Use @ to tag collaborators.</p>
+                    <p class="day-plan-help-text">Be specific. Pick collaborators here or use @ mention.</p>
                     <textarea class="plan-task day-plan-task-input" required placeholder="Describe your plan for the day..."></textarea>
-                    <div class="day-plan-collab-inline">
-                        <div class="day-plan-collab-head">
-                            <span class="day-plan-mini-label">Collaborators</span>
-                            <span class="day-plan-collab-hint">Type <b>@</b> in task text, then pick a teammate.</span>
+                    <div class="day-plan-inline-work-controls">
+                        <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
+                            <label class="day-plan-mini-label" style="margin:0;">Plan Type</label>
+                            <select class="plan-scope day-plan-select day-plan-scope-select">
+                                <option value="personal" ${defaultScope === 'personal' ? 'selected' : ''}>Personal Plan</option>
+                                <option value="annual" ${defaultScope === 'annual' ? 'selected' : ''}>Annual Plan</option>
+                            </select>
+                        </div>
+                        <div class="day-plan-collab-inline">
+                            <div class="day-plan-collab-head">
+                                <span class="day-plan-mini-label">Collaborators</span>
+                                <span class="day-plan-collab-hint">Selected collaborators are highlighted.</span>
+                            </div>
+                            <div class="day-plan-collab-picker">
+                                ${collaboratorButtons || '<span class="day-plan-collab-empty">No teammates available.</span>'}
+                            </div>
                         </div>
                         <div class="tags-container day-plan-tags-inline">
-                            <div class="no-tags-placeholder day-plan-no-tags-placeholder">
-                                <div class="day-plan-no-tags-icon-wrap"><i class="fa-solid fa-user-plus day-plan-no-tags-icon"></i></div>
-                                <p class="day-plan-no-tags-title">No collaborators yet</p>
-                                <p class="day-plan-no-tags-text">Use <b>@</b> in your task to tag teammates</p>
-                            </div>
+                            ${app_renderNoCollaboratorsPlaceholder()}
                         </div>
                     </div>
                     <div class="day-plan-sub-section">
@@ -1408,6 +1581,7 @@
         if (fromInput) fromInput.value = defaultDate;
         if (toInput) toInput.value = defaultDate;
         const ta = newBlock.querySelector('.plan-task');
+        window.app_refreshPlanBlockSummary(newBlock);
         if (ta) ta.focus();
     };
 
@@ -1478,26 +1652,25 @@
         const placeholder = tagsContainer.querySelector('.no-tags-placeholder');
         if (placeholder) placeholder.remove();
 
-        const chip = document.createElement('div');
-        chip.className = 'tag-chip day-plan-tag-chip';
-        chip.dataset.id = userId;
-        chip.dataset.name = userName;
-        chip.dataset.status = 'pending';
-        chip.innerHTML = `<span class="day-plan-tag-main"><i class="fa-solid fa-at day-plan-tag-icon"></i>${userName} <span class="day-plan-tag-pending">(Pending)</span></span><i class="fa-solid fa-times day-plan-remove-collab-btn" onclick="window.app_removeTagHint(this)"></i>`;
-        tagsContainer.appendChild(chip);
+        tagsContainer.insertAdjacentHTML('beforeend', app_buildCollaboratorChip(userId, userName, 'pending'));
+        const escapedId = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(userId) : userId.replace(/"/g, '\\"');
+        const pickerButton = block?.querySelector(`.day-plan-collab-option[data-id="${escapedId}"]`);
+        if (pickerButton) pickerButton.classList.add('selected');
     };
 
     window.app_removeTagHint = (btn) => {
         const container = btn.closest('.tags-container');
+        const chip = btn.closest('.tag-chip');
+        const userId = chip ? chip.dataset.id : '';
+        const block = btn.closest('.plan-block');
         btn.parentElement.remove();
+        if (block && userId) {
+            const escapedId = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(userId) : userId.replace(/"/g, '\\"');
+            const pickerButton = block.querySelector(`.day-plan-collab-option[data-id="${escapedId}"]`);
+            if (pickerButton) pickerButton.classList.remove('selected');
+        }
         if (container && container.querySelectorAll('.tag-chip').length === 0) {
-            container.innerHTML = `
-                <div class="no-tags-placeholder day-plan-no-tags-placeholder">
-                    <div class="day-plan-no-tags-icon-wrap"><i class="fa-solid fa-user-plus day-plan-no-tags-icon"></i></div>
-                    <p class="day-plan-no-tags-title">No collaborators yet</p>
-                    <p class="day-plan-no-tags-text">Use <b>@</b> in your task to tag teammates</p>
-                </div>
-            `;
+            container.innerHTML = app_renderNoCollaboratorsPlaceholder();
         }
     };
 
@@ -1610,11 +1783,17 @@
         if (!await window.appConfirm("Are you sure you want to delete this work plan?")) return;
         const currentUser = window.AppAuth.getUser();
         const targetId = app_resolveTargetUserId(targetUserId, currentUser.id);
-        const scopeSelect = document.getElementById('day-plan-scope-select');
-        const resolvedScope = planScope || (scopeSelect ? scopeSelect.value : 'personal');
 
         try {
-            await window.AppCalendar.deleteWorkPlan(date, targetId, { planScope: resolvedScope });
+            const hasScope = planScope === 'personal' || planScope === 'annual';
+            if (hasScope) {
+                await window.AppCalendar.deleteWorkPlan(date, targetId, { planScope: planScope });
+            } else {
+                await Promise.all([
+                    window.AppCalendar.deleteWorkPlan(date, targetId, { planScope: 'personal' }),
+                    window.AppCalendar.deleteWorkPlan(date, targetId, { planScope: 'annual' })
+                ]);
+            }
             if (window.AppStore && window.AppStore.invalidatePlans) {
                 window.AppStore.invalidatePlans(); // CACHE INVALIDATION
             }
@@ -1637,11 +1816,15 @@
         e.preventDefault();
         const currentUser = window.AppAuth.getUser();
         const targetId = app_resolveTargetUserId(targetUserId, currentUser.id);
-        const scopeSelect = document.getElementById('day-plan-scope-select');
-        const planScope = scopeSelect && scopeSelect.value === 'annual' ? 'annual' : 'personal';
+        const form = e.target;
+        const hadPersonal = form?.dataset?.hadPersonal === '1';
+        const hadAnnual = form?.dataset?.hadAnnual === '1';
 
         const planBlocks = document.querySelectorAll('.plan-block');
         const plans = [];
+        const personalPlans = [];
+        const annualPlans = [];
+        const planIdsByScope = {};
         let validationError = '';
 
         planBlocks.forEach(block => {
@@ -1661,6 +1844,8 @@
             const endDateInput = block.querySelector('.plan-end-date');
             const startDate = startDateInput ? String(startDateInput.value || '').trim() : '';
             const endDate = endDateInput ? String(endDateInput.value || '').trim() : '';
+            const scopeSelect = block.querySelector('.plan-scope');
+            const taskScope = scopeSelect && scopeSelect.value === 'annual' ? 'annual' : 'personal';
 
             if (task) {
                 if ((startDate && !endDate) || (!startDate && endDate)) {
@@ -1673,7 +1858,7 @@
                 }
                 const taskStartDate = startDate || date;
                 const taskEndDate = endDate || date;
-                plans.push({
+                const planPayload = {
                     task,
                     subPlans,
                     tags,
@@ -1681,8 +1866,12 @@
                     assignedTo: assignedTo || null,
                     startDate: taskStartDate,
                     endDate: taskEndDate,
+                    planScope: taskScope,
                     completedDate: status === 'completed' ? new Date().toISOString().split('T')[0] : null
-                });
+                };
+                plans.push(planPayload);
+                if (taskScope === 'annual') annualPlans.push(planPayload);
+                else personalPlans.push(planPayload);
             }
         });
 
@@ -1696,11 +1885,23 @@
         }
 
         try {
-            await window.AppCalendar.setWorkPlan(date, plans, targetId, { planScope });
+            if (personalPlans.length > 0) {
+                await window.AppCalendar.setWorkPlan(date, personalPlans, targetId, { planScope: 'personal' });
+                planIdsByScope.personal = window.AppCalendar.getWorkPlanId(date, targetId, 'personal');
+            } else if (hadPersonal) {
+                await window.AppCalendar.deleteWorkPlan(date, targetId, { planScope: 'personal' });
+            }
+
+            if (annualPlans.length > 0) {
+                await window.AppCalendar.setWorkPlan(date, annualPlans, targetId, { planScope: 'annual' });
+                planIdsByScope.annual = window.AppCalendar.getWorkPlanId(date, targetId, 'annual');
+            } else if (hadAnnual) {
+                await window.AppCalendar.deleteWorkPlan(date, targetId, { planScope: 'annual' });
+            }
+
             if (window.AppStore && window.AppStore.invalidatePlans) {
                 window.AppStore.invalidatePlans(); // CACHE INVALIDATION
             }
-            const planId = window.AppCalendar.getWorkPlanId(date, targetId, planScope);
 
             const allUsers = await window.AppDB.getAll('users');
 
@@ -1735,8 +1936,10 @@
                         if (!targetUser.notifications) targetUser.notifications = [];
                         plans.forEach((p, idx) => {
                             if (p.tags && p.tags.some(t => t.id === uid)) {
+                                const scopeKey = p.planScope === 'annual' ? 'annual' : 'personal';
+                                const scopedPlanId = planIdsByScope[scopeKey] || window.AppCalendar.getWorkPlanId(date, targetId, scopeKey);
                                 const alreadyNotified = targetUser.notifications.some(n =>
-                                    n.type === 'mention' && n.planId === planId && n.taskIndex === idx
+                                    n.type === 'mention' && n.planId === scopedPlanId && n.taskIndex === idx
                                 );
                                 if (!alreadyNotified) {
                                     targetUser.notifications.push({
@@ -1749,7 +1952,7 @@
                                         taggedAt: new Date().toISOString(),
                                         status: 'pending',
                                         source: 'plan',
-                                        planId: planId,
+                                        planId: scopedPlanId,
                                         taskIndex: idx,
                                         message: `${currentUser.name} tagged you in: "${p.task}" for ${date}`,
                                         date: new Date().toLocaleString(),
@@ -1769,6 +1972,8 @@
                         if (t.id === targetId) continue;
                         const recipient = allUsers.find(u => u.id === t.id);
                         if (!recipient || !window.AppCalendar) continue;
+                        const scopeKey = p.planScope === 'annual' ? 'annual' : 'personal';
+                        const scopedPlanId = planIdsByScope[scopeKey] || window.AppCalendar.getWorkPlanId(date, targetId, scopeKey);
                         const details = p.subPlans && p.subPlans.length > 0 ? ` - ${p.subPlans.join(', ')}` : '';
                         const taskText = `${p.task}${details} (Responsible: ${recipient.name})`;
                         await window.AppCalendar.addWorkPlanTask(
@@ -1778,7 +1983,7 @@
                             [{ id: currentUser.id, name: currentUser.name, status: 'pending' }],
                             {
                                 addedFrom: 'tag',
-                                sourcePlanId: planId,
+                                sourcePlanId: scopedPlanId,
                                 sourceTaskIndex: idx,
                                 taggedById: currentUser.id,
                                 taggedByName: currentUser.name,
