@@ -2511,6 +2511,12 @@ textarea:focus {
     gap: 0.75rem;
     padding-bottom: 0.4rem;
     border-bottom: 1px solid rgba(0,0,0,0.06);
+    animation: dashboard-notif-blink 1s ease-in-out infinite !important;
+}
+
+@keyframes dashboard-notif-blink {
+    0%, 100% { opacity: 1; background: transparent; }
+    50% { opacity: 0.2; background: rgba(251, 191, 36, 0.12); }
 }
 
 .dashboard-notif-col {

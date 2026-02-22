@@ -3511,11 +3511,25 @@
     document.addEventListener('dismiss-notification', async (e) => {
         const index = e.detail;
         const user = window.AppAuth.getUser();
-        if (user && user.notifications) {
+        if (user && user.notifications && Number.isInteger(index) && index >= 0) {
             user.notifications.splice(index, 1);
             await window.AppAuth.updateUser(user);
             contentArea.innerHTML = await window.AppUI.renderDashboard();
+            if (window.setupDashboardEvents) window.setupDashboardEvents();
         }
+    });
+
+    document.addEventListener('dismiss-tag-history', async (e) => {
+        const historyId = String(e.detail || '');
+        const user = window.AppAuth.getUser();
+        if (!historyId || !user) return;
+        if (!Array.isArray(user.tagHistory)) return;
+        const removeIndex = user.tagHistory.findIndex(h => String(h.id) === historyId);
+        if (removeIndex < 0) return;
+        user.tagHistory.splice(removeIndex, 1);
+        await window.AppAuth.updateUser(user);
+        contentArea.innerHTML = await window.AppUI.renderDashboard();
+        if (window.setupDashboardEvents) window.setupDashboardEvents();
     });
 
     // Manual Log Logic
@@ -5231,4 +5245,3 @@
                 const suffix = String(idRaw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-3) || 'USR';
                 return `EMP-${compact}-${suffix}`;
             };
-
