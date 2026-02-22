@@ -23,18 +23,34 @@
          */
         async getPlans() {
             try {
+                const now = new Date();
+                const start = new Date(now.getFullYear(), now.getMonth() - 2, 1).toISOString().split('T')[0];
+                const end = new Date(now.getFullYear(), now.getMonth() + 3, 0).toISOString().split('T')[0];
                 const [leaves, events, workPlans, users] = await Promise.all([
-                    this.db.getAll('leaves'),
+                    this.db.queryMany
+                        ? this.db.queryMany('leaves', [
+                            { field: 'status', operator: '==', value: 'Approved' },
+                            { field: 'startDate', operator: '<=', value: end },
+                            { field: 'endDate', operator: '>=', value: start }
+                        ]).catch(() => this.db.getAll('leaves'))
+                        : this.db.getAll('leaves'),
                     this.db.getAll('events').catch(() => []),
-                    this.db.getAll('work_plans').catch(() => []),
-                    this.db.getAll('users').catch(() => [])
+                    this.db.queryMany
+                        ? this.db.queryMany('work_plans', [
+                            { field: 'date', operator: '>=', value: start },
+                            { field: 'date', operator: '<=', value: end }
+                        ]).catch(() => this.db.getAll('work_plans'))
+                        : this.db.getAll('work_plans'),
+                    this.db.getCached
+                        ? this.db.getCached(this.db.getCacheKey('calendarUsers', 'users', {}), (window.AppConfig?.READ_CACHE_TTLS?.users || 60000), () => this.db.getAll('users')).catch(() => [])
+                        : this.db.getAll('users').catch(() => [])
                 ]);
 
                 // Map User IDs to Names for Leaves
                 const userMap = {};
                 users.forEach(u => { userMap[u.id] = u.name; });
 
-                const enrichedLeaves = leaves
+                const enrichedLeaves = (leaves || [])
                     .filter(l => l.status === 'Approved')
                     .map(l => ({
                         ...l,

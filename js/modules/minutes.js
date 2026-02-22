@@ -8,12 +8,24 @@ window.AppMinutes = (function () {
     /**
      * Get all minutes
      */
-    async function getMinutes() {
+    async function getMinutes(options = {}) {
         try {
+            const limit = options.limit || 150;
             if (window.AppDB) {
+                if (window.AppDB.queryMany && window.AppConfig?.READ_OPT_FLAGS?.FF_READ_OPT_DB_QUERIES) {
+                    const fetcher = () => window.AppDB.queryMany(COLLECTION, [], {
+                        orderBy: [{ field: 'date', direction: 'desc' }],
+                        limit
+                    });
+                    if (window.AppDB.getCached) {
+                        const ttl = window.AppConfig?.READ_CACHE_TTLS?.minutes || 30000;
+                        return window.AppDB.getCached(window.AppDB.getCacheKey('minutesList', COLLECTION, { limit }), ttl, fetcher);
+                    }
+                    return fetcher();
+                }
                 return await window.AppDB.getAll(COLLECTION);
             } else {
-                const snapshot = await window.AppFirestore.collection(COLLECTION).orderBy('date', 'desc').get();
+                const snapshot = await window.AppFirestore.collection(COLLECTION).orderBy('date', 'desc').limit(limit).get();
                 return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             }
         } catch (error) {

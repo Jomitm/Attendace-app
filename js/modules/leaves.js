@@ -72,8 +72,21 @@
 
         async getUserLeaves(userId, fyLabel = null) {
             if (!fyLabel) fyLabel = (await this.getFinancialYear()).label;
+            try {
+                if (this.db.queryMany && window.AppConfig?.READ_OPT_FLAGS?.FF_READ_OPT_DB_QUERIES) {
+                    const scoped = await this.db.queryMany('leaves', [
+                        { field: 'userId', operator: '==', value: userId },
+                        { field: 'financialYear', operator: '==', value: fyLabel }
+                    ]);
+                    return scoped.sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
+                }
+            } catch (e) {
+                console.warn('Scoped getUserLeaves query failed, using fallback', e);
+            }
             const leaves = await this.db.getAll('leaves');
-            return leaves.filter(l => l.userId === userId && l.financialYear === fyLabel).sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
+            return leaves
+                .filter(l => l.userId === userId && l.financialYear === fyLabel)
+                .sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
         }
 
         async getLeaveUsage(userId, type, fy) {
@@ -85,21 +98,48 @@
         // Special check for Short Leave (Monthly Limit)
         async getMonthlyShortLeaveUsage(userId, dateObj) {
             const monthStr = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`;
-            const leaves = await this.db.getAll('leaves');
-
-            const monthlyShortLeaves = leaves.filter(l =>
-                l.userId === userId &&
-                l.type === 'Short Leave' &&
-                l.startDate.startsWith(monthStr) &&
-                (l.status === 'Approved' || l.status === 'Pending')
-            );
+            let monthlyShortLeaves = [];
+            try {
+                if (this.db.queryMany && window.AppConfig?.READ_OPT_FLAGS?.FF_READ_OPT_DB_QUERIES) {
+                    const scoped = await this.db.queryMany('leaves', [
+                        { field: 'userId', operator: '==', value: userId },
+                        { field: 'type', operator: '==', value: 'Short Leave' },
+                        { field: 'startDate', operator: '>=', value: `${monthStr}-01` },
+                        { field: 'startDate', operator: '<=', value: `${monthStr}-31` }
+                    ]);
+                    monthlyShortLeaves = scoped.filter(l => l.status === 'Approved' || l.status === 'Pending');
+                }
+            } catch (e) {
+                console.warn('Scoped short leave query failed, using fallback', e);
+            }
+            if (!monthlyShortLeaves.length) {
+                const leaves = await this.db.getAll('leaves');
+                monthlyShortLeaves = leaves.filter(l =>
+                    l.userId === userId &&
+                    l.type === 'Short Leave' &&
+                    l.startDate.startsWith(monthStr) &&
+                    (l.status === 'Approved' || l.status === 'Pending')
+                );
+            }
 
             return monthlyShortLeaves.reduce((sum, l) => sum + (parseFloat(l.daysCount || l.durationHours) || 0), 0);
         }
 
         async getPendingLeaves() {
+            try {
+                if (this.db.queryMany && window.AppConfig?.READ_OPT_FLAGS?.FF_READ_OPT_DB_QUERIES) {
+                    const scoped = await this.db.queryMany('leaves', [
+                        { field: 'status', operator: '==', value: 'Pending' }
+                    ], { orderBy: [{ field: 'appliedOn', direction: 'desc' }] });
+                    return scoped.sort((a, b) => new Date(b.appliedOn) - new Date(a.appliedOn));
+                }
+            } catch (e) {
+                console.warn('Scoped pending leaves query failed, using fallback', e);
+            }
             const leaves = await this.db.getAll('leaves');
-            return leaves.filter(l => l.status === 'Pending').sort((a, b) => new Date(b.appliedOn) - new Date(a.appliedOn));
+            return leaves
+                .filter(l => l.status === 'Pending')
+                .sort((a, b) => new Date(b.appliedOn) - new Date(a.appliedOn));
         }
 
         async requestLeave(leaveData) {

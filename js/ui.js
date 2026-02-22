@@ -231,10 +231,6 @@
             return items.length ? Math.max(...items) : 0;
         };
 
-        const isOnline = (u) => {
-            const lastSeen = u.lastSeen ? Number(u.lastSeen) : 0;
-            return lastSeen && (Date.now() - lastSeen < 60000);
-        };
         const staffList = allUsers
             .filter(u => u.id !== currentUser.id)
             .sort((a, b) => getNewestNotifTime(b) - getNewestNotifTime(a) || a.name.localeCompare(b.name))
@@ -243,13 +239,11 @@
                 const firstPending = pending[0];
                 const newest = getNewestNotifTime(u);
                 const isNew = newest && (nowMs - newest < 120000);
-                const statusClass = u.status === 'in' ? 'checkedin' : (isOnline(u) ? 'online' : 'offline');
                 return `
                     <div class="dashboard-staff-row ${isNew ? 'dashboard-staff-row-new' : ''}">
                         <div class="dashboard-staff-meta">
                             <div class="dashboard-staff-avatar">
                                 <img src="${u.avatar}" alt="${u.name}">
-                                <span class="staff-status-dot ${statusClass}"></span>
                             </div>
                             <div class="dashboard-staff-text">
                                 <div class="dashboard-staff-name">${u.name}</div>
@@ -1500,9 +1494,15 @@
                 window.AppCalendar ? window.AppCalendar.getPlans() : { leaves: [], events: [] },
                 window.AppAnalytics.getAllStaffActivities(14),
                 isAdmin ? window.AppLeaves.getPendingLeaves() : Promise.resolve([]),
-                window.AppDB.getAll('users'),
+                window.AppDB.getCached
+                    ? window.AppDB.getCached(window.AppDB.getCacheKey('dashboardUsers', 'users', {}), (window.AppConfig?.READ_CACHE_TTLS?.users || 60000), () => window.AppDB.getAll('users'))
+                    : window.AppDB.getAll('users'),
                 window.AppCalendar ? window.AppCalendar.getCollaborations(targetStaffId) : Promise.resolve([]),
-                isAdmin ? window.AppDB.getAll('leaves') : Promise.resolve([])
+                isAdmin
+                    ? (window.AppDB.queryMany
+                        ? window.AppDB.queryMany('leaves', [{ field: 'status', operator: '==', value: 'Pending' }]).catch(() => window.AppDB.getAll('leaves'))
+                        : window.AppDB.getAll('leaves'))
+                    : Promise.resolve([])
             ]);
             console.timeEnd('DashboardFetch');
             const heroHTML = this.renderHeroCard(heroData);
@@ -1676,7 +1676,9 @@
 
         async renderStaffDirectoryPage() {
             const currentUser = window.AppAuth.getUser();
-            const allUsers = await window.AppDB.getAll('users');
+            const allUsers = window.AppDB.getCached
+                ? await window.AppDB.getCached(window.AppDB.getCacheKey('staffUsers', 'users', {}), (window.AppConfig?.READ_CACHE_TTLS?.users || 60000), () => window.AppDB.getAll('users'))
+                : await window.AppDB.getAll('users');
             const messages = await window.AppDB.getAll('staff_messages');
             const others = allUsers.filter(u => u.id !== currentUser.id).sort((a, b) => a.name.localeCompare(b.name));
             if (!window.app_staffThreadId && others.length > 0) {
@@ -1710,20 +1712,13 @@
                 }
             });
 
-            const isOnline = (u) => {
-                const lastSeen = u.lastSeen ? Number(u.lastSeen) : 0;
-                return lastSeen && (Date.now() - lastSeen < 60000);
-            };
-
             const staffList = others.map(u => {
                 const unread = unreadByUser[u.id] || 0;
                 const isActive = u.id === window.app_staffThreadId;
-                const statusClass = u.status === 'in' ? 'checkedin' : (isOnline(u) ? 'online' : 'offline');
                 return `
                     <button class="staff-directory-item ${isActive ? 'active' : ''}" onclick="window.app_openStaffThread('${u.id}')">
                         <div class="staff-directory-avatar">
                             <img src="${u.avatar}" alt="${u.name}">
-                            <span class="staff-status-dot ${statusClass}"></span>
                         </div>
                         <div class="staff-directory-info">
                             <div class="staff-directory-name">${u.name}</div>
@@ -3242,10 +3237,14 @@
                 }
 
                 [allUsers, performance, audits, pendingLeaves] = await Promise.all([
-                    window.AppDB.getAll('users'),
+                    window.AppDB.getCached
+                        ? window.AppDB.getCached(window.AppDB.getCacheKey('adminUsers', 'users', {}), (window.AppConfig?.READ_CACHE_TTLS?.users || 60000), () => window.AppDB.getAll('users'))
+                        : window.AppDB.getAll('users'),
                     window.AppAnalytics.getSystemPerformance(),
-                    window.AppDB.getAll('location_audits'),
-                    window.AppDB.getAll('leaves').then(leaves => leaves.filter(l => l.status === 'Pending').sort((a, b) => new Date(a.appliedOn) - new Date(b.appliedOn)))
+                    window.AppDB.queryMany
+                        ? window.AppDB.queryMany('location_audits', [], { orderBy: [{ field: 'timestamp', direction: 'desc' }], limit: 300 }).catch(() => window.AppDB.getAll('location_audits'))
+                        : window.AppDB.getAll('location_audits'),
+                    window.AppLeaves.getPendingLeaves()
                 ]);
 
                 // Filter audits by date
@@ -3935,8 +3934,12 @@
 
         async renderMinutes() {
             const minutes = await window.AppMinutes.getMinutes();
-            const allUsers = await window.AppDB.getAll('users');
+            const allUsers = window.AppDB.getCached
+                ? await window.AppDB.getCached(window.AppDB.getCacheKey('minutesUsers', 'users', {}), (window.AppConfig?.READ_CACHE_TTLS?.users || 60000), () => window.AppDB.getAll('users'))
+                : await window.AppDB.getAll('users');
             const currentUser = window.AppAuth.getUser();
+            const minuteCache = {};
+            (minutes || []).forEach(m => { if (m && m.id) minuteCache[String(m.id)] = m; });
             window.app_refreshMinutesView = async () => {
                 const page = document.getElementById('page-content');
                 if (!page) return;
@@ -3963,10 +3966,17 @@
                 return req ? req.status : '';
             };
             const visibleMinutes = (minutes || []).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
+            const getMinuteById = async (id) => {
+                const cached = minuteCache[String(id)];
+                if (cached) return cached;
+                const minute = await (window.AppDB ? window.AppDB.get('minutes', id) : window.AppFirestore.collection('minutes').doc(id).get().then(d => d.data()));
+                if (minute && minute.id) minuteCache[String(minute.id)] = minute;
+                return minute;
+            };
 
             // Setup Global Handlers for Minutes
             window.app_openMinuteDetails = async (id) => {
-                const minute = await (window.AppDB ? window.AppDB.get('minutes', id) : window.AppFirestore.collection('minutes').doc(id).get().then(d => d.data()));
+                const minute = await getMinuteById(id);
                 if (!minute) return alert("Minute not found");
                 if (!hasMinuteDetailAccess(minute, currentUser)) {
                     return alert("You can view subject and attendees. Request admin access to open full minutes.");
@@ -4187,7 +4197,7 @@
 
             window.app_requestMinuteAccess = async (id) => {
                 try {
-                    const minute = await (window.AppDB ? window.AppDB.get('minutes', id) : window.AppFirestore.collection('minutes').doc(id).get().then(d => d.data()));
+                    const minute = await getMinuteById(id);
                     if (!minute) throw new Error('Meeting minute not found');
                     if (hasMinuteDetailAccess(minute, currentUser)) {
                         alert('You already have access to full minutes.');
@@ -4247,7 +4257,7 @@
             window.app_reviewMinuteAccess = async (minuteId, requesterId, decision) => {
                 try {
                     if (!isAdminUser) return alert('Only admin can review requests.');
-                    const minute = await (window.AppDB ? window.AppDB.get('minutes', minuteId) : window.AppFirestore.collection('minutes').doc(minuteId).get().then(d => d.data()));
+                    const minute = await getMinuteById(minuteId);
                     if (!minute) throw new Error('Meeting minute not found');
 
                     const accessRequests = Array.isArray(minute.accessRequests) ? minute.accessRequests.slice() : [];
@@ -4301,7 +4311,7 @@
             window.app_updateActionItemStatus = async (minuteId, itemIndex, newStatus) => {
                 try {
                     const currentUser = window.AppAuth.getUser();
-                    const minute = await (window.AppDB ? window.AppDB.get('minutes', minuteId) : window.AppFirestore.collection('minutes').doc(minuteId).get().then(d => d.data()));
+                    const minute = await getMinuteById(minuteId);
                     if (!minute) throw new Error('Meeting minute not found');
 
                     const actionItems = minute.actionItems || [];
@@ -4341,7 +4351,7 @@
 
             window.app_toggleMinuteVisibility = async (id, userId, isRestricted) => {
                 try {
-                    const minute = await (window.AppDB ? window.AppDB.get('minutes', id) : window.AppFirestore.collection('minutes').doc(id).get().then(d => d.data()));
+                    const minute = await getMinuteById(id);
                     let restrictedFrom = minute.restrictedFrom || [];
                     if (isRestricted) {
                         if (!restrictedFrom.includes(userId)) restrictedFrom.push(userId);

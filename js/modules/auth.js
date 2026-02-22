@@ -38,7 +38,13 @@
         }
 
         async login(username, password) {
-            const users = await window.AppDB.getAll('users');
+            const users = window.AppDB.getCached
+                ? await window.AppDB.getCached(
+                    window.AppDB.getCacheKey('authUsers', 'users', { mode: 'login' }),
+                    (window.AppConfig?.READ_CACHE_TTLS?.users || 60000),
+                    () => window.AppDB.getAll('users')
+                )
+                : await window.AppDB.getAll('users');
             const cleanUser = username.trim().toLowerCase();
             const cleanPass = password.trim();
 
@@ -120,6 +126,11 @@
         }
 
         startHeartbeat() {
+            const flags = (window.AppConfig && window.AppConfig.READ_OPT_FLAGS) || {};
+            if (!flags.ENABLE_PRESENCE_HEARTBEAT) {
+                this.stopHeartbeat();
+                return;
+            }
             if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
 
             const updateLastSeen = async () => {
@@ -137,8 +148,8 @@
 
             // Immediate update
             updateLastSeen();
-            // Then every 30 seconds
-            this.heartbeatInterval = setInterval(updateLastSeen, 30000);
+            // Then every 2 minutes
+            this.heartbeatInterval = setInterval(updateLastSeen, 120000);
             console.log("Presence Heartbeat started.");
         }
 

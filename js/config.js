@@ -36,7 +36,23 @@
         // Penalties
         LATE_GRACE_COUNT: 3, // Number of lates before deduction
         LATE_DEDUCTION_PER_BLOCK: 0.5, // Every 3 late marks = 0.5 day deduction
-        EXTRA_HOURS_FOR_HALF_DAY_OFFSET: 4 // 4 extra hours waives 0.5 day late penalty
+        EXTRA_HOURS_FOR_HALF_DAY_OFFSET: 4, // 4 extra hours waives 0.5 day late penalty
+
+        // Read optimization controls
+        READ_CACHE_TTLS: {
+            users: 60000,
+            settings: 300000,
+            minutes: 30000,
+            attendanceSummary: 30000,
+            staffMessages: 20000
+        },
+        READ_OPT_FLAGS: {
+            FF_READ_OPT_DB_QUERIES: true,
+            FF_READ_OPT_TARGETED_REALTIME: true,
+            FF_READ_OPT_ANALYTICS_CACHE: true,
+            ENABLE_READ_TELEMETRY: true,
+            ENABLE_PRESENCE_HEARTBEAT: false
+        }
     };
 
     console.log("App Config Loaded");

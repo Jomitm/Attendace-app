@@ -9,6 +9,72 @@
         constructor() {
             this.db = window.AppDB;
             this.chartInstance = null;
+            this.memo = new Map();
+            if (typeof window !== 'undefined' && window.addEventListener) {
+                window.addEventListener('app:db-write', (e) => {
+                    const collection = e?.detail?.collection;
+                    if (['attendance', 'users', 'work_plans', 'leaves', 'minutes'].includes(collection)) {
+                        this.clearMemo();
+                    }
+                });
+            }
+        }
+
+        getFlags() {
+            return (window.AppConfig && window.AppConfig.READ_OPT_FLAGS) || {};
+        }
+
+        getTtls() {
+            return (window.AppConfig && window.AppConfig.READ_CACHE_TTLS) || {};
+        }
+
+        async memoize(key, ttlMs, fn) {
+            const flags = this.getFlags();
+            if (!flags.FF_READ_OPT_ANALYTICS_CACHE) return fn();
+            const now = Date.now();
+            const cached = this.memo.get(key);
+            if (cached && cached.expiresAt > now) return cached.value;
+            const value = await fn();
+            this.memo.set(key, { value, expiresAt: now + Math.max(0, Number(ttlMs) || 0) });
+            return value;
+        }
+
+        clearMemo(prefix = '') {
+            if (!prefix) {
+                this.memo.clear();
+                return;
+            }
+            for (const key of this.memo.keys()) {
+                if (key.startsWith(prefix)) this.memo.delete(key);
+            }
+        }
+
+        async getUsersCached() {
+            const ttl = this.getTtls().users || 60000;
+            return this.memoize('analytics:users', ttl, async () => {
+                if (window.AppDB && window.AppDB.getCached) {
+                    const cacheKey = window.AppDB.getCacheKey('analyticsUsers', 'users', { ttl });
+                    return window.AppDB.getCached(cacheKey, ttl, () => this.db.getAll('users'));
+                }
+                return this.db.getAll('users');
+            });
+        }
+
+        async getAttendanceInRange(startDate, endDate, cacheSuffix = '') {
+            const ttl = this.getTtls().attendanceSummary || 30000;
+            const startIso = typeof startDate === 'string' ? startDate : startDate.toISOString().split('T')[0];
+            const endIso = typeof endDate === 'string' ? endDate : endDate.toISOString().split('T')[0];
+            const key = `analytics:attendance:${startIso}:${endIso}:${cacheSuffix}`;
+            return this.memoize(key, ttl, async () => {
+                if (this.db.queryMany) {
+                    return this.db.queryMany('attendance', [
+                        { field: 'date', operator: '>=', value: startIso },
+                        { field: 'date', operator: '<=', value: endIso }
+                    ]);
+                }
+                const all = await this.db.getAll('attendance');
+                return all.filter(l => l.date >= startIso && l.date <= endIso);
+            });
         }
 
         async initAdminCharts() {
@@ -22,9 +88,12 @@
             }
 
             // 1. Fetch Data
+            const end = new Date();
+            const start = new Date();
+            start.setDate(start.getDate() - 14);
             const [logs, allUsers] = await Promise.all([
-                this.db.getAll('attendance'),
-                this.db.getAll('users')
+                this.getAttendanceInRange(start, end, 'adminChart'),
+                this.getUsersCached()
             ]);
 
             // 2. Process Data (Last 7 Days)
@@ -188,18 +257,22 @@
         }
 
         async getUserMonthlyStats(userId) {
-            const logs = await this.db.getAll('attendance');
+            const today = new Date();
+            const start = new Date(today.getFullYear(), today.getMonth(), 1);
+            const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+            const logs = await this.getAttendanceInRange(start, end, `monthly:${userId}`);
             const userLogs = logs.filter(l => l.userId === userId || l.user_id === userId);
             return this.calculateStatsForLogs(userLogs);
         }
 
         async getSystemMonthlySummary() {
-            const allUsers = await this.db.getAll('users');
-            const allLogs = await this.db.getAll('attendance');
-
             const today = new Date();
             const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
             const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+            const [allUsers, allLogs] = await Promise.all([
+                this.getUsersCached(),
+                this.getAttendanceInRange(startOfMonth, endOfMonth, 'sysMonthly')
+            ]);
 
             const summary = await Promise.all(allUsers.map(async (user) => {
                 const userLogs = allLogs.filter(l => (l.userId === user.id || l.user_id === user.id) &&
@@ -356,9 +429,9 @@
         }
 
         async getUserYearlyStats(userId) {
-            const logs = await this.db.getAll('attendance');
-            const userLogs = logs.filter(l => l.userId === userId || l.user_id === userId);
             const { start, end, label } = this.getFinancialYearDates();
+            const logs = await this.getAttendanceInRange(start, end, `yearly:${userId}`);
+            const userLogs = logs.filter(l => l.userId === userId || l.user_id === userId);
 
             const breakdown = {
                 'Present': 0, 'Late': 0, 'Early Departure': 0, 'Work - Home': 0, 'Training': 0,
@@ -496,12 +569,13 @@
 
         async getHeroOfTheWeek() {
             try {
-                const logs = await this.db.getAll('attendance');
-                const users = await this.db.getAll('users');
-
                 const sevenDaysAgo = new Date();
                 sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
                 sevenDaysAgo.setHours(0, 0, 0, 0);
+                const [logs, users] = await Promise.all([
+                    this.getAttendanceInRange(sevenDaysAgo, new Date(), 'hero'),
+                    this.getUsersCached()
+                ]);
 
                 const recentLogs = logs.filter(l => {
                     const logDate = new Date(l.date);
@@ -601,7 +675,9 @@
 
         async getSystemPerformance() {
             try {
-                const logs = await this.db.getAll('attendance');
+                const start = new Date();
+                start.setDate(start.getDate() - 7);
+                const logs = await this.getAttendanceInRange(start, new Date(), 'performance');
                 const trendData = [];
                 const labels = [];
                 let totalScore = 0;
@@ -654,28 +730,28 @@
         async getAllStaffActivities(daysBack = 7) {
             try {
                 // Calculate date range
-                const todayStr = new Date().toISOString().split('T')[0];
                 const endDate = new Date();
                 endDate.setHours(23, 59, 59, 999);
                 const startDate = new Date();
                 startDate.setDate(startDate.getDate() - daysBack);
                 startDate.setHours(0, 0, 0, 0);
+                const startIso = startDate.toISOString().split('T')[0];
+                const endIso = endDate.toISOString().split('T')[0];
 
-                const db = window.AppFirestore;
+                // 1. Fetch scoped attendance logs + plans + users
+                const [attendanceLogs, workPlans, users] = await Promise.all([
+                    this.getAttendanceInRange(startDate, endDate, `staffAct:${daysBack}`),
+                    this.db.queryMany
+                        ? this.db.queryMany('work_plans', [
+                            { field: 'date', operator: '>=', value: startIso },
+                            { field: 'date', operator: '<=', value: endIso }
+                        ])
+                        : window.AppDB.getAll('work_plans'),
+                    this.getUsersCached()
+                ]);
 
-                // 1. Fetch all attendance logs
-                const attendanceSnapshot = await db.collection('attendance').get();
-                const attendanceLogs = attendanceSnapshot.docs.map(doc => doc.data());
-
-                // 2. Fetch all work plans
-                const plansSnapshot = await db.collection('work_plans').get();
-                const workPlans = plansSnapshot.docs.map(doc => doc.data());
-
-                // 3. Fetch all users to get names
-                const usersSnapshot = await db.collection('users').get();
                 const usersMap = {};
-                usersSnapshot.docs.forEach(doc => {
-                    const userData = doc.data();
+                users.forEach(userData => {
                     usersMap[userData.id] = userData.name;
                 });
 

@@ -29,6 +29,16 @@
         return window.app_isAdminUser(user) || !!user.canManageAttendanceSheet;
     };
 
+    window.app_getReadTelemetry = () => {
+        if (!window.AppDB || !window.AppDB.getReadTelemetry) return {};
+        return window.AppDB.getReadTelemetry();
+    };
+
+    window.app_resetReadTelemetry = () => {
+        if (!window.AppDB || !window.AppDB.clearReadTelemetry) return;
+        window.AppDB.clearReadTelemetry();
+    };
+
     // DOM Elements - queried dynamically or once if available
     const contentArea = document.getElementById('page-content');
     const sidebar = document.querySelector('.sidebar');
@@ -589,6 +599,15 @@
 
         console.log("Starting Admin Realtime Listeners (Users & Audits)...");
 
+        let refreshTimer = null;
+        const queueAdminRefresh = () => {
+            if (refreshTimer) clearTimeout(refreshTimer);
+            refreshTimer = setTimeout(async () => {
+                refreshTimer = null;
+                await refreshAdminUI();
+            }, 600);
+        };
+
         const refreshAdminUI = async () => {
             const currentHash = window.location.hash.slice(1);
             if (currentHash !== 'admin') return;
@@ -610,11 +629,23 @@
             }
         };
 
-        // Listen for users (staff status updates)
-        adminListenerUnsubscribe.push(window.AppDB.listen('users', refreshAdminUI));
+        const flags = (window.AppConfig && window.AppConfig.READ_OPT_FLAGS) || {};
+        if (flags.FF_READ_OPT_TARGETED_REALTIME && window.AppDB.listenQuery) {
+            // Users listener kept for status/login/logout changes; heartbeat writes are disabled by config.
+            adminListenerUnsubscribe.push(window.AppDB.listenQuery('users', [
+                { field: 'status', operator: 'in', value: ['in', 'out'] }
+            ], { limit: 300 }, queueAdminRefresh));
 
-        // Listen for audit logs (manual trigger triggers these immediately)
-        adminListenerUnsubscribe.push(window.AppDB.listen('location_audits', refreshAdminUI));
+            const since = new Date();
+            since.setDate(since.getDate() - 2);
+            adminListenerUnsubscribe.push(window.AppDB.listenQuery('location_audits', [
+                { field: 'timestamp', operator: '>=', value: since.getTime() }
+            ], { orderBy: [{ field: 'timestamp', direction: 'desc' }], limit: 300 }, queueAdminRefresh));
+        } else {
+            // Legacy mode
+            adminListenerUnsubscribe.push(window.AppDB.listen('users', queueAdminRefresh));
+            adminListenerUnsubscribe.push(window.AppDB.listen('location_audits', queueAdminRefresh));
+        }
     }
 
     function startMinutesRealtimeListener() {
@@ -634,7 +665,17 @@
             page.innerHTML = await window.AppUI.renderMinutes();
         };
 
-        minutesListenerUnsubscribe = window.AppDB.listen('minutes', refreshMinutesUI);
+        const flags = (window.AppConfig && window.AppConfig.READ_OPT_FLAGS) || {};
+        if (flags.FF_READ_OPT_TARGETED_REALTIME && window.AppDB.listenQuery) {
+            minutesListenerUnsubscribe = window.AppDB.listenQuery(
+                'minutes',
+                [],
+                { orderBy: [{ field: 'date', direction: 'desc' }], limit: 150 },
+                refreshMinutesUI
+            );
+        } else {
+            minutesListenerUnsubscribe = window.AppDB.listen('minutes', refreshMinutesUI);
+        }
     }
 
     // --- Event Handlers ---
