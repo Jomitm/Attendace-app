@@ -4470,86 +4470,105 @@
 
             for (const log of logs) {
                 scanned++;
-                const isAttendanceEligible = Object.prototype.hasOwnProperty.call(log || {}, 'attendanceEligible')
-                    ? (log.attendanceEligible === true)
-                    : (() => {
-                        const src = String(log?.entrySource || '');
-                        if (src === 'staff_manual_work') return false;
-                        if (src === 'admin_override' || src === 'checkin_checkout') return true;
-                        if (log?.isManualOverride) return true;
-                        if (log?.location === 'Office (Manual)' || log?.location === 'Office (Override)') return true;
-                        const hasSystemSignals =
-                            typeof log?.activityScore !== 'undefined' ||
-                            typeof log?.locationMismatched !== 'undefined' ||
-                            typeof log?.autoCheckout !== 'undefined' ||
-                            !!log?.checkOutLocation ||
-                            typeof log?.outLat !== 'undefined' ||
-                            typeof log?.outLng !== 'undefined';
-                        if (hasSystemSignals) return true;
-                        const type = String(log?.type || '');
-                        return type.includes('Leave') || log?.location === 'On Leave';
-                    })();
-                if (!log || !log.id || log.isManualOverride || !isAttendanceEligible) {
-                    skipped++;
-                    continue;
-                }
-
                 const normalizedType = window.AppAttendance.normalizeType(log.type);
-                if (
-                    specialTypes.has(normalizedType) ||
-                    String(normalizedType).includes('Leave') ||
-                    normalizedType === 'Office'
-                ) {
-                    skipped++;
-                    continue;
-                }
-
-                if (!log.checkIn || !log.checkOut || log.checkOut === 'Active Now') {
-                    skipped++;
-                    continue;
-                }
-
                 const dateIso = parseLogDateToISO(log.date);
-                if (!dateIso) {
-                    skipped++;
-                    continue;
+                const hasSystemSignals =
+                    typeof log?.activityScore !== 'undefined' ||
+                    typeof log?.locationMismatched !== 'undefined' ||
+                    typeof log?.autoCheckout !== 'undefined' ||
+                    !!log?.checkOutLocation ||
+                    typeof log?.outLat !== 'undefined' ||
+                    typeof log?.outLng !== 'undefined';
+                const explicitSource = String(log?.entrySource || '').trim();
+                let inferredSource = explicitSource;
+                if (!inferredSource) {
+                    if (log?.isManualOverride || log?.location === 'Office (Manual)' || log?.location === 'Office (Override)') {
+                        inferredSource = 'admin_override';
+                    } else if (hasSystemSignals) {
+                        inferredSource = 'checkin_checkout';
+                    } else {
+                        inferredSource = 'staff_manual_work';
+                    }
                 }
 
-                const in24 = convertTo24h(log.checkIn);
-                const out24 = convertTo24h(log.checkOut);
-                const inDt = window.AppAttendance.buildDateTime(dateIso, in24);
-                const outDt = window.AppAttendance.buildDateTime(dateIso, out24);
-
-                if (!inDt || !outDt || outDt <= inDt) {
-                    skipped++;
-                    continue;
+                const in24 = (log.checkIn && log.checkOut && log.checkOut !== 'Active Now') ? convertTo24h(log.checkIn) : null;
+                const out24 = (log.checkIn && log.checkOut && log.checkOut !== 'Active Now') ? convertTo24h(log.checkOut) : null;
+                const inDt = (dateIso && in24) ? window.AppAttendance.buildDateTime(dateIso, in24) : null;
+                const outDt = (dateIso && out24) ? window.AppAttendance.buildDateTime(dateIso, out24) : null;
+                const parsedDurationMs = (inDt && outDt && outDt > inDt) ? (outDt - inDt) : null;
+                const resolvedDurationMs = typeof log.durationMs === 'number' ? log.durationMs : parsedDurationMs;
+                const workedHours = typeof resolvedDurationMs === 'number'
+                    ? Math.max(0, resolvedDurationMs) / (1000 * 60 * 60)
+                    : 0;
+                let inferredAttendanceEligible;
+                if (Object.prototype.hasOwnProperty.call(log || {}, 'attendanceEligible')) {
+                    inferredAttendanceEligible = log.attendanceEligible === true;
+                } else if (inferredSource === 'staff_manual_work') {
+                    inferredAttendanceEligible = workedHours >= 4;
+                } else {
+                    inferredAttendanceEligible = true;
                 }
 
-                const durationMs = outDt - inDt;
-                const statusMeta = window.AppAttendance.evaluateAttendanceStatus(inDt, durationMs);
-                const nextType = statusMeta.status;
+                let nextType = log.type;
+                let nextDayCredit = log.dayCredit;
+                let nextLateCountable = log.lateCountable;
+                let nextExtraWorkedMs = log.extraWorkedMs || 0;
 
-                const shouldUpdate =
-                    log.type !== nextType ||
-                    log.dayCredit !== statusMeta.dayCredit ||
-                    log.lateCountable !== statusMeta.lateCountable ||
-                    (log.extraWorkedMs || 0) !== (statusMeta.extraWorkedMs || 0) ||
+                // Staff manual work logs: derive attendance only from worked duration.
+                if (inferredSource === 'staff_manual_work') {
+                    if (workedHours >= 8) {
+                        nextType = 'Present';
+                        nextDayCredit = 1;
+                    } else if (workedHours >= 4) {
+                        nextType = 'Half Day';
+                        nextDayCredit = 0.5;
+                    } else {
+                        nextType = 'Work Log';
+                        nextDayCredit = 0;
+                    }
+                    nextLateCountable = false;
+                    nextExtraWorkedMs = 0;
+                } else if (
+                    !log.isManualOverride &&
+                    inferredAttendanceEligible &&
+                    !(specialTypes.has(normalizedType) || String(normalizedType).includes('Leave') || normalizedType === 'Office') &&
+                    inDt && outDt && outDt > inDt
+                ) {
+                    const statusMeta = window.AppAttendance.evaluateAttendanceStatus(inDt, outDt - inDt);
+                    nextType = statusMeta.status;
+                    nextDayCredit = statusMeta.dayCredit;
+                    nextLateCountable = statusMeta.lateCountable;
+                    nextExtraWorkedMs = statusMeta.extraWorkedMs || 0;
+                }
+
+                const nextRecord = {
+                    ...log,
+                    entrySource: inferredSource,
+                    attendanceEligible: inferredAttendanceEligible,
+                    type: nextType,
+                    dayCredit: typeof nextDayCredit === 'number' ? nextDayCredit : 0,
+                    lateCountable: nextLateCountable === true,
+                    extraWorkedMs: nextExtraWorkedMs || 0,
+                    durationMs: typeof resolvedDurationMs === 'number' ? resolvedDurationMs : log.durationMs,
+                    policyVersion: 'v2'
+                };
+
+                const changed =
+                    log.entrySource !== nextRecord.entrySource ||
+                    log.attendanceEligible !== nextRecord.attendanceEligible ||
+                    log.type !== nextRecord.type ||
+                    log.dayCredit !== nextRecord.dayCredit ||
+                    log.lateCountable !== nextRecord.lateCountable ||
+                    (log.extraWorkedMs || 0) !== (nextRecord.extraWorkedMs || 0) ||
+                    log.durationMs !== nextRecord.durationMs ||
                     log.policyVersion !== 'v2';
 
-                if (!shouldUpdate) {
+                if (!changed) {
                     skipped++;
                     continue;
                 }
 
-                await window.AppDB.put('attendance', {
-                    ...log,
-                    type: nextType,
-                    dayCredit: statusMeta.dayCredit,
-                    lateCountable: statusMeta.lateCountable,
-                    extraWorkedMs: statusMeta.extraWorkedMs || 0,
-                    durationMs: typeof log.durationMs === 'number' ? log.durationMs : durationMs,
-                    policyVersion: 'v2'
-                });
+                await window.AppDB.put('attendance', nextRecord);
                 updated++;
             }
 
