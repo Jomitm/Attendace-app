@@ -4541,6 +4541,7 @@
                     nextExtraWorkedMs = statusMeta.extraWorkedMs || 0;
                 }
 
+                const normalizedDurationMs = (typeof resolvedDurationMs === 'number') ? resolvedDurationMs : null;
                 const nextRecord = {
                     ...log,
                     entrySource: inferredSource,
@@ -4549,7 +4550,7 @@
                     dayCredit: typeof nextDayCredit === 'number' ? nextDayCredit : 0,
                     lateCountable: nextLateCountable === true,
                     extraWorkedMs: nextExtraWorkedMs || 0,
-                    durationMs: typeof resolvedDurationMs === 'number' ? resolvedDurationMs : log.durationMs,
+                    durationMs: normalizedDurationMs,
                     policyVersion: 'v2'
                 };
 
