@@ -4467,11 +4467,14 @@
                 'National Holiday',
                 'Regional Holidays'
             ]);
+            let duplicateNeutralized = 0;
+            let invalidTimeNeutralized = 0;
 
-            for (const log of logs) {
-                scanned++;
-                const normalizedType = window.AppAttendance.normalizeType(log.type);
-                const dateIso = parseLogDateToISO(log.date);
+            const metaById = new Map();
+            const groupBuckets = new Map();
+
+            const inferMeta = (log) => {
+                const dateIso = parseLogDateToISO(log?.date);
                 const hasSystemSignals =
                     typeof log?.activityScore !== 'undefined' ||
                     typeof log?.locationMismatched !== 'undefined' ||
@@ -4491,15 +4494,17 @@
                     }
                 }
 
-                const in24 = (log.checkIn && log.checkOut && log.checkOut !== 'Active Now') ? convertTo24h(log.checkIn) : null;
-                const out24 = (log.checkIn && log.checkOut && log.checkOut !== 'Active Now') ? convertTo24h(log.checkOut) : null;
+                const in24 = (log?.checkIn && log?.checkOut && log?.checkOut !== 'Active Now') ? convertTo24h(log.checkIn) : null;
+                const out24 = (log?.checkIn && log?.checkOut && log?.checkOut !== 'Active Now') ? convertTo24h(log.checkOut) : null;
                 const inDt = (dateIso && in24) ? window.AppAttendance.buildDateTime(dateIso, in24) : null;
                 const outDt = (dateIso && out24) ? window.AppAttendance.buildDateTime(dateIso, out24) : null;
-                const parsedDurationMs = (inDt && outDt && outDt > inDt) ? (outDt - inDt) : null;
-                const resolvedDurationMs = typeof log.durationMs === 'number' ? log.durationMs : parsedDurationMs;
+                const validTimeRange = !!(inDt && outDt && outDt > inDt);
+                const parsedDurationMs = validTimeRange ? (outDt - inDt) : null;
+                const resolvedDurationMs = typeof log?.durationMs === 'number' ? log.durationMs : parsedDurationMs;
                 const workedHours = typeof resolvedDurationMs === 'number'
                     ? Math.max(0, resolvedDurationMs) / (1000 * 60 * 60)
                     : 0;
+
                 let inferredAttendanceEligible;
                 if (Object.prototype.hasOwnProperty.call(log || {}, 'attendanceEligible')) {
                     inferredAttendanceEligible = log.attendanceEligible === true;
@@ -4509,13 +4514,100 @@
                     inferredAttendanceEligible = true;
                 }
 
+                return {
+                    dateIso,
+                    inDt,
+                    outDt,
+                    validTimeRange,
+                    resolvedDurationMs,
+                    workedHours,
+                    inferredSource,
+                    inferredAttendanceEligible
+                };
+            };
+
+            const rankLog = (log, meta) => {
+                let score = 0;
+                if (meta.inferredAttendanceEligible) score += 100;
+                if (meta.validTimeRange) score += 10;
+                if (meta.inferredSource === 'checkin_checkout') score += 30;
+                else if (meta.inferredSource === 'admin_override') score += 20;
+                else score += 5;
+                if (log?.isManualOverride) score += 4;
+                if (String(log?.type || '').includes('Leave') || log?.location === 'On Leave') score += 6;
+                score += Number(log?.id || 0) / 1e13;
+                return score;
+            };
+
+            for (const log of logs) {
+                if (!log || !log.id) continue;
+                const meta = inferMeta(log);
+                metaById.set(log.id, meta);
+                const uid = log.user_id || log.userId;
+                if (!uid || !meta.dateIso) continue;
+                const key = `${uid}|${meta.dateIso}`;
+                if (!groupBuckets.has(key)) groupBuckets.set(key, []);
+                groupBuckets.get(key).push(log);
+            }
+
+            const keeperByGroup = new Map();
+            for (const [key, bucket] of groupBuckets.entries()) {
+                if (!bucket || bucket.length === 0) continue;
+                const sorted = bucket.slice().sort((a, b) => {
+                    const am = metaById.get(a.id) || inferMeta(a);
+                    const bm = metaById.get(b.id) || inferMeta(b);
+                    return rankLog(b, bm) - rankLog(a, am);
+                });
+                keeperByGroup.set(key, sorted[0]?.id);
+            }
+
+            for (const log of logs) {
+                scanned++;
+                if (!log || !log.id) {
+                    skipped++;
+                    continue;
+                }
+                const normalizedType = window.AppAttendance.normalizeType(log.type);
+                const meta = metaById.get(log.id) || inferMeta(log);
+                const dateIso = meta.dateIso;
+                const inDt = meta.inDt;
+                const outDt = meta.outDt;
+                const resolvedDurationMs = meta.resolvedDurationMs;
+                const workedHours = meta.workedHours;
+                const inferredSource = meta.inferredSource;
+                let inferredAttendanceEligible = meta.inferredAttendanceEligible;
+                const uid = log.user_id || log.userId;
+                const groupKey = (uid && dateIso) ? `${uid}|${dateIso}` : null;
+                const keeperId = groupKey ? keeperByGroup.get(groupKey) : null;
+                const isDuplicate = !!(keeperId && keeperId !== log.id);
+                const hasTimePair = !!(log.checkIn && log.checkOut && log.checkOut !== 'Active Now');
+                const invalidTimeRange = hasTimePair && !!(inDt && outDt && outDt <= inDt);
+
                 let nextType = log.type;
                 let nextDayCredit = log.dayCredit;
                 let nextLateCountable = log.lateCountable;
                 let nextExtraWorkedMs = log.extraWorkedMs || 0;
 
+                if (isDuplicate) {
+                    inferredAttendanceEligible = false;
+                    if (!String(log.type || '').includes('Leave')) nextType = 'Work Log';
+                    nextDayCredit = 0;
+                    nextLateCountable = false;
+                    nextExtraWorkedMs = 0;
+                    duplicateNeutralized++;
+                }
+
+                if (invalidTimeRange) {
+                    inferredAttendanceEligible = false;
+                    if (!String(log.type || '').includes('Leave')) nextType = 'Work Log';
+                    nextDayCredit = 0;
+                    nextLateCountable = false;
+                    nextExtraWorkedMs = 0;
+                    invalidTimeNeutralized++;
+                }
+
                 // Staff manual work logs: derive attendance only from worked duration.
-                if (inferredSource === 'staff_manual_work') {
+                if (inferredSource === 'staff_manual_work' && !isDuplicate && !invalidTimeRange) {
                     if (workedHours >= 8) {
                         nextType = 'Present';
                         nextDayCredit = 1;
@@ -4573,7 +4665,7 @@
                 updated++;
             }
 
-            alert(`Migration complete.\nScanned: ${scanned}\nUpdated: ${updated}\nSkipped: ${skipped}`);
+            alert(`Migration complete.\nScanned: ${scanned}\nUpdated: ${updated}\nSkipped: ${skipped}\nDuplicates neutralized: ${duplicateNeutralized}\nInvalid-time logs neutralized: ${invalidTimeNeutralized}`);
 
             const hash = window.location.hash.slice(1);
             const contentArea = document.getElementById('page-content');
