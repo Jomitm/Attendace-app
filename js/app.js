@@ -2978,7 +2978,17 @@
         const checkInDate = window.AppAttendance.buildDateTime(date, checkIn);
         const checkOutDate = window.AppAttendance.buildDateTime(date, checkOut);
         const durationMs = (checkInDate && checkOutDate) ? (checkOutDate - checkInDate) : 0;
-        const statusMeta = window.AppAttendance.evaluateAttendanceStatus(checkInDate || new Date(), durationMs);
+        const workedHours = Math.max(0, durationMs) / (1000 * 60 * 60);
+        const attendanceEligible = workedHours >= 4;
+        let resolvedType = 'Work Log';
+        let resolvedDayCredit = 0;
+        if (workedHours >= 8) {
+            resolvedType = 'Present';
+            resolvedDayCredit = 1;
+        } else if (workedHours >= 4) {
+            resolvedType = 'Half Day';
+            resolvedDayCredit = 0.5;
+        }
 
         const logData = {
             date: formData.get('date'),
@@ -2988,9 +2998,14 @@
             durationMs: durationMs,
             location: formData.get('location'),
             workDescription: formData.get('location'), // Save description here too
-            type: statusMeta.status,
-            dayCredit: statusMeta.dayCredit,
-            lateCountable: statusMeta.lateCountable
+            type: resolvedType,
+            dayCredit: resolvedDayCredit,
+            lateCountable: false,
+            extraWorkedMs: 0,
+            policyVersion: 'v2',
+            entrySource: 'staff_manual_work',
+            attendanceEligible: attendanceEligible,
+            isManualOverride: false
         };
         await window.AppAttendance.addManualLog(logData);
         alert('Log added successfully!');
@@ -4082,7 +4097,9 @@
             lateCountable: statusMeta.lateCountable,
             extraWorkedMs: statusMeta.extraWorkedMs || 0,
             policyVersion: 'v2',
-            isManualOverride: false
+            isManualOverride: true,
+            entrySource: 'admin_override',
+            attendanceEligible: true
         };
 
         try {
@@ -4219,7 +4236,29 @@
         }
         const user = (await window.AppDB.getAll('users')).find(u => u.id === userId);
         const logs = await window.AppDB.getAll('attendance');
-        const existingLog = logs.find(l => (l.userId === userId || l.user_id === userId) && l.date === dateStr);
+        const isAttendanceEligibleLog = (log) => {
+            if (Object.prototype.hasOwnProperty.call(log || {}, 'attendanceEligible')) {
+                return log.attendanceEligible === true;
+            }
+            const src = String(log?.entrySource || '');
+            if (src === 'staff_manual_work') return false;
+            if (src === 'admin_override' || src === 'checkin_checkout') return true;
+            if (log?.isManualOverride) return true;
+            if (log?.location === 'Office (Manual)' || log?.location === 'Office (Override)') return true;
+            const hasSystemSignals =
+                typeof log?.activityScore !== 'undefined' ||
+                typeof log?.locationMismatched !== 'undefined' ||
+                typeof log?.autoCheckout !== 'undefined' ||
+                !!log?.checkOutLocation ||
+                typeof log?.outLat !== 'undefined' ||
+                typeof log?.outLng !== 'undefined';
+            if (hasSystemSignals) return true;
+            const type = String(log?.type || '');
+            return type.includes('Leave') || log?.location === 'On Leave';
+        };
+        const existingLog = logs
+            .filter(l => (l.userId === userId || l.user_id === userId) && l.date === dateStr && isAttendanceEligibleLog(l))
+            .sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0];
 
         const html = `
             <div class="modal-overlay" id="cell-override-modal" style="display:flex;">
@@ -4325,6 +4364,8 @@
             extraWorkedMs: statusMeta.extraWorkedMs || 0,
             policyVersion: 'v2',
             isManualOverride: isManualOverride,
+            entrySource: 'admin_override',
+            attendanceEligible: true,
             autoCheckoutExtraApproved: fd.get('autoCheckoutExtraApproved') === 'on'
         };
 
@@ -4429,7 +4470,26 @@
 
             for (const log of logs) {
                 scanned++;
-                if (!log || !log.id || log.isManualOverride) {
+                const isAttendanceEligible = Object.prototype.hasOwnProperty.call(log || {}, 'attendanceEligible')
+                    ? (log.attendanceEligible === true)
+                    : (() => {
+                        const src = String(log?.entrySource || '');
+                        if (src === 'staff_manual_work') return false;
+                        if (src === 'admin_override' || src === 'checkin_checkout') return true;
+                        if (log?.isManualOverride) return true;
+                        if (log?.location === 'Office (Manual)' || log?.location === 'Office (Override)') return true;
+                        const hasSystemSignals =
+                            typeof log?.activityScore !== 'undefined' ||
+                            typeof log?.locationMismatched !== 'undefined' ||
+                            typeof log?.autoCheckout !== 'undefined' ||
+                            !!log?.checkOutLocation ||
+                            typeof log?.outLat !== 'undefined' ||
+                            typeof log?.outLng !== 'undefined';
+                        if (hasSystemSignals) return true;
+                        const type = String(log?.type || '');
+                        return type.includes('Leave') || log?.location === 'On Leave';
+                    })();
+                if (!log || !log.id || log.isManualOverride || !isAttendanceEligible) {
                     skipped++;
                     continue;
                 }

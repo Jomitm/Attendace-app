@@ -3076,6 +3076,26 @@
                 if (isActualCheckoutLog(log)) return 2; // Actual Check-out
                 return 1; // Manual Log / other fallback
             };
+            const isAttendanceEligibleLog = (log) => {
+                if (Object.prototype.hasOwnProperty.call(log || {}, 'attendanceEligible')) {
+                    return log.attendanceEligible === true;
+                }
+                const src = String(log?.entrySource || '');
+                if (src === 'staff_manual_work') return false;
+                if (src === 'admin_override' || src === 'checkin_checkout') return true;
+                if (log?.isManualOverride) return true;
+                if (log?.location === 'Office (Manual)' || log?.location === 'Office (Override)') return true;
+                const hasSystemSignals =
+                    typeof log?.activityScore !== 'undefined' ||
+                    typeof log?.locationMismatched !== 'undefined' ||
+                    typeof log?.autoCheckout !== 'undefined' ||
+                    !!log?.checkOutLocation ||
+                    typeof log?.outLat !== 'undefined' ||
+                    typeof log?.outLng !== 'undefined';
+                if (hasSystemSignals) return true;
+                const type = String(log?.type || '');
+                return type.includes('Leave') || log?.location === 'On Leave';
+            };
             const todayIso = new Date().toISOString().split('T')[0];
             const toLocalIso = (value) => {
                 const d = new Date(value);
@@ -3130,14 +3150,15 @@
                                             ${daysArray.map(day => {
                     const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                     const dayLogs = filteredLogs.filter(l => (l.userId === u.id || l.user_id === u.id) && l.date === dateStr);
+                    const dayAttendanceLogs = dayLogs.filter(isAttendanceEligibleLog);
                     const dayPolicy = getWeekendPolicy(dateStr);
 
                     let cellContent = '-';
                     let cellStyle = '';
                     let tooltip = 'No log';
 
-                    if (dayLogs.length > 0) {
-                        const log = dayLogs
+                    if (dayAttendanceLogs.length > 0) {
+                        const log = dayAttendanceLogs
                             .slice()
                             .sort((a, b) => getLogPriority(b) - getLogPriority(a))[0];
                         const type = window.AppAttendance.normalizeType(log.type);

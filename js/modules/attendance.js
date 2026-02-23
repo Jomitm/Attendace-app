@@ -178,6 +178,8 @@
                 overtimeReasonTag: options.overtimeReasonTag || '',
                 overtimeExplanation: options.overtimeExplanation || '',
                 overtimeCappedToEightHours: !!options.overtimeCappedToEightHours,
+                entrySource: 'checkin_checkout',
+                attendanceEligible: true,
                 synced: false // For future sync logic
             };
 
@@ -212,6 +214,10 @@
                 user_id: userId,
                 ...logData,
                 isManualOverride: logData.isManualOverride === true,
+                entrySource: logData.entrySource || 'admin_override',
+                attendanceEligible: Object.prototype.hasOwnProperty.call(logData, 'attendanceEligible')
+                    ? (logData.attendanceEligible === true)
+                    : true,
                 synced: false
             };
 
@@ -236,6 +242,10 @@
                 isManualOverride: Object.prototype.hasOwnProperty.call(logData, 'isManualOverride')
                     ? (logData.isManualOverride === true)
                     : !!existing.isManualOverride,
+                entrySource: logData.entrySource || existing.entrySource || 'admin_override',
+                attendanceEligible: Object.prototype.hasOwnProperty.call(logData, 'attendanceEligible')
+                    ? (logData.attendanceEligible === true)
+                    : (Object.prototype.hasOwnProperty.call(existing, 'attendanceEligible') ? existing.attendanceEligible === true : true),
                 id: logId
             };
 
@@ -253,9 +263,13 @@
             const statusMeta = this.evaluateAttendanceStatus(checkInDate || new Date(), durationMs);
 
             const resolvedType = String(logData.type || '').trim();
-            const finalType = (!resolvedType || resolvedType === 'Manual')
+            const fallbackType = (!resolvedType || resolvedType === 'Manual')
                 ? statusMeta.status
                 : resolvedType;
+            const attendanceEligible = Object.prototype.hasOwnProperty.call(logData, 'attendanceEligible')
+                ? (logData.attendanceEligible === true)
+                : fallbackType !== 'Work Log';
+            const finalType = attendanceEligible ? fallbackType : (resolvedType || 'Work Log');
 
             const newLog = {
                 id: String(Date.now()),
@@ -263,9 +277,15 @@
                 ...logData,
                 type: finalType,
                 durationMs: typeof logData.durationMs === 'number' ? logData.durationMs : durationMs,
-                dayCredit: statusMeta.dayCredit,
-                lateCountable: finalType === 'Late',
-                extraWorkedMs: statusMeta.extraWorkedMs || 0,
+                dayCredit: attendanceEligible
+                    ? (typeof logData.dayCredit === 'number' ? logData.dayCredit : statusMeta.dayCredit)
+                    : 0,
+                lateCountable: attendanceEligible && (logData.lateCountable === true || finalType === 'Late'),
+                extraWorkedMs: attendanceEligible
+                    ? (typeof logData.extraWorkedMs === 'number' ? logData.extraWorkedMs : (statusMeta.extraWorkedMs || 0))
+                    : 0,
+                entrySource: logData.entrySource || 'staff_manual_work',
+                attendanceEligible: attendanceEligible,
                 synced: false
             };
 

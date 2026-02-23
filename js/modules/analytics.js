@@ -172,6 +172,26 @@
             const labels = [];
             const presentData = [];
             const leaveData = [];
+            const isAttendanceEligible = (log) => {
+                if (Object.prototype.hasOwnProperty.call(log || {}, 'attendanceEligible')) {
+                    return log.attendanceEligible === true;
+                }
+                const src = String(log?.entrySource || '');
+                if (src === 'staff_manual_work') return false;
+                if (src === 'admin_override' || src === 'checkin_checkout') return true;
+                if (log?.isManualOverride) return true;
+                if (log?.location === 'Office (Manual)' || log?.location === 'Office (Override)') return true;
+                const hasSystemSignals =
+                    typeof log?.activityScore !== 'undefined' ||
+                    typeof log?.locationMismatched !== 'undefined' ||
+                    typeof log?.autoCheckout !== 'undefined' ||
+                    !!log?.checkOutLocation ||
+                    typeof log?.outLat !== 'undefined' ||
+                    typeof log?.outLng !== 'undefined';
+                if (hasSystemSignals) return true;
+                const type = String(log?.type || '');
+                return type.includes('Leave') || log?.location === 'On Leave';
+            };
 
             // Helper for robust date comparison (ignores time & string format)
             const isSameDay = (d1, d2) => {
@@ -198,6 +218,7 @@
                 const uniqueLeave = new Set();
 
                 daysLogs.forEach(l => {
+                    if (!isAttendanceEligible(l)) return;
                     const uid = l.user_id || l.userId;
                     if (!uid) return;
 
@@ -325,6 +346,26 @@
             userLogs.forEach(log => {
                 const logDate = new Date(log.date);
                 if (!isNaN(logDate) && logDate >= startOfMonth && logDate <= endOfMonth) {
+                    const isAttendanceEligible = Object.prototype.hasOwnProperty.call(log, 'attendanceEligible')
+                        ? (log.attendanceEligible === true)
+                        : (() => {
+                            const src = String(log.entrySource || '');
+                            if (src === 'staff_manual_work') return false;
+                            if (src === 'admin_override' || src === 'checkin_checkout') return true;
+                            if (log.isManualOverride) return true;
+                            if (log.location === 'Office (Manual)' || log.location === 'Office (Override)') return true;
+                            const hasSystemSignals =
+                                typeof log.activityScore !== 'undefined' ||
+                                typeof log.locationMismatched !== 'undefined' ||
+                                typeof log.autoCheckout !== 'undefined' ||
+                                !!log.checkOutLocation ||
+                                typeof log.outLat !== 'undefined' ||
+                                typeof log.outLng !== 'undefined';
+                            if (hasSystemSignals) return true;
+                            const type = String(log.type || '');
+                            return type.includes('Leave') || log.location === 'On Leave';
+                        })();
+                    if (!isAttendanceEligible) return;
                     let type = log.type || '';
                     const inMinutes = this.parseTimeToMinutes(log.checkIn);
                     const outMinutes = this.parseTimeToMinutes(log.checkOut);
@@ -461,6 +502,26 @@
             userLogs.forEach(log => {
                 const logDate = new Date(log.date);
                 if (!isNaN(logDate) && logDate >= start && logDate <= end) {
+                    const isAttendanceEligible = Object.prototype.hasOwnProperty.call(log, 'attendanceEligible')
+                        ? (log.attendanceEligible === true)
+                        : (() => {
+                            const src = String(log.entrySource || '');
+                            if (src === 'staff_manual_work') return false;
+                            if (src === 'admin_override' || src === 'checkin_checkout') return true;
+                            if (log.isManualOverride) return true;
+                            if (log.location === 'Office (Manual)' || log.location === 'Office (Override)') return true;
+                            const hasSystemSignals =
+                                typeof log.activityScore !== 'undefined' ||
+                                typeof log.locationMismatched !== 'undefined' ||
+                                typeof log.autoCheckout !== 'undefined' ||
+                                !!log.checkOutLocation ||
+                                typeof log.outLat !== 'undefined' ||
+                                typeof log.outLng !== 'undefined';
+                            if (hasSystemSignals) return true;
+                            const type = String(log.type || '');
+                            return type.includes('Leave') || log.location === 'On Leave';
+                        })();
+                    if (!isAttendanceEligible) return;
                     let type = log.type || '';
                     const inMinutes = this.parseTimeToMinutes(log.checkIn);
                     const outMinutes = this.parseTimeToMinutes(log.checkOut);
