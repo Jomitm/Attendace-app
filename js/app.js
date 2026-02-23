@@ -4054,6 +4054,11 @@
             alert('End time must be after Start time');
             return;
         }
+        const date = fd.get('date');
+        const checkInDate = window.AppAttendance.buildDateTime(date, checkIn);
+        const checkOutDate = window.AppAttendance.buildDateTime(date, checkOut);
+        const durationMs = (checkInDate && checkOutDate) ? (checkOutDate - checkInDate) : 0;
+        const statusMeta = window.AppAttendance.evaluateAttendanceStatus(checkInDate || new Date(), durationMs);
 
         // Convert 24h back to AM/PM for display consistency (optional, but better)
         const formatTime = (timeStr) => {
@@ -4065,14 +4070,19 @@
         };
 
         const logData = {
-            date: fd.get('date'),
+            date,
             checkIn: formatTime(checkIn),
             checkOut: formatTime(checkOut),
             duration: dur,
-            type: fd.get('type'),
+            type: statusMeta.status,
             workDescription: fd.get('description') || 'Manual Entry by Admin',
             location: 'Office (Manual)',
-            durationMs: (new Date(`1970-01-01T${checkOut}:00`) - new Date(`1970-01-01T${checkIn}:00`))
+            durationMs: durationMs,
+            dayCredit: statusMeta.dayCredit,
+            lateCountable: statusMeta.lateCountable,
+            extraWorkedMs: statusMeta.extraWorkedMs || 0,
+            policyVersion: 'v2',
+            isManualOverride: false
         };
 
         try {
@@ -4284,6 +4294,13 @@
             alert('End time must be after Start time');
             return;
         }
+        const checkInDate = window.AppAttendance.buildDateTime(dateStr, checkIn);
+        const checkOutDate = window.AppAttendance.buildDateTime(dateStr, checkOut);
+        const durationMs = (checkInDate && checkOutDate) ? (checkOutDate - checkInDate) : 0;
+        const statusMeta = window.AppAttendance.evaluateAttendanceStatus(checkInDate || new Date(), durationMs);
+        const isManualOverride = fd.get('isManualOverride') === 'on';
+        const selectedType = String(fd.get('type') || '').trim();
+        const finalType = isManualOverride && selectedType ? selectedType : statusMeta.status;
 
         const formatTime = (timeStr) => {
             if (!timeStr || timeStr === '--') return '--';
@@ -4299,11 +4316,15 @@
             checkIn: formatTime(checkIn),
             checkOut: formatTime(checkOut),
             duration: dur,
-            type: fd.get('type'),
+            type: finalType,
             workDescription: fd.get('description') || 'Admin Override',
             location: 'Office (Override)',
-            durationMs: (new Date(`1970-01-01T${checkOut}:00`) - new Date(`1970-01-01T${checkIn}:00`)),
-            isManualOverride: fd.get('isManualOverride') === 'on',
+            durationMs: durationMs,
+            dayCredit: statusMeta.dayCredit,
+            lateCountable: statusMeta.lateCountable,
+            extraWorkedMs: statusMeta.extraWorkedMs || 0,
+            policyVersion: 'v2',
+            isManualOverride: isManualOverride,
             autoCheckoutExtraApproved: fd.get('autoCheckoutExtraApproved') === 'on'
         };
 

@@ -211,7 +211,7 @@
                 id: String(Date.now()),
                 user_id: userId,
                 ...logData,
-                isManualOverride: true,
+                isManualOverride: logData.isManualOverride === true,
                 synced: false
             };
 
@@ -233,7 +233,9 @@
             const updatedLog = {
                 ...existing,
                 ...logData,
-                isManualOverride: true,
+                isManualOverride: Object.prototype.hasOwnProperty.call(logData, 'isManualOverride')
+                    ? (logData.isManualOverride === true)
+                    : !!existing.isManualOverride,
                 id: logId
             };
 
@@ -434,7 +436,13 @@
                     lateCountable = true;
                 }
             } else {
-                status = 'Present';
+                if (netHours >= 8) {
+                    status = 'Present';
+                } else if (netHours >= 4) {
+                    status = 'Half Day';
+                } else {
+                    status = 'Absent';
+                }
             }
 
             return {
