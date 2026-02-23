@@ -4527,12 +4527,22 @@
             };
 
             const rankLog = (log, meta) => {
+                const normalizedType = window.AppAttendance.normalizeType(log?.type);
+                let creditScore = 0;
+                if (meta.inferredSource === 'staff_manual_work') {
+                    if (meta.workedHours >= 8) creditScore = 100;
+                    else if (meta.workedHours >= 4) creditScore = 50;
+                } else {
+                    creditScore = Number(window.AppAttendance.getDayCredit(normalizedType) || 0) * 100;
+                }
                 let score = 0;
-                if (meta.inferredAttendanceEligible) score += 100;
+                score += creditScore;
+                score += Math.min(20, Math.floor(Math.max(0, meta.workedHours || 0)));
+                if (meta.inferredAttendanceEligible) score += 40;
                 if (meta.validTimeRange) score += 10;
-                if (meta.inferredSource === 'checkin_checkout') score += 30;
-                else if (meta.inferredSource === 'admin_override') score += 20;
-                else score += 5;
+                if (meta.inferredSource === 'checkin_checkout') score += 8;
+                else if (meta.inferredSource === 'admin_override') score += 6;
+                else score += 4;
                 if (log?.isManualOverride) score += 4;
                 if (String(log?.type || '').includes('Leave') || log?.location === 'On Leave') score += 6;
                 score += Number(log?.id || 0) / 1e13;
