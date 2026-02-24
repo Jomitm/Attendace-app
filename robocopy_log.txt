@@ -1,0 +1,37 @@
+
+-------------------------------------------------------------------------------
+   ROBOCOPY     ::     Robust File Copy for Windows                              
+-------------------------------------------------------------------------------
+
+  Started : 23 February 2026 10:54:14
+   Source : d:\Attendace-app-main\crwi-portal\
+     Dest : D:\CRWI ONLINE RECIPT\
+
+    Files : *.*
+	    
+  Options : *.* /TBD /V /S /E /DCOPY:DA /COPY:DAT /Z /MT:8 /R:5 /W:5 
+
+------------------------------------------------------------------------------
+
+	    New File  		   22205	d:\Attendace-app-main\crwi-portal\index.html100%  
+	    New File  		   19546	d:\Attendace-app-main\crwi-portal\receipt.html100%  
+	    New File  		    3165	d:\Attendace-app-main\crwi-portal\css\styles.css100%  
+	    New File  		   43979	d:\Attendace-app-main\crwi-portal\assets\crwi-logo.png100%  
+	    New File  		   13628	d:\Attendace-app-main\crwi-portal\js\app.js100%  
+	    New File  		   10448	d:\Attendace-app-main\crwi-portal\js\ledger.js100%  
+	    New File  		    6352	d:\Attendace-app-main\crwi-portal\js\receipt.js100%  
+	    New File  		    5805	d:\Attendace-app-main\crwi-portal\js\shared.js100%  
+
+------------------------------------------------------------------------------
+
+               Total    Copied   Skipped  Mismatch    FAILED    Extras
+    Dirs :         4         4         1         0         0         0
+   Files :         8         8         0         0         0         0
+   Bytes :   122.1 k   122.1 k         0         0         0         0
+   Times :   0:00:00   0:00:00                       0:00:00   0:00:00
+
+
+   Speed :           1,04,27,333 Bytes/sec.
+   Speed :               596.657 MegaBytes/min.
+   Ended : 23 February 2026 10:54:14
+

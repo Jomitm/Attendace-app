@@ -1,0 +1,61 @@
+name: Publish Release Signal
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  publish-release-signal:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Firebase Admin SDK
+        run: npm install firebase-admin@12 --no-save
+
+      - name: Write release signal to Firestore
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          RELEASE_COMMIT_SHA: ${{ github.sha }}
+          RELEASE_BRANCH: ${{ github.ref_name }}
+        run: |
+          node <<'NODE'
+          const admin = require('firebase-admin');
+          const saRaw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '';
+          if (!saRaw) throw new Error('Missing FIREBASE_SERVICE_ACCOUNT_JSON secret');
+          const serviceAccount = JSON.parse(saRaw);
+          admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+          const db = admin.firestore();
+          const commitSha = String(process.env.RELEASE_COMMIT_SHA || '');
+          const shortSha = commitSha.slice(0, 7);
+          const nowIso = new Date().toISOString();
+          const releaseId = shortSha ? shortSha + '-' + Date.now() : 'release-' + Date.now();
+          const payload = {
+            id: 'release_signal',
+            releaseId,
+            commitSha,
+            branch: String(process.env.RELEASE_BRANCH || 'main'),
+            deployedAt: nowIso,
+            notes: 'Auto-published from GitHub Actions',
+            forceAfterMs: 90000,
+            snoozeMs: 300000,
+            maxSnoozeCount: 1,
+            active: true
+          };
+          db.collection('app_meta').doc('release_signal').set(payload, { merge: true })
+            .then(() => {
+              console.log('Release signal published:', payload.releaseId);
+              process.exit(0);
+            })
+            .catch((err) => {
+              console.error(err);
+              process.exit(1);
+            });
+          NODE

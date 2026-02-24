@@ -5,18 +5,19 @@
  */
 (function () {
     // --- Helper Functions (Local to IIFE) ---
-    const renderWorkLog = (logs, collabs = [], targetStaff = null, isViewingSelf = true) => {
+    const renderWorkLog = (logs, collabs = [], targetStaff = null) => {
         const today = new Date();
         const startDate = new Date(today);
         startDate.setDate(startDate.getDate() - 180);
         const startDefault = startDate.toISOString().split('T')[0];
         const endDefault = today.toISOString().split('T')[0];
         const targetStaffId = targetStaff ? targetStaff.id : window.AppAuth.getUser().id;
+        const workLogStaffName = (targetStaff && targetStaff.name) || window.AppAuth.getUser().name;
 
         return `
                 <div class="card dashboard-worklog-card">
                     <div class="dashboard-worklog-head">
-                         <h4>Work Log${!isViewingSelf && targetStaff ? ` <span class="dashboard-worklog-staff">(${targetStaff.name})</span>` : ''}</h4>
+                         <h4>Work Log <span class="dashboard-worklog-staff">(${workLogStaffName})</span></h4>
                          <span>Ongoing & Historical Tasks</span>
                     </div>
                      <div class="dashboard-worklog-filter-row">
@@ -188,16 +189,302 @@
         return html;
     };
 
+    const getCurrentMonthKey = () => new Date().toISOString().slice(0, 7);
+
+    const formatMonthLabel = (monthKey) => {
+        const [yearStr, monthStr] = String(monthKey || '').split('-');
+        const year = Number(yearStr);
+        const month = Number(monthStr) - 1;
+        if (!Number.isInteger(year) || !Number.isInteger(month) || month < 0 || month > 11) {
+            return monthKey || 'Current Month';
+        }
+        return new Date(year, month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    };
+
+    const buildStaffActivityMonthOptions = (count = 8) => {
+        const opts = [];
+        const base = new Date();
+        base.setDate(1);
+        for (let i = 0; i < count; i++) {
+            const d = new Date(base);
+            d.setMonth(base.getMonth() - i);
+            const key = d.toISOString().slice(0, 7);
+            opts.push({ key, label: formatMonthLabel(key) });
+        }
+        return opts;
+    };
+
+    const getStaffActivityState = () => {
+        if (!window.app_staffActivityState) {
+            window.app_staffActivityState = {
+                selectedMonth: getCurrentMonthKey(),
+                sortKey: 'date-desc',
+                logs: []
+            };
+        }
+        return window.app_staffActivityState;
+    };
+
+    const teamActivityAutoScroll = {
+        controllers: new WeakMap(),
+        elements: new Set()
+    };
+
+    const clearTeamActivityController = (el) => {
+        if (!el) return;
+        const state = teamActivityAutoScroll.controllers.get(el);
+        if (!state) return;
+        if (state.intervalId) clearInterval(state.intervalId);
+        if (state.pauseTimeoutId) clearTimeout(state.pauseTimeoutId);
+        if (state.resumeTimeoutId) clearTimeout(state.resumeTimeoutId);
+        el.removeEventListener('mouseenter', state.onMouseEnter);
+        el.removeEventListener('mouseleave', state.onMouseLeave);
+        el.removeEventListener('touchstart', state.onTouchStart);
+        el.removeEventListener('touchend', state.onTouchEnd);
+        el.removeEventListener('touchcancel', state.onTouchCancel);
+        teamActivityAutoScroll.controllers.delete(el);
+        teamActivityAutoScroll.elements.delete(el);
+    };
+
+    const disposeTeamActivityAutoScroll = () => {
+        Array.from(teamActivityAutoScroll.elements).forEach(el => clearTeamActivityController(el));
+    };
+
+    const initTeamActivityAutoScroll = (container) => {
+        if (!container) return;
+        disposeTeamActivityAutoScroll();
+        const columns = container.querySelectorAll('.dashboard-team-activity-col-list');
+        columns.forEach((el) => {
+            const state = {
+                intervalId: null,
+                pauseTimeoutId: null,
+                resumeTimeoutId: null,
+                direction: 1,
+                isPausedByUser: false,
+                isWaitingAtEdge: false,
+                onMouseEnter: null,
+                onMouseLeave: null,
+                onTouchStart: null,
+                onTouchEnd: null,
+                onTouchCancel: null
+            };
+
+            const waitAtEdge = (nextDirection, waitMs) => {
+                state.isWaitingAtEdge = true;
+                if (state.pauseTimeoutId) clearTimeout(state.pauseTimeoutId);
+                state.pauseTimeoutId = setTimeout(() => {
+                    state.direction = nextDirection;
+                    state.isWaitingAtEdge = false;
+                }, waitMs);
+            };
+
+            const tick = () => {
+                if (state.isPausedByUser || state.isWaitingAtEdge || !el.isConnected) return;
+                const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
+                if (maxScroll <= 0) return;
+                el.scrollTop += state.direction;
+                if (state.direction === 1 && el.scrollTop >= maxScroll) {
+                    el.scrollTop = maxScroll;
+                    waitAtEdge(-1, 1500);
+                } else if (state.direction === -1 && el.scrollTop <= 0) {
+                    el.scrollTop = 0;
+                    waitAtEdge(1, 1000);
+                }
+            };
+
+            const resumeAfterTouch = () => {
+                if (state.resumeTimeoutId) clearTimeout(state.resumeTimeoutId);
+                state.resumeTimeoutId = setTimeout(() => {
+                    state.isPausedByUser = false;
+                }, 400);
+            };
+
+            state.onMouseEnter = () => { state.isPausedByUser = true; };
+            state.onMouseLeave = () => { state.isPausedByUser = false; };
+            state.onTouchStart = () => {
+                state.isPausedByUser = true;
+                if (state.resumeTimeoutId) clearTimeout(state.resumeTimeoutId);
+            };
+            state.onTouchEnd = resumeAfterTouch;
+            state.onTouchCancel = resumeAfterTouch;
+
+            el.addEventListener('mouseenter', state.onMouseEnter);
+            el.addEventListener('mouseleave', state.onMouseLeave);
+            el.addEventListener('touchstart', state.onTouchStart, { passive: true });
+            el.addEventListener('touchend', state.onTouchEnd, { passive: true });
+            el.addEventListener('touchcancel', state.onTouchCancel, { passive: true });
+
+            state.intervalId = setInterval(tick, 50);
+            teamActivityAutoScroll.controllers.set(el, state);
+            teamActivityAutoScroll.elements.add(el);
+        });
+    };
+
+    const normalizeStaffActivityLogs = (allLogs) => {
+        const deduped = [];
+        const seen = new Map();
+        (allLogs || []).forEach(log => {
+            const desc = (log._displayDesc || '').trim();
+            const key = `${log.staffName || ''}|${log.date || ''}|${desc}`;
+            if (!seen.has(key)) {
+                seen.set(key, log);
+                deduped.push(log);
+            }
+        });
+        return deduped.map(log => {
+            const taskStatus = window.AppCalendar.getSmartTaskStatus(log.date, log.status || '');
+            const group = taskStatus === 'completed' ? 'completed' : 'incomplete';
+            return {
+                ...log,
+                _taskStatus: taskStatus,
+                _taskGroup: group
+            };
+        });
+    };
+
+    const sortStaffActivityLogs = (logs, sortKey) => {
+        const copy = [...logs];
+        const statusRank = {
+            completed: 0,
+            'in-process': 1,
+            overdue: 2,
+            'not-completed': 3,
+            'to-be-started': 4
+        };
+        copy.sort((a, b) => {
+            const dateDiffDesc = new Date(b.date) - new Date(a.date);
+            const dateDiffAsc = new Date(a.date) - new Date(b.date);
+            const nameA = String(a.staffName || '').toLowerCase();
+            const nameB = String(b.staffName || '').toLowerCase();
+            const nameCmp = nameA.localeCompare(nameB);
+            if (sortKey === 'date-asc') return dateDiffAsc || nameCmp;
+            if (sortKey === 'staff-asc') return nameCmp || dateDiffDesc;
+            if (sortKey === 'staff-desc') return (-nameCmp) || dateDiffDesc;
+            if (sortKey === 'completed-first') {
+                const g = a._taskGroup.localeCompare(b._taskGroup);
+                return g || dateDiffDesc;
+            }
+            if (sortKey === 'incomplete-first') {
+                const g = b._taskGroup.localeCompare(a._taskGroup);
+                return g || dateDiffDesc;
+            }
+            if (sortKey === 'status-priority') {
+                const rA = statusRank[a._taskStatus] ?? 99;
+                const rB = statusRank[b._taskStatus] ?? 99;
+                return (rA - rB) || dateDiffDesc || nameCmp;
+            }
+            return dateDiffDesc || nameCmp;
+        });
+        return copy;
+    };
+
+    const renderStaffActivityColumn = (title, logs, emptyMsg) => {
+        const currentUser = window.AppAuth.getUser();
+        const isAdminUser = currentUser && (currentUser.role === 'Administrator' || currentUser.isAdmin);
+        const body = logs.length === 0
+            ? `<div class="dashboard-activity-empty">${emptyMsg}</div>`
+            : logs.map(log => {
+                const statusBadge = `<div class="dashboard-activity-status-row">${window.AppUI.renderTaskStatusBadge(log._taskStatus)}${isAdminUser ? `<div class="dashboard-activity-edit-wrap"><button onclick="window.app_openDayPlan('${log.date}', '${log.userId || ''}')" class="dashboard-activity-edit-btn" title="Edit/Reassign"><i class="fa-solid fa-pen-to-square"></i></button></div>` : ''}</div>`;
+                return `<div class="dashboard-staff-activity-item dashboard-staff-activity-item-compact"><div class="dashboard-staff-name">${log.staffName || 'Unknown Staff'}<span class="dashboard-team-activity-item-date">${log.date || ''}</span></div><div class="dashboard-activity-desc dashboard-staff-activity-desc">${log._displayDesc || 'Work Plan Task'}</div>${statusBadge}<div class="dashboard-activity-meta">${log._taskStatus === 'completed' ? 'Completed' : 'Work Plan'}</div></div>`;
+            }).join('');
+        return `
+            <div class="dashboard-team-activity-col">
+                <div class="dashboard-team-activity-col-head">
+                    <span>${title}</span>
+                    <span class="dashboard-team-activity-count">${logs.length}</span>
+                </div>
+                <div class="dashboard-team-activity-col-list">${body}</div>
+            </div>
+        `;
+    };
+
+    const renderStaffActivityListSplit = (allLogs, sortKey) => {
+        const normalized = normalizeStaffActivityLogs(allLogs);
+        if (normalized.length === 0) {
+            return '<div class="dashboard-activity-empty">No team activities found for the selected month.</div>';
+        }
+        const sorted = sortStaffActivityLogs(normalized, sortKey);
+        const completed = sorted.filter(log => log._taskStatus === 'completed');
+        const incomplete = sorted.filter(log => log._taskStatus !== 'completed');
+        return `
+            <div class="dashboard-team-activity-split-grid">
+                ${renderStaffActivityColumn('Completed', completed, 'No completed tasks in this month.')}
+                ${renderStaffActivityColumn('In Progress / Incomplete', incomplete, 'No in-progress or incomplete tasks in this month.')}
+            </div>
+        `;
+    };
+
+    const refreshStaffActivityWidget = async (fetchLogs = true) => {
+        const state = getStaffActivityState();
+        const list = document.getElementById('staff-activity-list');
+        if (!list) return;
+        disposeTeamActivityAutoScroll();
+        if (fetchLogs) {
+            list.innerHTML = '<div class="dashboard-activity-empty">Loading team activities...</div>';
+            state.logs = await window.AppAnalytics.getAllStaffActivities({
+                mode: 'month',
+                month: state.selectedMonth,
+                scope: 'work'
+            });
+        }
+        list.innerHTML = renderStaffActivityListSplit(state.logs, state.sortKey);
+        initTeamActivityAutoScroll(list);
+        const subtitle = document.getElementById('staff-activity-range-label');
+        if (subtitle) subtitle.textContent = formatMonthLabel(state.selectedMonth);
+    };
+
+    window.app_setStaffActivityMonth = (monthKey) => {
+        const state = getStaffActivityState();
+        state.selectedMonth = monthKey;
+        refreshStaffActivityWidget(true);
+    };
+
+    window.app_setStaffActivitySort = (sortKey) => {
+        const state = getStaffActivityState();
+        state.sortKey = sortKey;
+        refreshStaffActivityWidget(false);
+    };
+
+    window.app_filterStaffActivity = (daysBack) => {
+        const state = getStaffActivityState();
+        window.AppAnalytics.getAllStaffActivities({ mode: 'days', daysBack, scope: 'work' }).then(logs => {
+            state.logs = logs;
+            refreshStaffActivityWidget(false);
+        });
+    };
+
     const renderActivityLog = (allStaffLogs) => {
+        const state = getStaffActivityState();
+        state.logs = Array.isArray(allStaffLogs) ? allStaffLogs : [];
         setTimeout(() => {
-            const container = document.getElementById('staff-activity-list');
-            if (container) initStaffActivityScroll(container);
-        }, 500);
+            const list = document.getElementById('staff-activity-list');
+            if (list) initTeamActivityAutoScroll(list);
+        }, 0);
+        const monthOptions = buildStaffActivityMonthOptions(8);
+        if (!monthOptions.some(opt => opt.key === state.selectedMonth)) {
+            monthOptions.unshift({ key: state.selectedMonth, label: formatMonthLabel(state.selectedMonth) });
+        }
+        const sortOptions = [
+            { key: 'date-desc', label: 'Date (Newest)' },
+            { key: 'date-asc', label: 'Date (Oldest)' },
+            { key: 'completed-first', label: 'Completed First' },
+            { key: 'incomplete-first', label: 'Incomplete First' },
+            { key: 'status-priority', label: 'Status Priority' },
+            { key: 'staff-asc', label: 'Staff (A-Z)' },
+            { key: 'staff-desc', label: 'Staff (Z-A)' }
+        ];
         return `
             <div class="card dashboard-team-activity-card">
-                <div class="dashboard-team-activity-head"><h4>Team Activity</h4><span>Last 6 Months (Rolling)</span></div>
-                <div class="dashboard-team-activity-filters"><button onclick="window.app_filterStaffActivity(14)" class="chip-btn dashboard-team-chip">Last 2 Weeks</button><button onclick="window.app_filterStaffActivity(30)" class="chip-btn dashboard-team-chip">Monthly</button></div>
-                <div id="staff-activity-list" class="dashboard-team-activity-list">${renderStaffActivityList(allStaffLogs, 180)}</div>
+                <div class="dashboard-team-activity-head"><h4>Team Activity</h4><span id="staff-activity-range-label">${formatMonthLabel(state.selectedMonth)}</span></div>
+                <div class="dashboard-team-activity-filters dashboard-team-activity-filters-compact">
+                    <select class="dashboard-team-select" onchange="window.app_setStaffActivityMonth(this.value)">
+                        ${monthOptions.map(opt => `<option value="${opt.key}" ${opt.key === state.selectedMonth ? 'selected' : ''}>${opt.label}</option>`).join('')}
+                    </select>
+                    <select class="dashboard-team-select" onchange="window.app_setStaffActivitySort(this.value)">
+                        ${sortOptions.map(opt => `<option value="${opt.key}" ${opt.key === state.sortKey ? 'selected' : ''}>${opt.label}</option>`).join('')}
+                    </select>
+                </div>
+                <div id="staff-activity-list" class="dashboard-team-activity-list dashboard-team-activity-list-split">${renderStaffActivityListSplit(state.logs, state.sortKey)}</div>
             </div>`;
     };
 
@@ -377,89 +664,6 @@
                 </div>
             </div>
         `;
-    };
-
-    window.app_filterStaffActivity = (daysBack) => {
-        const list = document.getElementById('staff-activity-list');
-        if (!list) return;
-        window.AppAnalytics.getAllStaffActivities(daysBack).then(logs => {
-            list.innerHTML = renderStaffActivityList(logs, daysBack);
-            initStaffActivityScroll(list);
-        });
-    };
-
-    const initStaffActivityScroll = (container) => {
-        if (!container) return;
-        if (window.staffActivityScrollInterval) { clearInterval(window.staffActivityScrollInterval); window.staffActivityScrollInterval = null; }
-        let scrollInterval;
-        let isPaused = false;
-        let direction = 1;
-        let isWaiting = false;
-        const startAutoScroll = () => {
-            scrollInterval = setInterval(() => {
-                if (!isPaused && !isWaiting && container) {
-                    const maxScroll = container.scrollHeight - container.clientHeight;
-                    if (maxScroll <= 0) return;
-                    container.scrollTop += direction;
-                    if (direction === 1 && container.scrollTop >= maxScroll) { isWaiting = true; setTimeout(() => { direction = -1; isWaiting = false; }, 2000); }
-                    else if (direction === -1 && container.scrollTop <= 0) { isWaiting = true; setTimeout(() => { direction = 1; isWaiting = false; }, 1500); }
-                }
-            }, 50);
-        };
-        const onMouseEnter = () => isPaused = true;
-        const onMouseLeave = () => isPaused = false;
-        container.removeEventListener('mouseenter', onMouseEnter);
-        container.removeEventListener('mouseleave', onMouseLeave);
-        container.addEventListener('mouseenter', onMouseEnter);
-        container.addEventListener('mouseleave', onMouseLeave);
-        startAutoScroll();
-        window.staffActivityScrollInterval = scrollInterval;
-    };
-
-    const renderStaffActivityList = (allLogs, daysBack) => {
-        const cutoffDate = new Date();
-        cutoffDate.setDate(cutoffDate.getDate() - daysBack);
-        cutoffDate.setHours(0, 0, 0, 0);
-        const filtered = allLogs.filter(log => {
-            const logDate = new Date(log.date);
-            return logDate >= cutoffDate;
-        });
-        if (filtered.length === 0) return '<div class="dashboard-activity-empty">No team activities found for the requested period.</div>';
-        const deduped = [];
-        const seen = new Map();
-        filtered.forEach(log => {
-            const desc = (log._displayDesc || '').trim();
-            const key = `${log.staffName || ''}|${log.date || ''}|${desc}`;
-            if (!seen.has(key)) {
-                seen.set(key, log);
-                deduped.push(log);
-                return;
-            }
-            const existing = seen.get(key);
-            const isAttendance = log.type === 'attendance';
-            const existingIsAttendance = existing.type === 'attendance';
-            if (isAttendance && !existingIsAttendance) {
-                seen.set(key, log);
-                const idx = deduped.indexOf(existing);
-                if (idx >= 0) deduped[idx] = log;
-            }
-        });
-        let html = '';
-        let lastDate = '';
-        const currentUser = window.AppAuth.getUser();
-        const isAdminUser = currentUser && (currentUser.role === 'Administrator' || currentUser.isAdmin);
-        deduped.sort((a, b) => new Date(b.date) - new Date(a.date)).forEach(log => {
-            const showDate = log.date !== lastDate;
-            if (showDate) { html += `<div class="dashboard-activity-date">${log.date}</div>`; lastDate = log.date; }
-            let statusBadge = '';
-            const effectiveStatus = log.status || (log.type === 'attendance' ? 'completed' : '');
-            if (effectiveStatus || log.type === 'work') {
-                const status = window.AppCalendar.getSmartTaskStatus(log.date, effectiveStatus);
-                statusBadge = `<div class="dashboard-activity-status-row">${window.AppUI.renderTaskStatusBadge(status)}${isAdminUser ? `<div class="dashboard-activity-edit-wrap"><button onclick="window.app_openDayPlan('${log.date}', '${log.userId}')" class="dashboard-activity-edit-btn" title="Edit/Reassign"><i class="fa-solid fa-pen-to-square"></i></button></div>` : ''}</div>`;
-            }
-            html += `<div class="dashboard-staff-activity-item"><div class="dashboard-staff-name">${log.staffName}</div><div class="dashboard-activity-desc dashboard-staff-activity-desc">${log._displayDesc}</div>${statusBadge}<div class="dashboard-activity-meta">${log.checkOut || (effectiveStatus === 'completed' ? 'Completed' : 'Work Plan')}</div></div>`;
-        });
-        return html;
     };
 
     const renderBreakdown = (breakdown) => {
@@ -1479,6 +1683,8 @@
         async renderDashboard() {
             const user = window.AppAuth.getUser();
             const isAdmin = user.role === 'Administrator' || user.isAdmin;
+            const staffActivityState = getStaffActivityState();
+            const selectedMonth = staffActivityState.selectedMonth || getCurrentMonthKey();
 
             // Current Staff for Summary (Admins can select others)
             const targetStaffId = (isAdmin && window.app_selectedSummaryStaffId) ? window.app_selectedSummaryStaffId : user.id;
@@ -1492,7 +1698,7 @@
                 window.AppAnalytics.getUserYearlyStats(targetStaffId),
                 window.AppAnalytics.getHeroOfTheWeek(),
                 window.AppCalendar ? window.AppCalendar.getPlans() : { leaves: [], events: [] },
-                window.AppAnalytics.getAllStaffActivities(14),
+                window.AppAnalytics.getAllStaffActivities({ mode: 'month', month: selectedMonth, scope: 'work' }),
                 isAdmin ? window.AppLeaves.getPendingLeaves() : Promise.resolve([]),
                 window.AppDB.getCached
                     ? window.AppDB.getCached(window.AppDB.getCacheKey('dashboardUsers', 'users', {}), (window.AppConfig?.READ_CACHE_TTLS?.users || 60000), () => window.AppDB.getAll('users'))
@@ -1533,8 +1739,6 @@
             const notifications = user.notifications || [];
             const tagHistory = user.tagHistory || [];
 
-            // Rename for clarity in template
-            const recentLogs = logs;
             let timerHTML = '00 : 00 : 00';
             let btnText = 'Check-in';
             let btnClass = 'action-btn';
@@ -1632,15 +1836,22 @@
             } else {
                 summaryHTML = `
                 <div class="dashboard-summary-row">
-                    <div style="flex: 2; min-width: 320px; display: flex; flex-direction: column;">${renderActivityLog(staffActivities)}</div>
-                    <div style="flex: 1.2; min-width: 240px; display: flex; flex-direction: column;">${renderStaffDirectory(allUsers, notifications, user)}</div>
-                    <div style="flex: 1; min-width: 280px; display: flex; flex-direction: column; gap: 1rem;">${renderYearlyPlan(calendarPlans)}${heroHTML}</div>
+                    <div style="flex: 1.2; min-width: 300px; display: flex; flex-direction: column;">${renderStaffDirectory(allUsers, notifications, user)}</div>
+                    <div style="flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 1rem;">${renderYearlyPlan(calendarPlans)}${heroHTML}</div>
                 </div>
                 <div class="dashboard-stats-row">
                     ${renderStatsCard(monthlyStats.label, 'Monthly Stats', monthlyStats)}
                     ${renderStatsCard('Yearly Summary', yearlyStats.label, yearlyStats)}
                 </div>`;
             }
+            const updateState = (window.app_getReleaseUpdateState && window.app_getReleaseUpdateState()) || { active: false, countdownLabel: '00:00' };
+            const updateButtonClass = updateState.active ? 'dashboard-refresh-link is-update-pending' : 'dashboard-refresh-link';
+            const updateButtonTitle = updateState.active
+                ? `Update available. Auto-refresh in ${updateState.countdownLabel}`
+                : 'Check for System Update (Ctrl+Shift+R)';
+            const updateButtonLabel = updateState.active
+                ? `System update available <span class="dashboard-refresh-countdown">(${updateState.countdownLabel})</span>`
+                : 'Check for System Update';
             return `
                 <div class="dashboard-grid dashboard-modern dashboard-staff-view">
                     ${notifHTML}
@@ -1650,8 +1861,8 @@
                         <div class="dashboard-hero-orb dashboard-hero-orb-top"></div>
                         <div class="dashboard-hero-orb dashboard-hero-orb-bottom"></div>
                         <div class="dashboard-hero-content"><div class="dashboard-hero-row"><div class="dashboard-hero-copy"><h2 class="dashboard-hero-title">Welcome back, ${user.name.split(' ')[0]}! 👋</h2><p class="dashboard-hero-date">${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>${user.rating !== undefined ? `<div class="dashboard-hero-chip-row"><div class="dashboard-hero-chip"><span class="dashboard-hero-chip-label">Your Rating:</span>${window.AppUI.renderStarRating(user.rating, true)}</div>${user.completionStats ? `<div class="dashboard-hero-chip"><i class="fa-solid fa-check-circle dashboard-hero-chip-icon"></i><span>${(user.completionStats.completionRate * 100).toFixed(0)}% Complete</span></div>` : ''}</div>` : ''}</div>${isAdmin ? `<div class="dashboard-viewing-box"><div class="dashboard-viewing-inner"><i class="fa-solid fa-users-viewfinder dashboard-viewing-icon"></i><div class="dashboard-viewing-meta"><div class="dashboard-viewing-head"><div class="dashboard-viewing-label">Viewing Summary For</div>${targetStaffId !== user.id ? '<span class="dashboard-viewing-state">STAFF VIEW ACTIVE</span>' : ''}</div><select onchange="window.app_changeSummaryStaff(this.value)" class="dashboard-viewing-select"><option value="${user.id}">My Own Summary</option><optgroup label="Staff Members">${(allUsers || []).filter(u => u.id !== user.id).sort((a, b) => a.name.localeCompare(b.name)).map(u => `<option value="${u.id}" ${u.id === targetStaffId ? 'selected' : ''}>${u.name}</option>`).join('')}</optgroup></select></div></div></div>` : ''}<div class="welcome-icon dashboard-hero-weather"><i class="fa-solid fa-cloud-sun dashboard-hero-weather-icon"></i></div></div></div>
-                        <button class="dashboard-refresh-link" onclick="window.app_showSystemUpdatePopup()" title="Check for System Update (Ctrl+Shift+R)">
-                            Check for System Update
+                        <button class="${updateButtonClass}" onclick="window.app_showSystemUpdatePopup()" title="${updateButtonTitle}">
+                            ${updateButtonLabel}
                         </button>
                     </div>
                     <div class="dashboard-primary-row">
@@ -1663,10 +1874,9 @@
                             <button class="${btnClass}" id="attendance-btn" ${isReadOnlyView ? 'disabled' : ''} title="${isReadOnlyView ? 'View only: switch back to your dashboard to check in/out.' : ''}" style="width: 100%; padding: 0.75rem; font-size: 0.9rem; border-radius: 10px; margin-top: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; transition: all 0.3s ease; ${isReadOnlyView ? 'opacity:0.6; cursor:not-allowed;' : ''}">${btnText} <i class="fa-solid fa-fingerprint"></i></button>
                             <div class="location-text" id="location-text" style="font-size: 0.65rem; color: #94a3b8; text-align: center; margin-top: 0.5rem;"><i class="fa-solid fa-location-dot"></i><span>${isCheckedIn && displayUser.currentLocation ? `Lat: ${Number(displayUser.currentLocation.lat).toFixed(4)}, Lng: ${Number(displayUser.currentLocation.lng).toFixed(4)}` : 'Waiting for location...'}</span></div>
                         </div>
-                        <div class="card dashboard-recent-activity-card" style="flex: 1; min-width: 210px; padding: 1rem; margin-bottom: 0; display: flex; flex-direction: column; background: white; position: relative; ${!isViewingSelf ? 'border: 2px solid #fb923c;' : ''}"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.5rem;"><h4 style="margin: 0; font-size: 0.95rem; color: #1e1b4b;"><i class="fa-solid fa-history" style="color: #6366f1; margin-right: 6px;"></i> Recent Activity${!isViewingSelf ? ` <span style="font-size: 0.75rem; color: #f97316; font-weight: 800;">(${targetStaff?.name || 'Staff'})</span>` : ''}</h4><a href="#timesheet" onclick="window.location.hash = 'timesheet'; return false;" style="font-size: 0.7rem; color: #4338ca; text-decoration: none; font-weight: 600;">View All</a></div><div class="dashboard-recent-activity-list">${recentLogs.length > 0 ? recentLogs.map(log => `<div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.35rem; border-bottom: 1px solid #f8fafc;"><div><div style="font-size: 0.76rem; font-weight: 600; color: #334155;">${log.date}</div><div style="font-size: 0.66rem; color: #64748b;">${log.checkIn} - ${log.checkOut || '<span style="color:#10b981;">Active</span>'}</div></div><div style="font-size: 0.75rem; font-weight: 700; color: #4338ca; background: #eef2ff; padding: 2px 6px; border-radius: 6px;">${log.duration || '--'}</div></div>`).join('') : '<p style="font-size: 0.8rem; color: #94a3b8; text-align: center; margin-top: 1rem;">No recent sessions</p>'}</div></div>
-                        <div style="flex: 1.2; min-width: 210px; display: flex; flex-direction: column; ${!isViewingSelf ? 'border: 2px solid #fb923c; border-radius: 12px;' : ''}">${renderWorkLog(logs, collaborations, targetStaff, isViewingSelf)}</div>
+                        <div style="flex: 1.1; min-width: 230px; display: flex; flex-direction: column; ${!isViewingSelf ? 'border: 2px solid #fb923c; border-radius: 12px;' : ''}">${renderWorkLog(logs, collaborations, targetStaff)}</div>
+                        <div style="flex: 1.8; min-width: 280px; display: flex; flex-direction: column;">${renderActivityLog(staffActivities)}</div>
                         ${isAdmin ? `
-                            <div style="flex: 1.2; min-width: 210px; display: flex; flex-direction: column;">${renderActivityLog(staffActivities)}</div>
                             <div style="flex: 1.2; min-width: 210px; display: flex; flex-direction: column;">${renderStaffDirectory(allUsers, notifications, user)}</div>
                         ` : ''}
                     </div>

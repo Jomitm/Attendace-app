@@ -788,20 +788,49 @@
             }
         }
 
-        async getAllStaffActivities(daysBack = 7) {
+        async getAllStaffActivities(options = {}) {
             try {
-                // Calculate date range
+                const isLegacyDaysArg = typeof options === 'number';
+                const normalized = isLegacyDaysArg
+                    ? { mode: 'days', daysBack: options, scope: 'all' }
+                    : (options || {});
+                const mode = normalized.mode || 'month';
+                const scope = normalized.scope || 'all';
+
                 const endDate = new Date();
-                endDate.setHours(23, 59, 59, 999);
                 const startDate = new Date();
-                startDate.setDate(startDate.getDate() - daysBack);
-                startDate.setHours(0, 0, 0, 0);
+
+                if (mode === 'days') {
+                    const daysBack = Number.isFinite(Number(normalized.daysBack))
+                        ? Number(normalized.daysBack)
+                        : 7;
+                    endDate.setHours(23, 59, 59, 999);
+                    startDate.setDate(startDate.getDate() - daysBack);
+                    startDate.setHours(0, 0, 0, 0);
+                } else {
+                    const monthKey = String(normalized.month || new Date().toISOString().slice(0, 7));
+                    const [yearStr, monthStr] = monthKey.split('-');
+                    const year = Number(yearStr);
+                    const monthIndex = Number(monthStr) - 1;
+                    if (!Number.isInteger(year) || !Number.isInteger(monthIndex) || monthIndex < 0 || monthIndex > 11) {
+                        throw new Error(`Invalid month key: ${monthKey}`);
+                    }
+                    const monthStart = new Date(year, monthIndex, 1);
+                    const monthEnd = new Date(year, monthIndex + 1, 0);
+                    startDate.setTime(monthStart.getTime());
+                    endDate.setTime(monthEnd.getTime());
+                    startDate.setHours(0, 0, 0, 0);
+                    endDate.setHours(23, 59, 59, 999);
+                }
+
                 const startIso = startDate.toISOString().split('T')[0];
                 const endIso = endDate.toISOString().split('T')[0];
 
-                // 1. Fetch scoped attendance logs + plans + users
+                const shouldFetchAttendance = scope !== 'work';
                 const [attendanceLogs, workPlans, users] = await Promise.all([
-                    this.getAttendanceInRange(startDate, endDate, `staffAct:${daysBack}`),
+                    shouldFetchAttendance
+                        ? this.getAttendanceInRange(startDate, endDate, `staffAct:${startIso}:${endIso}:${scope}`)
+                        : Promise.resolve([]),
                     this.db.queryMany
                         ? this.db.queryMany('work_plans', [
                             { field: 'date', operator: '>=', value: startIso },
@@ -818,19 +847,20 @@
 
                 const mergedActivities = [];
 
-                // Process Attendance Logs
-                attendanceLogs.forEach(log => {
-                    const logDate = new Date(log.date);
-                    if (logDate >= startDate && logDate <= endDate && log.workDescription) {
-                        mergedActivities.push({
-                            ...log,
-                            type: 'attendance',
-                            staffName: usersMap[log.user_id || log.userId] || 'Unknown Staff',
-                            _displayDesc: log.workDescription,
-                            _sortTime: log.checkOut || '00:00'
-                        });
-                    }
-                });
+                if (shouldFetchAttendance) {
+                    attendanceLogs.forEach(log => {
+                        const logDate = new Date(log.date);
+                        if (logDate >= startDate && logDate <= endDate && log.workDescription) {
+                            mergedActivities.push({
+                                ...log,
+                                type: 'attendance',
+                                staffName: usersMap[log.user_id || log.userId] || 'Unknown Staff',
+                                _displayDesc: log.workDescription,
+                                _sortTime: log.checkOut || '00:00'
+                            });
+                        }
+                    });
+                }
 
                 // Process Work Plans
                 workPlans.forEach(wp => {
@@ -841,6 +871,7 @@
                                 ...plan,
                                 date: wp.date,
                                 id: wp.id, // work_plan document id
+                                userId: wp.userId,
                                 type: 'work',
                                 staffName: usersMap[wp.userId] || 'Unknown Staff',
                                 _displayDesc: plan.task,

@@ -1866,6 +1866,45 @@ textarea:focus {
     color: #ff5c5c;
 }
 
+.dashboard-refresh-link.is-update-pending {
+    color: #f59e0b;
+    text-decoration: none;
+    border: 1px solid rgba(245, 158, 11, 0.55);
+    border-radius: 999px;
+    padding: 0.2rem 0.52rem;
+    background: rgba(245, 158, 11, 0.12);
+    animation: dashboardUpdateBlink 1.2s ease-in-out infinite;
+}
+
+.dashboard-refresh-link.is-update-pending::before {
+    content: '';
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #f97316;
+    margin-right: 6px;
+    vertical-align: middle;
+    box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.55);
+    animation: dashboardUpdateDot 1.2s ease-in-out infinite;
+}
+
+.dashboard-refresh-countdown {
+    font-weight: 800;
+    margin-left: 3px;
+}
+
+@keyframes dashboardUpdateBlink {
+    0%, 100% { opacity: 1; transform: translateY(0); }
+    50% { opacity: 0.72; transform: translateY(-1px); }
+}
+
+@keyframes dashboardUpdateDot {
+    0% { box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.55); }
+    70% { box-shadow: 0 0 0 6px rgba(249, 115, 22, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(249, 115, 22, 0); }
+}
+
 @media (max-width: 640px) {
     .dashboard-refresh-link {
         position: relative;
@@ -2112,6 +2151,23 @@ textarea:focus {
     margin-bottom: 0.75rem;
 }
 
+.dashboard-team-activity-filters-compact {
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-bottom: 0.45rem;
+}
+
+.dashboard-team-select {
+    flex: 1 1 135px;
+    min-width: 120px;
+    border: 1px solid #dbe3ef;
+    border-radius: 8px;
+    padding: 0.28rem 0.45rem;
+    font-size: 0.72rem;
+    color: #334155;
+    background: #ffffff;
+}
+
 .dashboard-team-chip {
     font-size: 0.7rem !important;
     padding: 0.3rem 0.6rem !important;
@@ -2130,7 +2186,72 @@ textarea:focus {
     gap: 0.2rem;
     scrollbar-gutter: stable;
     overscroll-behavior: contain;
-    max-height: clamp(210px, 32vh, 260px);
+    max-height: clamp(240px, 35vh, 300px);
+}
+
+.dashboard-team-activity-list-split {
+    padding-right: 0;
+    overflow: hidden;
+}
+
+.dashboard-team-activity-split-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    min-height: 0;
+}
+
+.dashboard-team-activity-col {
+    border: 1px solid #e7edf6;
+    border-radius: 10px;
+    background: #ffffff;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.dashboard-team-activity-col-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.35rem 0.45rem;
+    border-bottom: 1px solid #f1f5f9;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #334155;
+}
+
+.dashboard-team-activity-count {
+    background: #f1f5f9;
+    border-radius: 999px;
+    padding: 0.08rem 0.36rem;
+    font-size: 0.65rem;
+    color: #475569;
+}
+
+.dashboard-team-activity-col-list {
+    overflow-y: auto;
+    min-height: 0;
+    max-height: clamp(200px, 28vh, 260px);
+    padding: 0.2rem 0.3rem 0.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.16rem;
+}
+
+.dashboard-staff-activity-item-compact {
+    margin-left: 0 !important;
+    padding: 0.2rem 0.25rem 0.2rem 0.45rem !important;
+    border-left: 2px solid #e5e7eb;
+    border-radius: 8px;
+    background: #fcfdff;
+}
+
+.dashboard-team-activity-item-date {
+    margin-left: 0.35rem;
+    font-size: 0.63rem;
+    color: #64748b;
+    font-weight: 600;
 }
 
 .dashboard-staff-directory-card {
@@ -2173,23 +2294,8 @@ textarea:focus {
     max-height: clamp(210px, 32vh, 260px);
 }
 
-.dashboard-recent-activity-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-    flex: 1;
-    overflow-y: auto;
-    padding-right: 4px;
-    min-height: 0;
-    padding-bottom: 0;
-    scrollbar-gutter: stable;
-    overscroll-behavior: contain;
-    max-height: clamp(210px, 32vh, 260px);
-}
-
 .dashboard-worklog-list,
 .dashboard-team-activity-list,
-.dashboard-recent-activity-list,
 .dashboard-staff-directory-list {
     scrollbar-width: thin;
     scrollbar-color: rgba(100, 116, 139, 0.5) transparent;
@@ -2197,31 +2303,23 @@ textarea:focus {
 
 .dashboard-worklog-list::-webkit-scrollbar,
 .dashboard-team-activity-list::-webkit-scrollbar,
-.dashboard-recent-activity-list::-webkit-scrollbar,
 .dashboard-staff-directory-list::-webkit-scrollbar {
     width: 8px;
 }
 
 .dashboard-worklog-list::-webkit-scrollbar-track,
 .dashboard-team-activity-list::-webkit-scrollbar-track,
-.dashboard-recent-activity-list::-webkit-scrollbar-track,
 .dashboard-staff-directory-list::-webkit-scrollbar-track {
     background: transparent;
 }
 
 .dashboard-worklog-list::-webkit-scrollbar-thumb,
 .dashboard-team-activity-list::-webkit-scrollbar-thumb,
-.dashboard-recent-activity-list::-webkit-scrollbar-thumb,
 .dashboard-staff-directory-list::-webkit-scrollbar-thumb {
     background: rgba(148, 163, 184, 0.7);
     border-radius: 999px;
     border: 2px solid transparent;
     background-clip: content-box;
-}
-
-.dashboard-recent-activity-card {
-    flex: 1 1 auto;
-    min-height: 0;
 }
 
 .dashboard-worklog-list .dashboard-activity-date,
@@ -2258,6 +2356,12 @@ textarea:focus {
 
 .dashboard-team-activity-list .dashboard-staff-name {
     font-size: 0.75rem;
+}
+
+@media (max-width: 900px) {
+    .dashboard-team-activity-split-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 .dashboard-staff-row {
