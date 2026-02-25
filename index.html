@@ -56,11 +56,32 @@
             throw new Error("Execution halted: Improper protocol (file:// detected). User redirected.");
         }
 
+        let __syntaxRecoveryTriggered = false;
         window.onerror = function (msg, url, line, col, error) {
             const div = document.createElement('div');
             div.style.cssText = 'position:fixed; top:0; left:0; right:0; background:#991b1b; color:white; padding:1rem; z-index:9999; font-family:monospace; white-space:pre-wrap; border-bottom: 2px solid #fff; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);';
             div.innerHTML = `<strong>JS Error:</strong> ${msg}<br><strong>File:</strong> ${url}<br><strong>Line:</strong> ${line}`;
             document.body.appendChild(div);
+
+            const text = String(msg || '').toLowerCase();
+            if (!__syntaxRecoveryTriggered && text.includes('unexpected end of input')) {
+                __syntaxRecoveryTriggered = true;
+                Promise.resolve().then(async () => {
+                    try {
+                        if ('serviceWorker' in navigator) {
+                            const regs = await navigator.serviceWorker.getRegistrations();
+                            await Promise.all(regs.map((r) => r.unregister()));
+                        }
+                        if ('caches' in window) {
+                            const keys = await caches.keys();
+                            await Promise.all(keys.map((k) => caches.delete(k)));
+                        }
+                    } catch (cleanupErr) {
+                        console.warn('Syntax recovery cleanup failed:', cleanupErr);
+                    }
+                    setTimeout(() => window.location.reload(), 300);
+                });
+            }
             return false;
         };
 
@@ -295,7 +316,7 @@
     <script src="js/modules/admin-policies.js"></script>
     <script src="js/ui.js"></script>
     <script src="js/modules/widget.js"></script>
-    <script src="js/app.js"></script>
+    <script src="js/app.js?v=20260225-1"></script>
 </body>
 
 </html>
