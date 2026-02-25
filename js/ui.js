@@ -3704,7 +3704,7 @@
                         <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
                             <div>
                                 <h3 style="font-size: 1.1rem; margin: 0;">Live Security Audits</h3>
-                                <p class="text-muted" style="font-size: 0.8rem; margin-top:2px;">Background checks & manual triggers</p>
+                                <p class="text-muted" style="font-size: 0.8rem; margin-top:2px;">Manual admin-triggered checks only</p>
                             </div>
                             
                             <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center;">
@@ -4946,3 +4946,4 @@
         }
     }
 })();
+

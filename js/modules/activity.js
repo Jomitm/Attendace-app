@@ -157,14 +157,7 @@
                 this.activeMinutes++;
             }
 
-            // --- Silent Audit Logic (11 AM & 2 PM) ---
-            const now = new Date();
-            const hour = now.getHours();
-            if (hour === 11) {
-                this.performSilentAudit('11 AM Slot');
-            } else if (hour === 14) {
-                this.performSilentAudit('2 PM Slot');
-            }
+            // Manual-only mode: audits run only when admin sends an audit command.
 
             // Sync current Score to local User object
             const user = window.AppAuth.getUser();
@@ -196,3 +189,5 @@
 
     window.AppActivity = new ActivityMonitor();
 })();
+
+

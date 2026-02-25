@@ -352,6 +352,9 @@
     const handleUserSyncEvent = (ev) => {
         const syncedUser = ev.detail;
         if (!syncedUser) return;
+        if (window.app_refreshNotificationBell) {
+            window.app_refreshNotificationBell().catch(() => { });
+        }
 
         const nextStatus = syncedUser.status || 'out';
         if (lastSyncedAttendanceStatus === null) {
@@ -458,6 +461,192 @@
 
     const renderDialogMessage = (message) => {
         return escapeDialogHtml(message).replace(/\n/g, '<br>');
+    };
+
+    const toSafeNotifStatus = (notif) => String(notif?.status || 'pending').toLowerCase();
+    const isPendingNotif = (notif) => toSafeNotifStatus(notif) === 'pending';
+
+    const getNotifSource = (notif) => {
+        if (notif?.type === 'minute-access-request') return 'Minutes';
+        if (notif?.type === 'task') return 'Task';
+        if (notif?.type === 'tag' || notif?.type === 'mention') return 'Tag';
+        if (notif?.type === 'reminder') return 'Reminder';
+        return 'Notification';
+    };
+
+    const getNotifPreview = (notif) => {
+        return String(
+            notif?.description
+            || notif?.message
+            || notif?.title
+            || ''
+        ).trim();
+    };
+
+    const getNotifTimeLabel = (notif) => {
+        const raw = notif?.respondedAt || notif?.taggedAt || notif?.date;
+        const ts = new Date(raw).getTime();
+        if (!ts) return 'Unknown time';
+        const diffMins = Math.max(0, Math.floor((Date.now() - ts) / 60000));
+        const age = diffMins < 1
+            ? 'just now'
+            : diffMins < 60
+                ? `${diffMins} mins ago`
+                : diffMins < 1440
+                    ? `${Math.floor(diffMins / 60)} hrs ago`
+                    : `${Math.floor(diffMins / 1440)} days ago`;
+        return `${new Date(ts).toLocaleString()} (${age})`;
+    };
+
+    window.app_refreshNotificationBell = async () => {
+        const buttons = document.querySelectorAll('.top-notification-btn');
+        if (!buttons.length) return;
+
+        const user = window.AppAuth.getUser();
+        const notifications = Array.isArray(user?.notifications) ? user.notifications : [];
+        const pendingCount = notifications.filter(isPendingNotif).length;
+
+        buttons.forEach((btn) => {
+            const badge = btn.querySelector('.top-notification-badge');
+            if (!user) {
+                btn.classList.remove('has-pending');
+                if (badge) badge.style.display = 'none';
+                return;
+            }
+            btn.classList.toggle('has-pending', pendingCount > 0);
+            btn.setAttribute('title', pendingCount > 0
+                ? `${pendingCount} pending notification${pendingCount > 1 ? 's' : ''}`
+                : 'Notification history');
+            if (badge) {
+                if (pendingCount > 0) {
+                    badge.textContent = pendingCount > 99 ? '99+' : String(pendingCount);
+                    badge.style.display = '';
+                } else {
+                    badge.style.display = 'none';
+                }
+            }
+        });
+    };
+
+    window.app_closeNotificationHistory = () => {
+        document.getElementById('notification-history-modal')?.remove();
+    };
+
+    window.app_respondNotificationFromHistory = async (notifIndex, notifId, action) => {
+        const currentUser = window.AppAuth.getUser();
+        if (!currentUser) return;
+
+        const decision = action === 'approve' ? 'approve' : 'reject';
+        const freshUser = await window.AppDB.get('users', currentUser.id);
+        if (!freshUser || !Array.isArray(freshUser.notifications)) {
+            alert('Notification not found.');
+            return;
+        }
+
+        let notif = null;
+        let resolvedIndex = -1;
+        if (Number.isInteger(notifIndex) && notifIndex >= 0 && freshUser.notifications[notifIndex]) {
+            notif = freshUser.notifications[notifIndex];
+            resolvedIndex = notifIndex;
+        }
+        if (!notif && notifId) {
+            resolvedIndex = freshUser.notifications.findIndex(n => String(n.id) === String(notifId));
+            if (resolvedIndex >= 0) notif = freshUser.notifications[resolvedIndex];
+        }
+        if (!notif) {
+            alert('This notification is no longer available.');
+            return;
+        }
+        if (!isPendingNotif(notif)) {
+            alert('This notification has already been responded.');
+            await window.app_refreshNotificationBell();
+            return;
+        }
+
+        window.app_closeNotificationHistory();
+
+        if (notif.type === 'minute-access-request' && window.app_isAdminUser(currentUser)) {
+            await window.app_reviewMinuteAccessFromNotification(resolvedIndex, notif.id, decision === 'approve' ? 'approved' : 'rejected');
+            return;
+        }
+
+        const taskIndex = Number(notif.taskIndex);
+        if (notif.planId && Number.isInteger(taskIndex) && taskIndex >= 0) {
+            await window.app_handleTagResponse(notif.planId, taskIndex, decision === 'approve' ? 'accepted' : 'rejected', resolvedIndex);
+            return;
+        }
+
+        if (notif.id) {
+            await window.app_handleTagDecision(notif.id, decision === 'approve' ? 'accepted' : 'rejected');
+            return;
+        }
+
+        alert('This notification cannot be approved or rejected from history.');
+    };
+
+    window.app_openNotificationHistory = async () => {
+        const currentUser = window.AppAuth.getUser();
+        if (!currentUser) return;
+
+        const freshUser = await window.AppDB.get('users', currentUser.id).catch(() => currentUser);
+        const notifications = Array.isArray(freshUser?.notifications) ? freshUser.notifications : [];
+        const tagHistory = Array.isArray(freshUser?.tagHistory) ? freshUser.tagHistory : [];
+
+        const rows = [
+            ...notifications.map((n, index) => ({ ...n, _source: 'live', _index: index })),
+            ...tagHistory.map((h) => ({ ...h, _source: 'history', _index: -1 }))
+        ].sort((a, b) => {
+            const ta = new Date(a.respondedAt || a.taggedAt || a.date || 0).getTime();
+            const tb = new Date(b.respondedAt || b.taggedAt || b.date || 0).getTime();
+            return tb - ta;
+        });
+
+        const listHtml = rows.length
+            ? rows.map((row) => {
+                const status = toSafeNotifStatus(row);
+                const pending = status === 'pending' && row._source === 'live';
+                const source = getNotifSource(row);
+                const sender = row.taggedByName || 'System';
+                const title = row.title || `${source} from ${sender}`;
+                const summary = getNotifPreview(row);
+                const notifIdArg = JSON.stringify(String(row.id || ''));
+                return `
+                    <div class="notification-history-item ${pending ? 'is-pending' : ''}">
+                        <div class="notification-history-item-head">
+                            <div>
+                                <div class="notification-history-title">${escapeDialogHtml(title)}</div>
+                                <div class="notification-history-meta">${escapeDialogHtml(source)} • ${escapeDialogHtml(sender)} • ${escapeDialogHtml(getNotifTimeLabel(row))}</div>
+                            </div>
+                            <span class="notification-history-badge ${escapeDialogHtml(status)}">${escapeDialogHtml(status)}</span>
+                        </div>
+                        ${summary ? `<div class="notification-history-text">${escapeDialogHtml(summary)}</div>` : ''}
+                        ${pending ? `
+                            <div class="notification-history-actions">
+                                <button type="button" class="notification-history-btn approve" onclick="window.app_respondNotificationFromHistory(${Number(row._index)}, ${notifIdArg}, 'approve')">Approve</button>
+                                <button type="button" class="notification-history-btn reject" onclick="window.app_respondNotificationFromHistory(${Number(row._index)}, ${notifIdArg}, 'reject')">Reject</button>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }).join('')
+            : '<div class="notification-history-item">No notification history found.</div>';
+
+        const html = `
+            <div class="modal-overlay" id="notification-history-modal" style="display:flex;">
+                <div class="modal-content notification-history-modal">
+                    <div class="notification-history-head">
+                        <div>
+                            <h3 style="font-size:1rem; margin:0;">Notification History</h3>
+                            <p style="margin:2px 0 0; font-size:0.76rem; color:#6b7280;">Pending items stay here until approved/rejected.</p>
+                        </div>
+                        <button type="button" class="notification-history-btn" style="background:#e2e8f0; color:#1f2937;" onclick="window.app_closeNotificationHistory()">Close</button>
+                    </div>
+                    <div class="notification-history-list">${listHtml}</div>
+                </div>
+            </div>
+        `;
+        window.app_showModal(html, 'notification-history-modal');
+        await window.app_refreshNotificationBell();
     };
 
     window.app_systemDialog = function ({
@@ -677,6 +866,9 @@
             if (mobileNav) mobileNav.style.display = 'none';
             document.body.style.background = '#f3f4f6';
             if (contentArea) contentArea.innerHTML = window.AppUI.renderLogin();
+            if (window.app_refreshNotificationBell) {
+                await window.app_refreshNotificationBell();
+            }
             return;
         }
         startReleaseSignalListener();
@@ -791,6 +983,9 @@
             }
             if (window.app_updateStaffNavIndicator) {
                 await window.app_updateStaffNavIndicator();
+            }
+            if (window.app_refreshNotificationBell) {
+                await window.app_refreshNotificationBell();
             }
         } catch (e) {
             console.error("Render Error:", e);
@@ -3409,6 +3604,9 @@
         if (btn && !readOnly) btn.addEventListener('click', handleAttendance);
         startTimer(targetUser, readOnly);
         applyUpdateCtaState();
+        if (window.app_refreshNotificationBell) {
+            window.app_refreshNotificationBell().catch(() => { });
+        }
     }
     window.setupDashboardEvents = setupDashboardEvents;
 
@@ -3964,14 +4162,17 @@
                 await window.AppDB.put('users', requester);
             }
 
-            const removeIndex = adminUser.notifications.findIndex(n => String(n.id) === String(notif.id));
-            if (removeIndex >= 0) {
-                adminUser.notifications.splice(removeIndex, 1);
+            const targetNotif = adminUser.notifications.find(n => String(n.id) === String(notif.id));
+            if (targetNotif) {
+                targetNotif.status = decision;
+                targetNotif.respondedAt = new Date().toISOString();
+                targetNotif.read = true;
                 await window.AppAuth.updateUser(adminUser);
             }
 
             contentArea.innerHTML = await window.AppUI.renderDashboard();
             if (window.setupDashboardEvents) window.setupDashboardEvents();
+            if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
         } catch (err) {
             alert('Failed to review access request: ' + err.message);
         }
@@ -3981,10 +4182,17 @@
         const index = e.detail;
         const user = window.AppAuth.getUser();
         if (user && user.notifications && Number.isInteger(index) && index >= 0) {
-            user.notifications.splice(index, 1);
+            const notif = user.notifications[index];
+            if (!notif) return;
+            notif.read = true;
+            notif.dismissedAt = new Date().toISOString();
             await window.AppAuth.updateUser(user);
-            contentArea.innerHTML = await window.AppUI.renderDashboard();
-            if (window.setupDashboardEvents) window.setupDashboardEvents();
+            const hash = window.location.hash.slice(1) || 'dashboard';
+            if (hash === 'dashboard') {
+                contentArea.innerHTML = await window.AppUI.renderDashboard();
+                if (window.setupDashboardEvents) window.setupDashboardEvents();
+            }
+            if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
         }
     });
 
