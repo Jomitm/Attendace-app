@@ -11,6 +11,13 @@
         }
 
         async run() {
+            const flags = (window.AppConfig && window.AppConfig.READ_OPT_FLAGS) || {};
+            const host = (typeof window !== 'undefined' && window.location && window.location.hostname) ? window.location.hostname : '';
+            const isLocalHost = host === 'localhost' || host === '127.0.0.1';
+            if (!flags.ENABLE_SIMULATION_MODULE && !isLocalHost) {
+                return;
+            }
+
             if (!localStorage.getItem(this.cleanupFlag)) {
                 await this.cleanupLegacyDummyData();
                 localStorage.setItem(this.cleanupFlag, 'true');

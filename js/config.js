@@ -53,6 +53,7 @@
             FF_READ_OPT_ANALYTICS_CACHE: true,
             FF_SHARED_DAILY_SUMMARY: true,
             FF_SUMMARY_LOCKING: true,
+            ENABLE_SIMULATION_MODULE: false,
             ENABLE_READ_TELEMETRY: true,
             ENABLE_PRESENCE_HEARTBEAT: false
         },

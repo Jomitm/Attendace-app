@@ -48,9 +48,6 @@
             const cleanUser = username.trim().toLowerCase();
             const cleanPass = password.trim();
 
-            console.log("Attempting Login:", { cleanUser, passwordProvided: cleanPass ? 'YES' : 'NO' });
-            console.log("Available Users (Names only):", users.map(u => `${u.username} (${u.role})`));
-
             const user = users.find(u => {
                 const uName = (u.username || "").toLowerCase().trim();
                 const uEmail = (u.email || "").toLowerCase().trim();
@@ -64,14 +61,7 @@
                 this.startCurrentUserSync();
                 return true;
             } else {
-                // Debugging help for 'Invalid Credentials'
-                const userMatch = users.find(u => u.username.toLowerCase().trim() === cleanUser || u.email.toLowerCase().trim() === cleanUser);
-                if (userMatch) {
-                    console.warn(`User found '${userMatch.username}', but password mismatch.`);
-                    console.warn(`Input Pass: "${cleanPass}", Stored Pass: "${userMatch.password}"`);
-                } else {
-                    console.warn(`User '${cleanUser}' not found.`);
-                }
+                console.warn('Login failed: invalid credentials.');
             }
             return false;
         }

@@ -5,6 +5,25 @@
  */
 (function () {
     // --- Helper Functions (Local to IIFE) ---
+    const safeHtml = (value) => String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    const safeAttr = (value) => safeHtml(value).replace(/`/g, '&#96;');
+    const safeJsStr = (value) => String(value ?? '')
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/\r/g, '\\r')
+        .replace(/\n/g, '\\n');
+    const safeUrl = (value, fallback = 'https://via.placeholder.com/24') => {
+        const s = String(value || '').trim();
+        if (!s) return fallback;
+        if (/^(https?:\/\/|\/|\.\/|data:image\/)/i.test(s)) return s;
+        return fallback;
+    };
+
     const renderWorkLog = (logs, collabs = [], targetStaff = null) => {
         const today = new Date();
         const startDate = new Date(today);
@@ -4262,6 +4281,11 @@
                 const isAdmin = currentUser.isAdmin || currentUser.role === 'Administrator';
                 const canEdit = (isAttendee || isAuthor || isAdmin) && !minute.locked;
                 const pendingAccessRequests = (minute.accessRequests || []).filter(r => r.status === 'pending');
+                const safeMinuteId = safeJsStr(id);
+                const safeHeaderTitle = safeHtml(minute.title || 'Untitled');
+                const safeHeaderBy = safeHtml(minute.createdByName || 'Unknown');
+                const safeHeaderAttendees = safeHtml(((minute.attendeeIds || []).map(uid => allUsers.find(u => u.id === uid)?.name || 'Unknown').join(', ')) || 'None');
+                const safeMinuteContent = safeHtml(minute.content || '');
 
                 const modal = document.createElement('div');
                 modal.id = 'minute-detail-modal';
@@ -4271,9 +4295,9 @@
                     <div class="modal-content full-screen-modal minutes-detail-modal" style="width: 100vw; height: 100vh; max-width: none; margin: 0; display: flex; flex-direction: column; padding: 0; overflow: hidden; border-radius: 0; background: white;">
                         <div style="padding: 1rem 1.5rem; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; flex-shrink: 0;">
                             <div>
-                                <h2 style="margin: 0; font-size: 1.25rem;">${minute.title}</h2>
-                                <p style="margin: 4px 0 0; font-size: 0.85rem; color: #64748b;">${new Date(minute.date).toLocaleDateString()} • Recorded by ${minute.createdByName}</p>
-                                <p style="margin: 4px 0 0; font-size: 0.8rem; color: #475569;">Attendees: ${(minute.attendeeIds || []).map(uid => allUsers.find(u => u.id === uid)?.name || 'Unknown').join(', ') || 'None'}</p>
+                                <h2 style="margin: 0; font-size: 1.25rem;">${safeHeaderTitle}</h2>
+                                <p style="margin: 4px 0 0; font-size: 0.85rem; color: #64748b;">${new Date(minute.date).toLocaleDateString()} • Recorded by ${safeHeaderBy}</p>
+                                <p style="margin: 4px 0 0; font-size: 0.8rem; color: #475569;">Attendees: ${safeHeaderAttendees}</p>
                             </div>
                             <div style="display: flex; gap: 0.75rem; align-items: center;">
                                 ${minute.locked ? '<span class="badge in" style="background:#f0fdf4; color:#166534; border:1px solid #dcfce7; padding: 4px 12px;"><i class="fa-solid fa-lock"></i> LOCKED</span>' : ''}
@@ -4289,9 +4313,9 @@
                                 <div style="margin-bottom: 2rem;">
                                     <label style="display: block; font-size: 0.7rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 0.5rem;">Discussion & Decisions</label>
                                     ${canEdit ? `
-                                        <textarea id="edit-minute-content" style="width: 100%; min-height: 250px; padding: 1rem; border: 1px solid #cbd5e1; border-radius: 12px; font-family: inherit; line-height: 1.6; font-size: 1rem;" placeholder="Start typing...">${minute.content || ''}</textarea>
+                                        <textarea id="edit-minute-content" style="width: 100%; min-height: 250px; padding: 1rem; border: 1px solid #cbd5e1; border-radius: 12px; font-family: inherit; line-height: 1.6; font-size: 1rem;" placeholder="Start typing...">${safeMinuteContent}</textarea>
                                     ` : `
-                                        <div style="background: #f8fafc; padding: 1.5rem; border-radius: 12px; color: #334155; font-size: 1rem; white-space: pre-wrap; line-height: 1.7; border: 1px solid #e2e8f0;">${minute.content || 'No content recorded.'}</div>
+                                        <div style="background: #f8fafc; padding: 1.5rem; border-radius: 12px; color: #334155; font-size: 1rem; white-space: pre-wrap; line-height: 1.7; border: 1px solid #e2e8f0;">${safeMinuteContent || 'No content recorded.'}</div>
                                     `}
                                 </div>
 
@@ -4308,16 +4332,16 @@
                             : 'background:#fffbeb;color:#92400e;border:1px solid #fde68a;';
                     const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
                     return `
-                                            <div class="action-item-row" data-status="${status}" data-approved-by="${item.approvedBy || ''}" data-approved-at="${item.approvedAt || ''}" data-rejected-by="${item.rejectedBy || ''}" data-rejected-at="${item.rejectedAt || ''}" data-calendar-synced="${item.calendarSynced ? 'true' : 'false'}" data-assignee="${item.assigneeId}" style="display:grid; grid-template-columns: 1fr auto auto auto auto; gap:0.5rem; margin-bottom:0.5rem; align-items:center;">
-                                                <input type="text" class="ai-task" value="${item.task}" ${!canEdit ? 'disabled' : ''} placeholder="Task..." style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px;">
-                                                <input type="date" class="ai-date" value="${item.dueDate}" ${!canEdit ? 'disabled' : ''} style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px; width: 130px;">
+                                            <div class="action-item-row" data-status="${safeAttr(status)}" data-approved-by="${safeAttr(item.approvedBy || '')}" data-approved-at="${safeAttr(item.approvedAt || '')}" data-rejected-by="${safeAttr(item.rejectedBy || '')}" data-rejected-at="${safeAttr(item.rejectedAt || '')}" data-calendar-synced="${item.calendarSynced ? 'true' : 'false'}" data-assignee="${safeAttr(item.assigneeId || '')}" style="display:grid; grid-template-columns: 1fr auto auto auto auto; gap:0.5rem; margin-bottom:0.5rem; align-items:center;">
+                                                <input type="text" class="ai-task" value="${safeAttr(item.task || '')}" ${!canEdit ? 'disabled' : ''} placeholder="Task..." style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px;">
+                                                <input type="date" class="ai-date" value="${safeAttr(item.dueDate || '')}" ${!canEdit ? 'disabled' : ''} style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px; width: 130px;">
                                                 <select class="ai-assignee" ${!canEdit ? 'disabled' : ''} style="padding:0.5rem; border:1px solid #cbd5e1; border-radius:6px;">
-                                                    ${allUsers.map(u => `<option value="${u.id}" ${u.id === item.assigneeId ? 'selected' : ''}>${u.name}</option>`).join('')}
+                                                    ${allUsers.map(u => `<option value="${safeAttr(u.id)}" ${u.id === item.assigneeId ? 'selected' : ''}>${safeHtml(u.name)}</option>`).join('')}
                                                 </select>
                                                 <div style="display:flex; align-items:center; gap:0.35rem; justify-content:flex-end;">
                                                     ${isAssignee && status === 'pending' ? `
-                                                        <button onclick="window.app_updateActionItemStatus('${id}', ${idx}, 'approved')" title="Approve" style="background:#ecfdf5; color:#166534; border:1px solid #dcfce7; border-radius:6px; padding:4px 8px; cursor:pointer; font-size:0.75rem; font-weight:700;">Approve</button>
-                                                        <button onclick="window.app_updateActionItemStatus('${id}', ${idx}, 'rejected')" title="Reject" style="background:#fef2f2; color:#991b1b; border:1px solid #fee2e2; border-radius:6px; padding:4px 8px; cursor:pointer; font-size:0.75rem; font-weight:700;">Reject</button>
+                                                        <button onclick="window.app_updateActionItemStatus('${safeMinuteId}', ${idx}, 'approved')" title="Approve" style="background:#ecfdf5; color:#166534; border:1px solid #dcfce7; border-radius:6px; padding:4px 8px; cursor:pointer; font-size:0.75rem; font-weight:700;">Approve</button>
+                                                        <button onclick="window.app_updateActionItemStatus('${safeMinuteId}', ${idx}, 'rejected')" title="Reject" style="background:#fef2f2; color:#991b1b; border:1px solid #fee2e2; border-radius:6px; padding:4px 8px; cursor:pointer; font-size:0.75rem; font-weight:700;">Reject</button>
                                                     ` : `<span style="padding:2px 8px; border-radius:999px; font-size:0.7rem; font-weight:700; ${statusStyle}">${statusLabel}</span>`}
                                                 </div>
                                                 ${canEdit ? `<button onclick="this.parentElement.remove()" style="color:#ef4444; background:none; border:none; cursor:pointer;"><i class="fa-solid fa-trash-can"></i></button>` : ''}
@@ -4334,12 +4358,12 @@
 
                                 <div style="display: flex; gap: 1rem; justify-content: flex-end; padding-top: 1rem; border-top: 1px dashed #e2e8f0;">
                                     ${canEdit ? `
-                                        <button onclick="window.app_saveUpdatedMinute('${id}')" class="action-btn" style="padding: 0.75rem 2rem;">
+                                        <button onclick="window.app_saveUpdatedMinute('${safeMinuteId}')" class="action-btn" style="padding: 0.75rem 2rem;">
                                             <i class="fa-solid fa-check"></i> Save Changes
                                         </button>
                                     ` : ''}
                                     ${isAttendee && !minute.approvals?.[currentUser.id] && !minute.locked ? `
-                                        <button onclick="window.app_approveMinute('${id}')" class="action-btn" style="background: #10b981; padding: 0.75rem 2rem;">
+                                        <button onclick="window.app_approveMinute('${safeMinuteId}')" class="action-btn" style="background: #10b981; padding: 0.75rem 2rem;">
                                             <i class="fa-solid fa-thumbs-up"></i> Approve Minutes
                                         </button>
                                     ` : ''}
@@ -4356,9 +4380,9 @@
                     const approvalDate = minute.approvals?.[uid];
                     return `
                                             <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.35rem; background: ${approvalDate ? '#f0fdf4' : 'white'}; padding: 0.32rem 0.38rem; border-radius: 6px; border: 1px solid ${approvalDate ? '#dcfce7' : '#e2e8f0'};">
-                                                <img src="${user?.avatar || 'https://via.placeholder.com/24'}" style="width: 18px; height: 18px; border-radius: 50%;">
+                                                <img src="${safeAttr(safeUrl(user?.avatar, 'https://via.placeholder.com/24'))}" style="width: 18px; height: 18px; border-radius: 50%;">
                                                 <div class="dashboard-viewing-meta">
-                                                    <div style="font-size: 0.7rem; font-weight: 600; line-height:1.15;">${user?.name || 'Unknown'}</div>
+                                                    <div style="font-size: 0.7rem; font-weight: 600; line-height:1.15;">${safeHtml(user?.name || 'Unknown')}</div>
                                                     ${approvalDate ? `<div style="font-size: 0.58rem; color: #166534; line-height:1.15;">Approved: ${new Date(approvalDate).toLocaleDateString()}</div>` : '<div style="font-size: 0.58rem; color: #94a3b8; line-height:1.15;">Pending</div>'}
                                                 </div>
                                                 ${approvalDate ? '<i class="fa-solid fa-circle-check" style="color: #22c55e; font-size:0.78rem;"></i>' : '<i class="fa-regular fa-circle" style="color: #cbd5e1; font-size:0.78rem;"></i>'}
@@ -4374,8 +4398,8 @@
                                         ${(minute.auditLog || []).slice().reverse().map(log => `
                                             <div style="position: relative; padding-left: 0.62rem; border-left: 2px solid #cbd5e1;">
                                                 <div style="position: absolute; left: -4px; top: 0; width: 6px; height: 6px; border-radius: 50%; background: #94a3b8; border: 2px solid #f1f5f9;"></div>
-                                                <div style="font-size: 0.66rem; font-weight: 700; color: #334155;">${log.userName}</div>
-                                                <div style="font-size: 0.68rem; color: #475569; margin: 1px 0;">${log.action}</div>
+                                                <div style="font-size: 0.66rem; font-weight: 700; color: #334155;">${safeHtml(log.userName)}</div>
+                                                <div style="font-size: 0.68rem; color: #475569; margin: 1px 0;">${safeHtml(log.action)}</div>
                                                 <div style="font-size: 0.56rem; color: #94a3b8;">${new Date(log.timestamp).toLocaleString()}</div>
                                             </div>
                                         `).join('')}
@@ -4387,11 +4411,11 @@
                                         <label style="display: block; font-size: 0.66rem; font-weight: 700; color: #92400e; text-transform: uppercase; margin-bottom: 0.4rem;"><i class="fa-solid fa-user-check"></i> Access Requests</label>
                                         ${pendingAccessRequests.length > 0 ? pendingAccessRequests.map(req => `
                                             <div style="background:#fff; border:1px solid #fde68a; border-radius:8px; padding:0.45rem; margin-bottom:0.45rem;">
-                                                <div style="font-size:0.74rem; font-weight:700; color:#1f2937;">${req.userName || req.userId}</div>
+                                                <div style="font-size:0.74rem; font-weight:700; color:#1f2937;">${safeHtml(req.userName || req.userId)}</div>
                                                 <div style="font-size:0.64rem; color:#6b7280; margin-bottom:0.35rem;">Requested: ${new Date(req.requestedAt).toLocaleString()}</div>
                                                 <div style="display:flex; gap:0.45rem;">
-                                                    <button type="button" onclick="window.app_reviewMinuteAccess('${id}','${req.userId}','approved')" style="background:#10b981; color:#fff; border:none; border-radius:6px; padding:0.25rem 0.45rem; font-size:0.68rem; cursor:pointer;">Approve</button>
-                                                    <button type="button" onclick="window.app_reviewMinuteAccess('${id}','${req.userId}','rejected')" style="background:#ef4444; color:#fff; border:none; border-radius:6px; padding:0.25rem 0.45rem; font-size:0.68rem; cursor:pointer;">Reject</button>
+                                                    <button type="button" onclick="window.app_reviewMinuteAccess('${safeMinuteId}','${safeJsStr(req.userId)}','approved')" style="background:#10b981; color:#fff; border:none; border-radius:6px; padding:0.25rem 0.45rem; font-size:0.68rem; cursor:pointer;">Approve</button>
+                                                    <button type="button" onclick="window.app_reviewMinuteAccess('${safeMinuteId}','${safeJsStr(req.userId)}','rejected')" style="background:#ef4444; color:#fff; border:none; border-radius:6px; padding:0.25rem 0.45rem; font-size:0.68rem; cursor:pointer;">Reject</button>
                                                 </div>
                                             </div>
                                         `).join('') : '<div style="font-size:0.8rem; color:#9a3412;">No pending requests.</div>'}
