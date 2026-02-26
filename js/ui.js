@@ -1551,9 +1551,29 @@
             return `<span style="background: ${config.bg}; color: ${config.color}; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; display: inline-block;">${icon}${config.label}</span>`;
         },
 
-        renderHeroCard: (heroData) => {
-            if (!heroData) return '';
+        renderHeroCard: (heroData, heroMeta = {}) => {
+            if (!heroData) {
+                return `
+                    <div class="card hero-of-the-week" style="background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); color: white; border: none; overflow: hidden; position: relative; padding: 1rem;">
+                        <div style="position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
+                            <div>
+                                <span style="font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: #fbbf24;">Hero of the Week</span>
+                                <h3 style="margin: 0.25rem 0 0; font-size: 1.05rem; color:#ffffff;">Hero is updating</h3>
+                                <div style="font-size:0.72rem; color:#cbd5e1; margin-top: 0.25rem;">Using low-read mode. Summary will appear after daily refresh.</div>
+                            </div>
+                            <i class="fa-solid fa-hourglass-half" style="font-size: 1.6rem; color: #fbbf24; opacity: 0.8;"></i>
+                        </div>
+                    </div>
+                `;
+            }
             const { user, stats, reason } = heroData;
+            const generatedAt = Number(heroMeta.generatedAt || 0);
+            const updatedLabel = generatedAt
+                ? new Date(generatedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })
+                : '';
+            const sourceLabel = (heroMeta.source === 'today' || heroMeta.source === 'generated')
+                ? 'Updated today'
+                : (heroMeta.source ? 'Using previous summary' : '');
             return `
                 <div class="card hero-of-the-week" style="background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); color: white; border: none; overflow: hidden; position: relative; padding: 1rem;">
                     <!-- Decorative Elements -->
@@ -1582,6 +1602,7 @@
                                      <i class="fa-solid fa-clock" style="margin-right: 4px;"></i> ${stats.hours}h
                                 </div>
                             </div>
+                            ${(updatedLabel || sourceLabel) ? `<div style="margin-top: 0.35rem; font-size: 0.62rem; color: #cbd5e1;">${sourceLabel}${updatedLabel ? `${sourceLabel ? ' • ' : ''}Last updated: ${updatedLabel} IST` : ''}</div>` : ''}
                         </div>
     
                         <div style="text-align: center; padding-left: 0.75rem; border-left: 1px solid rgba(255,255,255,0.1);">
@@ -1708,7 +1729,12 @@
             const isAdmin = user.role === 'Administrator' || user.isAdmin;
             const staffActivityState = getStaffActivityState();
             const selectedMonth = staffActivityState.selectedMonth || getCurrentMonthKey();
-            const todayStr = new Date().toISOString().split('T')[0];
+            const dateKeys = window.AppDB?.getISTDateKeys ? window.AppDB.getISTDateKeys() : {
+                todayKey: new Date().toISOString().split('T')[0],
+                yesterdayKey: new Date(Date.now() - (24 * 60 * 60 * 1000)).toISOString().split('T')[0]
+            };
+            const todayStr = dateKeys.todayKey;
+            const yesterdayStr = dateKeys.yesterdayKey;
             const sharedSummaryEnabled = !!window.AppConfig?.READ_OPT_FLAGS?.FF_SHARED_DAILY_SUMMARY;
 
             // Current Staff for Summary (Admins can select others)
@@ -1730,6 +1756,7 @@
             const sharedSummaryTask = sharedSummaryEnabled && window.AppDB.getOrCreateDailySummary
                 ? window.AppDB.getOrCreateDailySummary({
                     dateKey: todayStr,
+                    yesterdayKey: yesterdayStr,
                     staleAfterMs: window.AppConfig?.SUMMARY_POLICY?.STALENESS_MS,
                     lockTtlMs: window.AppConfig?.SUMMARY_POLICY?.LOCK_TTL_MS,
                     generatorFn: () => window.AppAnalytics.buildDailyDashboardSummary({ dateKey: todayStr, selectedMonth })
@@ -1766,6 +1793,12 @@
                 dailySummaryPromise
             ]);
             console.timeEnd('DashboardFetch');
+            const heroMeta = sharedSummaryEnabled
+                ? {
+                    generatedAt: dailySummary?.generatedAt || dailySummary?.meta?.generatedAt || 0,
+                    source: dailySummary?._source || ''
+                }
+                : {};
             let heroData = sharedSummaryEnabled
                 ? (dailySummary?.hero || null)
                 : heroDataRaw;
@@ -1776,7 +1809,7 @@
                 // Avoid blocking dashboard render; populate activity list right after paint.
                 setTimeout(() => refreshStaffActivityWidget(true), 0);
             }
-            const heroHTML = this.renderHeroCard(heroData);
+            const heroHTML = this.renderHeroCard(heroData, heroMeta);
 
             // Auto-calculate rating if not exists (run in background)
             if (window.AppRating && user.rating === undefined) {

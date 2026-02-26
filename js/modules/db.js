@@ -110,6 +110,36 @@
             return Number(window.AppConfig?.SUMMARY_POLICY?.SCHEMA_VERSION || 1);
         }
 
+        getIstNow() {
+            const now = new Date();
+            return new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+        }
+
+        toDateKey(dateObj) {
+            const d = dateObj instanceof Date ? dateObj : new Date(dateObj);
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        }
+
+        getISTDateKeys() {
+            const istNow = this.getIstNow();
+            const istYesterday = new Date(istNow);
+            istYesterday.setDate(istYesterday.getDate() - 1);
+            return {
+                todayKey: this.toDateKey(istNow),
+                yesterdayKey: this.toDateKey(istYesterday)
+            };
+        }
+
+        shouldRecomputeNowIST(cutoffHourIST) {
+            const cutoff = Number.isFinite(Number(cutoffHourIST))
+                ? Number(cutoffHourIST)
+                : Number(window.AppConfig?.SUMMARY_POLICY?.RECOMPUTE_CUTOFF_HOUR_IST || 17);
+            return this.getIstNow().getHours() >= Math.max(0, Math.min(23, cutoff));
+        }
+
         isSummaryFresh(summaryDoc, staleAfterMs) {
             if (!summaryDoc || typeof summaryDoc !== 'object') return false;
             const generatedAt = Number(summaryDoc.generatedAt || 0);
@@ -125,6 +155,56 @@
             const ttl = window.AppConfig?.READ_CACHE_TTLS?.dailySummaryReadMs || 60000;
             const cacheKey = this.getCacheKey('dailySummary', 'daily_summaries', { key });
             return this.getCached(cacheKey, ttl, () => this.get('daily_summaries', key));
+        }
+
+        async getSummaryByDateKey(dateKey) {
+            return this.getDailySummary(dateKey);
+        }
+
+        async getLatestSuccessfulSummaryMeta() {
+            const ttl = window.AppConfig?.READ_CACHE_TTLS?.dailySummaryReadMs || 60000;
+            const cacheKey = this.getCacheKey('dailySummaryMeta', 'daily_summaries_meta', { key: 'latest_success' });
+            return this.getCached(cacheKey, ttl, () => this.get('daily_summaries_meta', 'latest_success'));
+        }
+
+        async setLatestSuccessfulSummaryMeta({ dateKey, generatedAt, version } = {}) {
+            const key = String(dateKey || '').trim();
+            if (!key) return;
+            const payload = {
+                id: 'latest_success',
+                dateKey: key,
+                generatedAt: Number(generatedAt || Date.now()),
+                version: Number(version || this.getSummarySchemaVersion())
+            };
+            await this.put('daily_summaries_meta', payload);
+        }
+
+        async getDailySummaryWithFallback({ todayKey, yesterdayKey, staleAfterMs } = {}) {
+            const staleMs = Math.max(1000, Number(staleAfterMs) || Number(window.AppConfig?.SUMMARY_POLICY?.STALENESS_MS) || 86400000);
+            const allowYesterday = window.AppConfig?.SUMMARY_POLICY?.FALLBACK_TO_PREVIOUS_DAY !== false;
+
+            const tryToday = await this.getSummaryByDateKey(todayKey);
+            if (this.isSummaryFresh(tryToday, staleMs)) {
+                return { summary: tryToday, source: 'today' };
+            }
+
+            if (allowYesterday) {
+                const tryYesterday = await this.getSummaryByDateKey(yesterdayKey);
+                if (tryYesterday && typeof tryYesterday === 'object') {
+                    return { summary: tryYesterday, source: 'yesterday' };
+                }
+            }
+
+            const meta = await this.getLatestSuccessfulSummaryMeta();
+            const metaKey = String(meta?.dateKey || '').trim();
+            if (metaKey) {
+                const viaMeta = await this.getSummaryByDateKey(metaKey);
+                if (viaMeta && typeof viaMeta === 'object') {
+                    return { summary: viaMeta, source: 'latest_success' };
+                }
+            }
+
+            return { summary: tryToday || null, source: 'none' };
         }
 
         async putDailySummary(dateKey, payload = {}) {
@@ -198,11 +278,14 @@
 
         async getOrCreateDailySummary({
             dateKey,
+            yesterdayKey,
             generatorFn,
             staleAfterMs,
             lockTtlMs
         } = {}) {
-            const key = String(dateKey || '').trim();
+            const keys = this.getISTDateKeys();
+            const key = String(dateKey || keys.todayKey || '').trim();
+            const prevKey = String(yesterdayKey || keys.yesterdayKey || '').trim();
             if (!key || typeof generatorFn !== 'function') {
                 throw new Error('getOrCreateDailySummary requires dateKey and generatorFn.');
             }
@@ -210,9 +293,17 @@
             const lockMs = Math.max(1000, Number(lockTtlMs) || Number(window.AppConfig?.SUMMARY_POLICY?.LOCK_TTL_MS) || 90000);
             const owner = String(window.AppAuth?.getUser?.()?.id || `anon_${Math.random().toString(36).slice(2, 10)}`);
 
-            const current = await this.getDailySummary(key);
-            if (this.isSummaryFresh(current, staleMs)) {
-                return { ...current, _source: 'shared' };
+            const fallback = await this.getDailySummaryWithFallback({
+                todayKey: key,
+                yesterdayKey: prevKey,
+                staleAfterMs: staleMs
+            });
+            if (fallback.summary && fallback.source === 'today' && this.isSummaryFresh(fallback.summary, staleMs)) {
+                return { ...fallback.summary, _source: 'shared_today' };
+            }
+
+            if (!this.shouldRecomputeNowIST(window.AppConfig?.SUMMARY_POLICY?.RECOMPUTE_CUTOFF_HOUR_IST)) {
+                return fallback.summary ? { ...fallback.summary, _source: `fallback_${fallback.source}` } : null;
             }
 
             const acquired = await this.acquireSummaryLock(key, owner, lockMs);
@@ -226,6 +317,11 @@
                         version: this.getSummarySchemaVersion()
                     };
                     await this.putDailySummary(key, payload);
+                    await this.setLatestSuccessfulSummaryMeta({
+                        dateKey: key,
+                        generatedAt: payload.generatedAt,
+                        version: payload.version
+                    });
                     return { dateKey: key, ...payload, _source: 'generated' };
                 } finally {
                     await this.releaseSummaryLock(key, owner);
@@ -242,7 +338,7 @@
             }
 
             // Graceful fallback: do not force expensive local recompute if lock owner is still working.
-            return current || null;
+            return fallback.summary ? { ...fallback.summary, _source: `fallback_${fallback.source}` } : null;
         }
 
         applyFilters(ref, filters = []) {

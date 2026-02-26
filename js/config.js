@@ -61,7 +61,9 @@
             STALENESS_MS: 24 * 60 * 60 * 1000,
             TEAM_ACTIVITY_LIMIT: 15,
             LOCK_TTL_MS: 90000,
-            SCHEMA_VERSION: 1
+            SCHEMA_VERSION: 1,
+            RECOMPUTE_CUTOFF_HOUR_IST: 17,
+            FALLBACK_TO_PREVIOUS_DAY: true
         }
     };
 

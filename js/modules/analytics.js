@@ -803,6 +803,8 @@
             return {
                 dateKey,
                 monthKey,
+                version: Number(window.AppConfig?.SUMMARY_POLICY?.SCHEMA_VERSION || 1),
+                generatedAt: Date.now(),
                 hero: hero || null,
                 teamActivityPreview: (teamActivities || []).slice(0, activityLimit),
                 range: {
