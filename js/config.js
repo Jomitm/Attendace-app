@@ -44,14 +44,23 @@
             settings: 300000,
             minutes: 30000,
             attendanceSummary: 30000,
-            staffMessages: 20000
+            staffMessages: 20000,
+            dailySummaryReadMs: 60000
         },
         READ_OPT_FLAGS: {
             FF_READ_OPT_DB_QUERIES: true,
             FF_READ_OPT_TARGETED_REALTIME: true,
             FF_READ_OPT_ANALYTICS_CACHE: true,
+            FF_SHARED_DAILY_SUMMARY: true,
+            FF_SUMMARY_LOCKING: true,
             ENABLE_READ_TELEMETRY: true,
             ENABLE_PRESENCE_HEARTBEAT: false
+        },
+        SUMMARY_POLICY: {
+            STALENESS_MS: 24 * 60 * 60 * 1000,
+            TEAM_ACTIVITY_LIMIT: 15,
+            LOCK_TTL_MS: 90000,
+            SCHEMA_VERSION: 1
         }
     };
 

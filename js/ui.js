@@ -522,8 +522,6 @@
             .filter(u => u.id !== currentUser.id)
             .sort((a, b) => getNewestNotifTime(b) - getNewestNotifTime(a) || a.name.localeCompare(b.name))
             .map(u => {
-                const pending = pendingByName[u.name] || [];
-                const firstPending = pending[0];
                 const newest = getNewestNotifTime(u);
                 const isNew = newest && (nowMs - newest < 120000);
                 return `
@@ -567,7 +565,12 @@
     };
 
     const renderTaggedItems = (notifications) => {
-        const tagged = (notifications || []).filter(n => n.type === 'tag' || n.type === 'task' || n.type === 'mention');
+        const tagged = (notifications || []).filter(n => {
+            if (!(n.type === 'tag' || n.type === 'task' || n.type === 'mention')) return false;
+            if (n.dismissedAt || n.read) return false;
+            const status = String(n.status || 'pending').toLowerCase();
+            return status === 'pending';
+        });
         if (tagged.length === 0) return '';
         return `
             <div class="card full-width dashboard-tagged-card">
@@ -604,8 +607,9 @@
     const renderNotificationPanel = (notifications, history) => {
         const currentUser = window.AppAuth.getUser();
         const isAdmin = currentUser && (currentUser.isAdmin || currentUser.role === 'Administrator');
+        const liveNotifications = (notifications || []).filter(n => !n.dismissedAt && !n.read);
         const items = [
-            ...(notifications || []).map((n, notifIndex) => ({
+            ...liveNotifications.map((n, notifIndex) => ({
                 id: n.id,
                 notifIndex,
                 source: 'live',
@@ -646,7 +650,7 @@
                                         <i class="fa-solid fa-xmark"></i>
                                     </button>
                                 ` : `
-                                    <button class="dashboard-notif-close" title="Dismiss" onclick="document.dispatchEvent(new CustomEvent('dismiss-notification', { detail: ${Number.isInteger(n.notifIndex) ? n.notifIndex : -1} }))">
+                                    <button class="dashboard-notif-close" title="Dismiss" onclick="document.dispatchEvent(new CustomEvent('dismiss-notification', { detail: { notifIndex: ${Number.isInteger(n.notifIndex) ? n.notifIndex : -1}, notifId: '${n.id || ''}' } }))">
                                         <i class="fa-solid fa-xmark"></i>
                                     </button>
                                 `}
@@ -1685,20 +1689,51 @@
             const isAdmin = user.role === 'Administrator' || user.isAdmin;
             const staffActivityState = getStaffActivityState();
             const selectedMonth = staffActivityState.selectedMonth || getCurrentMonthKey();
+            const todayStr = new Date().toISOString().split('T')[0];
+            const sharedSummaryEnabled = !!window.AppConfig?.READ_OPT_FLAGS?.FF_SHARED_DAILY_SUMMARY;
 
             // Current Staff for Summary (Admins can select others)
             const targetStaffId = (isAdmin && window.app_selectedSummaryStaffId) ? window.app_selectedSummaryStaffId : user.id;
 
             console.time('DashboardFetch');
+            const heroPromise = sharedSummaryEnabled
+                ? Promise.resolve(null)
+                : window.AppDB.getOrGenerateSummary(
+                    `hero_stats_${todayStr}`,
+                    () => window.AppAnalytics.getHeroOfTheWeek()
+                );
+            const staffActivityPromise = sharedSummaryEnabled
+                ? Promise.resolve([])
+                : window.AppDB.getOrGenerateSummary(
+                    `team_activity_${selectedMonth}_${todayStr}`,
+                    () => window.AppAnalytics.getAllStaffActivities({ mode: 'month', month: selectedMonth, scope: 'work' })
+                );
+            const sharedSummaryTask = sharedSummaryEnabled && window.AppDB.getOrCreateDailySummary
+                ? window.AppDB.getOrCreateDailySummary({
+                    dateKey: todayStr,
+                    staleAfterMs: window.AppConfig?.SUMMARY_POLICY?.STALENESS_MS,
+                    lockTtlMs: window.AppConfig?.SUMMARY_POLICY?.LOCK_TTL_MS,
+                    generatorFn: () => window.AppAnalytics.buildDailyDashboardSummary({ dateKey: todayStr, selectedMonth })
+                }).catch(err => {
+                    console.warn('Daily summary fetch/generation failed:', err);
+                    return null;
+                })
+                : null;
+            const dailySummaryPromise = sharedSummaryTask
+                ? Promise.race([
+                    sharedSummaryTask,
+                    new Promise(resolve => setTimeout(() => resolve(null), 1500))
+                ])
+                : Promise.resolve(null);
             // Parallel Fetch
-            const [status, logs, monthlyStats, yearlyStats, heroData, calendarPlans, staffActivities, pendingLeaves, allUsers, collaborations, allLeaves] = await Promise.all([
+            const [status, logs, monthlyStats, yearlyStats, heroDataRaw, calendarPlans, staffActivitiesRaw, pendingLeaves, allUsers, collaborations, allLeaves, dailySummary] = await Promise.all([
                 window.AppAttendance.getStatus(),
                 window.AppAttendance.getLogs(targetStaffId),
                 window.AppAnalytics.getUserMonthlyStats(targetStaffId),
                 window.AppAnalytics.getUserYearlyStats(targetStaffId),
-                window.AppAnalytics.getHeroOfTheWeek(),
+                heroPromise,
                 window.AppCalendar ? window.AppCalendar.getPlans() : { leaves: [], events: [] },
-                window.AppAnalytics.getAllStaffActivities({ mode: 'month', month: selectedMonth, scope: 'work' }),
+                staffActivityPromise,
                 isAdmin ? window.AppLeaves.getPendingLeaves() : Promise.resolve([]),
                 window.AppDB.getCached
                     ? window.AppDB.getCached(window.AppDB.getCacheKey('dashboardUsers', 'users', {}), (window.AppConfig?.READ_CACHE_TTLS?.users || 60000), () => window.AppDB.getAll('users'))
@@ -1708,9 +1743,20 @@
                     ? (window.AppDB.queryMany
                         ? window.AppDB.queryMany('leaves', [{ field: 'status', operator: '==', value: 'Pending' }]).catch(() => window.AppDB.getAll('leaves'))
                         : window.AppDB.getAll('leaves'))
-                    : Promise.resolve([])
+                    : Promise.resolve([]),
+                dailySummaryPromise
             ]);
             console.timeEnd('DashboardFetch');
+            let heroData = sharedSummaryEnabled
+                ? (dailySummary?.hero || null)
+                : heroDataRaw;
+            let staffActivities = sharedSummaryEnabled
+                ? (Array.isArray(dailySummary?.teamActivityPreview) ? dailySummary.teamActivityPreview : [])
+                : staffActivitiesRaw;
+            if (sharedSummaryEnabled && (!dailySummary || !Array.isArray(dailySummary.teamActivityPreview))) {
+                // Avoid blocking dashboard render; populate activity list right after paint.
+                setTimeout(() => refreshStaffActivityWidget(true), 0);
+            }
             const heroHTML = this.renderHeroCard(heroData);
 
             // Auto-calculate rating if not exists (run in background)
@@ -1742,14 +1788,10 @@
             let timerHTML = '00 : 00 : 00';
             let btnText = 'Check-in';
             let btnClass = 'action-btn';
-            let statusText = 'Yet to check-in';
-            let statusClass = 'out';
 
             if (isCheckedIn) {
                 btnText = 'Check-out';
                 btnClass = 'action-btn checkout';
-                statusText = 'Checked In';
-                statusClass = 'in';
             }
 
             const formatElapsed = (ms) => {
@@ -1889,7 +1931,9 @@
             const allUsers = window.AppDB.getCached
                 ? await window.AppDB.getCached(window.AppDB.getCacheKey('staffUsers', 'users', {}), (window.AppConfig?.READ_CACHE_TTLS?.users || 60000), () => window.AppDB.getAll('users'))
                 : await window.AppDB.getAll('users');
-            const messages = await window.AppDB.getAll('staff_messages');
+            const messages = window.app_getMyMessages
+                ? await window.app_getMyMessages()
+                : await window.AppDB.getAll('staff_messages');
             const others = allUsers.filter(u => u.id !== currentUser.id).sort((a, b) => a.name.localeCompare(b.name));
             if (!window.app_staffThreadId && others.length > 0) {
                 window.app_staffThreadId = others[0].id;
@@ -3575,7 +3619,7 @@
                         </div>
                         
                         <div class="admin-performance-bars">
-                            ${performance.trendData.map((h, i) => {
+                            ${performance.trendData.map((h) => {
                 const barColor = h > 70 ? 'var(--primary)' : (h > 40 ? '#f59e0b' : '#ef4444');
                 return `
                                     <div class="admin-performance-bar-item">
@@ -4908,7 +4952,7 @@
     if (typeof window !== 'undefined') {
         // Use MutationObserver to detect when checkout modal is shown
         const checkoutObserver = new MutationObserver((mutations) => {
-            mutations.forEach((mutation) => {
+            mutations.forEach(() => {
                 const modal = document.getElementById('checkout-modal');
                 const introPanel = document.getElementById('checkout-intro-panel');
 
@@ -4946,4 +4990,3 @@
         }
     }
 })();
-

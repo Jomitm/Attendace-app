@@ -91,6 +91,160 @@
             return value;
         }
 
+        async getOrGenerateSummary(summaryKey, generatorFn, ttlMs) {
+            if (!summaryKey || typeof generatorFn !== 'function') {
+                throw new Error('getOrGenerateSummary requires a key and generator function.');
+            }
+            const key = this.getCacheKey('summary', 'computed', { summaryKey });
+            const ttl = typeof ttlMs === 'number'
+                ? ttlMs
+                : (window.AppConfig?.READ_CACHE_TTLS?.attendanceSummary || 30000);
+            return this.getCached(key, ttl, generatorFn);
+        }
+
+        async sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+        }
+
+        getSummarySchemaVersion() {
+            return Number(window.AppConfig?.SUMMARY_POLICY?.SCHEMA_VERSION || 1);
+        }
+
+        isSummaryFresh(summaryDoc, staleAfterMs) {
+            if (!summaryDoc || typeof summaryDoc !== 'object') return false;
+            const generatedAt = Number(summaryDoc.generatedAt || 0);
+            const schemaVersion = Number(summaryDoc.version || 0);
+            if (!generatedAt || !schemaVersion) return false;
+            if (schemaVersion !== this.getSummarySchemaVersion()) return false;
+            return (Date.now() - generatedAt) <= Math.max(0, Number(staleAfterMs) || 0);
+        }
+
+        async getDailySummary(dateKey) {
+            const key = String(dateKey || '').trim();
+            if (!key) return null;
+            const ttl = window.AppConfig?.READ_CACHE_TTLS?.dailySummaryReadMs || 60000;
+            const cacheKey = this.getCacheKey('dailySummary', 'daily_summaries', { key });
+            return this.getCached(cacheKey, ttl, () => this.get('daily_summaries', key));
+        }
+
+        async putDailySummary(dateKey, payload = {}) {
+            const key = String(dateKey || '').trim();
+            if (!key) throw new Error('putDailySummary requires dateKey.');
+            const doc = {
+                id: key,
+                dateKey: key,
+                version: this.getSummarySchemaVersion(),
+                ...payload
+            };
+            return this.put('daily_summaries', doc);
+        }
+
+        async acquireSummaryLock(dateKey, lockOwner, ttlMs) {
+            const key = String(dateKey || '').trim();
+            const owner = String(lockOwner || '').trim();
+            if (!key || !owner) return false;
+            if (!this.db || !this.db.runTransaction) return false;
+            if (window.AppConfig?.READ_OPT_FLAGS?.FF_SUMMARY_LOCKING === false) return true;
+
+            const ttl = Math.max(1000, Number(ttlMs) || Number(window.AppConfig?.SUMMARY_POLICY?.LOCK_TTL_MS) || 90000);
+            const ref = this.db.collection('summary_locks').doc(key);
+            const now = Date.now();
+
+            try {
+                const acquired = await this.db.runTransaction(async (tx) => {
+                    const snap = await tx.get(ref);
+                    if (snap.exists) {
+                        const cur = snap.data() || {};
+                        const curOwner = String(cur.ownerId || '');
+                        const expiresAt = Number(cur.expiresAt || 0);
+                        const isActive = expiresAt > now;
+                        if (isActive && curOwner && curOwner !== owner) return false;
+                    }
+                    tx.set(ref, {
+                        id: key,
+                        dateKey: key,
+                        ownerId: owner,
+                        createdAt: now,
+                        expiresAt: now + ttl
+                    }, { merge: true });
+                    return true;
+                });
+                return acquired === true;
+            } catch (error) {
+                console.warn('Failed to acquire summary lock:', error);
+                return false;
+            }
+        }
+
+        async releaseSummaryLock(dateKey, lockOwner) {
+            const key = String(dateKey || '').trim();
+            const owner = String(lockOwner || '').trim();
+            if (!key || !owner || !this.db || !this.db.runTransaction) return;
+            if (window.AppConfig?.READ_OPT_FLAGS?.FF_SUMMARY_LOCKING === false) return;
+            const ref = this.db.collection('summary_locks').doc(key);
+            try {
+                await this.db.runTransaction(async (tx) => {
+                    const snap = await tx.get(ref);
+                    if (!snap.exists) return;
+                    const cur = snap.data() || {};
+                    if (String(cur.ownerId || '') === owner) {
+                        tx.delete(ref);
+                    }
+                });
+            } catch (error) {
+                console.warn('Failed to release summary lock:', error);
+            }
+        }
+
+        async getOrCreateDailySummary({
+            dateKey,
+            generatorFn,
+            staleAfterMs,
+            lockTtlMs
+        } = {}) {
+            const key = String(dateKey || '').trim();
+            if (!key || typeof generatorFn !== 'function') {
+                throw new Error('getOrCreateDailySummary requires dateKey and generatorFn.');
+            }
+            const staleMs = Math.max(1000, Number(staleAfterMs) || Number(window.AppConfig?.SUMMARY_POLICY?.STALENESS_MS) || 86400000);
+            const lockMs = Math.max(1000, Number(lockTtlMs) || Number(window.AppConfig?.SUMMARY_POLICY?.LOCK_TTL_MS) || 90000);
+            const owner = String(window.AppAuth?.getUser?.()?.id || `anon_${Math.random().toString(36).slice(2, 10)}`);
+
+            const current = await this.getDailySummary(key);
+            if (this.isSummaryFresh(current, staleMs)) {
+                return { ...current, _source: 'shared' };
+            }
+
+            const acquired = await this.acquireSummaryLock(key, owner, lockMs);
+            if (acquired) {
+                try {
+                    const generated = await generatorFn();
+                    const payload = {
+                        ...(generated || {}),
+                        generatedAt: Date.now(),
+                        generatedBy: owner,
+                        version: this.getSummarySchemaVersion()
+                    };
+                    await this.putDailySummary(key, payload);
+                    return { dateKey: key, ...payload, _source: 'generated' };
+                } finally {
+                    await this.releaseSummaryLock(key, owner);
+                }
+            }
+
+            const pollDelays = [350, 700, 1200, 1800];
+            for (const delayMs of pollDelays) {
+                await this.sleep(delayMs);
+                const candidate = await this.getDailySummary(key);
+                if (this.isSummaryFresh(candidate, staleMs)) {
+                    return { ...candidate, _source: 'shared' };
+                }
+            }
+
+            // Graceful fallback: do not force expensive local recompute if lock owner is still working.
+            return current || null;
+        }
+
         applyFilters(ref, filters = []) {
             let q = ref;
             (filters || []).forEach(f => {
@@ -236,7 +390,7 @@
                     const scoped = await this.queryMany(collectionName, [{ field: 'id', operator: 'in', value: chunk }]);
                     if (scoped && scoped.length) return scoped;
                     return Promise.all(chunk.map(id => this.get(collectionName, id)));
-                } catch (err) {
+                } catch {
                     // Fallback for docs without mirrored "id" field
                     return Promise.all(chunk.map(id => this.get(collectionName, id)));
                 }

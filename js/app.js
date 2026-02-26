@@ -241,6 +241,26 @@
         window.AppDB.clearReadTelemetry();
     };
 
+    // --- Read Optimization: Filtered Mailbox ---
+    window.app_getMyMessages = async () => {
+        const user = window.AppAuth.getUser();
+        if (!user) return [];
+        try {
+            const [incoming, outgoing] = await Promise.all([
+                window.AppDB.query('staff_messages', 'toId', '==', user.id),
+                window.AppDB.query('staff_messages', 'fromId', '==', user.id)
+            ]);
+            // Merge and deduplicate by ID
+            const map = new Map();
+            (incoming || []).forEach(m => map.set(m.id, m));
+            (outgoing || []).forEach(m => map.set(m.id, m));
+            return Array.from(map.values());
+        } catch (err) {
+            console.warn("Message fetch failed, falling back to getAll", err);
+            return window.AppDB.getAll('staff_messages');
+        }
+    };
+
     // DOM Elements - queried dynamically or once if available
     const contentArea = document.getElementById('page-content');
     const sidebar = document.querySelector('.sidebar');
@@ -278,7 +298,7 @@
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('./sw.js')
-                    .then(reg => console.log('ServiceWorker registered'))
+                    .then(() => console.log('ServiceWorker registered'))
                     .catch(err => console.log('ServiceWorker registration failed: ', err));
             });
         }
@@ -448,6 +468,16 @@
         if (existing) existing.remove();
 
         container.insertAdjacentHTML('beforeend', html);
+        const modalEl = document.getElementById(id);
+        if (modalEl && (modalEl.classList.contains('modal-overlay') || modalEl.classList.contains('modal'))) {
+            const overlays = Array.from(document.querySelectorAll('.modal-overlay, .modal'))
+                .filter(el => el !== modalEl);
+            const maxZ = overlays.reduce((acc, el) => {
+                const z = Number.parseInt(window.getComputedStyle(el).zIndex, 10);
+                return Number.isFinite(z) ? Math.max(acc, z) : acc;
+            }, 1000);
+            modalEl.style.zIndex = String(maxZ + 2);
+        }
     };
 
     const escapeDialogHtml = (value) => {
@@ -682,17 +712,15 @@
                 </div>
             `;
 
-            if (typeof window.app_showModal === 'function') {
-                window.app_showModal(html, modalId);
-            } else {
-                (document.getElementById('modal-container') || document.body).insertAdjacentHTML('beforeend', html);
-            }
+            // Mount system dialogs at top-level body so they always appear above active screens.
+            (document.body || document.getElementById('modal-container')).insertAdjacentHTML('beforeend', html);
 
             const modalEl = document.getElementById(modalId);
             if (!modalEl) {
                 resolve(isPrompt ? null : false);
                 return;
             }
+            modalEl.style.zIndex = '20000';
             const confirmBtn = modalEl.querySelector('.app-system-dialog-confirm');
             const cancelBtn = modalEl.querySelector('.app-system-dialog-cancel');
             const closeBtn = modalEl.querySelector('.app-system-dialog-close');
@@ -1256,7 +1284,7 @@
                         return;
                     }
                 }
-            } catch (_) {
+            } catch {
                 // Ignore permissions API errors and continue to browser prompt flow.
             }
 
@@ -2443,8 +2471,11 @@
             if (updatedUser && updatedUser.notifications) {
                 const notif = updatedUser.notifications[notifIdx];
                 if (notif) {
+                    const nowIso = new Date().toISOString();
                     notif.status = response;
-                    notif.respondedAt = new Date().toISOString();
+                    notif.respondedAt = nowIso;
+                    notif.read = true;
+                    notif.dismissedAt = nowIso;
                     if (rejectReason) notif.rejectReason = rejectReason;
                 }
                 if (!updatedUser.tagHistory) updatedUser.tagHistory = [];
@@ -3773,7 +3804,7 @@
         window.app_staffThreadId = userId;
         const currentUser = window.AppAuth.getUser();
         if (!currentUser) return;
-        const messages = await window.AppDB.getAll('staff_messages');
+        const messages = await window.app_getMyMessages();
         const updates = messages.filter(m => m.toId === currentUser.id && m.fromId === userId && !m.read);
         for (const msg of updates) {
             msg.read = true;
@@ -4007,7 +4038,7 @@
         if (!currentUser) return;
         const navTargets = document.querySelectorAll('[data-page="staff-directory"]');
         if (!navTargets.length) return;
-        const messages = await window.AppDB.getAll('staff_messages');
+        const messages = await window.app_getMyMessages();
         const hasUnread = messages.some(m => m.toId === currentUser.id && !m.read);
         navTargets.forEach(el => {
             if (hasUnread) el.classList.add('has-new-msg');
@@ -4024,8 +4055,11 @@
             if (!notif) throw new Error('Notification not found');
             let reason = '';
             if (response === 'rejected') reason = (await window.appPrompt('Optional: add a rejection reason', '', { title: 'Reject Item', confirmText: 'Submit Reason' })) || '';
+            const nowIso = new Date().toISOString();
             notif.status = response;
-            notif.respondedAt = new Date().toISOString();
+            notif.respondedAt = nowIso;
+            notif.read = true;
+            notif.dismissedAt = nowIso;
             if (reason) notif.rejectReason = reason;
             if (!updatedUser.tagHistory) updatedUser.tagHistory = [];
             updatedUser.tagHistory.unshift({
@@ -4179,10 +4213,27 @@
     };
 
     document.addEventListener('dismiss-notification', async (e) => {
-        const index = e.detail;
+        const payload = e.detail;
+        const index = (typeof payload === 'object' && payload !== null) ? payload.notifIndex : payload;
+        const notifId = (typeof payload === 'object' && payload !== null) ? String(payload.notifId || '') : '';
         const user = window.AppAuth.getUser();
         if (user && user.notifications && Number.isInteger(index) && index >= 0) {
-            const notif = user.notifications[index];
+            let notif = user.notifications[index];
+            if (!notif && notifId) {
+                notif = user.notifications.find(n => String(n.id || '') === notifId);
+            }
+            if (!notif) return;
+            notif.read = true;
+            notif.dismissedAt = new Date().toISOString();
+            await window.AppAuth.updateUser(user);
+            const hash = window.location.hash.slice(1) || 'dashboard';
+            if (hash === 'dashboard') {
+                contentArea.innerHTML = await window.AppUI.renderDashboard();
+                if (window.setupDashboardEvents) window.setupDashboardEvents();
+            }
+            if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
+        } else if (user && user.notifications && notifId) {
+            const notif = user.notifications.find(n => String(n.id || '') === notifId);
             if (!notif) return;
             notif.read = true;
             notif.dismissedAt = new Date().toISOString();
@@ -4799,7 +4850,7 @@
         }
     };
 
-    window.app_deleteCellLog = async (logId, userId) => {
+    window.app_deleteCellLog = async (logId, _userId) => {
         if (!window.app_canManageAttendanceSheet()) {
             alert("You do not have permission for this action.");
             return;
@@ -5660,7 +5711,7 @@
      */
     window.app_editTaskStatus = async function (planId, taskIndex, newStatus) {
         try {
-            const user = window.AppAuth.getUser();
+            const _user = window.AppAuth.getUser();
             const completedDate = newStatus === 'completed' ? new Date().toISOString().split('T')[0] : null;
 
             await window.AppCalendar.updateTaskStatus(planId, taskIndex, newStatus, completedDate);

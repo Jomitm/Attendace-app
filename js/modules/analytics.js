@@ -370,18 +370,12 @@
                     const inMinutes = this.parseTimeToMinutes(log.checkIn);
                     const outMinutes = this.parseTimeToMinutes(log.checkOut);
 
-                    let dayLateMins = 0;
-                    let dayEarlyCredit = 0;
-
                     // Manual Override logic
                     const isManual = log.isManualOverride === true;
 
                     if (!isManual) {
-                        // EARLY ARRIVAL Credit
+                        // EARLY ARRIVAL check retained for compatibility with legacy data shape.
                         const lateCutoff = window.AppConfig.LATE_CUTOFF_MINUTES || 555;
-                        if (inMinutes !== null && inMinutes < lateCutoff) {
-                            dayEarlyCredit = lateCutoff - inMinutes;
-                        }
 
                         // LATE Check: prefer stored policy decision, fallback to old logs
                         const isLateCountable = log.lateCountable === true || (!Object.prototype.hasOwnProperty.call(log, 'lateCountable') && inMinutes !== null && inMinutes > lateCutoff);
@@ -614,8 +608,6 @@
         getDayType(dateStr) {
             const date = typeof dateStr === 'string' ? new Date(dateStr) : dateStr;
             const day = date.getDay();
-            const dateNum = date.getDate();
-
             if (day === 0) return 'Holiday'; // Sunday
 
             if (day === 6) { // Saturday Rules
@@ -786,6 +778,42 @@
                 console.error("System Performance Calculation Error:", err);
                 return { avgScore: 0, trendData: [0, 0, 0, 0, 0, 0, 0] };
             }
+        }
+
+        async buildDailyDashboardSummary(options = {}) {
+            const now = new Date();
+            const dateKey = String(options.dateKey || now.toISOString().split('T')[0]);
+            const monthKey = String(options.selectedMonth || now.toISOString().slice(0, 7));
+            const [yearStr, monthStr] = monthKey.split('-');
+            const year = Number(yearStr);
+            const monthIndex = Number(monthStr) - 1;
+            const monthStart = (Number.isInteger(year) && Number.isInteger(monthIndex) && monthIndex >= 0 && monthIndex <= 11)
+                ? new Date(year, monthIndex, 1)
+                : new Date(now.getFullYear(), now.getMonth(), 1);
+            const monthEnd = (Number.isInteger(year) && Number.isInteger(monthIndex) && monthIndex >= 0 && monthIndex <= 11)
+                ? new Date(year, monthIndex + 1, 0)
+                : new Date(now.getFullYear(), now.getMonth() + 1, 0);
+            const activityLimit = Math.max(1, Number(window.AppConfig?.SUMMARY_POLICY?.TEAM_ACTIVITY_LIMIT) || 15);
+
+            const [hero, teamActivities] = await Promise.all([
+                this.getHeroOfTheWeek(),
+                this.getAllStaffActivities({ mode: 'month', month: monthKey, scope: 'work' })
+            ]);
+
+            return {
+                dateKey,
+                monthKey,
+                hero: hero || null,
+                teamActivityPreview: (teamActivities || []).slice(0, activityLimit),
+                range: {
+                    startIso: monthStart.toISOString().split('T')[0],
+                    endIso: monthEnd.toISOString().split('T')[0]
+                },
+                meta: {
+                    generatedAt: Date.now(),
+                    source: 'client_first_writer'
+                }
+            };
         }
 
         async getAllStaffActivities(options = {}) {

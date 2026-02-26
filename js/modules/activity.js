@@ -93,7 +93,7 @@
                 } else {
                     logData.status = 'Location service disabled (missing helper)';
                 }
-            } catch (err) {
+            } catch {
                 logData.status = 'Location service disabled';
             }
 
