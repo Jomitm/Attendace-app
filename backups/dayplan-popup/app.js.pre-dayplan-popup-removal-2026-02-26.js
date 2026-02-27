@@ -1235,7 +1235,7 @@
                 }, 1000);
 
                 // Start Activity Monitor
-                if (!readOnly && window.AppActivity && window.AppActivity.start) window.AppActivity.start();
+                    if (!readOnly && window.AppActivity && window.AppActivity.start) window.AppActivity.start();
 
             } else {
                 if (display) {
@@ -1256,80 +1256,80 @@
     window.getLocation = function getLocation() {
         return new Promise((resolve, reject) => {
             (async () => {
-                const host = (window.location && window.location.hostname) ? window.location.hostname : '';
-                const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host === '::1';
-                if (!window.isSecureContext && !isLocalhost) {
-                    reject('Location requires HTTPS on mobile. Open this app using an HTTPS URL and allow location access.');
-                    return;
-                }
+            const host = (window.location && window.location.hostname) ? window.location.hostname : '';
+            const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+            if (!window.isSecureContext && !isLocalhost) {
+                reject('Location requires HTTPS on mobile. Open this app using an HTTPS URL and allow location access.');
+                return;
+            }
 
-                // Check Cache first
-                const now = Date.now();
-                if (cachedLocation && (now - lastLocationFetch < LOCATION_CACHE_TIME)) {
-                    console.log("Using cached location (freshness: " + (now - lastLocationFetch) + "ms)");
-                    resolve(cachedLocation);
-                    return;
-                }
+            // Check Cache first
+            const now = Date.now();
+            if (cachedLocation && (now - lastLocationFetch < LOCATION_CACHE_TIME)) {
+                console.log("Using cached location (freshness: " + (now - lastLocationFetch) + "ms)");
+                resolve(cachedLocation);
+                return;
+            }
 
-                if (!navigator.geolocation) {
-                    reject('Geolocation is not supported by your browser.');
-                    return;
-                }
+            if (!navigator.geolocation) {
+                reject('Geolocation is not supported by your browser.');
+                return;
+            }
 
-                try {
-                    if (navigator.permissions && navigator.permissions.query) {
-                        const perm = await navigator.permissions.query({ name: 'geolocation' });
-                        if (perm && perm.state === 'denied') {
-                            reject('Location permission is blocked. Enable location for this site in browser settings and try again.');
-                            return;
-                        }
+            try {
+                if (navigator.permissions && navigator.permissions.query) {
+                    const perm = await navigator.permissions.query({ name: 'geolocation' });
+                    if (perm && perm.state === 'denied') {
+                        reject('Location permission is blocked. Enable location for this site in browser settings and try again.');
+                        return;
                     }
-                } catch {
-                    // Ignore permissions API errors and continue to browser prompt flow.
                 }
+            } catch {
+                // Ignore permissions API errors and continue to browser prompt flow.
+            }
 
-                const getPosition = (options) => {
-                    return new Promise((res, rej) => {
-                        navigator.geolocation.getCurrentPosition(res, rej, options);
-                    });
-                };
+            const getPosition = (options) => {
+                return new Promise((res, rej) => {
+                    navigator.geolocation.getCurrentPosition(res, rej, options);
+                });
+            };
 
+            try {
+                // Attempt 1: High Accuracy (GPS)
+                console.log("Requesting Location: High Accuracy (GPS)...");
+                const p = await getPosition({
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 5000
+                });
+                const pos = { lat: p.coords.latitude, lng: p.coords.longitude };
+                cachedLocation = pos;
+                lastLocationFetch = Date.now();
+                resolve(pos);
+            } catch (err) {
+                console.warn("High Accuracy Failed:", err.message);
+
+                // Attempt 2: Low Accuracy - Fallback
                 try {
-                    // Attempt 1: High Accuracy (GPS)
-                    console.log("Requesting Location: High Accuracy (GPS)...");
-                    const p = await getPosition({
-                        enableHighAccuracy: true,
-                        timeout: 10000,
-                        maximumAge: 5000
+                    console.log("Requesting Location: Low Accuracy (Fallback)...");
+                    const p2 = await getPosition({
+                        enableHighAccuracy: false,
+                        timeout: 15000,
+                        maximumAge: 10000
                     });
-                    const pos = { lat: p.coords.latitude, lng: p.coords.longitude };
-                    cachedLocation = pos;
+                    const pos2 = { lat: p2.coords.latitude, lng: p2.coords.longitude };
+                    cachedLocation = pos2;
                     lastLocationFetch = Date.now();
-                    resolve(pos);
-                } catch (err) {
-                    console.warn("High Accuracy Failed:", err.message);
-
-                    // Attempt 2: Low Accuracy - Fallback
-                    try {
-                        console.log("Requesting Location: Low Accuracy (Fallback)...");
-                        const p2 = await getPosition({
-                            enableHighAccuracy: false,
-                            timeout: 15000,
-                            maximumAge: 10000
-                        });
-                        const pos2 = { lat: p2.coords.latitude, lng: p2.coords.longitude };
-                        cachedLocation = pos2;
-                        lastLocationFetch = Date.now();
-                        resolve(pos2);
-                    } catch (err2) {
-                        console.error("Low Accuracy Failed:", err2.message);
-                        let msg = 'Unable to retrieve location.';
-                        if (err2.code === 1) msg = 'Location permission denied.';
-                        else if (err2.code === 2) msg = 'Location unavailable. Ensure GPS/Location Services are turned on.';
-                        else if (err2.code === 3) msg = 'Location request timed out. Move to open sky or better network and try again.';
-                        reject(msg);
-                    }
+                    resolve(pos2);
+                } catch (err2) {
+                    console.error("Low Accuracy Failed:", err2.message);
+                    let msg = 'Unable to retrieve location.';
+                    if (err2.code === 1) msg = 'Location permission denied.';
+                    else if (err2.code === 2) msg = 'Location unavailable. Ensure GPS/Location Services are turned on.';
+                    else if (err2.code === 3) msg = 'Location request timed out. Move to open sky or better network and try again.';
+                    reject(msg);
                 }
+            }
             })().catch((err) => {
                 reject(err && err.message ? err.message : 'Unable to retrieve location.');
             });
@@ -1481,13 +1481,15 @@
 
     const app_renderNoCollaboratorsPlaceholder = () => `
         <div class="no-tags-placeholder day-plan-no-tags-placeholder">
-            <p class="day-plan-no-tags-text">No collaborators yet</p>
+            <div class="day-plan-no-tags-icon-wrap"><i class="fa-solid fa-user-plus day-plan-no-tags-icon"></i></div>
+            <p class="day-plan-no-tags-title">No collaborators yet</p>
+            <p class="day-plan-no-tags-text">Pick collaborators below or use @ mention.</p>
         </div>
     `;
 
     const app_buildCollaboratorChip = (userId, userName, status = 'pending') => `
         <div class="tag-chip day-plan-tag-chip" data-id="${app_escapeHtml(userId)}" data-name="${app_escapeHtml(userName)}" data-status="${app_escapeHtml(status)}">
-            <span class="day-plan-tag-main">@${app_escapeHtml(userName)} <span class="day-plan-tag-pending">(${app_escapeHtml(status)})</span></span>
+            <span class="day-plan-tag-main"><i class="fa-solid fa-at day-plan-tag-icon"></i>${app_escapeHtml(userName)} <span class="day-plan-tag-pending">(${app_escapeHtml(status)})</span></span>
             <i class="fa-solid fa-times day-plan-remove-collab-btn" onclick="window.app_removeTagHint(this)"></i>
         </div>
     `;
@@ -1541,7 +1543,353 @@
         }
     };
 
+    window.app_openDayPlan = async (date, targetUserId = null, forcedScope = null) => {
+        const currentUser = window.AppAuth.getUser();
+        const targetId = app_resolveTargetUserId(targetUserId, currentUser.id);
+        const allUsers = await window.AppDB.getAll('users');
+        const isAdmin = currentUser.role === 'Administrator' || currentUser.isAdmin;
+        const isEditingOther = targetId !== currentUser.id;
+        const defaultScope = forcedScope === 'annual' ? 'annual' : 'personal';
+        window.app_currentDayPlanTargetId = targetId;
 
+        const personalWorkPlan = await window.AppCalendar.getWorkPlan(targetId, date, { planScope: 'personal' });
+        const annualWorkPlan = await window.AppCalendar.getWorkPlan(targetId, date, { planScope: 'annual' });
+        const hasAnyExistingPlan = !!(personalWorkPlan || annualWorkPlan);
+        const selectableCollaborators = allUsers.filter(u => u.id !== targetId);
+
+        const blockFromPlan = (plan = {}, idx = 0) => {
+            const task = plan.task || '';
+            const subPlans = Array.isArray(plan.subPlans) ? plan.subPlans : [];
+            const tags = Array.isArray(plan.tags) ? plan.tags : [];
+            const assignedTo = plan.assignedTo || targetId;
+            const startDate = plan.startDate || '';
+            const endDate = plan.endDate || '';
+            const taskScope = String(plan.planScope || plan._planScope || defaultScope) === 'annual' ? 'annual' : 'personal';
+            const summary = app_getTaskSummary(task);
+            const tagIdSet = new Set(tags.map(t => String(t.id || '')));
+            const collaboratorButtons = selectableCollaborators.map(u => `
+                <button
+                    type="button"
+                    class="day-plan-collab-option ${tagIdSet.has(String(u.id)) ? 'selected' : ''}"
+                    data-id="${app_escapeHtml(u.id)}"
+                    onclick="window.app_toggleTaskCollaborator(this, '${app_escapeJsSingleQuote(u.id)}', '${app_escapeJsSingleQuote(u.name)}')"
+                    title="Add or remove ${app_escapeHtml(u.name)}"
+                >${app_escapeHtml(u.name)}</button>
+            `).join('');
+
+            return `
+                <div class="plan-block day-plan-block-shell" data-index="${idx}" style="border:1px solid #d8e6ff; border-radius:14px; margin-bottom:0.85rem; overflow:hidden; background:#ffffff; box-shadow:0 8px 20px rgba(15,23,42,0.08);">
+                    <div class="day-plan-block-head" style="display:flex; align-items:center; justify-content:space-between; gap:0.7rem; padding:0.62rem 0.8rem; border-bottom:1px solid #dbeafe; background:linear-gradient(90deg,#f7faff 0%,#ecf4ff 100%);">
+                        <div class="day-plan-block-head-main" style="display:flex; align-items:center; gap:0.55rem; min-width:0;">
+                            <span class="day-plan-index-badge-step" style="background:#1d4ed8; color:#fff;">${idx + 1}</span>
+                            <span class="day-plan-task-summary">${app_escapeHtml(summary)}</span>
+                            <span class="day-plan-scope-pill" style="background:#dbeafe; color:#1e3a8a; border-color:#bfdbfe;">${taskScope === 'annual' ? 'Annual Plan' : 'Personal Plan'}</span>
+                        </div>
+                        <div class="day-plan-block-head-actions">
+                            ${idx > 0 ? `<button type="button" onclick="this.closest('.plan-block').remove()" title="Remove this task" class="day-plan-remove-task-btn"><i class="fa-solid fa-times"></i></button>` : ''}
+                            <button type="button" class="day-plan-collapse-btn" onclick="window.app_togglePlanBlockCollapse(this)" style="border-color:#bfdbfe; background:#fff;">
+                                <i class="fa-solid fa-chevron-down"></i>
+                                <span class="day-plan-collapse-label">Minimize</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="day-plan-block-body" style="padding:0.8rem;">
+                        <div class="day-plan-left-panel day-plan-main-panel">
+                            <div style="display:flex; gap:0.6rem; align-items:center; justify-content:space-between; flex-wrap:wrap;">
+                                <label class="day-plan-label" style="margin:0;">What will you work on?</label>
+                                <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; justify-content:flex-end;">
+                                    <input type="date" class="plan-start-date day-plan-select" value="${startDate}" title="From Date">
+                                    <input type="date" class="plan-end-date day-plan-select" value="${endDate}" title="To Date">
+                                    <span style="font-size:0.72rem; color:#64748b; font-weight:700;">Optional range</span>
+                                </div>
+                            </div>
+                            <p class="day-plan-help-text">Be specific. Pick collaborators here or use @ mention.</p>
+                            <textarea class="plan-task day-plan-task-input" required placeholder="Describe your plan for the day..." style="min-height:104px;">${task}</textarea>
+                            <div class="day-plan-inline-work-controls" style="border:1px solid #dbeafe; background:#f8fbff; border-radius:12px; padding:0.6rem;">
+                                <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
+                                    <label class="day-plan-mini-label" style="margin:0;">Plan Type</label>
+                                    <select class="plan-scope day-plan-select day-plan-scope-select">
+                                        <option value="personal" ${taskScope === 'personal' ? 'selected' : ''}>Personal Plan</option>
+                                        <option value="annual" ${taskScope === 'annual' ? 'selected' : ''}>Annual Plan</option>
+                                    </select>
+                                </div>
+                                <div class="day-plan-collab-inline" style="margin-top:0.42rem;">
+                                    <div class="day-plan-collab-head">
+                                        <span class="day-plan-mini-label">Collaborators</span>
+                                        <span class="day-plan-collab-hint">Click names to tag/un-tag.</span>
+                                    </div>
+                                    <div class="day-plan-collab-picker">
+                                        ${collaboratorButtons || '<span class="day-plan-collab-empty">No teammates available.</span>'}
+                                    </div>
+                                </div>
+                                <div class="tags-container day-plan-tags-inline">
+                                    ${tags.map(t => app_buildCollaboratorChip(t.id, t.name, t.status || 'pending')).join('')}
+                                    ${tags.length === 0 ? app_renderNoCollaboratorsPlaceholder() : ''}
+                                </div>
+                            </div>
+                            <div class="day-plan-sub-section">
+                                <label class="day-plan-mini-label">Break into steps (optional)</label>
+                                <div class="sub-plans-list day-plan-sub-list">
+                                    ${subPlans.map(sub => `
+                                        <div class="sub-plan-row day-plan-sub-row">
+                                            <div class="day-plan-step-dot"></div>
+                                            <input type="text" value="${sub}" class="sub-plan-input day-plan-sub-input" placeholder="Add a step...">
+                                            <button type="button" onclick="this.parentElement.remove()" title="Remove step" class="day-plan-remove-step-btn"><i class="fa-solid fa-circle-xmark"></i></button>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                                <button type="button" onclick="window.app_addSubPlanRow(this)" class="day-plan-add-step-btn"><i class="fa-solid fa-plus"></i> Add Step</button>
+                            </div>
+                            ${plan.completedDate ? `<div style="margin-top:0.35rem; font-size:0.72rem; color:#166534; font-weight:700;">Completed on ${plan.completedDate}</div>` : ''}
+                        </div>
+                    </div>
+                    <div class="day-plan-bottom-controls" style="padding:0 0.8rem 0.8rem 0.8rem;">
+                        <div style="display:flex; align-items:center; gap:0.6rem;">
+                            <label class="day-plan-mini-label">Status</label>
+                            <select class="plan-status day-plan-select">
+                                <option value="" ${!plan.status ? 'selected' : ''}>Auto-Track (Recommended)</option>
+                                <option value="completed" ${plan.status === 'completed' ? 'selected' : ''}>Completed</option>
+                                <option value="not-completed" ${plan.status === 'not-completed' ? 'selected' : ''}>Not Completing</option>
+                                <option value="in-process" ${plan.status === 'in-process' ? 'selected' : ''}>In Progress</option>
+                            </select>
+                        </div>
+                        ${isAdmin ? `
+                            <div style="display:flex; align-items:center; gap:0.6rem;">
+                                <label class="day-plan-mini-label">Assign To</label>
+                                <select class="plan-assignee day-plan-select">
+                                    ${allUsers.map(u => `<option value="${u.id}" ${u.id === assignedTo ? 'selected' : ''}>${u.name}</option>`).join('')}
+                                </select>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        };
+
+        const normalizeScopedPlans = (workPlan, scope) => {
+            if (!workPlan) return [];
+            if (Array.isArray(workPlan.plans) && workPlan.plans.length > 0) {
+                return workPlan.plans.map(p => ({ ...p, planScope: scope }));
+            }
+            if (workPlan.plan) {
+                return [{
+                    task: workPlan.plan,
+                    subPlans: workPlan.subPlans || [],
+                    tags: [],
+                    status: null,
+                    assignedTo: targetId,
+                    startDate: date,
+                    endDate: date,
+                    planScope: scope
+                }];
+            }
+            return [];
+        };
+
+        const initialBlocks = [
+            ...normalizeScopedPlans(personalWorkPlan, 'personal'),
+            ...normalizeScopedPlans(annualWorkPlan, 'annual')
+        ];
+        if (initialBlocks.length === 0) {
+            initialBlocks.push({
+                task: '',
+                subPlans: [],
+                tags: [],
+                status: null,
+                assignedTo: targetId,
+                startDate: date,
+                endDate: date,
+                planScope: defaultScope
+            });
+        }
+
+        const targetUser = allUsers.find(u => u.id === targetId);
+        const headerName = targetUser ? targetUser.name : 'Staff';
+
+        const html = `            <style id="day-plan-popup-hard-reset">
+                #day-plan-modal {
+                    display:flex !important;
+                    align-items:center !important;
+                    justify-content:center !important;
+                    background:rgba(148, 163, 184, 0.26) !important;
+                    backdrop-filter:blur(2px) !important;
+                }
+                #day-plan-modal .day-plan-content {
+                    background:#f2f4f8 !important;
+                    color:#0f172a !important;
+                    border:1px solid #d8e1ec !important;
+                    border-radius:18px !important;
+                    box-shadow:0 22px 54px rgba(15,23,42,0.20) !important;
+                }
+                #day-plan-modal .day-plan-head {
+                    background:#f2f4f8 !important;
+                    border:0 !important;
+                    border-radius:12px !important;
+                    color:#0f172a !important;
+                    padding:0.35rem 0.2rem 0.9rem 0.2rem !important;
+                }
+                #day-plan-modal .day-plan-head h3 {
+                    color:#0f172a !important;
+                    font-size:3.2rem !important;
+                    line-height:1.03 !important;
+                    letter-spacing:-0.045em !important;
+                    font-weight:800 !important;
+                    margin:0 !important;
+                }
+                #day-plan-modal .day-plan-head p {
+                    color:#64748b !important;
+                    font-size:1.05rem !important;
+                    font-weight:600 !important;
+                    margin-top:0.2rem !important;
+                }
+                #day-plan-modal .day-plan-delete-btn,
+                #day-plan-modal .day-plan-close-btn {
+                    background:#ffffff !important;
+                    border:1px solid #cfd8e6 !important;
+                    color:#475569 !important;
+                    border-radius:12px !important;
+                }
+                #day-plan-modal #plans-container {
+                    background:#ffffff !important;
+                    border:1px solid #d9e3ef !important;
+                    border-radius:14px !important;
+                    padding:0.7rem !important;
+                }
+                #day-plan-modal .plan-block {
+                    background:#ffffff !important;
+                    border:1px solid #dbe4f0 !important;
+                    border-radius:14px !important;
+                    box-shadow:none !important;
+                    margin-bottom:0.9rem !important;
+                }
+                #day-plan-modal .day-plan-block-head {
+                    background:#f8fafd !important;
+                    border-bottom:1px solid #e2e8f0 !important;
+                    color:#0f172a !important;
+                }
+                #day-plan-modal .day-plan-index-badge-step {
+                    background:#1f7ae8 !important;
+                    color:#fff !important;
+                }
+                #day-plan-modal .day-plan-task-summary {
+                    color:#1e293b !important;
+                    font-size:1.02rem !important;
+                    font-weight:700 !important;
+                }
+                #day-plan-modal .day-plan-mini-label,
+                #day-plan-modal .day-plan-label {
+                    color:#334155 !important;
+                    font-weight:700 !important;
+                }
+                #day-plan-modal .day-plan-help-text {
+                    color:#64748b !important;
+                }
+                #day-plan-modal .day-plan-scope-pill {
+                    background:#eaf1ff !important;
+                    color:#2563eb !important;
+                    border:1px solid #cdddfa !important;
+                }
+                #day-plan-modal .day-plan-task-input,
+                #day-plan-modal .day-plan-sub-input,
+                #day-plan-modal .day-plan-select {
+                    background:#ffffff !important;
+                    color:#0f172a !important;
+                    border:1px solid #cfd8e6 !important;
+                    border-radius:12px !important;
+                }
+                #day-plan-modal .day-plan-inline-work-controls {
+                    background:#f8fafd !important;
+                    border:1px solid #dbe4f0 !important;
+                    border-radius:14px !important;
+                }
+                #day-plan-modal .day-plan-collab-option {
+                    background:#ffffff !important;
+                    border-color:#d1d9e6 !important;
+                    color:#334155 !important;
+                }
+                #day-plan-modal .day-plan-collab-option.selected {
+                    background:#eaf1ff !important;
+                    border-color:#b9cff9 !important;
+                    color:#1d4ed8 !important;
+                }
+                #day-plan-modal .day-plan-collapse-btn {
+                    background:#ffffff !important;
+                    border-color:#d1d9e6 !important;
+                    color:#334155 !important;
+                }
+                #day-plan-modal .day-plan-footer {
+                    background:#f2f4f8 !important;
+                    border-top:1px solid #d9e3ef !important;
+                    padding-top:0.75rem !important;
+                    margin-top:0.2rem !important;
+                }
+                #day-plan-modal .day-plan-add-task-btn,
+                #day-plan-modal .day-plan-save-btn {
+                    background:#1f7ae8 !important;
+                    border-color:#1f7ae8 !important;
+                    color:#ffffff !important;
+                    border-radius:12px !important;
+                }
+                #day-plan-modal .day-plan-discard-btn {
+                    background:#eef2f7 !important;
+                    border-color:#cfd8e6 !important;
+                    color:#475569 !important;
+                    border-radius:12px !important;
+                }
+            </style>
+            <div class="modal-overlay" id="day-plan-modal" style="display:flex; background:rgba(148,163,184,0.26); backdrop-filter:blur(2px);">
+                <div class="modal-content day-plan-content" style="width:min(1120px,95vw); max-height:min(92vh,980px); padding:0.85rem; overflow:auto; border:1px solid #d8e1ec; border-radius:18px; background:#f2f4f8; box-shadow:0 22px 54px rgba(15,23,42,0.20);">
+                    <div class="day-plan-head" style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.65rem; border:0; border-radius:12px; padding:0.35rem 0.2rem 0.9rem 0.2rem; background:#f2f4f8;">
+                        <div>
+                            <h3>Plan Your Day</h3>
+                            <p>${date}${isEditingOther ? ` - Editing for ${headerName}` : ''}</p>
+                        </div>
+                        <div style="display:flex; gap:0.5rem;">
+                            ${hasAnyExistingPlan ? `<button type="button" onclick="window.app_deleteDayPlan('${date}', '${targetId}')" class="day-plan-delete-btn" title="Delete plan"><i class="fa-solid fa-trash"></i></button>` : ''}
+                            <button type="button" onclick="this.closest('.modal-overlay').remove()" class="day-plan-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                    </div>
+                    <form
+                        onsubmit="window.app_saveDayPlan(event, '${date}', '${targetId}')"
+                        data-had-personal="${personalWorkPlan ? '1' : '0'}"
+                        data-had-annual="${annualWorkPlan ? '1' : '0'}"
+                    >
+                        <div id="plans-container" data-default-scope="${defaultScope}">
+                            ${initialBlocks.map((p, idx) => blockFromPlan(p, idx)).join('')}
+                        </div>
+                        <div class="day-plan-footer" style="position:sticky; bottom:0; margin-top:0.6rem; padding-top:0.62rem; border-top:1px solid #dbeafe; background:linear-gradient(180deg, rgba(255,255,255,0.75) 0%, #f4f8ff 100%);">
+                            <button type="button" onclick="window.app_addPlanBlockUI()" class="day-plan-add-task-btn" style="background:linear-gradient(100deg,#0f6ddf 0%,#4f8dea 100%); border-color:#0f6ddf; color:#fff;"><i class="fa-solid fa-plus-circle"></i> <span>Add Task</span></button>
+                            <div style="flex:1; min-width:280px; display:flex; gap:0.65rem;">
+                                <button type="button" onclick="this.closest('.modal-overlay').remove()" class="day-plan-discard-btn">Discard</button>
+                                <button type="submit" class="action-btn day-plan-save-btn" style="background:linear-gradient(100deg,#0a8f46 0%,#1eb05f 100%); border-color:#0a8f46;"><i class="fa-solid fa-check-circle"></i> <span>Save Plan</span></button>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mention-dropdown"></div>
+                </div>
+            </div>
+        `;
+
+        window.app_showModal(html, 'day-plan-modal');
+
+        const container = document.getElementById('plans-container');
+        if (container) {
+            container.addEventListener('input', (e) => {
+                const block = e.target.closest('.plan-block');
+                if (block) window.app_refreshPlanBlockSummary(block);
+                if (e.target.classList.contains('plan-task')) {
+                    window.app_checkMentions(e.target, selectableCollaborators);
+                }
+            });
+            container.addEventListener('change', (e) => {
+                if (e.target.classList.contains('plan-scope')) {
+                    const block = e.target.closest('.plan-block');
+                    if (block) window.app_refreshPlanBlockSummary(block);
+                }
+            });
+            container.querySelectorAll('.plan-block').forEach(window.app_refreshPlanBlockSummary);
+        }
+    };
 
     window.app_getAnnualDayStaffPlans = (dateStr) => {
         const plans = window._currentPlans || {};
@@ -1586,7 +1934,7 @@
                             ? ` (Completed Early)`
                             : (isMultiDay && isEndDate)
                                 ? ` (Ends Today)`
-                                : (isMultiDay && isStartDate)
+                            : (isMultiDay && isStartDate)
                                     ? ` (Starts Today)`
                                     : '';
                         upsertOwnerTask(t.task || 'Planned task', suffix);
@@ -2954,9 +3302,9 @@
                                     );
                                     const statusLabel = status === 'completed' ? 'Completed' :
                                         status === 'in-process' ? 'In Process' :
-                                            status === 'overdue' ? 'Overdue' :
-                                                status === 'to-be-started' ? 'To Be Started' :
-                                                    (p.status || 'Pending');
+                                        status === 'overdue' ? 'Overdue' :
+                                        status === 'to-be-started' ? 'To Be Started' :
+                                        (p.status || 'Pending');
                                     return `
                                         <div class="checkout-task-row">
                                             <div class="checkout-task-copy">
@@ -3477,7 +3825,6 @@
         const user = window.AppAuth.getUser();
         await window.AppLeaves.requestLeave({
             userId: user.id,
-            userName: user.name,
             startDate: fd.get('startDate'),
             endDate: fd.get('endDate'),
             startTime: fd.get('startTime') || '',
@@ -5969,9 +6316,13 @@
 
     console.log("App.js Loaded & Globals Ready");
 })();
-
-
-
+            const deriveEmployeeId = (joinDateRaw, idRaw) => {
+                const joinDate = String(joinDateRaw || '').trim();
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(joinDate)) return 'NA';
+                const compact = joinDate.replace(/-/g, '');
+                const suffix = String(idRaw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-3) || 'USR';
+                return `EMP-${compact}-${suffix}`;
+            };
 
 
 

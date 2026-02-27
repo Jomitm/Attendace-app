@@ -3,7 +3,7 @@
  * Ensures the website loads instantly even on slow/no internet.
  */
 
-const CACHE_NAME = 'crwi-attendance-v6';
+const CACHE_NAME = 'crwi-attendance-v13';
 const ASSETS_TO_CACHE = [
     './',
     './index.html',
@@ -67,3 +67,7 @@ self.addEventListener('activate', (event) => {
         })
     );
 });
+
+
+
+

@@ -27,13 +27,7 @@
                 const start = new Date(now.getFullYear(), now.getMonth() - 2, 1).toISOString().split('T')[0];
                 const end = new Date(now.getFullYear(), now.getMonth() + 3, 0).toISOString().split('T')[0];
                 const [leaves, events, workPlans, users] = await Promise.all([
-                    this.db.queryMany
-                        ? this.db.queryMany('leaves', [
-                            { field: 'status', operator: '==', value: 'Approved' },
-                            { field: 'startDate', operator: '<=', value: end },
-                            { field: 'endDate', operator: '>=', value: start }
-                        ]).catch(() => this.db.getAll('leaves'))
-                        : this.db.getAll('leaves'),
+                    this.db.getAll('leaves'),
                     this.db.getAll('events').catch(() => []),
                     this.db.queryMany
                         ? this.db.queryMany('work_plans', [

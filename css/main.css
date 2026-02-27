@@ -7806,3 +7806,109 @@ textarea:focus {
         padding-top: 0.65rem;
     }
 }
+
+/* Stitch-inspired skin layer for existing Plan Your Day modal */
+/* Annual Plan V2 */
+.annual-v2-shell {
+    background: linear-gradient(180deg, #f3f7ff 0%, #eef4ff 100%);
+    border-radius: 20px;
+    padding: 0.9rem;
+}
+
+.annual-v2-header {
+    border: 1px solid #d8e6ff !important;
+    background: linear-gradient(120deg, #ffffff 0%, #eef5ff 70%) !important;
+    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.12);
+}
+
+.annual-v2-title {
+    color: #0f172a;
+    letter-spacing: -0.02em;
+}
+
+.annual-v2-subtitle {
+    color: #475569;
+}
+
+.annual-v2-controls .annual-v2-staff-filter input,
+.annual-v2-controls .annual-v2-sort-select,
+.annual-v2-controls .annual-year-label {
+    border-color: #cfe0ff !important;
+    background: #ffffff !important;
+}
+
+.annual-v2-toggle-btn,
+.annual-v2-today-btn,
+.annual-v2-year-switch button,
+.annual-v2-legend-chip,
+.annual-v2-export-btn {
+    border-radius: 12px !important;
+}
+
+.annual-v2-toggle-btn.active,
+.annual-v2-legend-chip.active {
+    background: linear-gradient(95deg, #0f6ddf 0%, #4688e8 100%) !important;
+    color: #ffffff !important;
+    border-color: #0f6ddf !important;
+}
+
+.annual-v2-legend-bar {
+    border: 1px solid #d8e6ff !important;
+    background: linear-gradient(180deg, #ffffff 0%, #f3f8ff 100%) !important;
+}
+
+.annual-v2-grid-layout .annual-month-card {
+    border: 1px solid #dbe7ff !important;
+    background: #ffffff !important;
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+}
+
+.annual-v2-grid-layout .annual-month-head {
+    background: linear-gradient(100deg, #f7faff 0%, #edf4ff 100%);
+}
+
+.annual-v2-grid-layout .annual-day {
+    border-radius: 10px;
+}
+
+.annual-v2-grid-layout .annual-day:hover:not(.empty) {
+    background: #e9f1ff;
+}
+
+.annual-v2-grid-layout .annual-day.selected {
+    box-shadow: inset 0 0 0 2px #2563eb;
+}
+
+.annual-v2-day-detail,
+.annual-v2-list-card {
+    border: 1px solid #dbe7ff !important;
+    background: #ffffff !important;
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+}
+
+.annual-v2-modal {
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.42) 0%, rgba(15, 23, 42, 0.58) 100%);
+    backdrop-filter: blur(3px);
+}
+
+.annual-v2-modal .annual-v2-modal-content,
+.annual-v2-modal .annual-detail-modal {
+    border: 1px solid #d8e6ff !important;
+    background: linear-gradient(165deg, #f8fbff 0%, #eef4ff 52%, #f9fafb 100%) !important;
+    box-shadow: 0 24px 44px rgba(15, 23, 42, 0.24);
+}
+
+.annual-v2-modal .annual-v2-modal-head,
+.annual-v2-modal .annual-v2-detail-head {
+    border: 1px solid #d8e5ff;
+    border-radius: 12px;
+    padding: 0.7rem 0.8rem;
+    background: linear-gradient(100deg, #ffffff 0%, #f0f6ff 62%, #e8f1ff 100%);
+}
+
+.annual-v2-modal .annual-v2-modal-list > div,
+.annual-v2-modal .annual-v2-detail-item {
+    border-color: #dce8ff !important;
+    background: #ffffff;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+}

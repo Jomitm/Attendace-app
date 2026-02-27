@@ -157,6 +157,20 @@
             return this.getCached(cacheKey, ttl, () => this.get('daily_summaries', key));
         }
 
+        listenDailySummary(dateKey, callback) {
+            const key = String(dateKey || '').trim();
+            if (!key) return null;
+            // Update cache on realtime update to keep 'get' calls fresh without extra reads
+            const cacheKey = this.getCacheKey('dailySummary', 'daily_summaries', { key });
+            return this.listenDoc('daily_summaries', key, (data, snapshot) => {
+                if (data) {
+                    const ttl = window.AppConfig?.READ_CACHE_TTLS?.dailySummaryReadMs || 60000;
+                    this.cache.set(cacheKey, { value: data, expiresAt: Date.now() + ttl });
+                }
+                if (callback) callback(data, snapshot);
+            });
+        }
+
         async getSummaryByDateKey(dateKey) {
             return this.getDailySummary(dateKey);
         }
@@ -492,6 +506,23 @@
                 }
             }));
             return reads.flat().filter(Boolean);
+        }
+
+        listenDoc(collectionName, id, callback) {
+            if (!this.db || !id) return null;
+            const docId = String(id);
+            try {
+                return this.db.collection(collectionName).doc(docId).onSnapshot((doc) => {
+                    const data = doc.exists ? { ...doc.data(), id: doc.id } : null;
+                    this.track('listen', collectionName, 1);
+                    callback(data, doc);
+                }, (error) => {
+                    console.error(`Realtime listener error in ${collectionName}/${docId}:`, error);
+                });
+            } catch (error) {
+                console.error(`Error setting up listener for ${collectionName}/${docId}:`, error);
+                return null;
+            }
         }
 
         listenQuery(collectionName, filters = [], options = {}, callback) {

@@ -127,19 +127,37 @@
 
         async getPendingLeaves() {
             try {
+                let pending = [];
                 if (this.db.queryMany && window.AppConfig?.READ_OPT_FLAGS?.FF_READ_OPT_DB_QUERIES) {
                     const scoped = await this.db.queryMany('leaves', [
                         { field: 'status', operator: '==', value: 'Pending' }
                     ], { orderBy: [{ field: 'appliedOn', direction: 'desc' }] });
-                    return scoped.sort((a, b) => new Date(b.appliedOn) - new Date(a.appliedOn));
+                    pending = scoped.sort((a, b) => new Date(b.appliedOn) - new Date(a.appliedOn));
+                } else {
+                    const leaves = await this.db.getAll('leaves');
+                    pending = leaves
+                        .filter(l => l.status === 'Pending')
+                        .sort((a, b) => new Date(b.appliedOn) - new Date(a.appliedOn));
                 }
+
+                if (pending.length > 0) {
+                    const users = await this.db.getAll('users');
+                    const userMap = {};
+                    users.forEach(u => { userMap[u.id] = u.name; });
+                    pending.forEach(l => {
+                        if (!l.userName && userMap[l.userId]) {
+                            l.userName = userMap[l.userId];
+                        }
+                    });
+                }
+                return pending;
             } catch (e) {
-                console.warn('Scoped pending leaves query failed, using fallback', e);
+                console.warn('getPendingLeaves failed, using fallback', e);
+                const leaves = await this.db.getAll('leaves').catch(() => []);
+                return leaves
+                    .filter(l => l.status === 'Pending')
+                    .sort((a, b) => new Date(b.appliedOn) - new Date(a.appliedOn));
             }
-            const leaves = await this.db.getAll('leaves');
-            return leaves
-                .filter(l => l.status === 'Pending')
-                .sort((a, b) => new Date(b.appliedOn) - new Date(a.appliedOn));
         }
 
         async requestLeave(leaveData) {

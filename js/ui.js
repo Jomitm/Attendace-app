@@ -403,7 +403,9 @@
         const body = logs.length === 0
             ? `<div class="dashboard-activity-empty">${emptyMsg}</div>`
             : logs.map(log => {
-                const statusBadge = `<div class="dashboard-activity-status-row">${window.AppUI.renderTaskStatusBadge(log._taskStatus)}${isAdminUser ? `<div class="dashboard-activity-edit-wrap"><button onclick="window.app_openDayPlan('${log.date}', '${log.userId || ''}')" class="dashboard-activity-edit-btn" title="Edit/Reassign"><i class="fa-solid fa-pen-to-square"></i></button></div>` : ''}</div>`;
+                const isOwner = currentUser && log.userId === currentUser.id;
+                const canEdit = isAdminUser || isOwner;
+                const statusBadge = `<div class="dashboard-activity-status-row">${window.AppUI.renderTaskStatusBadge(log._taskStatus)}${canEdit ? `<div class="dashboard-activity-edit-wrap"><button onclick="window.app_openDayPlan('${log.date}', '${log.userId || ''}')" class="dashboard-activity-edit-btn" title="Edit/Reassign"><i class="fa-solid fa-pen-to-square"></i></button></div>` : ''}</div>`;
                 return `<div class="dashboard-staff-activity-item dashboard-staff-activity-item-compact"><div class="dashboard-staff-name">${log.staffName || 'Unknown Staff'}<span class="dashboard-team-activity-item-date">${log.date || ''}</span></div><div class="dashboard-activity-desc dashboard-staff-activity-desc">${log._displayDesc || 'Work Plan Task'}</div>${statusBadge}<div class="dashboard-activity-meta">${log._taskStatus === 'completed' ? 'Completed' : 'Work Plan'}</div></div>`;
             }).join('');
         return `
@@ -433,21 +435,76 @@
         `;
     };
 
+    window.app_expandTeamActivity = () => {
+        const state = getStaffActivityState();
+        const monthOptions = buildStaffActivityMonthOptions(8);
+        if (!monthOptions.some(opt => opt.key === state.selectedMonth)) {
+            monthOptions.unshift({ key: state.selectedMonth, label: formatMonthLabel(state.selectedMonth) });
+        }
+        const sortOptions = [
+            { key: 'date-desc', label: 'Date (Newest)' },
+            { key: 'date-asc', label: 'Date (Oldest)' },
+            { key: 'completed-first', label: 'Completed First' },
+            { key: 'incomplete-first', label: 'Incomplete First' },
+            { key: 'status-priority', label: 'Status Priority' },
+            { key: 'staff-asc', label: 'Staff (A-Z)' },
+            { key: 'staff-desc', label: 'Staff (Z-A)' }
+        ];
+
+        const html = `
+            <div class="modal-overlay" id="team-activity-modal" style="display:flex;">
+                <div class="modal-content" style="width:90%; height:90%; max-width:1200px; display:flex; flex-direction:column; padding:0;">
+                    <div style="padding:1rem; border-bottom:1px solid #e5e7eb; display:flex; justify-content:space-between; align-items:center;">
+                        <h3 style="margin:0;">Team Activity (Full View)</h3>
+                        <button onclick="document.getElementById('team-activity-modal').remove()" style="background:none; border:none; font-size:1.5rem; cursor:pointer;">&times;</button>
+                    </div>
+                    <div style="padding:1rem; background:#f9fafb; border-bottom:1px solid #e5e7eb; display:flex; gap:1rem;">
+                        <select class="dashboard-team-select" onchange="window.app_setStaffActivityMonth(this.value)">
+                            ${monthOptions.map(opt => `<option value="${opt.key}" ${opt.key === state.selectedMonth ? 'selected' : ''}>${opt.label}</option>`).join('')}
+                        </select>
+                        <select class="dashboard-team-select" onchange="window.app_setStaffActivitySort(this.value)">
+                            ${sortOptions.map(opt => `<option value="${opt.key}" ${opt.key === state.sortKey ? 'selected' : ''}>${opt.label}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div id="staff-activity-list-modal" class="dashboard-team-activity-list dashboard-team-activity-list-split" style="flex:1; overflow-y:auto; padding:1rem;">
+                        ${renderStaffActivityListSplit(state.logs, state.sortKey)}
+                    </div>
+                </div>
+            </div>
+        `;
+
+        if (typeof window.app_showModal === 'function') {
+            window.app_showModal(html, 'team-activity-modal');
+        } else {
+            const container = document.getElementById('modal-container') || document.body;
+            container.insertAdjacentHTML('beforeend', html);
+        }
+    };
+
     const refreshStaffActivityWidget = async (fetchLogs = true) => {
         const state = getStaffActivityState();
         const list = document.getElementById('staff-activity-list');
-        if (!list) return;
+        const modalList = document.getElementById('staff-activity-list-modal');
+        if (!list && !modalList) return;
         disposeTeamActivityAutoScroll();
         if (fetchLogs) {
-            list.innerHTML = '<div class="dashboard-activity-empty">Loading team activities...</div>';
+            const loading = '<div class="dashboard-activity-empty">Loading team activities...</div>';
+            if (list) list.innerHTML = loading;
+            if (modalList) modalList.innerHTML = loading;
             state.logs = await window.AppAnalytics.getAllStaffActivities({
                 mode: 'month',
                 month: state.selectedMonth,
                 scope: 'work'
             });
         }
-        list.innerHTML = renderStaffActivityListSplit(state.logs, state.sortKey);
-        initTeamActivityAutoScroll(list);
+        const html = renderStaffActivityListSplit(state.logs, state.sortKey);
+        if (list) {
+            list.innerHTML = html;
+            initTeamActivityAutoScroll(list);
+        }
+        if (modalList) {
+            modalList.innerHTML = html;
+        }
         const subtitle = document.getElementById('staff-activity-range-label');
         if (subtitle) subtitle.textContent = formatMonthLabel(state.selectedMonth);
     };
@@ -494,7 +551,13 @@
         ];
         return `
             <div class="card dashboard-team-activity-card">
-                <div class="dashboard-team-activity-head"><h4>Team Activity</h4><span id="staff-activity-range-label">${formatMonthLabel(state.selectedMonth)}</span></div>
+                <div class="dashboard-team-activity-head">
+                    <div style="display:flex; align-items:center; gap:0.5rem;">
+                        <h4>Team Activity</h4>
+                        <button onclick="window.app_expandTeamActivity()" title="Expand" style="background:none; border:none; cursor:pointer; color:#6b7280;"><i class="fa-solid fa-expand"></i></button>
+                    </div>
+                    <span id="staff-activity-range-label">${formatMonthLabel(state.selectedMonth)}</span>
+                </div>
                 <div class="dashboard-team-activity-filters dashboard-team-activity-filters-compact">
                     <select class="dashboard-team-select" onchange="window.app_setStaffActivityMonth(this.value)">
                         ${monthOptions.map(opt => `<option value="${opt.key}" ${opt.key === state.selectedMonth ? 'selected' : ''}>${opt.label}</option>`).join('')}
@@ -2619,32 +2682,32 @@
             window._annualListItems = listItems;
 
             return `
-                <div class="annual-plan-shell">
-                    <div class="card annual-plan-header">
-                        <div class="annual-plan-title-wrap">
-                            <h2 class="annual-plan-title">NGO Annual Planning</h2>
-                            <p class="annual-plan-subtitle">Overview of all staff activities, leaves, and shared events for ${year}.</p>
+                <div class="annual-plan-shell annual-v2-shell">
+                    <div class="card annual-plan-header annual-v2-header">
+                        <div class="annual-plan-title-wrap annual-v2-title-wrap">
+                            <h2 class="annual-plan-title annual-v2-title">NGO Annual Planning</h2>
+                            <p class="annual-plan-subtitle annual-v2-subtitle">Overview of all staff activities, leaves, and shared events for ${year}.</p>
                         </div>
-                        <div class="annual-plan-controls">
-                            <div class="annual-staff-filter">
+                        <div class="annual-plan-controls annual-v2-controls">
+                            <div class="annual-staff-filter annual-v2-staff-filter">
                                 <i class="fa-solid fa-user"></i>
                                 <input type="text" list="annual-staff-names" value="${escapeHtml(annualStaffFilter)}" placeholder="Filter by staff name" oninput="window.app_setAnnualStaffFilter(this.value)">
                                 <datalist id="annual-staff-names">${staffOptions}</datalist>
                             </div>
-                            <div class="annual-view-toggle">
-                                <button onclick="window.app_toggleAnnualView('grid')" class="annual-toggle-btn ${viewMode === 'grid' ? 'active' : ''}">
+                            <div class="annual-view-toggle annual-v2-view-toggle">
+                                <button onclick="window.app_toggleAnnualView('grid')" class="annual-toggle-btn annual-v2-toggle-btn ${viewMode === 'grid' ? 'active' : ''}">
                                     <i class="fa-solid fa-calendar-days"></i> Grid
                                 </button>
-                                <button onclick="window.app_toggleAnnualView('list')" class="annual-toggle-btn ${viewMode === 'list' ? 'active' : ''}">
+                                <button onclick="window.app_toggleAnnualView('list')" class="annual-toggle-btn annual-v2-toggle-btn ${viewMode === 'list' ? 'active' : ''}">
                                     <i class="fa-solid fa-list"></i> List
                                 </button>
                             </div>
 
-                            <button onclick="window.app_jumpToAnnualToday()" class="annual-today-btn" title="Jump to current year and today">
+                            <button onclick="window.app_jumpToAnnualToday()" class="annual-today-btn annual-v2-today-btn" title="Jump to current year and today">
                                 <i class="fa-solid fa-bullseye"></i> Today
                             </button>
 
-                            <div class="annual-year-switch">
+                            <div class="annual-year-switch annual-v2-year-switch">
                                 <button onclick="window.app_changeAnnualYear(-1)" aria-label="Previous year"><i class="fa-solid fa-chevron-left"></i></button>
                                 <div class="annual-year-label">${year}</div>
                                 <button onclick="window.app_changeAnnualYear(1)" aria-label="Next year"><i class="fa-solid fa-chevron-right"></i></button>
@@ -2653,38 +2716,38 @@
                     </div>
 
                     <div id="annual-grid-view" style="display:${viewMode === 'grid' ? 'block' : 'none'};">
-                        <div class="card annual-legend-bar">
-                            <button class="annual-legend-chip ${filters.leave ? 'active' : ''}" onclick="window.app_toggleAnnualLegendFilter('leave')"><span class="annual-dot leave"></span> Staff Leave</button>
-                            <button class="annual-legend-chip ${filters.event ? 'active' : ''}" onclick="window.app_toggleAnnualLegendFilter('event')"><span class="annual-dot event"></span> Company Event</button>
-                            <button class="annual-legend-chip ${filters.work ? 'active' : ''}" onclick="window.app_toggleAnnualLegendFilter('work')"><span class="annual-dot work"></span> Work Plan</button>
-                            <button class="annual-legend-chip ${filters.overdue ? 'active' : ''}" onclick="window.app_toggleAnnualLegendFilter('overdue')">Overdue Border</button>
-                            <button class="annual-legend-chip ${filters.completed ? 'active' : ''}" onclick="window.app_toggleAnnualLegendFilter('completed')">Completed Border</button>
+                        <div class="card annual-legend-bar annual-v2-legend-bar">
+                            <button class="annual-legend-chip annual-v2-legend-chip ${filters.leave ? 'active' : ''}" onclick="window.app_toggleAnnualLegendFilter('leave')"><span class="annual-dot leave"></span> Staff Leave</button>
+                            <button class="annual-legend-chip annual-v2-legend-chip ${filters.event ? 'active' : ''}" onclick="window.app_toggleAnnualLegendFilter('event')"><span class="annual-dot event"></span> Company Event</button>
+                            <button class="annual-legend-chip annual-v2-legend-chip ${filters.work ? 'active' : ''}" onclick="window.app_toggleAnnualLegendFilter('work')"><span class="annual-dot work"></span> Work Plan</button>
+                            <button class="annual-legend-chip annual-v2-legend-chip ${filters.overdue ? 'active' : ''}" onclick="window.app_toggleAnnualLegendFilter('overdue')">Overdue Border</button>
+                            <button class="annual-legend-chip annual-v2-legend-chip ${filters.completed ? 'active' : ''}" onclick="window.app_toggleAnnualLegendFilter('completed')">Completed Border</button>
                         </div>
-                        <div class="annual-grid-layout">
-                            <div class="annual-plan-grid">
+                        <div class="annual-grid-layout annual-v2-grid-layout">
+                            <div class="annual-plan-grid annual-v2-plan-grid">
                                 ${monthsHTML}
                             </div>
-                            <aside class="card annual-day-detail">
-                                <div class="annual-day-detail-head">
+                            <aside class="card annual-day-detail annual-v2-day-detail">
+                                <div class="annual-day-detail-head annual-v2-day-detail-head">
                                     <h4>Day Details</h4>
                                     <span>${selectedDate || 'No date selected'}</span>
                                 </div>
-                                <div class="annual-detail-list">${detailCards}</div>
+                                <div class="annual-detail-list annual-v2-detail-list">${detailCards}</div>
                                 ${selectedDate ? `<button class="action-btn" style="width:100%; margin-top:0.75rem;" onclick="window.app_openDayPlan('${selectedDate}')"><i class="fa-solid fa-pen-to-square"></i> Open Day Plan</button>` : ''}
                             </aside>
                         </div>
                     </div>
 
                     <div id="annual-list-view" style="display:${viewMode === 'list' ? 'block' : 'none'};">
-                        <div class="card annual-list-card">
-                            <div class="annual-list-head">
+                        <div class="card annual-list-card annual-v2-list-card">
+                            <div class="annual-list-head annual-v2-list-head">
                                 <h4>Annual Timeline</h4>
-                                <div class="annual-list-actions">
-                                    <div class="annual-list-search-wrap">
+                                <div class="annual-list-actions annual-v2-list-actions">
+                                    <div class="annual-list-search-wrap annual-v2-search-wrap">
                                         <i class="fa-solid fa-magnifying-glass"></i>
                                         <input type="text" value="${escapeHtml(annualListSearch)}" placeholder="Search date, staff, status, comments, tags, assigned task" title="Press Enter to search" onkeydown="if(event.key==='Enter'){event.preventDefault();window.app_setAnnualListSearch(this.value);}">
                                     </div>
-                                    <select class="annual-list-sort-select" onchange="window.app_setAnnualListSort(this.value)">
+                                    <select class="annual-list-sort-select annual-v2-sort-select" onchange="window.app_setAnnualListSort(this.value)">
                                         <option value="date-asc" ${annualListSort === 'date-asc' ? 'selected' : ''}>Date: Oldest First</option>
                                         <option value="date-desc" ${annualListSort === 'date-desc' ? 'selected' : ''}>Date: Newest First</option>
                                         <option value="staff-asc" ${annualListSort === 'staff-asc' ? 'selected' : ''}>Staff: A-Z</option>
@@ -2693,7 +2756,7 @@
                                         <option value="status-desc" ${annualListSort === 'status-desc' ? 'selected' : ''}>Status: Z-A</option>
                                     </select>
                                     <span>${year}</span>
-                                    <button class="annual-export-btn" onclick="window.AppReports.exportAnnualListViewCSV(window._annualListItems || [])" data-export="annual-list">
+                                    <button class="annual-export-btn annual-v2-export-btn" onclick="window.AppReports.exportAnnualListViewCSV(window._annualListItems || [])" data-export="annual-list">
                                         <i class="fa-solid fa-file-export"></i> Export Excel
                                     </button>
                                 </div>
