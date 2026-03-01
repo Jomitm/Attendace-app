@@ -3,6 +3,8 @@
  * Centralizes business logic and constants.
  */
 (function () {
+    'use strict';
+
     window.AppConfig = {
         // Attendance Timings (HH:mm 24-hour format)
         WORK_START_TIME: "09:00",

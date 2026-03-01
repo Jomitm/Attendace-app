@@ -197,8 +197,10 @@
             return chip;
         });
 
+        // start each new block collapsed by default; users can expand
+        const collapsed = true;
         const planBlock = createElement('div', {
-            className: 'plan-block day-plan-block-shell',
+            className: 'plan-block day-plan-block-shell' + (collapsed ? ' is-collapsed' : ''),
             attributes: { 'data-index': idx }
         });
 
@@ -219,7 +221,7 @@
         }
         headActions.appendChild(createButton({
             className: 'day-plan-collapse-btn',
-            innerHTML: '<i class="fa-solid fa-chevron-down"></i><span class="day-plan-collapse-label">Minimize</span>',
+            innerHTML: `<i class="fa-solid ${collapsed ? 'fa-chevron-up' : 'fa-chevron-down'}"></i><span class="day-plan-collapse-label">${collapsed ? 'Expand' : 'Minimize'}</span>`,
             onClick: (e) => window.app_togglePlanBlockCollapse(e.currentTarget)
         }));
 

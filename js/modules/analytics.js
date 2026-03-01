@@ -876,15 +876,21 @@
                 });
 
                 const mergedActivities = [];
+                const attendanceContentByDay = {}; // Map of "userId:date" -> [arrayOfWorkDescriptions]
 
                 if (shouldFetchAttendance) {
                     attendanceLogs.forEach(log => {
                         const logDate = new Date(log.date);
                         if (logDate >= startDate && logDate <= endDate && log.workDescription) {
+                            const userKey = log.user_id || log.userId;
+                            const dayKey = `${userKey}:${log.date}`;
+                            if (!attendanceContentByDay[dayKey]) attendanceContentByDay[dayKey] = [];
+                            attendanceContentByDay[dayKey].push(log.workDescription.toLowerCase().trim());
+
                             mergedActivities.push({
                                 ...log,
                                 type: 'attendance',
-                                staffName: usersMap[log.user_id || log.userId] || 'Unknown Staff',
+                                staffName: usersMap[userKey] || log.userName || 'Unknown Staff',
                                 _displayDesc: log.workDescription,
                                 _sortTime: log.checkOut || '00:00'
                             });
@@ -896,14 +902,32 @@
                 workPlans.forEach(wp => {
                     const wpDate = new Date(wp.date);
                     if (wpDate >= startDate && wpDate <= endDate && wp.plans) {
+                        const dayKey = `${wp.userId}:${wp.date}`;
+                        const dayAttendanceContent = attendanceContentByDay[dayKey] || [];
+
                         wp.plans.forEach(plan => {
+                            // Deduplication Logic:
+                            // If this task text is found as a substring within any associated attendance log's description 
+                            // (which often happens at checkout when tasks are auto-appended to summary), we skip it here.
+                            const taskText = (plan.task || '').trim().toLowerCase();
+                            if (taskText && dayAttendanceContent.length > 0) {
+                                const isDuplicate = dayAttendanceContent.some(desc => desc.includes(taskText));
+                                if (isDuplicate) return; // Skip this task as it's already covered by an attendance log
+                            }
+
+                            const wpUserId = wp.userId || wp.user_id;
+                            let staffName = usersMap[wpUserId] || wp.userName;
+                            if (!staffName) {
+                                staffName = (wpUserId === 'annual_shared') ? 'All Staff' : 'Unknown Staff';
+                            }
+
                             mergedActivities.push({
                                 ...plan,
                                 date: wp.date,
                                 id: wp.id, // work_plan document id
-                                userId: wp.userId,
+                                userId: wpUserId,
                                 type: 'work',
-                                staffName: usersMap[wp.userId] || 'Unknown Staff',
+                                staffName: staffName,
                                 _displayDesc: plan.task,
                                 _sortTime: '09:00' // Default sort time for plans
                             });

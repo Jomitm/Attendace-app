@@ -2284,7 +2284,19 @@
             };
             const filteredWorkPlans = (plans.workPlans || []).filter(p => {
                 const isAnnualPlan = (p.planScope || 'personal') === 'annual';
-                if (isAnnualPlan) return true;
+                if (isAnnualPlan) {
+                    // include annual plans when no staff filter, or when the plan
+                    // actually involves the target person (owner or task assignee).
+                    if (!staffNeedle) return true;
+                    const ownerName = resolveName(p.userId, p.userName);
+                    if (matchesStaff(ownerName)) return true;
+                    return (p.plans || []).some(task => {
+                        const assigneeName = resolveName(task.assignedTo || p.userId, ownerName);
+                        const tagNames = (task.tags || []).map(t => t.name || t).join(' ');
+                        return matchesStaff(assigneeName) || matchesStaff(tagNames);
+                    });
+                }
+                // non-annual behaviour remains as before
                 if (!staffNeedle) return true;
                 const ownerName = resolveName(p.userId, p.userName);
                 if (matchesStaff(ownerName)) return true;
@@ -2544,7 +2556,9 @@
                 filteredWorkPlans.forEach(p => {
                     if (String(p.date || '').startsWith(String(year))) {
                         const isAnnualPlan = (p.planScope || 'personal') === 'annual';
-                        const planOwner = isAnnualPlan ? 'All Staff' : resolveName(p.userId, p.userName);
+                        // determine owner name; if we know the userid/name, use it
+                        // otherwise fall back to a generic team label for shared plans.
+                        const planOwner = resolveName(p.userId, p.userName) || (isAnnualPlan ? 'All Staff' : 'Staff');
                         const scopeLabel = isAnnualPlan ? 'Annual' : 'Personal';
                         const planDate = p.date;
                         if (p.plans && p.plans.length > 0) {
@@ -2553,7 +2567,13 @@
                                     ? (p.createdByName || task.taggedByName || 'Admin')
                                     : (task.taggedByName || planOwner);
                                 const assignedToId = task.assignedTo || p.userId;
-                                const assignedTo = isAnnualPlan ? 'All Staff' : resolveName(assignedToId, planOwner);
+                                // for annual plans we don't label the item "All Staff";
+                                // show the creator's name instead (it still appears on
+                                // every person's calendar because the filtering above
+                                // includes annual plans when relevant)
+                                const assignedTo = isAnnualPlan
+                                    ? assignedBy
+                                    : resolveName(assignedToId, planOwner);
                                 const tags = (task.tags || []).map(t => t.name || t).filter(Boolean);
                                 const { startDate, endDate } = getTaskRangeBounds(task, planDate);
                                 const statusDate = task.completedDate || endDate || planDate;
@@ -2569,9 +2589,9 @@
                                     date: startDate || planDate,
                                     type: 'work',
                                     title: task.task || 'Work Plan Task',
-                                    staffName: assignedTo,
+                                    staffName: isAnnualPlan ? assignedBy : assignedTo,
                                     assignedBy,
-                                    assignedTo,
+                                    assignedTo: isAnnualPlan ? assignedBy : assignedTo,
                                     selfAssigned: assignedBy === assignedTo,
                                     dueDate: task.dueDate || endDate || planDate,
                                     status,
