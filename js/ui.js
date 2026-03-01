@@ -2454,39 +2454,8 @@
             }
 
             const viewMode = window.app_annualViewMode || 'grid';
-            const detailEvents = selectedDate ? window.app_getDayEvents(selectedDate, plans, { includeAuto: false }) : [];
-            const detailManualEvents = selectedDate
-                ? filteredAttendanceLogs
-                    .filter(l => l.date === selectedDate)
-                    .map(l => {
-                        const uid = l.user_id || l.userId;
-                        const uname = resolveName(uid, 'Staff');
-                        const summary = (l.workDescription || l.location || '').trim() || 'Manual log entry';
-                        return { type: 'work', title: `${uname}: ${summary}` };
-                    })
-                : [];
-            const filteredDetailEvents = [...detailEvents, ...detailManualEvents].filter(ev => {
-                if (!staffNeedle) return true;
-                if (ev.type === 'work') {
-                    if ((ev.planScope || 'personal') === 'annual') return true;
-                    const title = ev.title || '';
-                    if (matchesStaff(title)) return true;
-                    return (ev.plans || []).some(task => {
-                        const assigneeName = resolveName(task.assignedTo || ev.userId, ev.userName);
-                        const tagNames = (task.tags || []).map(t => t.name || t).join(' ');
-                        return matchesStaff(assigneeName) || matchesStaff(tagNames) || matchesStaff(task.task || '');
-                    });
-                }
-                if (ev.type === 'leave') {
-                    return matchesStaff(ev.title || '');
-                }
-                return false;
-            });
-            const detailCards = filteredDetailEvents.length ? filteredDetailEvents.map(ev => {
-                const type = ev.type || 'event';
-                const tagStyle = type === 'leave' ? 'background:#fee2e2;color:#991b1b;' : type === 'work' ? 'background:#e0e7ff;color:#3730a3;' : 'background:#dcfce7;color:#166534;';
-                return `<div class="annual-detail-item"><span class="annual-detail-tag" style="${tagStyle}">${type.toUpperCase()}</span><div class="annual-detail-title">${ev.title}</div></div>`;
-            }).join('') : '<div class="annual-detail-empty">No visible items for this date with current filters.</div>';
+            // detailEvents removed — daily detail panel not required any more
+            const detailCards = '';
 
             const listItems = (() => {
                 const items = [];
@@ -2797,14 +2766,6 @@
                             <div class="annual-plan-grid annual-v2-plan-grid">
                                 ${monthsHTML}
                             </div>
-                            <aside class="card annual-day-detail annual-v2-day-detail">
-                                <div class="annual-day-detail-head annual-v2-day-detail-head">
-                                    <h4>Day Details</h4>
-                                    <span>${selectedDate || 'No date selected'}</span>
-                                </div>
-                                <div class="annual-detail-list annual-v2-detail-list">${detailCards}</div>
-                                ${selectedDate ? `<button class="action-btn" style="width:100%; margin-top:0.75rem;" onclick="window.app_openDayPlan('${selectedDate}')"><i class="fa-solid fa-pen-to-square"></i> Open Day Plan</button>` : ''}
-                            </aside>
                         </div>
                     </div>
 
