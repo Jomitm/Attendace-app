@@ -1808,7 +1808,11 @@
                 ? Promise.resolve(null)
                 : window.AppDB.getOrGenerateSummary(
                     `hero_stats_${todayStr}`,
-                    () => window.AppAnalytics.getHeroOfTheWeek()
+                    () => window.AppAnalytics.getHeroOfTheWeek(),
+                    // keep the computed hero for 24 hours (one day) so that
+                    // we don’t hammer Firebase with repeated calls during
+                    // the same calendar day.
+                    24 * 60 * 60 * 1000
                 );
             const staffActivityPromise = sharedSummaryEnabled
                 ? Promise.resolve([])
@@ -1834,6 +1838,29 @@
                     new Promise(resolve => setTimeout(() => resolve(null), 1500))
                 ])
                 : Promise.resolve(null);
+            // schedule an automatic dashboard refresh at the next IST midnight
+            // so that the hero-of-the-week key (which is based on the IST date)
+            // will be recomputed without requiring a manual reload.
+            if (!window._dashboardRefreshScheduled) {
+                window._dashboardRefreshScheduled = true;
+                try {
+                    const istNow = window.AppDB.getIstNow();
+                    const tom = new Date(istNow);
+                    tom.setDate(tom.getDate() + 1);
+                    tom.setHours(0, 0, 5, 0); /* a few seconds into the new day */
+                    const msUntil = tom.getTime() - istNow.getTime();
+                    setTimeout(() => {
+                        window.AppUI && window.AppUI.renderDashboard && window.AppUI.renderDashboard().then(html => {
+                            const content = document.getElementById('page-content');
+                            if (content) content.innerHTML = html;
+                        });
+                        window._dashboardRefreshScheduled = false;
+                    }, Math.max(0, msUntil));
+                } catch (err) {
+                    console.warn('failed to schedule dashboard refresh', err);
+                }
+            }
+
             // Parallel Fetch
             const [status, logs, monthlyStats, yearlyStats, heroDataRaw, calendarPlans, staffActivitiesRaw, pendingLeaves, allUsers, collaborations, allLeaves, dailySummary] = await Promise.all([
                 window.AppAttendance.getStatus(),
