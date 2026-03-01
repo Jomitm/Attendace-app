@@ -7818,7 +7818,27 @@ textarea:focus {
     border: 1px solid #d8e6ff !important;
     background: linear-gradient(120deg, #ffffff 0%, #eef5ff 70%) !important;
     box-shadow: 0 14px 34px rgba(15, 23, 42, 0.12);
+    /* text within light header should be dark for contrast */
+    color: #0f172a;
 }
+
+/* override toggle and today button appearances when inside the V2 header */
+.annual-v2-header .annual-toggle-btn {
+    color: rgba(15, 23, 42, 0.75);
+}
+.annual-v2-header .annual-toggle-btn.active {
+    background: #1e40af;
+    color: #fff;
+}
+.annual-v2-header .annual-today-btn {
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-color: #bfdbfe;
+}
+.annual-v2-header .annual-today-btn:hover {
+    background: #dbeafe;
+}
+
 
 .annual-v2-title {
     color: #0f172a;
