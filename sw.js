@@ -3,7 +3,8 @@
  * Ensures the website loads instantly even on slow/no internet.
  */
 
-const CACHE_NAME = 'crwi-attendance-v13';
+// bump this version whenever static assets change so clients reload fresh copies
+const CACHE_NAME = 'crwi-attendance-v14';
 const ASSETS_TO_CACHE = [
     './',
     './index.html',
