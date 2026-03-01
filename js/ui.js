@@ -1905,6 +1905,25 @@
             }
             const heroHTML = this.renderHeroCard(heroData, heroMeta);
 
+            // if we are using the shared/daily summary path and the summary
+            // promise was slow, update the hero card once the real value
+            // becomes available without re-rendering the entire dashboard.
+            if (sharedSummaryEnabled && heroData == null && sharedSummaryTask) {
+                sharedSummaryTask.then(ds => {
+                    const latestHero = ds && ds.hero ? ds.hero : null;
+                    if (latestHero) {
+                        const updatedMeta = {
+                            ...heroMeta,
+                            generatedAt: ds.generatedAt || heroMeta.generatedAt,
+                            source: ds._source || heroMeta.source
+                        };
+                        const newHtml = this.renderHeroCard(latestHero, updatedMeta);
+                        const slot = document.querySelector('.hero-slot');
+                        if (slot) slot.innerHTML = newHtml;
+                    }
+                }).catch(() => { /* ignore */ });
+            }
+
             // Auto-calculate rating if not exists (run in background)
             if (window.AppRating && user.rating === undefined) {
                 window.AppRating.updateUserRating(user.id).then(updatedUser => {
