@@ -1616,13 +1616,16 @@
 
         renderHeroCard: (heroData, heroMeta = {}) => {
             if (!heroData) {
+                const low = !!heroMeta.lowRead;
                 return `
                     <div class="card hero-of-the-week" style="background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); color: white; border: none; overflow: hidden; position: relative; padding: 1rem;">
                         <div style="position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
                             <div>
                                 <span style="font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: #fbbf24;">Hero of the Week</span>
                                 <h3 style="margin: 0.25rem 0 0; font-size: 1.05rem; color:#ffffff;">Hero is updating</h3>
-                                <div style="font-size:0.72rem; color:#cbd5e1; margin-top: 0.25rem;">Using low-read mode. Summary will appear after daily refresh.</div>
+                                <div style="font-size:0.72rem; color:#cbd5e1; margin-top: 0.25rem;">
+                                    ${low ? 'Using low-read mode. ' : ''}Summary will appear after daily refresh.
+                                </div>
                             </div>
                             <i class="fa-solid fa-hourglass-half" style="font-size: 1.6rem; color: #fbbf24; opacity: 0.8;"></i>
                         </div>
@@ -1885,6 +1888,7 @@
             console.timeEnd('DashboardFetch');
             const heroMeta = sharedSummaryEnabled
                 ? {
+                    lowRead: true,
                     generatedAt: dailySummary?.generatedAt || dailySummary?.meta?.generatedAt || 0,
                     source: dailySummary?._source || ''
                 }
