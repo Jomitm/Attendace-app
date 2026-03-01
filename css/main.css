@@ -1246,11 +1246,14 @@ td {
 
 /* Annual Plan Styles */
 .annual-plan-grid {
+    /* responsive calendar grid: 3–4 cards per row depending on available space */
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
     gap: 1rem;
     padding: 0.35rem;
-    max-width: 980px;
+    width: 100%;
+    /* remove artificial max-width so grid can expand to fit more columns */
+    max-width: none;
     justify-self: start;
 }
 
@@ -4233,13 +4236,18 @@ textarea:focus {
 }
 
 .annual-grid-layout {
+    /* simplified to single column since detail pane was removed */
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+    grid-template-columns: 1fr;
     gap: 1rem;
     align-items: start;
 }
 
 .annual-plan-grid {
+    /* responsive calendar grid: 3–4 cards per row depending on available space */
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1rem;
     width: 100%;
     min-width: 0;
 }
@@ -4620,16 +4628,7 @@ textarea:focus {
     background: rgba(255, 255, 255, 0.3);
 }
 
-@media (max-width: 1200px) {
-    .annual-grid-layout {
-        grid-template-columns: 1fr;
-    }
 
-    .annual-day-detail {
-        position: relative;
-        top: 0;
-    }
-}
 
 /* Day Plan Modal Refresh */
 #day-plan-modal .day-plan-content {
