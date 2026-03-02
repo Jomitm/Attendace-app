@@ -1402,9 +1402,13 @@
         return true;
     };
 
+    // opts can include: includeAuto (bool), dedupe (bool), userId (string|null)
+    // userId is used to filter personal work plans when showing popup details;
+    // admins bypass the filter. If not provided, behaviour is unchanged.
     window.app_getDayEvents = (dateStr, plans, opts = {}) => {
         const includeAuto = opts.includeAuto !== false;
         const dedupe = opts.dedupe !== false;
+        const filterUser = opts.userId || null;
         if (!plans) return [];
         if (Array.isArray(plans)) return plans.filter(p => p.date === dateStr);
         const dateObj = new Date(dateStr);
@@ -1446,6 +1450,40 @@
                 }
             }
         });
+
+        // filter personal work entries if a userId filter is provided
+        if (filterUser) {
+            // leave and event types are unaffected
+            const filtered = [];
+            evs.forEach(ev => {
+                if (ev.type !== 'work') {
+                    filtered.push(ev);
+                    return;
+                }
+                // allow annual plan entries always
+                if ((ev.planScope || '').toLowerCase() === 'annual') {
+                    filtered.push(ev);
+                    return;
+                }
+                // allow if the event belongs to the user
+                if (ev.userId === filterUser) {
+                    filtered.push(ev);
+                    return;
+                }
+                // allow if any tagged task names the user with accepted status
+                if (Array.isArray(ev.plans)) {
+                    const hasTag = ev.plans.some(t => Array.isArray(t.tags) && t.tags.some(tag => tag.id === filterUser && tag.status === 'accepted'));
+                    if (hasTag) {
+                        filtered.push(ev);
+                        return;
+                    }
+                }
+                // otherwise drop
+            });
+            // replace evs with filtered result
+            evs.length = 0;
+            evs.push(...filtered);
+        }
         if (!dedupe) return evs;
         const seen = new Set();
         return evs.filter(ev => {
@@ -5754,7 +5792,10 @@
             overdue: true,
             completed: true
         };
-        const events = (window.app_getDayEvents(dateStr, plans, { includeAuto: false }) || []).filter(ev => {
+        // determine user filter: only apply for non-admins
+        const currentUser = window.AppAuth.getUser() || {};
+        const isAdmin = currentUser.role === 'Administrator' || currentUser.isAdmin;
+        const events = (window.app_getDayEvents(dateStr, plans, { includeAuto: false, userId: isAdmin ? null : currentUser.id }) || []).filter(ev => {
             if (ev.type === 'leave') return !!filters.leave;
             if (ev.type === 'work') return !!filters.work;
             if (ev.type === 'holiday') return !!filters.event;

@@ -206,6 +206,47 @@ test.describe("CRWI Attendance smoke", () => {
 
     expect(html).toContain("dashboard-team-activity-card");
     expect(pageErrors, `Page errors:\n${pageErrors.join("\n")}`).toEqual([]);
-    expect(consoleErrors, `Console errors:\n${consoleErrors.join("\n")}`).toEqual([]);
+    expect(consoleErrors, `Page errors:\n${consoleErrors.join("\n")}`).toEqual([]);
+  });
+
+  test("day plan popup hides other users' personal tasks for staff and shows all for admin", async ({ page }) => {
+    await page.goto("/index.html", { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => Boolean(globalThis.app_showAnnualDayDetails));
+
+    const result = await page.evaluate(async () => {
+      const w = globalThis;
+      const fakePlans = {
+        leaves: [],
+        events: [],
+        workPlans: [
+          { date: '2026-03-05', userId: 'u1', userName:'Me', planScope:'personal', plans:[{task:'mine',tags:[],status:'pending'}] },
+          { date: '2026-03-05', userId: 'u2', userName:'Them', planScope:'personal', plans:[{task:'theirs',tags:[],status:'pending'}] },
+          { date: '2026-03-05', userId: 'u2', userName:'Them', planScope:'personal', plans:[{task:'tagged',tags:[{id:'u1',name:'Me',status:'accepted'}],status:'pending'}] },
+          { date: '2026-03-05', userId: 'u3', userName:'All', planScope:'annual', plans:[{task:'annual',tags:[],status:'pending'}] }
+        ]
+      };
+
+      let captured = '';
+      const origGetPlans = w.AppCalendar.getPlans;
+      w.AppCalendar.getPlans = async () => fakePlans;
+
+      // staff view
+      w.AppAuth.getUser = () => ({ id:'u1', name:'Me', role:'Staff' });
+      await w.app_showAnnualDayDetails('2026-03-05');
+      captured += document.querySelector('#annual-day-detail-modal')?.innerText || '';
+      // admin view
+      w.AppAuth.getUser = () => ({ id:'u4', name:'Admin', role:'Administrator', isAdmin:true });
+      await w.app_showAnnualDayDetails('2026-03-05');
+      captured += '||ADMIN||' + (document.querySelector('#annual-day-detail-modal')?.innerText || '');
+
+      w.AppCalendar.getPlans = origGetPlans;
+      return captured;
+    });
+
+    expect(result).toContain('mine');
+    expect(result).toContain('tagged');
+    expect(result).toContain('annual');
+    expect(result).not.toContain('theirs');
+    expect(result).toMatch(/ADMIN\|\|.*theirs/);
   });
 });
