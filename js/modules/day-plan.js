@@ -1,495 +1,573 @@
-(function() {
-    'use strict';
+import { AppAuth } from './auth.js';
+import { AppDB } from './db.js';
+import { AppCalendar } from './calendar.js';
 
-    // --- Helper Functions ---
+// --- Helper Functions ---
 
-    function createElement(tag, options = {}) {
-        const el = document.createElement(tag);
-        if (options.id) el.id = options.id;
-        if (options.className) el.className = options.className;
-        if (options.textContent) el.textContent = options.textContent;
-        if (options.innerHTML) el.innerHTML = options.innerHTML;
-        if (options.attributes) {
-            for (const [key, value] of Object.entries(options.attributes)) {
-                el.setAttribute(key, value);
-            }
+function createElement(tag, options = {}) {
+    const el = document.createElement(tag);
+    if (options.id) el.id = options.id;
+    if (options.className) el.className = options.className;
+    if (options.textContent) el.textContent = options.textContent;
+    if (options.innerHTML) el.innerHTML = options.innerHTML;
+    if (options.attributes) {
+        for (const [key, value] of Object.entries(options.attributes)) {
+            el.setAttribute(key, value);
         }
-        if (options.children) {
-            for (const child of options.children) {
-                el.appendChild(child);
-            }
+    }
+    if (options.children) {
+        for (const child of options.children) {
+            el.appendChild(child);
         }
-        return el;
     }
+    return el;
+}
 
-    function createButton(options = {}) {
-        const btn = createElement('button', {
-            className: options.className,
-            textContent: options.textContent,
-            innerHTML: options.innerHTML,
-            attributes: { type: 'button', ...options.attributes }
+function createButton(options = {}) {
+    const btn = createElement('button', {
+        className: options.className,
+        textContent: options.textContent,
+        innerHTML: options.innerHTML,
+        attributes: { type: 'button', ...options.attributes }
+    });
+    if (options.onClick) btn.addEventListener('click', options.onClick);
+    return btn;
+}
+
+const esc = (v) => String(v ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+// --- UI Components ---
+
+function createDayPlanHeader(date, isEditingOther, headerName, hasAnyExistingPlan, targetId) {
+    const title = createElement('h3', { textContent: 'Plan Your Day' });
+    const subtitle = createElement('p', { className: 'day-plan-subline', textContent: `${date}${isEditingOther ? ` - Editing for ${headerName}` : ''}` });
+
+    const deleteBtn = hasAnyExistingPlan ?
+        createButton({
+            className: 'day-plan-delete-btn',
+            attributes: { title: 'Delete plan' },
+            innerHTML: '<i class="fa-solid fa-trash"></i>',
+            onClick: () => window.app_deleteDayPlan(date, targetId)
+        }) :
+        null;
+
+    const closeBtn = createButton({
+        className: 'day-plan-close-btn',
+        attributes: { title: 'Close' },
+        innerHTML: '<i class="fa-solid fa-xmark"></i>',
+        onClick: (e) => e.currentTarget.closest('.day-plan-modal-overlay').remove()
+    });
+
+    const headerActions = createElement('div', {
+        className: 'day-plan-header-actions',
+        children: [deleteBtn, closeBtn].filter(Boolean)
+    });
+
+    return createElement('div', {
+        className: 'day-plan-header',
+        children: [
+            createElement('div', { className: 'day-plan-headline', children: [title, subtitle] }),
+            headerActions
+        ]
+    });
+}
+
+function createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, initialBlocks, allUsers, defaultScope, selectableCollaborators, isAdmin, currentUser) {
+    const personalContainer = createElement('div', {
+        className: 'day-plan-scroll-area personal-plans-container',
+        attributes: { 'data-scope': 'personal' }
+    });
+
+    const othersContainer = createElement('div', {
+        className: 'day-plan-scroll-area others-plans-container',
+        attributes: { 'data-scope': 'annual' }
+    });
+
+    initialBlocks.forEach((plan, idx) => {
+        const block = dayPlanRenderBlockV3({
+            plan,
+            idx,
+            allUsers,
+            targetId,
+            defaultScope,
+            selectableCollaborators,
+            isAdmin,
+            currentUserId: currentUser.id,
+            isReference: plan.isReference
         });
-        if (options.onClick) btn.addEventListener('click', options.onClick);
-        return btn;
-    }
+        const scope = plan.planScope || plan._planScope || defaultScope;
+        if (scope === 'annual' || plan.isReference) {
+            othersContainer.appendChild(block);
+        } else {
+            personalContainer.appendChild(block);
+        }
+    });
 
-    function createIcon(className) {
-        return createElement('i', { className });
-    }
+    const columns = createElement('div', {
+        className: 'day-plan-columns',
+        children: [
+            createElement('div', {
+                className: 'day-plan-column',
+                children: [
+                    createElement('div', {
+                        className: 'day-plan-column-head',
+                        children: [
+                            createElement('h4', { className: 'day-plan-column-title', textContent: 'Self Plan' }),
+                            createButton({
+                                className: 'btn-premium-add',
+                                innerHTML: '<i class="fa-solid fa-plus-circle"></i> <span>Add Personal Plan</span>',
+                                onClick: () => openPlanEditor({ date, targetId, scope: 'personal', allUsers, selectableCollaborators, isAdmin, container: personalContainer })
+                            })
+                        ]
+                    }),
+                    personalContainer
+                ]
+            }),
+            createElement('div', {
+                className: 'day-plan-column',
+                children: [
+                    createElement('div', {
+                        className: 'day-plan-column-head',
+                        children: [
+                            createElement('h4', { className: 'day-plan-column-title', textContent: 'Others\' & Annual Plans' }),
+                            createButton({
+                                className: 'btn-premium-add',
+                                innerHTML: '<i class="fa-solid fa-plus-circle"></i> <span>Add Annual Plan</span>',
+                                onClick: () => openPlanEditor({ date, targetId, scope: 'annual', allUsers, selectableCollaborators, isAdmin, container: othersContainer })
+                            })
+                        ]
+                    }),
+                    othersContainer
+                ]
+            })
+        ]
+    });
 
-    // --- UI Components ---
+    const discardBtn = createButton({
+        className: 'day-plan-discard-btn',
+        textContent: 'Discard',
+        onClick: (e) => e.currentTarget.closest('.day-plan-modal-overlay').remove()
+    });
 
-    function createDayPlanHeader(date, isEditingOther, headerName, hasAnyExistingPlan, targetId) {
-        const title = createElement('h3', { textContent: 'Plan Your Day' });
-        const subtitle = createElement('p', { textContent: `${date}${isEditingOther ? ` - Editing for ${headerName}` : ''}` });
+    const saveBtn = createButton({
+        className: 'day-plan-save-btn',
+        innerHTML: '<i class="fa-solid fa-check-circle"></i> <span>Save Plan</span>',
+        attributes: { type: 'submit' }
+    });
 
-        const deleteBtn = hasAnyExistingPlan ?
-            createButton({
-                className: 'day-plan-delete-btn',
-                attributes: { title: 'Delete plan' },
-                innerHTML: '<i class="fa-solid fa-trash"></i>',
-                onClick: () => window.app_deleteDayPlan(date, targetId)
-            }) :
-            null;
+    const footer = createElement('div', {
+        className: 'day-plan-footer',
+        children: [
+            createElement('div', { className: 'day-plan-actions', children: [discardBtn, saveBtn] })
+        ]
+    });
 
-        const closeBtn = createButton({
-            className: 'day-plan-close-btn',
-            attributes: { title: 'Close' },
-            innerHTML: '<i class="fa-solid fa-xmark"></i>',
-            onClick: (e) => e.target.closest('.modal-overlay').remove()
-        });
+    const form = createElement('form', {
+        className: 'day-plan-form',
+        attributes: {
+            'data-had-personal': personalWorkPlan ? '1' : '0',
+            'data-had-annual': annualWorkPlan ? '1' : '0',
+        },
+        children: [columns, footer]
+    });
+    form.addEventListener('submit', (e) => window.app_saveDayPlan(e, date, targetId));
 
-        const headerActions = createElement('div', {
-            children: [deleteBtn, closeBtn].filter(Boolean)
-        });
-        headerActions.style.display = 'flex';
-        headerActions.style.gap = '0.5rem';
+    return form;
+}
 
-        return createElement('div', {
-            className: 'day-plan-head',
-            children: [
-                createElement('div', { children: [title, subtitle] }),
-                headerActions
-            ]
-        });
-    }
+export function openPlanEditor(args) {
+    const { date, targetId, scope, allUsers, selectableCollaborators, isAdmin, container, existingBlock = null } = args;
+    const currentUser = AppAuth.getUser();
+    const planData = existingBlock ? window.app_extractBlockData(existingBlock) : {
+        task: '',
+        subPlans: [],
+        tags: [],
+        status: null,
+        assignedTo: targetId,
+        startDate: date,
+        endDate: date,
+        planScope: scope
+    };
 
-    function createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, initialBlocks, allUsers, defaultScope, selectableCollaborators, isAdmin, currentUser) {
-        const plansContainer = createElement('div', {
-            id: 'plans-container',
-            attributes: { 'data-default-scope': defaultScope }
-        });
+    const overlay = createElement('div', { className: 'plan-editor-overlay' });
+    const modal = createElement('div', { className: 'plan-editor-modal' });
 
-        initialBlocks.forEach((plan, idx) => {
-            const block = window.app_dayPlanRenderBlockV3({
-                plan,
-                idx,
+    const head = createElement('div', {
+        className: 'plan-editor-head',
+        innerHTML: `<h4>${existingBlock ? 'Edit' : 'Add'} ${scope === 'annual' ? 'Annual' : 'Personal'} Plan</h4>`
+    });
+
+    const body = createElement('div', { className: 'plan-editor-body' });
+    const textarea = createElement('textarea', {
+        className: 'plan-editor-textarea',
+        textContent: planData.task,
+        attributes: { placeholder: 'What is the objective or task for today?', required: true }
+    });
+
+    const grid = createElement('div', { className: 'plan-editor-grid' });
+
+    // Status Field
+    const statusField = createElement('div', { className: 'plan-editor-field' });
+    statusField.innerHTML = '<label>Status</label>';
+    const statusSelect = createElement('select', { className: 'plan-editor-select' });
+    statusSelect.innerHTML = `
+        <option value="" ${!planData.status ? 'selected' : ''}>Auto-Track</option>
+        <option value="completed" ${planData.status === 'completed' ? 'selected' : ''}>Completed</option>
+        <option value="in-process" ${planData.status === 'in-process' ? 'selected' : ''}>In Progress</option>
+        <option value="not-completed" ${planData.status === 'not-completed' ? 'selected' : ''}>Not Completing</option>
+    `;
+    statusField.appendChild(statusSelect);
+
+    // Assignee Field
+    const assignField = createElement('div', { className: 'plan-editor-field' });
+    assignField.innerHTML = '<label>Assign To</label>';
+    const assignSelect = createElement('select', { className: 'plan-editor-select', attributes: isAdmin ? {} : { disabled: true } });
+    allUsers.forEach(u => {
+        const opt = createElement('option', { textContent: u.name, attributes: { value: u.id, selected: u.id === planData.assignedTo } });
+        assignSelect.appendChild(opt);
+    });
+    assignField.appendChild(assignSelect);
+
+    grid.appendChild(statusField);
+    grid.appendChild(assignField);
+
+    body.appendChild(textarea);
+    body.appendChild(grid);
+
+    const footer = createElement('div', { className: 'plan-editor-footer' });
+    const cancelBtn = createButton({
+        className: 'day-plan-discard-btn',
+        textContent: 'Cancel',
+        onClick: () => overlay.remove()
+    });
+    const confirmBtn = createButton({
+        className: 'day-plan-save-btn',
+        textContent: existingBlock ? 'Update' : 'Add to List',
+        onClick: () => {
+            const taskText = textarea.value.trim();
+            if (!taskText) return alert('Please enter a task description');
+
+            const updatedPlan = {
+                ...planData,
+                task: taskText,
+                status: statusSelect.value,
+                assignedTo: assignSelect.value
+            };
+
+            const blockArgs = {
+                plan: updatedPlan,
                 allUsers,
                 targetId,
-                defaultScope,
                 selectableCollaborators,
                 isAdmin,
                 currentUserId: currentUser.id
-            });
-            plansContainer.appendChild(block);
+            };
+
+            if (existingBlock) {
+                const newBlock = dayPlanRenderBlockV3({ ...blockArgs, idx: Number.parseInt(existingBlock.getAttribute('data-index')) });
+                existingBlock.replaceWith(newBlock);
+            } else {
+                const newBlock = dayPlanRenderBlockV3({ ...blockArgs, idx: container.querySelectorAll('.plan-block').length });
+                container.appendChild(newBlock);
+            }
+            overlay.remove();
+        }
+    });
+
+    footer.appendChild(cancelBtn);
+    footer.appendChild(confirmBtn);
+
+    modal.appendChild(head);
+    modal.appendChild(body);
+    modal.appendChild(footer);
+    overlay.appendChild(modal);
+
+    document.getElementById('modal-container').appendChild(overlay);
+    textarea.focus();
+}
+
+// --- Main Functions ---
+
+export function dayPlanRenderBlockV3(args) {
+    const {
+        plan = {},
+        idx = 0,
+        allUsers = [],
+        targetId,
+        defaultScope = 'personal',
+        selectableCollaborators = [],
+        isAdmin = false,
+        currentUserId = '',
+        isReference = false
+    } = args || {};
+
+    const task = String(plan.task || '');
+    const assignedTo = plan.assignedTo || targetId || currentUserId;
+    const startDate = plan.startDate || '';
+    const endDate = plan.endDate || '';
+    const scope = String(plan.planScope || plan._planScope || defaultScope) === 'annual' ? 'annual' : 'personal';
+    const displayScope = isReference ? (plan.userName ? `${plan.userName}'s Plan` : 'Others Plan') : (scope === 'annual' ? 'Annual Plan' : 'Personal Plan');
+    const summary = task.trim() ? (task.trim().length > 120 ? `${task.trim().slice(0, 120)}...` : task.trim()) : 'New task';
+
+    const planBlock = createElement('div', {
+        className: (isReference ? 'plan-block-ref' : 'plan-block') + (isReference ? ' is-reference-only' : ''),
+        attributes: { 'data-index': idx }
+    });
+
+    // compatibility for window.app_saveDayPlan ( scraper in app.js )
+    const hiddenInputs = createElement('div', { className: 'dp-hidden-data', attributes: { style: 'display:none;' } });
+    hiddenInputs.innerHTML = `
+        <textarea class="plan-task">${esc(task)}</textarea>
+        <select class="plan-status"><option value="${esc(plan.status || '')}" selected></option></select>
+        <select class="plan-scope"><option value="${esc(scope)}" selected></option></select>
+        <select class="plan-assignee"><option value="${esc(assignedTo)}" selected></option></select>
+        <input class="plan-start-date" value="${esc(startDate)}">
+        <input class="plan-end-date" value="${esc(endDate)}">
+    `;
+    // Add subplans if any
+    if (plan.subPlans) {
+        plan.subPlans.forEach(s => {
+            const input = createElement('input', { className: 'sub-plan-input', attributes: { value: esc(s) } });
+            hiddenInputs.appendChild(input);
         });
-
-        const addTaskBtn = createButton({
-            className: 'day-plan-add-task-btn',
-            innerHTML: '<i class="fa-solid fa-plus-circle"></i> <span>Add Task</span>',
-            onClick: () => window.app_addPlanBlockUI()
-        });
-
-        const discardBtn = createButton({
-            className: 'day-plan-discard-btn',
-            textContent: 'Discard',
-            onClick: (e) => e.target.closest('.modal-overlay').remove()
-        });
-
-        const saveBtn = createButton({
-            className: 'action-btn day-plan-save-btn',
-            innerHTML: '<i class="fa-solid fa-check-circle"></i> <span>Save Plan</span>',
-            attributes: { type: 'submit' }
-        });
-
-        const footerActions = createElement('div', {
-            children: [discardBtn, saveBtn]
-        });
-        footerActions.style.flex = '1';
-        footerActions.style.minWidth = '300px';
-        footerActions.style.display = 'flex';
-        footerActions.style.gap = '0.7rem';
-
-
-        const footer = createElement('div', {
-            className: 'day-plan-footer',
-            children: [addTaskBtn, footerActions]
-        });
-
-        const form = createElement('form', {
-            attributes: {
-                'data-had-personal': personalWorkPlan ? '1' : '0',
-                'data-had-annual': annualWorkPlan ? '1' : '0',
-            },
-            children: [plansContainer, footer]
-        });
-        form.addEventListener('submit', (e) => window.app_saveDayPlan(e, date, targetId));
-
-        return form;
     }
-
-
-    // --- Main Functions ---
-
-    window.app_dayPlanRenderBlockV3 = function app_dayPlanRenderBlockV3(args) {
-        const {
-            plan = {},
-            idx = 0,
-            allUsers = [],
-            targetId,
-            defaultScope = 'personal',
-            selectableCollaborators = [],
-            isAdmin = false,
-            currentUserId = ''
-        } = args || {};
-
-        const esc = (v) => String(v ?? '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-
-        const task = String(plan.task || '');
-        const subPlans = Array.isArray(plan.subPlans) ? plan.subPlans : [];
-        const tags = Array.isArray(plan.tags) ? plan.tags : [];
-        const assignedTo = plan.assignedTo || targetId || currentUserId;
-        const startDate = plan.startDate || '';
-        const endDate = plan.endDate || '';
-        const scope = String(plan.planScope || plan._planScope || defaultScope) === 'annual' ? 'annual' : 'personal';
-        const summary = task.trim() ? (task.trim().length > 72 ? `${task.trim().slice(0, 72)}...` : task.trim()) : 'New task';
-        const tagSet = new Set(tags.map(t => String(t.id || '')));
-
-        const collabButtons = selectableCollaborators.map(u =>
-            createButton({
-                className: `day-plan-collab-option ${tagSet.has(String(u.id)) ? 'selected' : ''}`,
-                textContent: u.name,
-                attributes: {
-                    'data-id': u.id,
-                    title: `Add or remove ${u.name}`
-                },
-                onClick: (e) => window.app_toggleTaskCollaborator(e.target, u.id, u.name)
-            })
-        );
-
-        const chips = tags.map(t => {
+    // Tags for scraping
+    if (plan.tags) {
+        plan.tags.forEach(t => {
             const chip = createElement('div', {
-                className: 'tag-chip day-plan-tag-chip',
+                className: 'tag-chip',
                 attributes: {
                     'data-id': t.id,
                     'data-name': t.name,
                     'data-status': t.status || 'pending'
                 }
             });
-            chip.innerHTML = `<span class="day-plan-tag-main">@${esc(t.name)} <span class="day-plan-tag-pending">(${esc(t.status || 'pending')})</span></span>
-                          <i class="fa-solid fa-times day-plan-remove-collab-btn"></i>`;
-            chip.querySelector('.day-plan-remove-collab-btn').addEventListener('click', (e) => window.app_removeTagHint(e.target));
-            return chip;
+            hiddenInputs.appendChild(chip);
         });
+    }
 
-        // start each new block collapsed by default; users can expand
-        const collapsed = true;
-        const planBlock = createElement('div', {
-            className: 'plan-block day-plan-block-shell' + (collapsed ? ' is-collapsed' : ''),
-            attributes: { 'data-index': idx }
-        });
+    planBlock.appendChild(hiddenInputs);
 
-        const head = createElement('div', { className: 'day-plan-block-head' });
-        const headMain = createElement('div', { className: 'day-plan-block-head-main' });
-        headMain.appendChild(createElement('span', { className: 'day-plan-index-badge-step', textContent: idx + 1 }));
-        headMain.appendChild(createElement('span', { className: 'day-plan-task-summary', textContent: summary }));
-        headMain.appendChild(createElement('span', { className: 'day-plan-scope-pill', textContent: scope === 'annual' ? 'Annual Plan' : 'Personal Plan' }));
+    const header = createElement('div', { className: 'plan-block-header' });
 
-        const headActions = createElement('div', { className: 'day-plan-block-head-actions' });
+    // Left Group: Index + Summary (Flexible and Wrapping)
+    const titleGroup = createElement('div', { className: 'plan-block-title-group' });
+    titleGroup.appendChild(createElement('span', { className: 'day-plan-index-badge', textContent: idx + 1 }));
+    titleGroup.appendChild(createElement('span', { className: 'plan-block-summary', textContent: summary }));
+
+    // Right Group: Scope + Actions (Fixed and Stable)
+    const headerActions = createElement('div', { className: 'plan-block-actions' });
+    headerActions.appendChild(createElement('span', { className: 'day-plan-scope-pill', textContent: displayScope }));
+
+    if (!isReference) {
+        headerActions.appendChild(createButton({
+            className: 'day-plan-edit-btn',
+            attributes: { title: 'Edit plan' },
+            innerHTML: '<i class="fa-solid fa-pen-to-square"></i>',
+            onClick: () => openPlanEditor({
+                date: startDate,
+                targetId,
+                scope,
+                allUsers,
+                selectableCollaborators,
+                isAdmin,
+                container: planBlock.parentElement,
+                existingBlock: planBlock
+            })
+        }));
         if (idx > 0) {
-            headActions.appendChild(createButton({
-                className: 'day-plan-remove-task-btn',
-                attributes: { title: 'Remove this task' },
-                innerHTML: '<i class="fa-solid fa-times"></i>',
-                onClick: (e) => e.target.closest('.plan-block').remove()
+            headerActions.appendChild(createButton({
+                className: 'day-plan-remove-btn',
+                attributes: { title: 'Remove task' },
+                innerHTML: '<i class="fa-solid fa-trash-can"></i>',
+                onClick: () => planBlock.remove()
             }));
         }
-        headActions.appendChild(createButton({
-            className: 'day-plan-collapse-btn',
-            innerHTML: `<i class="fa-solid ${collapsed ? 'fa-chevron-up' : 'fa-chevron-down'}"></i><span class="day-plan-collapse-label">${collapsed ? 'Expand' : 'Minimize'}</span>`,
-            onClick: (e) => window.app_togglePlanBlockCollapse(e.currentTarget)
-        }));
+    }
 
-        head.appendChild(headMain);
-        head.appendChild(headActions);
+    header.appendChild(titleGroup);
+    header.appendChild(headerActions);
+    planBlock.appendChild(header);
 
-        const body = createElement('div', { className: 'day-plan-block-body' });
-        const mainPanel = createElement('div', { className: 'day-plan-main-panel' });
-        const rowHead = createElement('div', { className: 'day-plan-row-head' });
-        rowHead.appendChild(createElement('label', { className: 'day-plan-label', textContent: 'What will you work on?' }));
-
-        const dateWrap = createElement('div', { className: 'day-plan-date-wrap' });
-        dateWrap.appendChild(createElement('input', { className: 'plan-start-date day-plan-select', attributes: { type: 'date', value: startDate, title: 'From Date' } }));
-        dateWrap.appendChild(createElement('input', { className: 'plan-end-date day-plan-select', attributes: { type: 'date', value: endDate, title: 'To Date' } }));
-        dateWrap.appendChild(createElement('span', { className: 'day-plan-date-note', textContent: 'Optional range' }));
-        rowHead.appendChild(dateWrap);
-
-        mainPanel.appendChild(rowHead);
-        mainPanel.appendChild(createElement('p', { className: 'day-plan-help-text', textContent: 'Be specific. Pick collaborators here or use @ mention.' }));
-        mainPanel.appendChild(createElement('textarea', {
-            className: 'plan-task day-plan-task-input',
-            textContent: task,
-            attributes: { required: true, placeholder: 'Describe your plan for the day...' }
-        }));
-
-        const inlineControls = createElement('div', { className: 'day-plan-inline-work-controls' });
-        const typeRow = createElement('div', { className: 'day-plan-type-row' });
-        typeRow.appendChild(createElement('label', { className: 'day-plan-mini-label', textContent: 'Plan Type' }));
-        const scopeSelect = createElement('select', { className: 'plan-scope day-plan-select day-plan-scope-select' });
-        scopeSelect.appendChild(createElement('option', { textContent: 'Personal Plan', attributes: { value: 'personal', selected: scope === 'personal' } }));
-        scopeSelect.appendChild(createElement('option', { textContent: 'Annual Plan', attributes: { value: 'annual', selected: scope === 'annual' } }));
-        typeRow.appendChild(scopeSelect);
-        inlineControls.appendChild(typeRow);
-
-        const collabInline = createElement('div', { className: 'day-plan-collab-inline' });
-        const collabHead = createElement('div', { className: 'day-plan-collab-head' });
-        collabHead.appendChild(createElement('span', { className: 'day-plan-mini-label', textContent: 'Collaborators' }));
-        collabHead.appendChild(createElement('span', { className: 'day-plan-collab-hint', textContent: 'Click names to tag/un-tag.' }));
-        collabInline.appendChild(collabHead);
-        const collabPicker = createElement('div', { className: 'day-plan-collab-picker' });
-        collabButtons.forEach(btn => collabPicker.appendChild(btn));
-        if (collabButtons.length === 0) {
-            collabPicker.appendChild(createElement('span', { className: 'day-plan-collab-empty', textContent: 'No teammates available.' }));
-        }
-        collabInline.appendChild(collabPicker);
-        inlineControls.appendChild(collabInline);
-
-        const tagsContainer = createElement('div', { className: 'tags-container day-plan-tags-inline' });
-        if (chips.length > 0) {
-            chips.forEach(chip => tagsContainer.appendChild(chip));
-        } else {
-            tagsContainer.innerHTML = '<div class="no-tags-placeholder day-plan-no-tags-placeholder"><p class="day-plan-no-tags-text">No collaborators yet</p></div>';
-        }
-        inlineControls.appendChild(tagsContainer);
-
-        mainPanel.appendChild(inlineControls);
-
-        const subSection = createElement('div', { className: 'day-plan-sub-section' });
-        subSection.appendChild(createElement('label', { className: 'day-plan-mini-label', textContent: 'Break into steps (optional)' }));
-        const subPlansList = createElement('div', { className: 'sub-plans-list day-plan-sub-list' });
-        subPlans.forEach(s => {
-            const row = createElement('div', { className: 'sub-plan-row day-plan-sub-row' });
-            row.appendChild(createElement('div', { className: 'day-plan-step-dot' }));
-            row.appendChild(createElement('input', {
-                className: 'sub-plan-input day-plan-sub-input',
-                attributes: { type: 'text', value: s, placeholder: 'Add a step...' }
-            }));
-            row.appendChild(createButton({
-                className: 'day-plan-remove-step-btn',
-                attributes: { title: 'Remove step' },
-                innerHTML: '<i class="fa-solid fa-circle-xmark"></i>',
-                onClick: (e) => e.target.parentElement.remove()
-            }));
-            subPlansList.appendChild(row);
+    if (plan.tags && plan.tags.length > 0) {
+        const body = createElement('div', { className: 'plan-block-body' });
+        plan.tags.forEach(t => {
+            const tag = createElement('span', { className: 'day-plan-tag-pill', textContent: `@${t.name}` });
+            body.appendChild(tag);
         });
-        subSection.appendChild(subPlansList);
-        subSection.appendChild(createButton({
-            className: 'day-plan-add-step-btn',
-            innerHTML: '<i class="fa-solid fa-plus"></i> Add Step',
-            onClick: (e) => window.app_addSubPlanRow(e.target)
-        }));
-
-        mainPanel.appendChild(subSection);
-        body.appendChild(mainPanel);
-
-        const bottomControls = createElement('div', { className: 'day-plan-bottom-controls' });
-        const statusRow = createElement('div', { className: 'day-plan-control-row' });
-        statusRow.appendChild(createElement('label', { className: 'day-plan-mini-label', textContent: 'Status' }));
-        const statusSelect = createElement('select', { className: 'plan-status day-plan-select' });
-        statusSelect.appendChild(createElement('option', { textContent: 'Auto-Track (Recommended)', attributes: { value: '', selected: !plan.status } }));
-        statusSelect.appendChild(createElement('option', { textContent: 'Completed', attributes: { value: 'completed', selected: plan.status === 'completed' } }));
-        statusSelect.appendChild(createElement('option', { textContent: 'Not Completing', attributes: { value: 'not-completed', selected: plan.status === 'not-completed' } }));
-        statusSelect.appendChild(createElement('option', { textContent: 'In Progress', attributes: { value: 'in-process', selected: plan.status === 'in-process' } }));
-        statusRow.appendChild(statusSelect);
-        bottomControls.appendChild(statusRow);
-
-        if (isAdmin) {
-            const assigneeRow = createElement('div', { className: 'day-plan-control-row' });
-            assigneeRow.appendChild(createElement('label', { className: 'day-plan-mini-label', textContent: 'Assign To' }));
-            const assigneeSelect = createElement('select', { className: 'plan-assignee day-plan-select' });
-            allUsers.forEach(u => {
-                assigneeSelect.appendChild(createElement('option', {
-                    textContent: u.name,
-                    attributes: { value: u.id, selected: u.id === assignedTo }
-                }));
-            });
-            assigneeRow.appendChild(assigneeSelect);
-            bottomControls.appendChild(assigneeRow);
-        }
-
-        planBlock.appendChild(head);
         planBlock.appendChild(body);
-        planBlock.appendChild(bottomControls);
+    }
 
-        return planBlock;
-    };
+    return planBlock;
+}
 
+export function app_extractBlockData(block) {
+    if (!block) return null;
+    const task = block.querySelector('.plan-task')?.value || '';
+    const status = block.querySelector('.plan-status')?.value || '';
+    const planScope = block.querySelector('.plan-scope')?.value || 'personal';
+    const assignedTo = block.querySelector('.plan-assignee')?.value || '';
+    const startDate = block.querySelector('.plan-start-date')?.value || '';
+    const endDate = block.querySelector('.plan-end-date')?.value || '';
 
-    window.app_openDayPlan = async (date, targetUserId = null, forcedScope = null) => {
-        const currentUser = window.AppAuth.getUser();
-        const targetIdRaw = String(targetUserId ?? '').trim();
-        const targetId = (!targetIdRaw || targetIdRaw === 'undefined' || targetIdRaw === 'null') ? currentUser.id : targetIdRaw;
-        const allUsers = await window.AppDB.getAll('users');
-        const isAdmin = currentUser.role === 'Administrator' || currentUser.isAdmin;
-        const isEditingOther = targetId !== currentUser.id;
-        const defaultScope = forcedScope === 'annual' ? 'annual' : 'personal';
-        window.app_currentDayPlanTargetId = targetId;
+    const subPlans = Array.from(block.querySelectorAll('.sub-plan-input')).map(i => i.value);
+    const tags = Array.from(block.querySelectorAll('.tag-chip')).map(c => ({
+        id: c.dataset.id,
+        name: c.dataset.name,
+        status: c.dataset.status
+    }));
 
-        const personalWorkPlan = await window.AppCalendar.getWorkPlan(targetId, date, { planScope: 'personal' });
-        const annualWorkPlan = await window.AppCalendar.getWorkPlan(targetId, date, { planScope: 'annual' });
-        const hasAnyExistingPlan = !!(personalWorkPlan || annualWorkPlan);
-        const targetUser = allUsers.find(u => u.id === targetId);
-        const headerName = targetUser ? targetUser.name : 'Staff';
-        const selectableCollaborators = allUsers.filter(u => u.id !== targetId);
+    return { task, status, planScope, assignedTo, startDate, endDate, subPlans, tags };
+}
 
-        const normalizeScopedPlans = (workPlan, scope) => {
-            if (!workPlan) return [];
-            if (Array.isArray(workPlan.plans) && workPlan.plans.length > 0) return workPlan.plans.map(p => ({ ...p, planScope: scope }));
-            if (workPlan.plan) {
-                return [{
-                    task: workPlan.plan,
-                    subPlans: workPlan.subPlans || [],
-                    tags: [],
-                    status: null,
-                    assignedTo: targetId,
-                    startDate: date,
-                    endDate: date,
-                    planScope: scope
-                }];
-            }
-            return [];
-        };
+export async function openDayPlan(date, targetUserId = null, forcedScope = null) {
+    const currentUser = AppAuth.getUser();
+    const targetIdRaw = String(targetUserId ?? '').trim();
+    const targetId = (!targetIdRaw || targetIdRaw === 'undefined' || targetIdRaw === 'null') ? currentUser.id : targetIdRaw;
+    const allUsers = await AppDB.getAll('users');
+    const isAdmin = currentUser.role === 'Administrator' || currentUser.isAdmin;
+    const isEditingOther = targetId !== currentUser.id;
+    const defaultScope = forcedScope === 'annual' ? 'annual' : 'personal';
+    window.app_currentDayPlanTargetId = targetId;
 
-        const initialBlocks = [
-            ...normalizeScopedPlans(personalWorkPlan, 'personal'),
-            ...normalizeScopedPlans(annualWorkPlan, 'annual')
-        ];
-        if (initialBlocks.length === 0) {
-            initialBlocks.push({
-                task: '',
-                subPlans: [],
+    const [personalWorkPlan, annualWorkPlan, allDayPlans] = await Promise.all([
+        AppCalendar.getWorkPlan(targetId, date, { planScope: 'personal' }),
+        AppCalendar.getWorkPlan(targetId, date, { planScope: 'annual' }),
+        AppDB.queryMany('work_plans', [{ field: 'date', operator: '==', value: date }])
+    ]);
+    const hasAnyExistingPlan = !!(personalWorkPlan || annualWorkPlan);
+    const targetUser = allUsers.find(u => u.id === targetId);
+    const headerName = targetUser ? targetUser.name : 'Staff';
+    const selectableCollaborators = allUsers.filter(u => u.id !== targetId);
+
+    const normalizeScopedPlans = (workPlan, scope, userName = null) => {
+        if (!workPlan) return [];
+        if (Array.isArray(workPlan.plans) && workPlan.plans.length > 0) {
+            return workPlan.plans.map(p => ({
+                ...p,
+                planScope: scope,
+                userName: userName || workPlan.userName,
+                isReference: !!userName
+            }));
+        }
+        if (workPlan.plan) {
+            return [{
+                task: workPlan.plan,
+                subPlans: workPlan.subPlans || [],
                 tags: [],
                 status: null,
-                assignedTo: targetId,
+                assignedTo: workPlan.userId === 'annual_shared' ? null : workPlan.userId,
                 startDate: date,
                 endDate: date,
-                planScope: defaultScope
-            });
+                planScope: scope,
+                userName: userName || workPlan.userName,
+                isReference: !!userName
+            }];
         }
-
-        const modalOverlay = createElement('div', {
-            id: 'day-plan-modal',
-            className: 'modal-overlay'
-        });
-
-        const modalContent = createElement('div', {
-            className: 'modal-content day-plan-content'
-        });
-
-        modalContent.appendChild(createDayPlanHeader(date, isEditingOther, headerName, hasAnyExistingPlan, targetId));
-        modalContent.appendChild(createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, initialBlocks, allUsers, defaultScope, selectableCollaborators, isAdmin, currentUser));
-        modalContent.appendChild(createElement('div', { id: 'mention-dropdown' }));
-        modalOverlay.appendChild(modalContent);
-
-
-        const container = document.getElementById('modal-container');
-        if (!container) return;
-        // Remove existing modal with same ID if any
-        const existing = document.getElementById('day-plan-modal');
-        if (existing) existing.remove();
-
-        container.appendChild(modalOverlay);
-        const modalEl = document.getElementById('day-plan-modal');
-        if (modalEl) {
-            const overlays = Array.from(document.querySelectorAll('.modal-overlay, .modal'))
-                .filter(el => el !== modalEl);
-            const maxZ = overlays.reduce((acc, el) => {
-                const z = Number.parseInt(window.getComputedStyle(el).zIndex, 10);
-                return Number.isFinite(z) ? Math.max(acc, z) : acc;
-            }, 1000);
-            modalEl.style.zIndex = String(maxZ + 2);
-        }
-
-        const plansContainer = document.getElementById('plans-container');
-        if (plansContainer) {
-            plansContainer.addEventListener('input', (e) => {
-                const block = e.target.closest('.plan-block');
-                if (block && typeof window.app_refreshPlanBlockSummary === 'function') window.app_refreshPlanBlockSummary(block);
-                if (e.target.classList.contains('plan-task') && typeof window.app_checkMentions === 'function') {
-                    window.app_checkMentions(e.target, selectableCollaborators);
-                }
-            });
-            plansContainer.addEventListener('change', (e) => {
-                if (e.target.classList.contains('plan-scope')) {
-                    const block = e.target.closest('.plan-block');
-                    if (block && typeof window.app_refreshPlanBlockSummary === 'function') window.app_refreshPlanBlockSummary(block);
-                }
-            });
-            plansContainer.querySelectorAll('.plan-block').forEach((b) => {
-                if (typeof window.app_refreshPlanBlockSummary === 'function') window.app_refreshPlanBlockSummary(b);
-            });
-        }
+        return [];
     };
 
+    const othersPlans = (allDayPlans || []).filter(p =>
+        p.id !== AppCalendar.getWorkPlanId(date, targetId, 'personal') &&
+        p.id !== AppCalendar.getWorkPlanId(date, targetId, 'annual')
+    );
 
-    window.app_addPlanBlockUI = async () => {
-        const container = document.getElementById('plans-container');
-        if (!container) return;
+    const othersBlocks = [];
+    othersPlans.forEach(p => {
+        othersBlocks.push(...normalizeScopedPlans(p, p.planScope, p.userName));
+    });
 
-        const allUsers = await window.AppDB.getAll('users');
-        const currentUser = window.AppAuth.getUser();
-        const targetIdRaw = String(window.app_currentDayPlanTargetId ?? '').trim();
-        const targetId = (!targetIdRaw || targetIdRaw === 'undefined' || targetIdRaw === 'null') ? currentUser.id : targetIdRaw;
-        const isAdmin = currentUser.role === 'Administrator' || currentUser.isAdmin;
-        const defaultScope = container.dataset.defaultScope === 'annual' ? 'annual' : 'personal';
-        const selectableCollaborators = allUsers.filter(u => u.id !== targetId);
-
-        const newBlock = window.app_dayPlanRenderBlockV3({
-            plan: {
-                task: '',
-                subPlans: [],
-                tags: [],
-                status: null,
-                assignedTo: targetId,
-                startDate: '',
-                endDate: '',
-                planScope: defaultScope
-            },
-            idx: container.querySelectorAll('.plan-block').length,
-            allUsers,
-            targetId,
-            defaultScope,
-            selectableCollaborators,
-            isAdmin,
-            currentUserId: currentUser.id
+    const initialBlocks = [
+        ...normalizeScopedPlans(personalWorkPlan, 'personal'),
+        ...normalizeScopedPlans(annualWorkPlan, 'annual'),
+        ...othersBlocks
+    ];
+    if (initialBlocks.length === 0) {
+        initialBlocks.push({
+            task: '',
+            subPlans: [],
+            tags: [],
+            status: null,
+            assignedTo: targetId,
+            startDate: date,
+            endDate: date,
+            planScope: defaultScope
         });
-        container.appendChild(newBlock);
+    }
 
-        const dateMatch = document.querySelector('#day-plan-modal .day-plan-head p')?.textContent?.match(/\d{4}-\d{2}-\d{2}/);
-        const d = dateMatch ? dateMatch[0] : '';
-        const startEl = newBlock.querySelector('.plan-start-date');
-        const endEl = newBlock.querySelector('.plan-end-date');
-        if (startEl) startEl.value = d;
-        if (endEl) endEl.value = d;
+    const modalOverlay = createElement('div', {
+        id: 'day-plan-modal',
+        className: 'day-plan-modal-overlay'
+    });
 
-        if (typeof window.app_refreshPlanBlockSummary === 'function') window.app_refreshPlanBlockSummary(newBlock);
-        newBlock.querySelector('.plan-task')?.focus();
-    };
+    const modalContent = createElement('div', {
+        className: 'day-plan-content'
+    });
+
+    modalContent.appendChild(createDayPlanHeader(date, isEditingOther, headerName, hasAnyExistingPlan, targetId));
+    modalContent.appendChild(createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, initialBlocks, allUsers, defaultScope, selectableCollaborators, isAdmin, currentUser));
+    modalContent.appendChild(createElement('div', { id: 'mention-dropdown' }));
+    modalOverlay.appendChild(modalContent);
 
 
-})();
+    const container = document.getElementById('modal-container');
+    if (!container) return;
+    const existing = document.getElementById('day-plan-modal');
+    if (existing) existing.remove();
+
+    container.appendChild(modalOverlay);
+    const modalEl = document.getElementById('day-plan-modal');
+    if (modalEl) {
+        const overlays = Array.from(document.querySelectorAll('.modal-overlay, .modal'))
+            .filter(el => el !== modalEl);
+        const maxZ = overlays.reduce((acc, el) => {
+            const z = Number.parseInt(window.getComputedStyle(el).zIndex, 10);
+            return Number.isFinite(z) ? Math.max(acc, z) : acc;
+        }, 1000);
+        modalEl.style.zIndex = String(maxZ + 2);
+    }
+}
+
+export async function addPlanBlockUI(scopeOverride = null) {
+    // This is kept for legacy calls, but now redirets to openPlanEditor if needed
+    // or just opens a basic editor
+    const modal = document.getElementById('day-plan-modal');
+    if (!modal) return;
+    const scope = scopeOverride || 'personal';
+    const container = scope === 'annual' ?
+        modal.querySelector('.others-plans-container') :
+        modal.querySelector('.personal-plans-container');
+
+    const dateMatch = modal.querySelector('.day-plan-headline p')?.textContent?.match(/\d{4}-\d{2}-\d{2}/);
+    const date = dateMatch ? dateMatch[0] : new Date().toISOString().split('T')[0];
+
+    const allUsers = await AppDB.getAll('users');
+    const currentUser = AppAuth.getUser();
+    const targetId = window.app_currentDayPlanTargetId || currentUser.id;
+    const isAdmin = currentUser.role === 'Administrator' || currentUser.isAdmin;
+    const selectableCollaborators = allUsers.filter(u => u.id !== targetId);
+
+    openPlanEditor({ date, targetId, scope, allUsers, selectableCollaborators, isAdmin, container });
+}
+
+// Global exposure
+const AppDayPlan = {
+    openDayPlan,
+    dayPlanRenderBlockV3,
+    addPlanBlockUI,
+    openPlanEditor,
+    app_extractBlockData
+};
+
+window.AppDayPlan = AppDayPlan;
+window.app_openDayPlan = openDayPlan;
+window.app_dayPlanRenderBlockV3 = dayPlanRenderBlockV3;
+window.app_addPlanBlockUI = addPlanBlockUI;
+window.app_extractBlockData = app_extractBlockData;
+
+export { AppDayPlan };

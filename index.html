@@ -10,7 +10,9 @@
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@500;600;700&display=swap"
+        rel="stylesheet">
 
     <!-- Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -65,22 +67,24 @@
             document.body.appendChild(div);
 
             const text = String(msg || '').toLowerCase();
-            if (!__syntaxRecoveryTriggered && text.includes('unexpected end of input')) {
+            // Detect ESM/Cache errors
+            if (!__syntaxRecoveryTriggered && (text.includes('unexpected token \'export\'') || text.includes('import statement outside a module') || text.includes('unexpected end of input'))) {
                 __syntaxRecoveryTriggered = true;
+                console.warn('CRITICAL: ESM/Cache error detected. Attempting Service Worker purge and reload...');
                 Promise.resolve().then(async () => {
                     try {
                         if ('serviceWorker' in navigator) {
                             const regs = await navigator.serviceWorker.getRegistrations();
-                            await Promise.all(regs.map((r) => r.unregister()));
+                            for (const reg of regs) { await reg.unregister(); }
                         }
                         if ('caches' in window) {
                             const keys = await caches.keys();
-                            await Promise.all(keys.map((k) => caches.delete(k)));
+                            for (const key of keys) { await caches.delete(key); }
                         }
                     } catch (cleanupErr) {
                         console.warn('Syntax recovery cleanup failed:', cleanupErr);
                     }
-                    setTimeout(() => window.location.reload(), 300);
+                    setTimeout(() => window.location.reload(true), 1000);
                 });
             }
             return false;
@@ -170,7 +174,8 @@
 
         <!-- Main Content -->
         <main class="main-content">
-            <button class="icon-btn top-notification-btn desktop-notification-btn" onclick="window.app_openNotificationHistory()" title="Notification history">
+            <button class="icon-btn top-notification-btn desktop-notification-btn"
+                onclick="window.app_openNotificationHistory()" title="Notification history">
                 <i class="fa-regular fa-bell"></i>
                 <span class="top-notification-badge" style="display:none;">0</span>
             </button>
@@ -191,7 +196,8 @@
                     <button class="icon-btn" onclick="window.Widget.toggle()" title="Widget Mode">
                         <i class="fa-solid fa-window-restore"></i>
                     </button>
-                    <button class="icon-btn top-notification-btn" onclick="window.app_openNotificationHistory()" title="Notification history">
+                    <button class="icon-btn top-notification-btn" onclick="window.app_openNotificationHistory()"
+                        title="Notification history">
                         <i class="fa-regular fa-bell"></i>
                         <span class="top-notification-badge" style="display:none;">0</span>
                     </button>
@@ -299,30 +305,7 @@
         }
     </script>
     <!-- Modules -->
-    <script src="js/modules/firebase-config.js"></script> <!-- FireBase Config -->
-    <script src="js/config.js"></script> <!-- App Config -->
-    <script src="js/modules/db.js"></script>
-    <script src="js/modules/auth.js"></script>
-    <script src="js/modules/attendance.js"></script>
-    <script src="js/modules/reports.js"></script>
-    <script src="js/modules/leaves.js"></script>
-    <script src="js/modules/calendar.js"></script>
-    <script src="js/modules/analytics.js"></script>
-    <script src="js/modules/activity.js"></script>
-    <script src="js/modules/rating.js"></script>
-    <script src="js/modules/simulation.js"></script>
-    <script src="js/modules/tour.js"></script>
-    <script src="js/modules/minutes.js"></script>
-    <script src="js/modules/policies.js"></script>
-    <script src="js/modules/admin-policies.js"></script>
-    <script src="js/modules/day-plan.js"></script>
-    <script src="js/ui.js?v=20260226-dayplan-v3rebuild1"></script>
-    <script src="js/modules/widget.js"></script>
-    <script src="js/app.js?v=20260226-dayplan-v3rebuild1"></script>
+    <script type="module" src="js/app.js?v=20260304-consolidated-v1"></script>
 </body>
 
 </html>
-
-
-
-

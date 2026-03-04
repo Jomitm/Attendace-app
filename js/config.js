@@ -2,72 +2,72 @@
  * App Configuration
  * Centralizes business logic and constants.
  */
-(function () {
-    'use strict';
+export const AppConfig = {
+    // Attendance Timings (HH:mm 24-hour format)
+    WORK_START_TIME: "09:00",
+    LATE_CUTOFF_TIME: "09:15",
+    WORK_END_TIME: "17:00", // 5:00 PM
 
-    window.AppConfig = {
-        // Attendance Timings (HH:mm 24-hour format)
-        WORK_START_TIME: "09:00",
-        LATE_CUTOFF_TIME: "09:15",
-        WORK_END_TIME: "17:00", // 5:00 PM
+    // Derived Minutes for easy calculation
+    // 9:15 AM = 9 * 60 + 15 = 555
+    LATE_CUTOFF_MINUTES: 555,
+    MINOR_LATE_END_MINUTES: 615, // 10:15
+    LATE_END_MINUTES: 720, // 12:00
+    POST_NOON_END_MINUTES: 810, // 13:30
+    AFTERNOON_START_MINUTES: 720, // 12:00 PM
 
-        // Derived Minutes for easy calculation
-        // 9:15 AM = 9 * 60 + 15 = 555
-        LATE_CUTOFF_MINUTES: 555,
-        MINOR_LATE_END_MINUTES: 615, // 10:15
-        LATE_END_MINUTES: 720, // 12:00
-        POST_NOON_END_MINUTES: 810, // 13:30
-        AFTERNOON_START_MINUTES: 720, // 12:00 PM
+    // 5:00 PM = 17 * 60 = 1020
+    EARLY_DEPARTURE_MINUTES: 1020,
 
-        // 5:00 PM = 17 * 60 = 1020
-        EARLY_DEPARTURE_MINUTES: 1020,
+    // Financial Year
+    FY_START_MONTH: 3, // April (0-indexed 3)
 
-        // Financial Year
-        FY_START_MONTH: 3, // April (0-indexed 3)
+    // Holiday Rules
+    // Saturdays: 1st, 3rd, 5th are working. 2nd, 4th are holidays.
+    IS_SATURDAY_OFF: (date) => {
+        const d = new Date(date);
+        const dateNum = d.getDate();
+        const n = Math.ceil(dateNum / 7);
+        // Return true if 2nd or 4th saturday
+        return (n === 2 || n === 4);
+    },
 
-        // Holiday Rules
-        // Saturdays: 1st, 3rd, 5th are working. 2nd, 4th are holidays.
-        IS_SATURDAY_OFF: (date) => {
-            const d = new Date(date);
-            const dateNum = d.getDate();
-            const n = Math.ceil(dateNum / 7);
-            // Return true if 2nd or 4th saturday
-            return (n === 2 || n === 4);
-        },
+    // Penalties
+    LATE_GRACE_COUNT: 3, // Number of lates before deduction
+    LATE_DEDUCTION_PER_BLOCK: 0.5, // Every 3 late marks = 0.5 day deduction
+    EXTRA_HOURS_FOR_HALF_DAY_OFFSET: 4, // 4 extra hours waives 0.5 day late penalty
 
-        // Penalties
-        LATE_GRACE_COUNT: 3, // Number of lates before deduction
-        LATE_DEDUCTION_PER_BLOCK: 0.5, // Every 3 late marks = 0.5 day deduction
-        EXTRA_HOURS_FOR_HALF_DAY_OFFSET: 4, // 4 extra hours waives 0.5 day late penalty
+    // Read optimization controls
+    READ_CACHE_TTLS: {
+        users: 60000,
+        settings: 300000,
+        minutes: 30000,
+        attendanceSummary: 30000,
+        staffMessages: 20000,
+        dailySummaryReadMs: 60000
+    },
+    READ_OPT_FLAGS: {
+        FF_READ_OPT_DB_QUERIES: true,
+        FF_READ_OPT_TARGETED_REALTIME: true,
+        FF_READ_OPT_ANALYTICS_CACHE: true,
+        FF_SHARED_DAILY_SUMMARY: true,
+        FF_SUMMARY_LOCKING: true,
+        ENABLE_SIMULATION_MODULE: false,
+        ENABLE_READ_TELEMETRY: true,
+        ENABLE_PRESENCE_HEARTBEAT: false
+    },
+    SUMMARY_POLICY: {
+        STALENESS_MS: 24 * 60 * 60 * 1000,
+        TEAM_ACTIVITY_LIMIT: 15,
+        LOCK_TTL_MS: 90000,
+        SCHEMA_VERSION: 1,
+        RECOMPUTE_CUTOFF_HOUR_IST: 17,
+        FALLBACK_TO_PREVIOUS_DAY: true
+    }
+};
 
-        // Read optimization controls
-        READ_CACHE_TTLS: {
-            users: 60000,
-            settings: 300000,
-            minutes: 30000,
-            attendanceSummary: 30000,
-            staffMessages: 20000,
-            dailySummaryReadMs: 60000
-        },
-        READ_OPT_FLAGS: {
-            FF_READ_OPT_DB_QUERIES: true,
-            FF_READ_OPT_TARGETED_REALTIME: true,
-            FF_READ_OPT_ANALYTICS_CACHE: true,
-            FF_SHARED_DAILY_SUMMARY: true,
-            FF_SUMMARY_LOCKING: true,
-            ENABLE_SIMULATION_MODULE: false,
-            ENABLE_READ_TELEMETRY: true,
-            ENABLE_PRESENCE_HEARTBEAT: false
-        },
-        SUMMARY_POLICY: {
-            STALENESS_MS: 24 * 60 * 60 * 1000,
-            TEAM_ACTIVITY_LIMIT: 15,
-            LOCK_TTL_MS: 90000,
-            SCHEMA_VERSION: 1,
-            RECOMPUTE_CUTOFF_HOUR_IST: 17,
-            FALLBACK_TO_PREVIOUS_DAY: true
-        }
-    };
-
-    console.log("App Config Loaded");
-})();
+// For backward compatibility
+if (typeof window !== 'undefined') {
+    window.AppConfig = AppConfig;
+    console.log("App Config Loaded (ES Module)");
+}

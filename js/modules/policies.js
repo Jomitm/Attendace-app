@@ -1,65 +1,70 @@
+import { AppLeaves } from './leaves.js';
+import { AppAuth } from './auth.js';
+import { AppDB } from './db.js';
+import { AppAttendance } from './attendance.js';
+import { AdminPolicies } from './admin-policies.js';
+
 /**
  * Policies Module
  * Handles the rendering and logic for the 'Policies & Benefits' page.
  */
-(function () {
-    const AppPolicies = {
-        currentYear: new Date().getFullYear(),
-        holidayCache: null,
-        baseline2025: [
-            { name: 'Republic Day', date: '2025-01-26', type: 'National' },
-            { name: 'Maha Shivaratri', date: '2025-02-26', type: 'Regional' },
-            { name: 'Holi', date: '2025-03-14', type: 'Regional' },
-            { name: 'Id-ul-Fitr', date: '2025-03-31', type: 'Regional' },
-            { name: 'Good Friday', date: '2025-04-18', type: 'Regional' },
-            { name: 'Independence Day', date: '2025-08-15', type: 'National' },
-            { name: 'Dussehra', date: '2025-10-02', type: 'Regional' },
-            { name: 'Gandhi Jayanti', date: '2025-10-02', type: 'National' },
-            { name: 'Diwali', date: '2025-10-20', type: 'Regional' },
-            { name: 'Christmas', date: '2025-12-25', type: 'Regional' }
-        ],
+export const AppPolicies = {
+    currentYear: new Date().getFullYear(),
+    holidayCache: null,
+    baseline2025: [
+        { name: 'Republic Day', date: '2025-01-26', type: 'National' },
+        { name: 'Maha Shivaratri', date: '2025-02-26', type: 'Regional' },
+        { name: 'Holi', date: '2025-03-14', type: 'Regional' },
+        { name: 'Id-ul-Fitr', date: '2025-03-31', type: 'Regional' },
+        { name: 'Good Friday', date: '2025-04-18', type: 'Regional' },
+        { name: 'Independence Day', date: '2025-08-15', type: 'National' },
+        { name: 'Dussehra', date: '2025-10-02', type: 'Regional' },
+        { name: 'Gandhi Jayanti', date: '2025-10-02', type: 'National' },
+        { name: 'Diwali', date: '2025-10-20', type: 'Regional' },
+        { name: 'Christmas', date: '2025-12-25', type: 'Regional' }
+    ],
 
-        async render() {
-            const policy = await window.AppLeaves.getPolicy();
-            const user = window.AppAuth.getUser();
-            const fy = await window.AppLeaves.getFinancialYear();
-            const isAdmin = !!(user && (user.role === 'Administrator' || user.isAdmin));
+    async render() {
+        const policy = await AppLeaves.getPolicy();
+        const user = AppAuth.getUser();
+        const fy = await AppLeaves.getFinancialYear();
+        const isAdmin = !!(user && (user.role === 'Administrator' || user.isAdmin));
 
-            let lateCount = 0;
-            try {
-                const today = new Date();
-                const day = today.getDay();
-                const diff = today.getDate() - day + (day === 0 ? -6 : 1);
-                const monday = new Date(today.setDate(diff));
-                monday.setHours(0, 0, 0, 0);
+        let lateCount = 0;
+        try {
+            const today = new Date();
+            const day = today.getDay();
+            const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+            const monday = new Date(today.setDate(diff));
+            monday.setHours(0, 0, 0, 0);
 
-                const dateStr = monday.toISOString().split('T')[0];
-                const allLogs = await window.AppDB.getAll('attendance');
-                const userLogs = allLogs.filter(l => l.user_id === user.id && l.date >= dateStr);
+            const dateStr = monday.toISOString().split('T')[0];
+            const allLogs = await AppDB.getAll('attendance');
+            const userLogs = allLogs.filter(l => l.user_id === user.id && l.date >= dateStr);
 
-                lateCount = userLogs.filter(l => {
-                    if (!l.checkIn) return false;
-                    if (l.lateCountable === true) return true;
-                    return window.AppAttendance.normalizeType(l.type) === 'Late';
-                }).length;
-            } catch (e) {
-                console.warn('Error calc lates', e);
-            }
+            lateCount = userLogs.filter(l => {
+                if (!l.checkIn) return false;
+                if (l.lateCountable === true) return true;
+                return AppAttendance.normalizeType(l.type) === 'Late';
+            }).length;
+        } catch (e) {
+            console.warn('Error calc lates', e);
+        }
 
-            const balancePromises = Object.keys(policy).map(async type => {
-                const usage = await window.AppLeaves.getLeaveUsage(user.id, type, fy);
-                return {
-                    type,
-                    usage,
-                    total: policy[type].total,
-                    icon: this.getIconForType(type),
-                    color: this.getColorForType(type)
-                };
-            });
-            const balances = await Promise.all(balancePromises);
-            const holidaysTable = await this.renderHolidayTable(this.currentYear, isAdmin);
+        const balancePromises = Object.keys(policy).map(async type => {
+            const usage = await AppLeaves.getLeaveUsage(user.id, type, fy);
+            return {
+                type,
+                usage,
+                total: policy[type].total,
+                icon: this.getIconForType(type),
+                color: this.getColorForType(type)
+            };
+        });
+        const balances = await Promise.all(balancePromises);
+        const holidaysTable = await this.renderHolidayTable(this.currentYear, isAdmin);
 
-            return `
+        return `
             <div class="content-container slide-in policies-modern">
                 <section class="card policies-hero">
                     <p class="policies-kicker">Policies and Benefits</p>
@@ -189,51 +194,51 @@
                     </section>
                 </div>
 
-                ${(isAdmin) ? await window.AppAdminPolicies.renderPolicyEditor() : ''}
+                ${(isAdmin) ? await AdminPolicies.renderPolicyEditor() : ''}
             </div>
             `;
-        },
+    },
 
-        async loadHolidaySettings() {
-            if (this.holidayCache) return this.holidayCache;
-            const existing = await window.AppDB.get('settings', 'holidays').catch(() => null);
-            const cache = existing && existing.byYear
-                ? existing
-                : { id: 'holidays', byYear: {} };
-            this.holidayCache = cache;
-            return cache;
-        },
+    async loadHolidaySettings() {
+        if (this.holidayCache) return this.holidayCache;
+        const existing = await AppDB.get('settings', 'holidays').catch(() => null);
+        const cache = existing && existing.byYear
+            ? existing
+            : { id: 'holidays', byYear: {} };
+        this.holidayCache = cache;
+        return cache;
+    },
 
-        async saveHolidaySettings(settings) {
-            const payload = { id: 'holidays', byYear: settings.byYear || {} };
-            await window.AppDB.put('settings', payload);
-            this.holidayCache = payload;
-        },
+    async saveHolidaySettings(settings) {
+        const payload = { id: 'holidays', byYear: settings.byYear || {} };
+        await AppDB.put('settings', payload);
+        this.holidayCache = payload;
+    },
 
-        buildYearFromBaseline(year) {
-            return this.baseline2025.map(h => {
-                const mmdd = String(h.date).slice(5);
-                return {
-                    name: h.name,
-                    date: `${year}-${mmdd}`,
-                    type: h.type || 'Regional'
-                };
-            }).sort((a, b) => new Date(a.date) - new Date(b.date));
-        },
+    buildYearFromBaseline(year) {
+        return this.baseline2025.map(h => {
+            const mmdd = String(h.date).slice(5);
+            return {
+                name: h.name,
+                date: `${year}-${mmdd}`,
+                type: h.type || 'Regional'
+            };
+        }).sort((a, b) => new Date(a.date) - new Date(b.date));
+    },
 
-        async getHolidaysForYear(year, persistIfMissing = true) {
-            const settings = await this.loadHolidaySettings();
-            const y = String(year);
-            if (!Array.isArray(settings.byYear[y]) || settings.byYear[y].length === 0) {
-                settings.byYear[y] = this.buildYearFromBaseline(year);
-                if (persistIfMissing) await this.saveHolidaySettings(settings);
-            }
-            return [...settings.byYear[y]].sort((a, b) => new Date(a.date) - new Date(b.date));
-        },
+    async getHolidaysForYear(year, persistIfMissing = true) {
+        const settings = await this.loadHolidaySettings();
+        const y = String(year);
+        if (!Array.isArray(settings.byYear[y]) || settings.byYear[y].length === 0) {
+            settings.byYear[y] = this.buildYearFromBaseline(year);
+            if (persistIfMissing) await this.saveHolidaySettings(settings);
+        }
+        return [...settings.byYear[y]].sort((a, b) => new Date(a.date) - new Date(b.date));
+    },
 
-        async renderHolidayTable(year, isAdmin) {
-            const holidays = await this.getHolidaysForYear(year);
-            return `
+    async renderHolidayTable(year, isAdmin) {
+        const holidays = await this.getHolidaysForYear(year);
+        return `
                 <table class="compact-table">
                     <thead>
                         <tr>
@@ -247,16 +252,16 @@
                     </tbody>
                 </table>
             `;
-        },
+    },
 
-        renderHolidayRows(year, holidays, isAdmin) {
-            if (!holidays.length) {
-                return `<tr><td colspan="${isAdmin ? 3 : 2}" class="policies-empty-holiday">No holiday data available for ${year}</td></tr>`;
-            }
-            return holidays.map((h, idx) => {
-                const dateObj = new Date(h.date);
-                const dateStr = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                return `
+    renderHolidayRows(year, holidays, isAdmin) {
+        if (!holidays.length) {
+            return `<tr><td colspan="${isAdmin ? 3 : 2}" class="policies-empty-holiday">No holiday data available for ${year}</td></tr>`;
+        }
+        return holidays.map((h, idx) => {
+            const dateObj = new Date(h.date);
+            const dateStr = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            return `
                 <tr>
                     <td>
                         <div class="policies-holiday-name">${h.name}</div>
@@ -271,29 +276,29 @@
                     ` : ''}
                 </tr>
             `;
-            }).join('');
-        },
+        }).join('');
+    },
 
-        async changeYear(delta) {
-            this.currentYear += delta;
-            const yearLabel = document.getElementById('policy-year-label');
-            const container = document.getElementById('holidays-container');
-            const user = window.AppAuth.getUser();
-            const isAdmin = !!(user && (user.role === 'Administrator' || user.isAdmin));
-            if (yearLabel && container) {
-                yearLabel.textContent = this.currentYear;
-                container.innerHTML = await this.renderHolidayTable(this.currentYear, isAdmin);
-            }
-        },
+    async changeYear(delta) {
+        this.currentYear += delta;
+        const yearLabel = document.getElementById('policy-year-label');
+        const container = document.getElementById('holidays-container');
+        const user = AppAuth.getUser();
+        const isAdmin = !!(user && (user.role === 'Administrator' || user.isAdmin));
+        if (yearLabel && container) {
+            yearLabel.textContent = this.currentYear;
+            container.innerHTML = await this.renderHolidayTable(this.currentYear, isAdmin);
+        }
+    },
 
-        async openHolidayEditor(index = null) {
-            const user = window.AppAuth.getUser();
-            if (!user || !(user.role === 'Administrator' || user.isAdmin)) return;
-            const year = this.currentYear;
-            const holidays = await this.getHolidaysForYear(year);
-            const existing = Number.isInteger(index) ? holidays[index] : null;
-            const modalId = `holiday-editor-${Date.now()}`;
-            const html = `
+    async openHolidayEditor(index = null) {
+        const user = AppAuth.getUser();
+        if (!user || !(user.role === 'Administrator' || user.isAdmin)) return;
+        const year = this.currentYear;
+        const holidays = await this.getHolidaysForYear(year);
+        const existing = Number.isInteger(index) ? holidays[index] : null;
+        const modalId = `holiday-editor-${Date.now()}`;
+        const html = `
                 <div class="modal-overlay" id="${modalId}" style="display:flex;">
                     <div class="modal-content" style="max-width:460px;">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.65rem;">
@@ -326,86 +331,86 @@
                     </div>
                 </div>
             `;
-            if (typeof window.app_showModal === 'function') window.app_showModal(html, modalId);
-            else (document.getElementById('modal-container') || document.body).insertAdjacentHTML('beforeend', html);
-        },
+        if (typeof window.app_showModal === 'function') window.app_showModal(html, modalId);
+        else (document.getElementById('modal-container') || document.body).insertAdjacentHTML('beforeend', html);
+    },
 
-        async saveHoliday(e, index = null) {
-            e.preventDefault();
-            const year = this.currentYear;
-            const name = (document.getElementById('holiday-name-input')?.value || '').trim();
-            const date = (document.getElementById('holiday-date-input')?.value || '').trim();
-            const type = (document.getElementById('holiday-type-input')?.value || 'Regional').trim();
-            if (!name || !date) {
-                alert('Please provide holiday name and date.');
-                return;
-            }
-            if (!date.startsWith(`${year}-`)) {
-                alert(`Date must be within ${year}.`);
-                return;
-            }
+    async saveHoliday(e, index = null) {
+        e.preventDefault();
+        const year = this.currentYear;
+        const name = (document.getElementById('holiday-name-input')?.value || '').trim();
+        const date = (document.getElementById('holiday-date-input')?.value || '').trim();
+        const type = (document.getElementById('holiday-type-input')?.value || 'Regional').trim();
+        if (!name || !date) {
+            alert('Please provide holiday name and date.');
+            return;
+        }
+        if (!date.startsWith(`${year}-`)) {
+            alert(`Date must be within ${year}.`);
+            return;
+        }
 
-            const settings = await this.loadHolidaySettings();
-            const y = String(year);
-            const list = Array.isArray(settings.byYear[y]) ? [...settings.byYear[y]] : this.buildYearFromBaseline(year);
-            const payload = { name, date, type: type === 'National' ? 'National' : 'Regional' };
-            if (Number.isInteger(index) && list[index]) list[index] = payload;
-            else list.push(payload);
-            settings.byYear[y] = list.sort((a, b) => new Date(a.date) - new Date(b.date));
-            await this.saveHolidaySettings(settings);
+        const settings = await this.loadHolidaySettings();
+        const y = String(year);
+        const list = Array.isArray(settings.byYear[y]) ? [...settings.byYear[y]] : this.buildYearFromBaseline(year);
+        const payload = { name, date, type: type === 'National' ? 'National' : 'Regional' };
+        if (Number.isInteger(index) && list[index]) list[index] = payload;
+        else list.push(payload);
+        settings.byYear[y] = list.sort((a, b) => new Date(a.date) - new Date(b.date));
+        await this.saveHolidaySettings(settings);
 
-            document.querySelector('.modal-overlay[id^="holiday-editor-"]')?.remove();
-            await this.changeYear(0);
-        },
+        document.querySelector('.modal-overlay[id^="holiday-editor-"]')?.remove();
+        await this.changeYear(0);
+    },
 
-        async deleteHoliday(index) {
-            const user = window.AppAuth.getUser();
-            if (!user || !(user.role === 'Administrator' || user.isAdmin)) return;
-            const ok = await window.appConfirm('Delete this holiday from current year?');
-            if (!ok) return;
+    async deleteHoliday(index) {
+        const user = AppAuth.getUser();
+        if (!user || !(user.role === 'Administrator' || user.isAdmin)) return;
+        const ok = await window.appConfirm('Delete this holiday from current year?');
+        if (!ok) return;
 
-            const year = this.currentYear;
-            const settings = await this.loadHolidaySettings();
-            const y = String(year);
-            const list = Array.isArray(settings.byYear[y]) ? [...settings.byYear[y]] : [];
-            if (!list[index]) return;
-            list.splice(index, 1);
-            settings.byYear[y] = list;
-            await this.saveHolidaySettings(settings);
-            await this.changeYear(0);
-        },
+        const year = this.currentYear;
+        const settings = await this.loadHolidaySettings();
+        const y = String(year);
+        const list = Array.isArray(settings.byYear[y]) ? [...settings.byYear[y]] : [];
+        if (!list[index]) return;
+        list.splice(index, 1);
+        settings.byYear[y] = list;
+        await this.saveHolidaySettings(settings);
+        await this.changeYear(0);
+    },
 
-        getIconForType(type) {
-            const icons = {
-                'Annual Leave': 'calendar-check',
-                'Casual Leave': 'mug-hot',
-                'Medical Leave': 'staff-snake',
-                'Maternity Leave': 'baby-carriage',
-                'Paternity Leave': 'baby',
-                'Study Leave': 'graduation-cap',
-                'Compassionate Leave': 'hand-holding-heart',
-                'Short Leave': 'clock'
-            };
-            return icons[type] || 'file-circle-check';
-        },
+    getIconForType(type) {
+        const icons = {
+            'Annual Leave': 'calendar-check',
+            'Casual Leave': 'mug-hot',
+            'Medical Leave': 'staff-snake',
+            'Maternity Leave': 'baby-carriage',
+            'Paternity Leave': 'baby',
+            'Study Leave': 'graduation-cap',
+            'Compassionate Leave': 'hand-holding-heart',
+            'Short Leave': 'clock'
+        };
+        return icons[type] || 'file-circle-check';
+    },
 
-        getColorForType(type) {
-            const colors = {
-                'Annual Leave': '#0f766e',
-                'Casual Leave': '#ea580c',
-                'Medical Leave': '#dc2626',
-                'Maternity Leave': '#be185d',
-                'Paternity Leave': '#1d4ed8',
-                'Study Leave': '#6d28d9',
-                'Compassionate Leave': '#9333ea',
-                'Short Leave': '#475569'
-            };
-            return colors[type] || '#64748b';
-        },
+    getColorForType(type) {
+        const colors = {
+            'Annual Leave': '#0f766e',
+            'Casual Leave': '#ea580c',
+            'Medical Leave': '#dc2626',
+            'Maternity Leave': '#be185d',
+            'Paternity Leave': '#1d4ed8',
+            'Study Leave': '#6d28d9',
+            'Compassionate Leave': '#9333ea',
+            'Short Leave': '#475569'
+        };
+        return colors[type] || '#64748b';
+    },
 
-        renderLeaveCard(title, balance, icon, color) {
-            const percentage = Math.min(100, (balance.usage / balance.total) * 100);
-            return `
+    renderLeaveCard(title, balance, icon, color) {
+        const percentage = Math.min(100, (balance.usage / balance.total) * 100);
+        return `
             <div class="policies-leave-item">
                 <div class="policies-leave-bg-icon" style="color:${color};"><i class="fa-solid fa-${icon}"></i></div>
                 <h4>${title}</h4>
@@ -417,8 +422,7 @@
                 <div class="policies-leave-used">${balance.usage} used</div>
             </div>
             `;
-        }
-    };
+    }
+};
 
-    window.AppPolicies = AppPolicies;
-})();
+if (typeof window !== 'undefined') window.AppPolicies = AppPolicies;

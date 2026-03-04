@@ -4,7 +4,7 @@
  */
 
 // bump this version whenever static assets change so clients reload fresh copies
-const CACHE_NAME = 'crwi-attendance-v14';
+const CACHE_NAME = 'crwi-attendance-v15';
 const ASSETS_TO_CACHE = [
     './',
     './index.html',

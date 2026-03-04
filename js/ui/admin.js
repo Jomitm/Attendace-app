@@ -1,0 +1,185 @@
+/**
+ * Admin Panel Component
+ * Handles rendering of the administrative dashboard, performance trends, and staff management.
+ */
+
+import { safeHtml } from './helpers.js';
+
+export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
+    let allUsers = [];
+    let pendingLeaves = [];
+    let performance = { avgScore: 0, trendData: [0, 0, 0, 0, 0, 0, 0], labels: [] };
+    let audits = [];
+
+    try {
+        const today = new Date().toISOString().split('T')[0];
+        auditStartDate = auditStartDate || today;
+        auditEndDate = auditEndDate || today;
+
+        [allUsers, performance, audits, pendingLeaves] = await Promise.all([
+            window.AppDB.getCached
+                ? window.AppDB.getCached(window.AppDB.getCacheKey('adminUsers', 'users', {}), (window.AppConfig?.READ_CACHE_TTLS?.users || 60000), () => window.AppDB.getAll('users'))
+                : window.AppDB.getAll('users'),
+            window.AppAnalytics.getSystemPerformance(),
+            window.AppDB.queryMany
+                ? window.AppDB.queryMany('location_audits', [], { orderBy: [{ field: 'timestamp', direction: 'desc' }], limit: 300 }).catch(() => window.AppDB.getAll('location_audits'))
+                : window.AppDB.getAll('location_audits'),
+            window.AppLeaves.getPendingLeaves()
+        ]);
+
+        audits = audits.filter(a => {
+            const d = new Date(a.timestamp).toISOString().split('T')[0];
+            return d >= auditStartDate && d <= auditEndDate;
+        }).sort((a, b) => b.timestamp - a.timestamp);
+    } catch (e) {
+        console.error("Failed to fetch admin data", e);
+    }
+
+    const activeCount = allUsers.filter(u => u.status === 'in').length;
+    const adminCount = allUsers.filter(u => u.role === 'Administrator' || u.isAdmin).length;
+    const perfStatus = performance.avgScore > 70 ? 'Optimal' : (performance.avgScore > 40 ? 'Good' : 'Low');
+    const perfColor = performance.avgScore > 70 ? '#166534' : (performance.avgScore > 40 ? '#854d0e' : '#991b1b');
+    const perfBg = performance.avgScore > 70 ? '#f0fdf4' : (performance.avgScore > 40 ? '#fefce8' : '#fef2f2');
+
+    // UI Handlers
+    window.app_applyAuditFilter = async () => {
+        const start = document.getElementById('audit-start')?.value;
+        const end = document.getElementById('audit-end')?.value;
+        const contentArea = document.getElementById('page-content');
+        if (contentArea) contentArea.innerHTML = await renderAdmin(start, end);
+    };
+
+    return `
+        <div class="dashboard-grid dashboard-modern dashboard-admin-view">
+            <div class="card admin-kpi-card">
+                <span class="admin-kpi-label">Total Registered Staff</span>
+                <h2 class="admin-kpi-value">${allUsers.length}</h2>
+                <div class="admin-kpi-grid">
+                    <div class="admin-kpi-pill">
+                        <div class="admin-kpi-pill-value">${activeCount}</div>
+                        <div class="admin-kpi-pill-label">Active</div>
+                    </div>
+                    <div class="admin-kpi-pill">
+                        <div class="admin-kpi-pill-value">${adminCount}</div>
+                        <div class="admin-kpi-pill-label">Admins</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card full-width admin-section-card">
+                 <h3 class="admin-section-title">Pending Leave Requests (${pendingLeaves.length})</h3>
+                 ${pendingLeaves.length === 0 ? '<p class="text-muted">No pending requests.</p>' : `
+                    <div class="table-container">
+                        <table class="compact-table">
+                            <thead>
+                                <tr><th>Date</th><th>Staff</th><th>Type</th><th>Days</th><th>Action</th></tr>
+                            </thead>
+                            <tbody>
+                                ${pendingLeaves.map(l => `
+                                    <tr>
+                                        <td>${new Date(l.startDate).toLocaleDateString()}</td>
+                                        <td>${safeHtml(l.userName)}</td>
+                                        <td><span class="admin-leave-type-badge">${safeHtml(l.type)}</span></td>
+                                        <td>${l.daysCount}</td>
+                                        <td>
+                                            <div class="admin-leave-actions">
+                                                <button onclick="window.AppLeaves.updateLeaveStatus('${l.id}', 'Approved').then(() => window.app_refreshCurrentPage())" class="admin-btn admin-btn-success">Approve</button>
+                                                <button onclick="window.AppLeaves.updateLeaveStatus('${l.id}', 'Rejected').then(() => window.app_refreshCurrentPage())" class="admin-btn admin-btn-danger">Reject</button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                 `}
+            </div>
+
+            <div class="card admin-performance-card">
+                <div class="admin-performance-head">
+                    <div>
+                        <h4 class="admin-performance-title">System Performance</h4>
+                        <p class="text-muted">Avg. Activity: ${performance.avgScore}%</p>
+                    </div>
+                    <div class="admin-performance-status" style="background:${perfBg}; color:${perfColor};">${perfStatus}</div>
+                </div>
+                <div class="admin-performance-bars">
+                    ${performance.trendData.map(h => `<div class="admin-performance-bar-item"><div class="admin-performance-bar-fill" style="height:${Math.max(h, 5)}%;"></div></div>`).join('')}
+                </div>
+            </div>
+
+            <div class="card full-width">
+                <div class="admin-staff-head">
+                    <h3 class="admin-staff-title">Staff Management</h3>
+                    <div class="admin-staff-head-actions">
+                        <button class="action-btn" onclick="document.getElementById('add-user-modal').style.display='flex'"><i class="fa-solid fa-user-plus"></i> Add Staff</button>
+                    </div>
+                </div>
+                 <div class="table-container mobile-table-card">
+                    <table>
+                        <thead>
+                            <tr><th>Staff Member</th><th>Status</th><th>In / Out</th><th>Role / Dept</th><th>Actions</th></tr>
+                        </thead>
+                        <tbody>
+                            ${allUsers.map(u => {
+        const isLive = u.lastSeen && (Date.now() - u.lastSeen < 120000);
+        return `
+                                <tr>
+                                    <td>
+                                        <div class="admin-user-cell">
+                                            <img src="${u.avatar}" class="admin-user-avatar">
+                                            <div>
+                                                <div class="admin-user-name-row">${safeHtml(u.name)} ${isLive ? '<span class="admin-user-live-tag">LIVE</span>' : ''}</div>
+                                                <div class="admin-user-id">${safeHtml(u.username)}</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td><span class="status-badge ${u.status === 'in' ? 'in' : 'out'}">${u.status?.toUpperCase()}</span></td>
+                                    <td>${u.lastCheckIn ? new Date(u.lastCheckIn).toLocaleTimeString() : '--'} / ${u.lastCheckOut ? new Date(u.lastCheckOut).toLocaleTimeString() : '--'}</td>
+                                    <td>${safeHtml(u.role)} / ${safeHtml(u.dept || '--')}</td>
+                                    <td>
+                                        <div class="admin-row-actions">
+                                            <button onclick="window.app_viewLogs('${u.id}')" class="admin-icon-btn"><i class="fa-solid fa-list-check"></i></button>
+                                            <button onclick="window.app_editUser('${u.id}')" class="admin-icon-btn"><i class="fa-solid fa-pen"></i></button>
+                                        </div>
+                                    </td>
+                                </tr>`;
+    }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card full-width">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+                    <h3>Security Audits</h3>
+                    <div style="display:flex; gap:0.5rem; align-items:center;">
+                        <input type="date" id="audit-start" value="${auditStartDate}" style="font-size:0.75rem;">
+                        <input type="date" id="audit-end" value="${auditEndDate}" style="font-size:0.75rem;">
+                        <button onclick="window.app_applyAuditFilter()" class="action-btn">Filter</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead><tr><th>Staff</th><th>Slot</th><th>Time</th><th>Status</th></tr></thead>
+                        <tbody>
+                            ${audits.length ? audits.map(a => `
+                                <tr>
+                                    <td>${safeHtml(a.userName)}</td>
+                                    <td>${safeHtml(a.slot)}</td>
+                                    <td>${new Date(a.timestamp).toLocaleTimeString()}</td>
+                                    <td style="color:${a.status === 'Success' ? 'green' : 'red'}">${a.status}</td>
+                                </tr>
+                            `).join('') : '<tr><td colspan="4" class="text-center">No audits found</td></tr>'}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>`;
+}
+
+// Global Exports
+if (typeof window !== 'undefined') {
+    if (!window.AppUI) window.AppUI = {};
+    window.AppUI.renderAdmin = renderAdmin;
+}

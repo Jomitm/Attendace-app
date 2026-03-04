@@ -1,646 +1,660 @@
+import { AppConfig } from './config.js';
+import { AppAuth } from './modules/auth.js';
+import { AppDB } from './modules/db.js';
+import { AppAttendance } from './modules/attendance.js';
+import { AppUI } from './ui.js';
+import { AppCalendar } from './modules/calendar.js';
+import { AppActivity } from './modules/activity.js';
+import { AppTour } from './modules/tour.js';
+import { AppAnalytics } from './modules/analytics.js';
+
+// Load secondary modules
+import './modules/reports.js';
+import './modules/leaves.js';
+import './modules/rating.js';
+import './modules/simulation.js';
+import './modules/minutes.js';
+import './modules/policies.js';
+import './modules/admin-policies.js';
+import './modules/day-plan.js';
+import './modules/widget.js';
+
 /**
- * App Entry Point
- * Initializes modules and handles routing.
- * (IIFE module wrapper)
+ * App State
  */
-(function () {
-    // Shortcuts (Aliases)
-    // We assume AppAuth, AppAttendance, AppUI, AppDB are attached to window by previous scripts
+let timerInterval = null;
+let adminListenerUnsubscribe = [];
+let minutesListenerUnsubscribe = null;
+let cachedLocation = null;
+let lastLocationFetch = 0;
+let attendanceActionInFlight = false;
+let lastSyncedAttendanceStatus = null;
+let userSyncRenderLock = false;
+let suppressSyncToastUntil = 0;
+let releaseSignalUnsubscribe = null;
+let releaseSignalPollTimer = null;
+let releaseSignalListenerStarted = false;
+let releaseCountdownTimer = null;
+const RELEASE_SIGNAL_DOC_ID = 'release_signal';
+const RELEASE_META_COLLECTION = 'app_meta';
+const RELEASE_SEEN_KEY = 'app_last_seen_release_id';
+const releaseUpdateState = {
+    active: false,
+    releaseId: '',
+    commitSha: '',
+    deployedAt: '',
+    notes: '',
+    forceAfterMs: 90000,
+    snoozeMs: 300000,
+    maxSnoozeCount: 1,
+    deadlineTs: 0,
+    snoozeCount: 0
+};
+const LOCATION_CACHE_TIME = 30000; // 30 seconds cache
+window.app_annualYear = new Date().getFullYear();
 
-    // App State
-    let timerInterval = null;
-    let adminListenerUnsubscribe = [];
-    let minutesListenerUnsubscribe = null;
-    let cachedLocation = null;
-    let lastLocationFetch = 0;
-    let attendanceActionInFlight = false;
-    let lastSyncedAttendanceStatus = null;
-    let userSyncRenderLock = false;
-    let suppressSyncToastUntil = 0;
-    let releaseSignalUnsubscribe = null;
-    let releaseSignalPollTimer = null;
-    let releaseSignalListenerStarted = false;
-    let releaseCountdownTimer = null;
-    const RELEASE_SIGNAL_DOC_ID = 'release_signal';
-    const RELEASE_META_COLLECTION = 'app_meta';
-    const RELEASE_SEEN_KEY = 'app_last_seen_release_id';
-    const releaseUpdateState = {
-        active: false,
-        releaseId: '',
-        commitSha: '',
-        deployedAt: '',
-        notes: '',
-        forceAfterMs: 90000,
-        snoozeMs: 300000,
-        maxSnoozeCount: 1,
-        deadlineTs: 0,
-        snoozeCount: 0
+const formatMsToMmSs = (ms) => {
+    const safe = Math.max(0, Number(ms) || 0);
+    const totalSeconds = Math.floor(safe / 1000);
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+};
+
+const getStoredSeenReleaseId = () => {
+    try {
+        return localStorage.getItem(RELEASE_SEEN_KEY) || '';
+    } catch (err) {
+        void err;
+        return '';
+    }
+};
+
+const setStoredSeenReleaseId = (releaseId) => {
+    try {
+        localStorage.setItem(RELEASE_SEEN_KEY, String(releaseId || ''));
+    } catch (err) {
+        void err;
+        // no-op
+    }
+};
+
+const stopReleaseCountdown = () => {
+    if (releaseCountdownTimer) {
+        clearInterval(releaseCountdownTimer);
+        releaseCountdownTimer = null;
+    }
+};
+
+const getReleaseUpdateSnapshot = () => {
+    const remainingMs = releaseUpdateState.active
+        ? Math.max(0, releaseUpdateState.deadlineTs - Date.now())
+        : 0;
+    return {
+        active: !!releaseUpdateState.active,
+        releaseId: releaseUpdateState.releaseId || '',
+        commitSha: releaseUpdateState.commitSha || '',
+        deployedAt: releaseUpdateState.deployedAt || '',
+        notes: releaseUpdateState.notes || '',
+        forceAfterMs: Number(releaseUpdateState.forceAfterMs) || 90000,
+        snoozeMs: Number(releaseUpdateState.snoozeMs) || 300000,
+        maxSnoozeCount: Number(releaseUpdateState.maxSnoozeCount) || 1,
+        snoozeCount: Number(releaseUpdateState.snoozeCount) || 0,
+        canSnooze: (Number(releaseUpdateState.snoozeCount) || 0) < (Number(releaseUpdateState.maxSnoozeCount) || 1),
+        deadlineTs: Number(releaseUpdateState.deadlineTs) || 0,
+        remainingMs,
+        countdownLabel: formatMsToMmSs(remainingMs)
     };
-    const LOCATION_CACHE_TIME = 30000; // 30 seconds cache
-    window.app_annualYear = new Date().getFullYear();
+};
 
-    const formatMsToMmSs = (ms) => {
-        const safe = Math.max(0, Number(ms) || 0);
-        const totalSeconds = Math.floor(safe / 1000);
-        const mins = Math.floor(totalSeconds / 60);
-        const secs = totalSeconds % 60;
-        return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-    };
+window.app_getReleaseUpdateState = () => getReleaseUpdateSnapshot();
 
-    const getStoredSeenReleaseId = () => {
-        try {
-            return localStorage.getItem(RELEASE_SEEN_KEY) || '';
-        } catch (err) {
-            void err;
-            return '';
+const applyUpdateCtaState = () => {
+    const state = getReleaseUpdateSnapshot();
+    const btn = document.querySelector('.dashboard-refresh-link');
+    if (!btn) return;
+    if (state.active) {
+        btn.classList.add('is-update-pending');
+        btn.setAttribute('title', `Update available. Auto-refresh in ${state.countdownLabel}`);
+        btn.innerHTML = `System update available <span class="dashboard-refresh-countdown">(${state.countdownLabel})</span>`;
+    } else {
+        btn.classList.remove('is-update-pending');
+        btn.setAttribute('title', 'Check for System Update (Ctrl+Shift+R)');
+        btn.textContent = 'Check for System Update';
+    }
+};
+
+window.app_applyUpdateCtaState = applyUpdateCtaState;
+
+const broadcastReleaseUpdateState = () => {
+    applyUpdateCtaState();
+    if (window.dispatchEvent) {
+        window.dispatchEvent(new CustomEvent('app:update-countdown', { detail: getReleaseUpdateSnapshot() }));
+    }
+};
+
+const clearReleaseUpdateState = (markSeen = true) => {
+    const currentRelease = releaseUpdateState.releaseId;
+    stopReleaseCountdown();
+    releaseUpdateState.active = false;
+    releaseUpdateState.deadlineTs = 0;
+    releaseUpdateState.snoozeCount = 0;
+    if (markSeen && currentRelease) setStoredSeenReleaseId(currentRelease);
+    broadcastReleaseUpdateState();
+};
+
+const startReleaseCountdown = () => {
+    stopReleaseCountdown();
+    releaseCountdownTimer = setInterval(() => {
+        if (!releaseUpdateState.active) {
+            stopReleaseCountdown();
+            return;
         }
-    };
+        const remaining = releaseUpdateState.deadlineTs - Date.now();
+        if (remaining <= 0) {
+            stopReleaseCountdown();
+            window.app_forceRefresh();
+            return;
+        }
+        broadcastReleaseUpdateState();
+    }, 1000);
+    broadcastReleaseUpdateState();
+};
 
-    const setStoredSeenReleaseId = (releaseId) => {
+window.app_snoozeReleaseUpdate = () => {
+    if (!releaseUpdateState.active) return;
+    if (releaseUpdateState.snoozeCount >= releaseUpdateState.maxSnoozeCount) return;
+    releaseUpdateState.snoozeCount += 1;
+    releaseUpdateState.deadlineTs = Date.now() + releaseUpdateState.snoozeMs;
+    window.app_showSyncToast(`Update snoozed for ${Math.round(releaseUpdateState.snoozeMs / 60000)} minutes.`);
+    startReleaseCountdown();
+};
+
+const activateReleaseUpdatePrompt = (payload) => {
+    const incomingReleaseId = String(payload.releaseId || payload.commitSha || '');
+    if (!incomingReleaseId) return;
+    const lastSeen = getStoredSeenReleaseId();
+    if (incomingReleaseId === releaseUpdateState.releaseId && releaseUpdateState.active) return;
+    if (incomingReleaseId === lastSeen) return;
+
+    releaseUpdateState.active = true;
+    releaseUpdateState.releaseId = incomingReleaseId;
+    releaseUpdateState.commitSha = String(payload.commitSha || '');
+    releaseUpdateState.deployedAt = String(payload.deployedAt || '');
+    releaseUpdateState.notes = String(payload.notes || '');
+    releaseUpdateState.forceAfterMs = Number(payload.forceAfterMs) || 90000;
+    releaseUpdateState.snoozeMs = Number(payload.snoozeMs) || 300000;
+    releaseUpdateState.maxSnoozeCount = Number(payload.maxSnoozeCount) || 1;
+    releaseUpdateState.snoozeCount = 0;
+    releaseUpdateState.deadlineTs = Date.now() + releaseUpdateState.forceAfterMs;
+
+    window.app_showSyncToast('New system update available.');
+    startReleaseCountdown();
+    if (window.dispatchEvent) {
+        window.dispatchEvent(new CustomEvent('app:update-available', { detail: getReleaseUpdateSnapshot() }));
+    }
+};
+
+const handleReleaseSignalDoc = (doc) => {
+    if (!doc || doc.id !== RELEASE_SIGNAL_DOC_ID) return;
+    if (doc.active === false) return;
+    activateReleaseUpdatePrompt(doc);
+};
+
+const startReleaseSignalListener = () => {
+    if (releaseSignalListenerStarted) return;
+    releaseSignalListenerStarted = true;
+    if (window.AppDB && typeof window.AppDB.listen === 'function') {
+        releaseSignalUnsubscribe = window.AppDB.listen(RELEASE_META_COLLECTION, (rows) => {
+            const doc = (rows || []).find(r => r.id === RELEASE_SIGNAL_DOC_ID);
+            if (doc) handleReleaseSignalDoc(doc);
+        });
+        return;
+    }
+    // Fallback polling mode if realtime listener is unavailable.
+    releaseSignalPollTimer = setInterval(async () => {
         try {
-            localStorage.setItem(RELEASE_SEEN_KEY, String(releaseId || ''));
+            const doc = await window.AppDB.get(RELEASE_META_COLLECTION, RELEASE_SIGNAL_DOC_ID);
+            if (doc) handleReleaseSignalDoc(doc);
         } catch (err) {
             void err;
             // no-op
         }
-    };
+    }, 30000);
+};
 
-    const stopReleaseCountdown = () => {
-        if (releaseCountdownTimer) {
-            clearInterval(releaseCountdownTimer);
-            releaseCountdownTimer = null;
-        }
-    };
+const stopReleaseSignalListener = () => {
+    if (typeof releaseSignalUnsubscribe === 'function') {
+        releaseSignalUnsubscribe();
+        releaseSignalUnsubscribe = null;
+    }
+    if (releaseSignalPollTimer) {
+        clearInterval(releaseSignalPollTimer);
+        releaseSignalPollTimer = null;
+    }
+    releaseSignalListenerStarted = false;
+    clearReleaseUpdateState(false);
+};
 
-    const getReleaseUpdateSnapshot = () => {
-        const remainingMs = releaseUpdateState.active
-            ? Math.max(0, releaseUpdateState.deadlineTs - Date.now())
-            : 0;
-        return {
-            active: !!releaseUpdateState.active,
-            releaseId: releaseUpdateState.releaseId || '',
-            commitSha: releaseUpdateState.commitSha || '',
-            deployedAt: releaseUpdateState.deployedAt || '',
-            notes: releaseUpdateState.notes || '',
-            forceAfterMs: Number(releaseUpdateState.forceAfterMs) || 90000,
-            snoozeMs: Number(releaseUpdateState.snoozeMs) || 300000,
-            maxSnoozeCount: Number(releaseUpdateState.maxSnoozeCount) || 1,
-            snoozeCount: Number(releaseUpdateState.snoozeCount) || 0,
-            canSnooze: (Number(releaseUpdateState.snoozeCount) || 0) < (Number(releaseUpdateState.maxSnoozeCount) || 1),
-            deadlineTs: Number(releaseUpdateState.deadlineTs) || 0,
-            remainingMs,
-            countdownLabel: formatMsToMmSs(remainingMs)
-        };
-    };
+window.app_isAdminUser = (user = window.AppAuth?.getUser()) => {
+    return !!(user && (user.role === 'Administrator' || user.isAdmin));
+};
 
-    window.app_getReleaseUpdateState = () => getReleaseUpdateSnapshot();
+window.app_canManageAttendanceSheet = (user = window.AppAuth?.getUser()) => {
+    if (!user) return false;
+    return window.app_isAdminUser(user) || !!user.canManageAttendanceSheet;
+};
 
-    const applyUpdateCtaState = () => {
-        const state = getReleaseUpdateSnapshot();
-        const btn = document.querySelector('.dashboard-refresh-link');
-        if (!btn) return;
-        if (state.active) {
-            btn.classList.add('is-update-pending');
-            btn.setAttribute('title', `Update available. Auto-refresh in ${state.countdownLabel}`);
-            btn.innerHTML = `System update available <span class="dashboard-refresh-countdown">(${state.countdownLabel})</span>`;
+window.app_getReadTelemetry = () => {
+    if (!window.AppDB || !window.AppDB.getReadTelemetry) return {};
+    return window.AppDB.getReadTelemetry();
+};
+
+window.app_resetReadTelemetry = () => {
+    if (!window.AppDB || !window.AppDB.clearReadTelemetry) return;
+    window.AppDB.clearReadTelemetry();
+};
+
+// --- Read Optimization: Filtered Mailbox ---
+window.app_getMyMessages = async () => {
+    const user = window.AppAuth.getUser();
+    if (!user) return [];
+    try {
+        const [incoming, outgoing] = await Promise.all([
+            window.AppDB.query('staff_messages', 'toId', '==', user.id),
+            window.AppDB.query('staff_messages', 'fromId', '==', user.id)
+        ]);
+        // Merge and deduplicate by ID
+        const map = new Map();
+        (incoming || []).forEach(m => map.set(m.id, m));
+        (outgoing || []).forEach(m => map.set(m.id, m));
+        return Array.from(map.values());
+    } catch (err) {
+        console.warn("Message fetch failed, falling back to getAll", err);
+        return window.AppDB.getAll('staff_messages');
+    }
+};
+
+// DOM Elements - queried dynamically or once if available
+const contentArea = document.getElementById('page-content');
+const sidebar = document.querySelector('.sidebar');
+const mobileHeader = document.querySelector('.mobile-header');
+const mobileNav = document.querySelector('.mobile-nav');
+
+// --- Theme Management ---
+window.app_initTheme = () => {
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    updateThemeIcons(savedTheme);
+};
+
+window.app_toggleTheme = () => {
+    const currentTheme = document.documentElement.getAttribute('data-theme');
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+    updateThemeIcons(newTheme);
+};
+
+function updateThemeIcons(theme) {
+    document.querySelectorAll('.theme-toggle i').forEach(icon => {
+        if (theme === 'dark') {
+            icon.classList.remove('fa-moon');
+            icon.classList.add('fa-sun');
         } else {
-            btn.classList.remove('is-update-pending');
-            btn.setAttribute('title', 'Check for System Update (Ctrl+Shift+R)');
-            btn.textContent = 'Check for System Update';
+            icon.classList.remove('fa-sun');
+            icon.classList.add('fa-moon');
         }
-    };
+    });
+}
 
-    window.app_applyUpdateCtaState = applyUpdateCtaState;
+function registerSW() {
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./sw.js')
+                .then(() => console.log('ServiceWorker registered'))
+                .catch(err => console.log('ServiceWorker registration failed: ', err));
+        });
+    }
+}
 
-    const broadcastReleaseUpdateState = () => {
-        applyUpdateCtaState();
-        if (window.dispatchEvent) {
-            window.dispatchEvent(new CustomEvent('app:update-countdown', { detail: getReleaseUpdateSnapshot() }));
-        }
-    };
+// --- UI Helpers ---
+const getLocalISO = (date = new Date()) => {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
 
-    const clearReleaseUpdateState = (markSeen = true) => {
-        const currentRelease = releaseUpdateState.releaseId;
-        stopReleaseCountdown();
-        releaseUpdateState.active = false;
-        releaseUpdateState.deadlineTs = 0;
-        releaseUpdateState.snoozeCount = 0;
-        if (markSeen && currentRelease) setStoredSeenReleaseId(currentRelease);
-        broadcastReleaseUpdateState();
-    };
+window.app_showAttendanceNotice = (message) => {
+    if (!message) return;
+    const host = document.getElementById('page-content');
+    if (!host) return;
 
-    const startReleaseCountdown = () => {
-        stopReleaseCountdown();
-        releaseCountdownTimer = setInterval(() => {
-            if (!releaseUpdateState.active) {
-                stopReleaseCountdown();
-                return;
-            }
-            const remaining = releaseUpdateState.deadlineTs - Date.now();
-            if (remaining <= 0) {
-                stopReleaseCountdown();
-                window.app_forceRefresh();
-                return;
-            }
-            broadcastReleaseUpdateState();
-        }, 1000);
-        broadcastReleaseUpdateState();
-    };
+    const existing = document.getElementById('attendance-policy-notice');
+    if (existing) existing.remove();
 
-    window.app_snoozeReleaseUpdate = () => {
-        if (!releaseUpdateState.active) return;
-        if (releaseUpdateState.snoozeCount >= releaseUpdateState.maxSnoozeCount) return;
-        releaseUpdateState.snoozeCount += 1;
-        releaseUpdateState.deadlineTs = Date.now() + releaseUpdateState.snoozeMs;
-        window.app_showSyncToast(`Update snoozed for ${Math.round(releaseUpdateState.snoozeMs / 60000)} minutes.`);
-        startReleaseCountdown();
-    };
+    const notice = document.createElement('div');
+    notice.id = 'attendance-policy-notice';
+    notice.style.background = '#fff7ed';
+    notice.style.border = '1px solid #fdba74';
+    notice.style.color = '#9a3412';
+    notice.style.padding = '0.85rem 1rem';
+    notice.style.borderRadius = '10px';
+    notice.style.marginBottom = '0.9rem';
+    notice.style.fontSize = '0.9rem';
+    notice.style.fontWeight = '600';
+    notice.innerHTML = `<i class="fa-solid fa-circle-info" style="margin-right:0.45rem;"></i>${message}`;
 
-    const activateReleaseUpdatePrompt = (payload) => {
-        const incomingReleaseId = String(payload.releaseId || payload.commitSha || '');
-        if (!incomingReleaseId) return;
-        const lastSeen = getStoredSeenReleaseId();
-        if (incomingReleaseId === releaseUpdateState.releaseId && releaseUpdateState.active) return;
-        if (incomingReleaseId === lastSeen) return;
+    host.prepend(notice);
+    setTimeout(() => {
+        const el = document.getElementById('attendance-policy-notice');
+        if (el) el.remove();
+    }, 10000);
+};
 
-        releaseUpdateState.active = true;
-        releaseUpdateState.releaseId = incomingReleaseId;
-        releaseUpdateState.commitSha = String(payload.commitSha || '');
-        releaseUpdateState.deployedAt = String(payload.deployedAt || '');
-        releaseUpdateState.notes = String(payload.notes || '');
-        releaseUpdateState.forceAfterMs = Number(payload.forceAfterMs) || 90000;
-        releaseUpdateState.snoozeMs = Number(payload.snoozeMs) || 300000;
-        releaseUpdateState.maxSnoozeCount = Number(payload.maxSnoozeCount) || 1;
-        releaseUpdateState.snoozeCount = 0;
-        releaseUpdateState.deadlineTs = Date.now() + releaseUpdateState.forceAfterMs;
+window.app_showSyncToast = (message = 'Status updated from another device.') => {
+    const id = 'app-sync-toast';
+    const old = document.getElementById(id);
+    if (old) old.remove();
+    const el = document.createElement('div');
+    el.id = id;
+    el.style.position = 'fixed';
+    el.style.top = '14px';
+    el.style.right = '14px';
+    el.style.zIndex = '10020';
+    el.style.background = '#0f172a';
+    el.style.color = '#f8fafc';
+    el.style.padding = '0.7rem 0.9rem';
+    el.style.borderRadius = '10px';
+    el.style.fontSize = '0.82rem';
+    el.style.fontWeight = '600';
+    el.style.boxShadow = '0 8px 25px rgba(15, 23, 42, 0.3)';
+    el.textContent = message;
+    document.body.appendChild(el);
+    setTimeout(() => {
+        const active = document.getElementById(id);
+        if (active) active.remove();
+    }, 2800);
+};
 
-        window.app_showSyncToast('New system update available.');
-        startReleaseCountdown();
-        if (window.dispatchEvent) {
-            window.dispatchEvent(new CustomEvent('app:update-available', { detail: getReleaseUpdateSnapshot() }));
-        }
-    };
+const shouldShowCrossDeviceToast = () => {
+    return !attendanceActionInFlight && Date.now() > suppressSyncToastUntil;
+};
 
-    const handleReleaseSignalDoc = (doc) => {
-        if (!doc || doc.id !== RELEASE_SIGNAL_DOC_ID) return;
-        if (doc.active === false) return;
-        activateReleaseUpdatePrompt(doc);
-    };
+const markLocalAttendanceMutation = () => {
+    suppressSyncToastUntil = Date.now() + 3500;
+};
 
-    const startReleaseSignalListener = () => {
-        if (releaseSignalListenerStarted) return;
-        releaseSignalListenerStarted = true;
-        if (window.AppDB && typeof window.AppDB.listen === 'function') {
-            releaseSignalUnsubscribe = window.AppDB.listen(RELEASE_META_COLLECTION, (rows) => {
-                const doc = (rows || []).find(r => r.id === RELEASE_SIGNAL_DOC_ID);
-                if (doc) handleReleaseSignalDoc(doc);
-            });
-            return;
-        }
-        // Fallback polling mode if realtime listener is unavailable.
-        releaseSignalPollTimer = setInterval(async () => {
-            try {
-                const doc = await window.AppDB.get(RELEASE_META_COLLECTION, RELEASE_SIGNAL_DOC_ID);
-                if (doc) handleReleaseSignalDoc(doc);
-            } catch (err) {
-                void err;
-                // no-op
-            }
-        }, 30000);
-    };
+const handleUserSyncEvent = (ev) => {
+    const syncedUser = ev.detail;
+    if (!syncedUser) return;
+    if (window.app_refreshNotificationBell) {
+        window.app_refreshNotificationBell().catch(() => { });
+    }
 
-    const stopReleaseSignalListener = () => {
-        if (typeof releaseSignalUnsubscribe === 'function') {
-            releaseSignalUnsubscribe();
-            releaseSignalUnsubscribe = null;
-        }
-        if (releaseSignalPollTimer) {
-            clearInterval(releaseSignalPollTimer);
-            releaseSignalPollTimer = null;
-        }
-        releaseSignalListenerStarted = false;
-        clearReleaseUpdateState(false);
-    };
+    const nextStatus = syncedUser.status || 'out';
+    const statusChanged = lastSyncedAttendanceStatus !== null && nextStatus !== lastSyncedAttendanceStatus;
 
-    window.app_isAdminUser = (user = window.AppAuth?.getUser()) => {
-        return !!(user && (user.role === 'Administrator' || user.isAdmin));
-    };
+    // Always consider it a change if it's the first sync and we are 'in'
+    const isFirstSyncChange = lastSyncedAttendanceStatus === null && nextStatus === 'in';
 
-    window.app_canManageAttendanceSheet = (user = window.AppAuth?.getUser()) => {
-        if (!user) return false;
-        return window.app_isAdminUser(user) || !!user.canManageAttendanceSheet;
-    };
+    lastSyncedAttendanceStatus = nextStatus;
 
-    window.app_getReadTelemetry = () => {
-        if (!window.AppDB || !window.AppDB.getReadTelemetry) return {};
-        return window.AppDB.getReadTelemetry();
-    };
+    if (!(statusChanged || isFirstSyncChange) || userSyncRenderLock) return;
 
-    window.app_resetReadTelemetry = () => {
-        if (!window.AppDB || !window.AppDB.clearReadTelemetry) return;
-        window.AppDB.clearReadTelemetry();
-    };
+    const isDashboard = !window.location.hash || window.location.hash === '#dashboard';
+    const checkoutModal = document.getElementById('checkout-modal');
+    const isCheckoutOpen = !!(checkoutModal && checkoutModal.style.display === 'flex');
 
-    // --- Read Optimization: Filtered Mailbox ---
-    window.app_getMyMessages = async () => {
-        const user = window.AppAuth.getUser();
-        if (!user) return [];
+    if (nextStatus === 'out' && isCheckoutOpen) {
+        checkoutModal.style.display = 'none';
+    }
+
+    if (!isDashboard) {
+        if (shouldShowCrossDeviceToast()) window.app_showSyncToast('Status updated from another device.');
+        return;
+    }
+
+    userSyncRenderLock = true;
+    (async () => {
         try {
-            const [incoming, outgoing] = await Promise.all([
-                window.AppDB.query('staff_messages', 'toId', '==', user.id),
-                window.AppDB.query('staff_messages', 'fromId', '==', user.id)
-            ]);
-            // Merge and deduplicate by ID
-            const map = new Map();
-            (incoming || []).forEach(m => map.set(m.id, m));
-            (outgoing || []).forEach(m => map.set(m.id, m));
-            return Array.from(map.values());
-        } catch (err) {
-            console.warn("Message fetch failed, falling back to getAll", err);
-            return window.AppDB.getAll('staff_messages');
-        }
-    };
-
-    // DOM Elements - queried dynamically or once if available
-    const contentArea = document.getElementById('page-content');
-    const sidebar = document.querySelector('.sidebar');
-    const mobileHeader = document.querySelector('.mobile-header');
-    const mobileNav = document.querySelector('.mobile-nav');
-
-    // --- Theme Management ---
-    window.app_initTheme = () => {
-        const savedTheme = localStorage.getItem('theme') || 'light';
-        document.documentElement.setAttribute('data-theme', savedTheme);
-        updateThemeIcons(savedTheme);
-    };
-
-    window.app_toggleTheme = () => {
-        const currentTheme = document.documentElement.getAttribute('data-theme');
-        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-        document.documentElement.setAttribute('data-theme', newTheme);
-        localStorage.setItem('theme', newTheme);
-        updateThemeIcons(newTheme);
-    };
-
-    function updateThemeIcons(theme) {
-        document.querySelectorAll('.theme-toggle i').forEach(icon => {
-            if (theme === 'dark') {
-                icon.classList.remove('fa-moon');
-                icon.classList.add('fa-sun');
-            } else {
-                icon.classList.remove('fa-sun');
-                icon.classList.add('fa-moon');
+            const page = document.getElementById('page-content');
+            if (page) {
+                page.innerHTML = await window.AppUI.renderDashboard();
+                if (window.setupDashboardEvents) window.setupDashboardEvents();
             }
-        });
-    }
-
-    function registerSW() {
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js')
-                    .then(() => console.log('ServiceWorker registered'))
-                    .catch(err => console.log('ServiceWorker registration failed: ', err));
-            });
-        }
-    }
-
-    // --- UI Helpers ---
-    const getLocalISO = (date = new Date()) => {
-        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-    };
-
-    window.app_showAttendanceNotice = (message) => {
-        if (!message) return;
-        const host = document.getElementById('page-content');
-        if (!host) return;
-
-        const existing = document.getElementById('attendance-policy-notice');
-        if (existing) existing.remove();
-
-        const notice = document.createElement('div');
-        notice.id = 'attendance-policy-notice';
-        notice.style.background = '#fff7ed';
-        notice.style.border = '1px solid #fdba74';
-        notice.style.color = '#9a3412';
-        notice.style.padding = '0.85rem 1rem';
-        notice.style.borderRadius = '10px';
-        notice.style.marginBottom = '0.9rem';
-        notice.style.fontSize = '0.9rem';
-        notice.style.fontWeight = '600';
-        notice.innerHTML = `<i class="fa-solid fa-circle-info" style="margin-right:0.45rem;"></i>${message}`;
-
-        host.prepend(notice);
-        setTimeout(() => {
-            const el = document.getElementById('attendance-policy-notice');
-            if (el) el.remove();
-        }, 10000);
-    };
-
-    window.app_showSyncToast = (message = 'Status updated from another device.') => {
-        const id = 'app-sync-toast';
-        const old = document.getElementById(id);
-        if (old) old.remove();
-        const el = document.createElement('div');
-        el.id = id;
-        el.style.position = 'fixed';
-        el.style.top = '14px';
-        el.style.right = '14px';
-        el.style.zIndex = '10020';
-        el.style.background = '#0f172a';
-        el.style.color = '#f8fafc';
-        el.style.padding = '0.7rem 0.9rem';
-        el.style.borderRadius = '10px';
-        el.style.fontSize = '0.82rem';
-        el.style.fontWeight = '600';
-        el.style.boxShadow = '0 8px 25px rgba(15, 23, 42, 0.3)';
-        el.textContent = message;
-        document.body.appendChild(el);
-        setTimeout(() => {
-            const active = document.getElementById(id);
-            if (active) active.remove();
-        }, 2800);
-    };
-
-    const shouldShowCrossDeviceToast = () => {
-        return !attendanceActionInFlight && Date.now() > suppressSyncToastUntil;
-    };
-
-    const markLocalAttendanceMutation = () => {
-        suppressSyncToastUntil = Date.now() + 3500;
-    };
-
-    const handleUserSyncEvent = (ev) => {
-        const syncedUser = ev.detail;
-        if (!syncedUser) return;
-        if (window.app_refreshNotificationBell) {
-            window.app_refreshNotificationBell().catch(() => { });
-        }
-
-        const nextStatus = syncedUser.status || 'out';
-        if (lastSyncedAttendanceStatus === null) {
-            lastSyncedAttendanceStatus = nextStatus;
-            return;
-        }
-
-        const statusChanged = nextStatus !== lastSyncedAttendanceStatus;
-        lastSyncedAttendanceStatus = nextStatus;
-        if (!statusChanged || userSyncRenderLock) return;
-
-        const isDashboard = !window.location.hash || window.location.hash === '#dashboard';
-        const checkoutModal = document.getElementById('checkout-modal');
-        const isCheckoutOpen = !!(checkoutModal && checkoutModal.style.display === 'flex');
-
-        if (nextStatus === 'out' && isCheckoutOpen) {
-            checkoutModal.style.display = 'none';
-        }
-
-        if (!isDashboard) {
             if (shouldShowCrossDeviceToast()) window.app_showSyncToast('Status updated from another device.');
-            return;
+        } catch (err) {
+            console.warn('Realtime dashboard sync failed:', err);
+        } finally {
+            userSyncRenderLock = false;
         }
-
-        userSyncRenderLock = true;
-        (async () => {
-            try {
-                const page = document.getElementById('page-content');
-                if (page) {
-                    page.innerHTML = await window.AppUI.renderDashboard();
-                    if (window.setupDashboardEvents) window.setupDashboardEvents();
-                }
-                if (shouldShowCrossDeviceToast()) window.app_showSyncToast('Status updated from another device.');
-            } catch (err) {
-                console.warn('Realtime dashboard sync failed:', err);
-            } finally {
-                userSyncRenderLock = false;
-            }
-        })();
-    };
-    function toggleMobileSidebar(show) {
-        const sidebar = document.querySelector('.sidebar');
-        const overlay = document.getElementById('sidebar-overlay');
-        if (sidebar && overlay) {
-            if (show) {
-                sidebar.classList.add('open');
-                overlay.classList.add('active');
-            } else {
-                sidebar.classList.remove('open');
-                overlay.classList.remove('active');
-            }
-        }
-    }
-
-    function cleanURL() {
-        if (window.location.search) {
-            const clean = window.location.protocol + "//" + window.location.host + window.location.pathname + window.location.hash;
-            window.history.replaceState({ path: clean }, '', clean);
-            console.log("Address bar cleaned of query parameters.");
-        }
-    }
-
-    window.app_toggleSidebar = (forceCollapse = null) => {
-        const sidebar = document.querySelector('.sidebar');
-        const icon = document.querySelector('#desktop-sidebar-toggle i');
-        if (!sidebar) return;
-
-        const isCollapsing = forceCollapse !== null ? forceCollapse : !sidebar.classList.contains('collapsed');
-
-        if (isCollapsing) {
-            sidebar.classList.add('collapsed');
-            if (icon) {
-                icon.classList.remove('fa-angles-left');
-                icon.classList.add('fa-angles-right');
-            }
+    })();
+};
+function toggleMobileSidebar(show) {
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    if (sidebar && overlay) {
+        if (show) {
+            sidebar.classList.add('open');
+            overlay.classList.add('active');
         } else {
-            sidebar.classList.remove('collapsed');
-            if (icon) {
-                icon.classList.remove('fa-angles-right');
-                icon.classList.add('fa-angles-left');
+            sidebar.classList.remove('open');
+            overlay.classList.remove('active');
+        }
+    }
+}
+
+function cleanURL() {
+    if (window.location.search) {
+        const clean = window.location.protocol + "//" + window.location.host + window.location.pathname + window.location.hash;
+        window.history.replaceState({ path: clean }, '', clean);
+        console.log("Address bar cleaned of query parameters.");
+    }
+}
+
+window.app_toggleSidebar = (forceCollapse = null) => {
+    const sidebar = document.querySelector('.sidebar');
+    const icon = document.querySelector('#desktop-sidebar-toggle i');
+    if (!sidebar) return;
+
+    const isCollapsing = forceCollapse !== null ? forceCollapse : !sidebar.classList.contains('collapsed');
+
+    if (isCollapsing) {
+        sidebar.classList.add('collapsed');
+        if (icon) {
+            icon.classList.remove('fa-angles-left');
+            icon.classList.add('fa-angles-right');
+        }
+    } else {
+        sidebar.classList.remove('collapsed');
+        if (icon) {
+            icon.classList.remove('fa-angles-right');
+            icon.classList.add('fa-angles-left');
+        }
+    }
+};
+
+// Modal Helper to avoid overwriting modal-container
+window.app_showModal = (html, id) => {
+    const container = document.getElementById('modal-container');
+    if (!container) return;
+    // Remove existing modal with same ID if any
+    const existing = document.getElementById(id);
+    if (existing) existing.remove();
+
+    container.insertAdjacentHTML('beforeend', html);
+    const modalEl = document.getElementById(id);
+    if (modalEl && (modalEl.classList.contains('modal-overlay') || modalEl.classList.contains('modal'))) {
+        const overlays = Array.from(document.querySelectorAll('.modal-overlay, .modal'))
+            .filter(el => el !== modalEl);
+        const maxZ = overlays.reduce((acc, el) => {
+            const z = Number.parseInt(window.getComputedStyle(el).zIndex, 10);
+            return Number.isFinite(z) ? Math.max(acc, z) : acc;
+        }, 1000);
+        modalEl.style.zIndex = String(maxZ + 2);
+    }
+};
+
+const escapeDialogHtml = (value) => {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+};
+
+const renderDialogMessage = (message) => {
+    return escapeDialogHtml(message).replace(/\n/g, '<br>');
+};
+
+const toSafeNotifStatus = (notif) => String(notif?.status || 'pending').toLowerCase();
+const isPendingNotif = (notif) => toSafeNotifStatus(notif) === 'pending';
+
+const getNotifSource = (notif) => {
+    if (notif?.type === 'minute-access-request') return 'Minutes';
+    if (notif?.type === 'task') return 'Task';
+    if (notif?.type === 'tag' || notif?.type === 'mention') return 'Tag';
+    if (notif?.type === 'reminder') return 'Reminder';
+    return 'Notification';
+};
+
+const getNotifPreview = (notif) => {
+    return String(
+        notif?.description
+        || notif?.message
+        || notif?.title
+        || ''
+    ).trim();
+};
+
+const getNotifTimeLabel = (notif) => {
+    const raw = notif?.respondedAt || notif?.taggedAt || notif?.date;
+    const ts = new Date(raw).getTime();
+    if (!ts) return 'Unknown time';
+    const diffMins = Math.max(0, Math.floor((Date.now() - ts) / 60000));
+    const age = diffMins < 1
+        ? 'just now'
+        : diffMins < 60
+            ? `${diffMins} mins ago`
+            : diffMins < 1440
+                ? `${Math.floor(diffMins / 60)} hrs ago`
+                : `${Math.floor(diffMins / 1440)} days ago`;
+    return `${new Date(ts).toLocaleString()} (${age})`;
+};
+
+window.app_refreshNotificationBell = async () => {
+    const buttons = document.querySelectorAll('.top-notification-btn');
+    if (!buttons.length) return;
+
+    const user = window.AppAuth.getUser();
+    const notifications = Array.isArray(user?.notifications) ? user.notifications : [];
+    const pendingCount = notifications.filter(isPendingNotif).length;
+
+    buttons.forEach((btn) => {
+        const badge = btn.querySelector('.top-notification-badge');
+        if (!user) {
+            btn.classList.remove('has-pending');
+            if (badge) badge.style.display = 'none';
+            return;
+        }
+        btn.classList.toggle('has-pending', pendingCount > 0);
+        btn.setAttribute('title', pendingCount > 0
+            ? `${pendingCount} pending notification${pendingCount > 1 ? 's' : ''}`
+            : 'Notification history');
+        if (badge) {
+            if (pendingCount > 0) {
+                badge.textContent = pendingCount > 99 ? '99+' : String(pendingCount);
+                badge.style.display = '';
+            } else {
+                badge.style.display = 'none';
             }
         }
-    };
+    });
+};
 
-    // Modal Helper to avoid overwriting modal-container
-    window.app_showModal = (html, id) => {
-        const container = document.getElementById('modal-container');
-        if (!container) return;
-        // Remove existing modal with same ID if any
-        const existing = document.getElementById(id);
-        if (existing) existing.remove();
+window.app_closeNotificationHistory = () => {
+    document.getElementById('notification-history-modal')?.remove();
+};
 
-        container.insertAdjacentHTML('beforeend', html);
-        const modalEl = document.getElementById(id);
-        if (modalEl && (modalEl.classList.contains('modal-overlay') || modalEl.classList.contains('modal'))) {
-            const overlays = Array.from(document.querySelectorAll('.modal-overlay, .modal'))
-                .filter(el => el !== modalEl);
-            const maxZ = overlays.reduce((acc, el) => {
-                const z = Number.parseInt(window.getComputedStyle(el).zIndex, 10);
-                return Number.isFinite(z) ? Math.max(acc, z) : acc;
-            }, 1000);
-            modalEl.style.zIndex = String(maxZ + 2);
-        }
-    };
+window.app_respondNotificationFromHistory = async (notifIndex, notifId, action) => {
+    const currentUser = window.AppAuth.getUser();
+    if (!currentUser) return;
 
-    const escapeDialogHtml = (value) => {
-        return String(value ?? '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-    };
+    const decision = action === 'approve' ? 'approve' : 'reject';
+    const freshUser = await window.AppDB.get('users', currentUser.id);
+    if (!freshUser || !Array.isArray(freshUser.notifications)) {
+        alert('Notification not found.');
+        return;
+    }
 
-    const renderDialogMessage = (message) => {
-        return escapeDialogHtml(message).replace(/\n/g, '<br>');
-    };
+    let notif = null;
+    let resolvedIndex = -1;
+    if (Number.isInteger(notifIndex) && notifIndex >= 0 && freshUser.notifications[notifIndex]) {
+        notif = freshUser.notifications[notifIndex];
+        resolvedIndex = notifIndex;
+    }
+    if (!notif && notifId) {
+        resolvedIndex = freshUser.notifications.findIndex(n => String(n.id) === String(notifId));
+        if (resolvedIndex >= 0) notif = freshUser.notifications[resolvedIndex];
+    }
+    if (!notif) {
+        alert('This notification is no longer available.');
+        return;
+    }
+    if (!isPendingNotif(notif)) {
+        alert('This notification has already been responded.');
+        await window.app_refreshNotificationBell();
+        return;
+    }
 
-    const toSafeNotifStatus = (notif) => String(notif?.status || 'pending').toLowerCase();
-    const isPendingNotif = (notif) => toSafeNotifStatus(notif) === 'pending';
+    window.app_closeNotificationHistory();
 
-    const getNotifSource = (notif) => {
-        if (notif?.type === 'minute-access-request') return 'Minutes';
-        if (notif?.type === 'task') return 'Task';
-        if (notif?.type === 'tag' || notif?.type === 'mention') return 'Tag';
-        if (notif?.type === 'reminder') return 'Reminder';
-        return 'Notification';
-    };
+    if (notif.type === 'minute-access-request' && window.app_isAdminUser(currentUser)) {
+        await window.app_reviewMinuteAccessFromNotification(resolvedIndex, notif.id, decision === 'approve' ? 'approved' : 'rejected');
+        return;
+    }
 
-    const getNotifPreview = (notif) => {
-        return String(
-            notif?.description
-            || notif?.message
-            || notif?.title
-            || ''
-        ).trim();
-    };
+    const taskIndex = Number(notif.taskIndex);
+    if (notif.planId && Number.isInteger(taskIndex) && taskIndex >= 0) {
+        await window.app_handleTagResponse(notif.planId, taskIndex, decision === 'approve' ? 'accepted' : 'rejected', resolvedIndex);
+        return;
+    }
 
-    const getNotifTimeLabel = (notif) => {
-        const raw = notif?.respondedAt || notif?.taggedAt || notif?.date;
-        const ts = new Date(raw).getTime();
-        if (!ts) return 'Unknown time';
-        const diffMins = Math.max(0, Math.floor((Date.now() - ts) / 60000));
-        const age = diffMins < 1
-            ? 'just now'
-            : diffMins < 60
-                ? `${diffMins} mins ago`
-                : diffMins < 1440
-                    ? `${Math.floor(diffMins / 60)} hrs ago`
-                    : `${Math.floor(diffMins / 1440)} days ago`;
-        return `${new Date(ts).toLocaleString()} (${age})`;
-    };
+    if (notif.id) {
+        await window.app_handleTagDecision(notif.id, decision === 'approve' ? 'accepted' : 'rejected');
+        return;
+    }
 
-    window.app_refreshNotificationBell = async () => {
-        const buttons = document.querySelectorAll('.top-notification-btn');
-        if (!buttons.length) return;
+    alert('This notification cannot be approved or rejected from history.');
+};
 
-        const user = window.AppAuth.getUser();
-        const notifications = Array.isArray(user?.notifications) ? user.notifications : [];
-        const pendingCount = notifications.filter(isPendingNotif).length;
+window.app_openNotificationHistory = async () => {
+    const currentUser = window.AppAuth.getUser();
+    if (!currentUser) return;
 
-        buttons.forEach((btn) => {
-            const badge = btn.querySelector('.top-notification-badge');
-            if (!user) {
-                btn.classList.remove('has-pending');
-                if (badge) badge.style.display = 'none';
-                return;
-            }
-            btn.classList.toggle('has-pending', pendingCount > 0);
-            btn.setAttribute('title', pendingCount > 0
-                ? `${pendingCount} pending notification${pendingCount > 1 ? 's' : ''}`
-                : 'Notification history');
-            if (badge) {
-                if (pendingCount > 0) {
-                    badge.textContent = pendingCount > 99 ? '99+' : String(pendingCount);
-                    badge.style.display = '';
-                } else {
-                    badge.style.display = 'none';
-                }
-            }
-        });
-    };
+    const freshUser = await window.AppDB.get('users', currentUser.id).catch(() => currentUser);
+    const notifications = Array.isArray(freshUser?.notifications) ? freshUser.notifications : [];
+    const tagHistory = Array.isArray(freshUser?.tagHistory) ? freshUser.tagHistory : [];
 
-    window.app_closeNotificationHistory = () => {
-        document.getElementById('notification-history-modal')?.remove();
-    };
+    const rows = [
+        ...notifications.map((n, index) => ({ ...n, _source: 'live', _index: index })),
+        ...tagHistory.map((h) => ({ ...h, _source: 'history', _index: -1 }))
+    ].sort((a, b) => {
+        const ta = new Date(a.respondedAt || a.taggedAt || a.date || 0).getTime();
+        const tb = new Date(b.respondedAt || b.taggedAt || b.date || 0).getTime();
+        return tb - ta;
+    });
 
-    window.app_respondNotificationFromHistory = async (notifIndex, notifId, action) => {
-        const currentUser = window.AppAuth.getUser();
-        if (!currentUser) return;
-
-        const decision = action === 'approve' ? 'approve' : 'reject';
-        const freshUser = await window.AppDB.get('users', currentUser.id);
-        if (!freshUser || !Array.isArray(freshUser.notifications)) {
-            alert('Notification not found.');
-            return;
-        }
-
-        let notif = null;
-        let resolvedIndex = -1;
-        if (Number.isInteger(notifIndex) && notifIndex >= 0 && freshUser.notifications[notifIndex]) {
-            notif = freshUser.notifications[notifIndex];
-            resolvedIndex = notifIndex;
-        }
-        if (!notif && notifId) {
-            resolvedIndex = freshUser.notifications.findIndex(n => String(n.id) === String(notifId));
-            if (resolvedIndex >= 0) notif = freshUser.notifications[resolvedIndex];
-        }
-        if (!notif) {
-            alert('This notification is no longer available.');
-            return;
-        }
-        if (!isPendingNotif(notif)) {
-            alert('This notification has already been responded.');
-            await window.app_refreshNotificationBell();
-            return;
-        }
-
-        window.app_closeNotificationHistory();
-
-        if (notif.type === 'minute-access-request' && window.app_isAdminUser(currentUser)) {
-            await window.app_reviewMinuteAccessFromNotification(resolvedIndex, notif.id, decision === 'approve' ? 'approved' : 'rejected');
-            return;
-        }
-
-        const taskIndex = Number(notif.taskIndex);
-        if (notif.planId && Number.isInteger(taskIndex) && taskIndex >= 0) {
-            await window.app_handleTagResponse(notif.planId, taskIndex, decision === 'approve' ? 'accepted' : 'rejected', resolvedIndex);
-            return;
-        }
-
-        if (notif.id) {
-            await window.app_handleTagDecision(notif.id, decision === 'approve' ? 'accepted' : 'rejected');
-            return;
-        }
-
-        alert('This notification cannot be approved or rejected from history.');
-    };
-
-    window.app_openNotificationHistory = async () => {
-        const currentUser = window.AppAuth.getUser();
-        if (!currentUser) return;
-
-        const freshUser = await window.AppDB.get('users', currentUser.id).catch(() => currentUser);
-        const notifications = Array.isArray(freshUser?.notifications) ? freshUser.notifications : [];
-        const tagHistory = Array.isArray(freshUser?.tagHistory) ? freshUser.tagHistory : [];
-
-        const rows = [
-            ...notifications.map((n, index) => ({ ...n, _source: 'live', _index: index })),
-            ...tagHistory.map((h) => ({ ...h, _source: 'history', _index: -1 }))
-        ].sort((a, b) => {
-            const ta = new Date(a.respondedAt || a.taggedAt || a.date || 0).getTime();
-            const tb = new Date(b.respondedAt || b.taggedAt || b.date || 0).getTime();
-            return tb - ta;
-        });
-
-        const listHtml = rows.length
-            ? rows.map((row) => {
-                const status = toSafeNotifStatus(row);
-                const pending = status === 'pending' && row._source === 'live';
-                const source = getNotifSource(row);
-                const sender = row.taggedByName || 'System';
-                const title = row.title || `${source} from ${sender}`;
-                const summary = getNotifPreview(row);
-                const notifIdArg = JSON.stringify(String(row.id || ''));
-                return `
+    const listHtml = rows.length
+        ? rows.map((row) => {
+            const status = toSafeNotifStatus(row);
+            const pending = status === 'pending' && row._source === 'live';
+            const source = getNotifSource(row);
+            const sender = row.taggedByName || 'System';
+            const title = row.title || `${source} from ${sender}`;
+            const summary = getNotifPreview(row);
+            const notifIdArg = JSON.stringify(String(row.id || ''));
+            return `
                     <div class="notification-history-item ${pending ? 'is-pending' : ''}">
                         <div class="notification-history-item-head">
                             <div>
@@ -658,10 +672,10 @@
                         ` : ''}
                     </div>
                 `;
-            }).join('')
-            : '<div class="notification-history-item">No notification history found.</div>';
+        }).join('')
+        : '<div class="notification-history-item">No notification history found.</div>';
 
-        const html = `
+    const html = `
             <div class="modal-overlay" id="notification-history-modal" style="display:flex;">
                 <div class="modal-content notification-history-modal">
                     <div class="notification-history-head">
@@ -675,25 +689,25 @@
                 </div>
             </div>
         `;
-        window.app_showModal(html, 'notification-history-modal');
-        await window.app_refreshNotificationBell();
-    };
+    window.app_showModal(html, 'notification-history-modal');
+    await window.app_refreshNotificationBell();
+};
 
-    window.app_systemDialog = function ({
-        title = 'Notice',
-        message = '',
-        mode = 'alert',
-        defaultValue = '',
-        confirmText = 'OK',
-        cancelText = 'Cancel',
-        placeholder = ''
-    } = {}) {
-        return new Promise((resolve) => {
-            const modalId = `system-dialog-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-            const inputId = `${modalId}-input`;
-            const isPrompt = mode === 'prompt';
-            const isConfirm = mode === 'confirm' || mode === 'prompt';
-            const html = `
+window.app_systemDialog = function ({
+    title = 'Notice',
+    message = '',
+    mode = 'alert',
+    defaultValue = '',
+    confirmText = 'OK',
+    cancelText = 'Cancel',
+    placeholder = ''
+} = {}) {
+    return new Promise((resolve) => {
+        const modalId = `system-dialog-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        const inputId = `${modalId}-input`;
+        const isPrompt = mode === 'prompt';
+        const isConfirm = mode === 'confirm' || mode === 'prompt';
+        const html = `
                 <div class="modal-overlay app-system-dialog-overlay" id="${modalId}" style="display:flex;">
                     <div class="modal-content app-system-dialog">
                         <div class="app-system-dialog-head">
@@ -712,69 +726,69 @@
                 </div>
             `;
 
-            // Mount system dialogs at top-level body so they always appear above active screens.
-            (document.body || document.getElementById('modal-container')).insertAdjacentHTML('beforeend', html);
+        // Mount system dialogs at top-level body so they always appear above active screens.
+        (document.body || document.getElementById('modal-container')).insertAdjacentHTML('beforeend', html);
 
-            const modalEl = document.getElementById(modalId);
-            if (!modalEl) {
-                resolve(isPrompt ? null : false);
-                return;
-            }
-            modalEl.style.zIndex = '20000';
-            const confirmBtn = modalEl.querySelector('.app-system-dialog-confirm');
-            const cancelBtn = modalEl.querySelector('.app-system-dialog-cancel');
-            const closeBtn = modalEl.querySelector('.app-system-dialog-close');
-            const inputEl = isPrompt ? modalEl.querySelector(`#${inputId}`) : null;
+        const modalEl = document.getElementById(modalId);
+        if (!modalEl) {
+            resolve(isPrompt ? null : false);
+            return;
+        }
+        modalEl.style.zIndex = '20000';
+        const confirmBtn = modalEl.querySelector('.app-system-dialog-confirm');
+        const cancelBtn = modalEl.querySelector('.app-system-dialog-cancel');
+        const closeBtn = modalEl.querySelector('.app-system-dialog-close');
+        const inputEl = isPrompt ? modalEl.querySelector(`#${inputId}`) : null;
 
-            const cleanup = (result) => {
-                modalEl.remove();
-                resolve(result);
-            };
+        const cleanup = (result) => {
+            modalEl.remove();
+            resolve(result);
+        };
 
-            confirmBtn?.addEventListener('click', () => {
+        confirmBtn?.addEventListener('click', () => {
+            cleanup(isPrompt ? (inputEl ? inputEl.value : '') : true);
+        });
+        cancelBtn?.addEventListener('click', () => cleanup(isPrompt ? null : false));
+        closeBtn?.addEventListener('click', () => cleanup(isPrompt ? null : false));
+        modalEl.addEventListener('click', (ev) => {
+            if (ev.target === modalEl) cleanup(isPrompt ? null : false);
+        });
+        modalEl.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Escape') cleanup(isPrompt ? null : false);
+            if (ev.key === 'Enter') {
+                ev.preventDefault();
                 cleanup(isPrompt ? (inputEl ? inputEl.value : '') : true);
-            });
-            cancelBtn?.addEventListener('click', () => cleanup(isPrompt ? null : false));
-            closeBtn?.addEventListener('click', () => cleanup(isPrompt ? null : false));
-            modalEl.addEventListener('click', (ev) => {
-                if (ev.target === modalEl) cleanup(isPrompt ? null : false);
-            });
-            modalEl.addEventListener('keydown', (ev) => {
-                if (ev.key === 'Escape') cleanup(isPrompt ? null : false);
-                if (ev.key === 'Enter') {
-                    ev.preventDefault();
-                    cleanup(isPrompt ? (inputEl ? inputEl.value : '') : true);
-                }
-            });
-
-            if (inputEl) {
-                inputEl.focus();
-                inputEl.select();
-            } else {
-                confirmBtn?.focus();
             }
         });
-    };
 
-    window.appAlert = (message, title = 'Notice') => window.app_systemDialog({ title, message, mode: 'alert', confirmText: 'OK' });
-    window.appConfirm = (message, title = 'Please Confirm') => window.app_systemDialog({ title, message, mode: 'confirm', confirmText: 'Confirm', cancelText: 'Cancel' });
-    window.appPrompt = (message, defaultValue = '', opts = {}) => window.app_systemDialog({
-        title: opts.title || 'Enter Details',
-        message,
-        mode: 'prompt',
-        defaultValue,
-        confirmText: opts.confirmText || 'Save',
-        cancelText: opts.cancelText || 'Cancel',
-        placeholder: opts.placeholder || ''
+        if (inputEl) {
+            inputEl.focus();
+            inputEl.select();
+        } else {
+            confirmBtn?.focus();
+        }
     });
-    window.alert = (message) => {
-        window.appAlert(message);
-    };
+};
 
-    // Initialize Global App Logic
-    // --- Yearly Plan / Calendar Logic ---
-    window.app_openEventModal = () => {
-        const html = `
+window.appAlert = (message, title = 'Notice') => window.app_systemDialog({ title, message, mode: 'alert', confirmText: 'OK' });
+window.appConfirm = (message, title = 'Please Confirm') => window.app_systemDialog({ title, message, mode: 'confirm', confirmText: 'Confirm', cancelText: 'Cancel' });
+window.appPrompt = (message, defaultValue = '', opts = {}) => window.app_systemDialog({
+    title: opts.title || 'Enter Details',
+    message,
+    mode: 'prompt',
+    defaultValue,
+    confirmText: opts.confirmText || 'Save',
+    cancelText: opts.cancelText || 'Cancel',
+    placeholder: opts.placeholder || ''
+});
+window.alert = (message) => {
+    window.appAlert(message);
+};
+
+// Initialize Global App Logic
+// --- Yearly Plan / Calendar Logic ---
+window.app_openEventModal = () => {
+    const html = `
             <div class="modal-overlay" id="event-modal" style="display:flex;">
                 <div class="modal-content">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
@@ -805,845 +819,789 @@
                 </div>
             </div>
         `;
-        window.app_showModal(html, 'event-modal');
-    };
+    window.app_showModal(html, 'event-modal');
+};
 
-    window.app_submitEvent = async (e) => {
-        e.preventDefault();
-        const title = document.getElementById('event-title').value;
-        const date = document.getElementById('event-date').value;
-        const type = document.getElementById('event-type').value;
+window.app_submitEvent = async (e) => {
+    e.preventDefault();
+    const title = document.getElementById('event-title').value;
+    const date = document.getElementById('event-date').value;
+    const type = document.getElementById('event-type').value;
 
-        try {
-            await window.AppCalendar.addEvent({ title, date, type });
-            alert("Event added successfully!");
-            document.getElementById('event-modal')?.remove();
-            // Refresh Dashboard
-            const contentArea = document.getElementById('page-content');
-            contentArea.innerHTML = await window.AppUI.renderDashboard();
-            setupDashboardEvents();
-        } catch (err) {
-            alert("Error: " + err.message);
+    try {
+        await window.AppCalendar.addEvent({ title, date, type });
+        alert("Event added successfully!");
+        document.getElementById('event-modal')?.remove();
+        // Refresh Dashboard
+        const contentArea = document.getElementById('page-content');
+        contentArea.innerHTML = await window.AppUI.renderDashboard();
+        setupDashboardEvents();
+    } catch (err) {
+        alert("Error: " + err.message);
+    }
+};
+
+// --- Original Login/Auth Logic ---
+async function init() {
+    window.app_initTheme();
+    cleanURL();
+    window.addEventListener('app:user-sync', handleUserSyncEvent);
+    window.addEventListener('app:update-available', applyUpdateCtaState);
+    window.addEventListener('app:update-countdown', applyUpdateCtaState);
+    try {
+        await window.AppAuth.init();
+        const initialUser = window.AppAuth.getUser();
+        if (initialUser) {
+            lastSyncedAttendanceStatus = initialUser.status || 'out';
+            startReleaseSignalListener();
         }
-    };
+        registerSW();
 
-    // --- Original Login/Auth Logic ---
-    async function init() {
-        window.app_initTheme();
-        cleanURL();
-        window.addEventListener('app:user-sync', handleUserSyncEvent);
-        window.addEventListener('app:update-available', applyUpdateCtaState);
-        window.addEventListener('app:update-countdown', applyUpdateCtaState);
-        try {
-            await window.AppAuth.init();
-            const initialUser = window.AppAuth.getUser();
-            if (initialUser) {
-                lastSyncedAttendanceStatus = initialUser.status || 'out';
-                startReleaseSignalListener();
-            }
-            registerSW();
-
-            // Ensure Activity Command Listener starts even if not checked in
-            if (window.AppActivity) window.AppActivity.initCommandListener();
-        } catch (e) {
-            console.error("Initialization Failed:", e);
-            if (contentArea) contentArea.innerHTML = `<div style="text-align:center; padding:2rem; color:red;">Failed to load application.<br><small>${e.message}</small></div>`;
-        }
-
-        // Global Toggles
-        document.addEventListener('click', (e) => {
-            if (e.target.id === 'sidebar-toggle' || e.target.closest('#sidebar-toggle')) {
-                toggleMobileSidebar(true);
-            } else if (e.target.id === 'sidebar-overlay') {
-                toggleMobileSidebar(false);
-            }
-        });
-
-        window.addEventListener('hashchange', router);
-        router();
-
-        // Trigger Tour if applicable
-        const currentUser = window.AppAuth.getUser();
-        if (currentUser && window.AppTour) {
-            window.AppTour.init(currentUser);
-        }
+        // Ensure Activity Command Listener starts even if not checked in
+        if (window.AppActivity) window.AppActivity.initCommandListener();
+    } catch (e) {
+        console.error("Initialization Failed:", e);
+        if (contentArea) contentArea.innerHTML = `<div style="text-align:center; padding:2rem; color:red;">Failed to load application.<br><small>${e.message}</small></div>`;
     }
 
-    // Router
-    async function router() {
-        const user = window.AppAuth.getUser();
-        const hash = window.location.hash.slice(1) || 'dashboard';
-
-        // Cleanup
-        if (hash !== 'admin' && adminListenerUnsubscribe && adminListenerUnsubscribe.length > 0) {
-            console.log("Cleaning up Admin Realtime Listener.");
-            adminListenerUnsubscribe.forEach(u => typeof u === 'function' && u());
-            adminListenerUnsubscribe = [];
+    // Global Toggles
+    document.addEventListener('click', (e) => {
+        if (e.target.id === 'sidebar-toggle' || e.target.closest('#sidebar-toggle')) {
+            toggleMobileSidebar(true);
+        } else if (e.target.id === 'sidebar-overlay') {
+            toggleMobileSidebar(false);
         }
-        if (hash !== 'minutes' && typeof minutesListenerUnsubscribe === 'function') {
-            console.log("Cleaning up Minutes Realtime Listener.");
-            minutesListenerUnsubscribe();
-            minutesListenerUnsubscribe = null;
+    });
+
+    window.addEventListener('hashchange', router);
+    router();
+
+    // Trigger Tour if applicable
+    const currentUser = window.AppAuth.getUser();
+    if (currentUser && window.AppTour) {
+        window.AppTour.init(currentUser);
+    }
+}
+
+// Router
+async function router() {
+    const user = window.AppAuth.getUser();
+    const hash = window.location.hash.slice(1) || 'dashboard';
+
+    // Cleanup
+    if (hash !== 'admin' && adminListenerUnsubscribe && adminListenerUnsubscribe.length > 0) {
+        console.log("Cleaning up Admin Realtime Listener.");
+        adminListenerUnsubscribe.forEach(u => typeof u === 'function' && u());
+        adminListenerUnsubscribe = [];
+    }
+    if (hash !== 'minutes' && typeof minutesListenerUnsubscribe === 'function') {
+        console.log("Cleaning up Minutes Realtime Listener.");
+        minutesListenerUnsubscribe();
+        minutesListenerUnsubscribe = null;
+    }
+
+    // AUTH GUARD
+    if (!user) {
+        stopReleaseSignalListener();
+        if (sidebar) sidebar.style.display = 'none';
+        if (mobileHeader) mobileHeader.style.display = 'none';
+        if (mobileNav) mobileNav.style.display = 'none';
+        document.body.style.background = '#f3f4f6';
+        if (contentArea) contentArea.innerHTML = window.AppUI.renderLogin();
+        if (window.app_refreshNotificationBell) {
+            await window.app_refreshNotificationBell();
         }
+        return;
+    }
+    startReleaseSignalListener();
 
-        // AUTH GUARD
-        if (!user) {
-            stopReleaseSignalListener();
-            if (sidebar) sidebar.style.display = 'none';
-            if (mobileHeader) mobileHeader.style.display = 'none';
-            if (mobileNav) mobileNav.style.display = 'none';
-            document.body.style.background = '#f3f4f6';
-            if (contentArea) contentArea.innerHTML = window.AppUI.renderLogin();
-            if (window.app_refreshNotificationBell) {
-                await window.app_refreshNotificationBell();
-            }
-            return;
-        }
-        startReleaseSignalListener();
+    // LOGGED IN
+    // Clear mobile specific states on route change
+    toggleMobileSidebar(false);
 
-        // LOGGED IN
-        // Clear mobile specific states on route change
-        toggleMobileSidebar(false);
+    if (sidebar) sidebar.style.display = '';
+    if (mobileHeader) mobileHeader.style.display = '';
+    if (mobileNav) mobileNav.style.display = '';
 
-        if (sidebar) sidebar.style.display = '';
-        if (mobileHeader) mobileHeader.style.display = '';
-        if (mobileNav) mobileNav.style.display = '';
-
-        // Update Side Profile
-        const sideProfile = document.querySelector('.sidebar-footer .user-mini-profile');
-        if (sideProfile) {
-            sideProfile.innerHTML = `
+    // Update Side Profile
+    const sideProfile = document.querySelector('.sidebar-footer .user-mini-profile');
+    if (sideProfile) {
+        sideProfile.innerHTML = `
                 <img src="${user.avatar || 'https://ui-avatars.com/api/?name=User'}" alt="User">
                 <div>
                     <p class="user-name">${user.name || 'Staff Member'}</p>
                 </div>
                 <i class="fa-solid fa-gear user-settings-icon"></i>
             `;
-        }
-
-        // Admin Link logic
-        const isAdminUser = window.app_isAdminUser(user);
-        const canManageAttendanceSheet = window.app_canManageAttendanceSheet(user);
-        const strictAdminLinks = document.querySelectorAll('a[data-page="admin"], a[data-page="salary"], a[data-page="policy-test"]');
-        strictAdminLinks.forEach(link => {
-            if (isAdminUser) {
-                link.style.display = 'flex';
-            } else {
-                link.style.setProperty('display', 'none', 'important');
-            }
-        });
-        const attendanceSheetLinks = document.querySelectorAll('a[data-page="master-sheet"]');
-        attendanceSheetLinks.forEach(link => {
-            if (isAdminUser || canManageAttendanceSheet) {
-                link.style.display = 'flex';
-            } else {
-                link.style.setProperty('display', 'none', 'important');
-            }
-        });
-
-        // Active Nav
-        const navLinks = document.querySelectorAll('.nav-item, .mobile-nav-item');
-        navLinks.forEach(link => {
-            if (link.dataset.page === hash) {
-                link.classList.add('active');
-            } else {
-                link.classList.remove('active');
-            }
-        });
-
-        // Content Rendering
-        try {
-            // Render Modals into the central container if not already present
-            const modalContainer = document.getElementById('modal-container');
-            if (modalContainer && !document.getElementById('checkout-modal')) {
-                modalContainer.insertAdjacentHTML('beforeend', window.AppUI.renderModals());
-            }
-
-            // Show Loading State immediately
-            if (contentArea) contentArea.innerHTML = '<div class="loading-spinner"></div>';
-
-            if (hash === 'dashboard') {
-                contentArea.innerHTML = await window.AppUI.renderDashboard();
-                setupDashboardEvents();
-            } else if (hash === 'staff-directory') {
-                contentArea.innerHTML = await window.AppUI.renderStaffDirectoryPage();
-            } else if (hash === 'policies') {
-                if (window.AppPolicies && typeof window.AppPolicies.render === 'function') {
-                    contentArea.innerHTML = await window.AppPolicies.render();
-                } else {
-                    contentArea.innerHTML = `<div style="padding:1rem; color:#b91c1c;">Policies module failed to load.</div>`;
-                }
-            } else if (hash === 'annual-plan') {
-                contentArea.innerHTML = await window.AppUI.renderAnnualPlan();
-            } else if (hash === 'timesheet') {
-                contentArea.innerHTML = await window.AppUI.renderTimesheet();
-            } else if (hash === 'profile') {
-                contentArea.innerHTML = await window.AppUI.renderProfile();
-            } else if (hash === 'salary') {
-                if (!window.app_isAdminUser(user)) {
-                    window.location.hash = 'dashboard';
-                    return;
-                }
-                contentArea.innerHTML = await window.AppUI.renderSalaryProcessing ? await window.AppUI.renderSalaryProcessing() : await window.AppUI.renderSalary();
-            } else if (hash === 'policy-test') {
-                if (!window.app_isAdminUser(user)) {
-                    window.location.hash = 'dashboard';
-                    return;
-                }
-                contentArea.innerHTML = await window.AppUI.renderPolicyTest();
-            } else if (hash === 'master-sheet') {
-                if (!window.app_canManageAttendanceSheet(user)) {
-                    window.location.hash = 'dashboard';
-                    return;
-                }
-                contentArea.innerHTML = await window.AppUI.renderMasterSheet();
-            } else if (hash === 'minutes') {
-                contentArea.innerHTML = await window.AppUI.renderMinutes();
-                startMinutesRealtimeListener();
-            } else if (hash === 'admin') {
-                if (!window.app_isAdminUser(user)) {
-                    window.location.hash = 'dashboard';
-                    return;
-                }
-                contentArea.innerHTML = await window.AppUI.renderAdmin();
-                window.AppAnalytics.initAdminCharts();
-                startAdminRealtimeListener();
-            }
-            if (window.app_updateStaffNavIndicator) {
-                await window.app_updateStaffNavIndicator();
-            }
-            if (window.app_refreshNotificationBell) {
-                await window.app_refreshNotificationBell();
-            }
-        } catch (e) {
-            console.error("Render Error:", e);
-            contentArea.innerHTML = `<div style="text-align:center; color:red; padding:2rem;">Error loading page: ${e.message}</div>`;
-        }
     }
 
-    // --- Admin Realtime Listener ---
-    function startAdminRealtimeListener() {
-        // Clear previous listeners
-        adminListenerUnsubscribe.forEach(u => typeof u === 'function' && u());
-        adminListenerUnsubscribe = [];
-
-        console.log("Starting Admin Realtime Listeners (Users & Audits)...");
-
-        let refreshTimer = null;
-        const queueAdminRefresh = () => {
-            if (refreshTimer) clearTimeout(refreshTimer);
-            refreshTimer = setTimeout(async () => {
-                refreshTimer = null;
-                await refreshAdminUI();
-            }, 600);
-        };
-
-        const refreshAdminUI = async () => {
-            const currentHash = window.location.hash.slice(1);
-            if (currentHash !== 'admin') return;
-
-            const openModal = document.querySelector('.modal-overlay[style*="display: flex"], .modal[style*="display: flex"]');
-            if (!openModal) {
-                console.log("Admin Data Update Received (Realtime) - Refreshing UI");
-                const contentArea = document.getElementById('page-content');
-                if (contentArea) {
-                    // PRESERVE FILTERS
-                    const startDate = document.getElementById('audit-start')?.value;
-                    const endDate = document.getElementById('audit-end')?.value;
-
-                    contentArea.innerHTML = await window.AppUI.renderAdmin(startDate, endDate);
-                    if (window.AppAnalytics) window.AppAnalytics.initAdminCharts();
-                }
-            } else {
-                console.log("Admin Update received but skipped because a modal is open.");
-            }
-        };
-
-        const flags = (window.AppConfig && window.AppConfig.READ_OPT_FLAGS) || {};
-        if (flags.FF_READ_OPT_TARGETED_REALTIME && window.AppDB.listenQuery) {
-            // Users listener kept for status/login/logout changes; heartbeat writes are disabled by config.
-            adminListenerUnsubscribe.push(window.AppDB.listenQuery('users', [
-                { field: 'status', operator: 'in', value: ['in', 'out'] }
-            ], { limit: 300 }, queueAdminRefresh));
-
-            const since = new Date();
-            since.setDate(since.getDate() - 2);
-            adminListenerUnsubscribe.push(window.AppDB.listenQuery('location_audits', [
-                { field: 'timestamp', operator: '>=', value: since.getTime() }
-            ], { orderBy: [{ field: 'timestamp', direction: 'desc' }], limit: 300 }, queueAdminRefresh));
+    // Admin Link logic
+    const isAdminUser = window.app_isAdminUser(user);
+    const canManageAttendanceSheet = window.app_canManageAttendanceSheet(user);
+    const strictAdminLinks = document.querySelectorAll('a[data-page="admin"], a[data-page="salary"], a[data-page="policy-test"]');
+    strictAdminLinks.forEach(link => {
+        if (isAdminUser) {
+            link.style.display = 'flex';
         } else {
-            // Legacy mode
-            adminListenerUnsubscribe.push(window.AppDB.listen('users', queueAdminRefresh));
-            adminListenerUnsubscribe.push(window.AppDB.listen('location_audits', queueAdminRefresh));
+            link.style.setProperty('display', 'none', 'important');
         }
-    }
-
-    function startMinutesRealtimeListener() {
-        if (!window.AppDB || !window.AppDB.listen) return;
-        if (typeof minutesListenerUnsubscribe === 'function') {
-            minutesListenerUnsubscribe();
-            minutesListenerUnsubscribe = null;
-        }
-
-        const refreshMinutesUI = async () => {
-            const currentHash = window.location.hash.slice(1) || 'dashboard';
-            if (currentHash !== 'minutes') return;
-            if (document.getElementById('minute-detail-modal')) return;
-
-            const page = document.getElementById('page-content');
-            if (!page) return;
-            page.innerHTML = await window.AppUI.renderMinutes();
-        };
-
-        const flags = (window.AppConfig && window.AppConfig.READ_OPT_FLAGS) || {};
-        if (flags.FF_READ_OPT_TARGETED_REALTIME && window.AppDB.listenQuery) {
-            minutesListenerUnsubscribe = window.AppDB.listenQuery(
-                'minutes',
-                [],
-                { orderBy: [{ field: 'date', direction: 'desc' }], limit: 150 },
-                refreshMinutesUI
-            );
+    });
+    const attendanceSheetLinks = document.querySelectorAll('a[data-page="master-sheet"]');
+    attendanceSheetLinks.forEach(link => {
+        if (isAdminUser || canManageAttendanceSheet) {
+            link.style.display = 'flex';
         } else {
-            minutesListenerUnsubscribe = window.AppDB.listen('minutes', refreshMinutesUI);
+            link.style.setProperty('display', 'none', 'important');
         }
+    });
+
+    // Active Nav
+    const navLinks = document.querySelectorAll('.nav-item, .mobile-nav-item');
+    navLinks.forEach(link => {
+        if (link.dataset.page === hash) {
+            link.classList.add('active');
+        } else {
+            link.classList.remove('active');
+        }
+    });
+
+    // Content Rendering
+    try {
+        // Render Modals into the central container if not already present
+        const modalContainer = document.getElementById('modal-container');
+        if (modalContainer && !document.getElementById('checkout-modal')) {
+            modalContainer.insertAdjacentHTML('beforeend', window.AppUI.renderModals());
+        }
+
+        // Show Loading State immediately
+        if (contentArea) contentArea.innerHTML = '<div class="loading-spinner"></div>';
+
+        if (hash === 'dashboard') {
+            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            setupDashboardEvents();
+        } else if (hash === 'staff-directory') {
+            contentArea.innerHTML = await window.AppUI.renderStaffDirectoryPage();
+        } else if (hash === 'policies') {
+            if (window.AppPolicies && typeof window.AppPolicies.render === 'function') {
+                contentArea.innerHTML = await window.AppPolicies.render();
+            } else {
+                contentArea.innerHTML = `<div style="padding:1rem; color:#b91c1c;">Policies module failed to load.</div>`;
+            }
+        } else if (hash === 'annual-plan') {
+            contentArea.innerHTML = await window.AppUI.renderAnnualPlan();
+        } else if (hash === 'timesheet') {
+            contentArea.innerHTML = await window.AppUI.renderTimesheet();
+        } else if (hash === 'profile') {
+            contentArea.innerHTML = await window.AppUI.renderProfile();
+        } else if (hash === 'salary') {
+            if (!window.app_isAdminUser(user)) {
+                window.location.hash = 'dashboard';
+                return;
+            }
+            contentArea.innerHTML = await window.AppUI.renderSalaryProcessing ? await window.AppUI.renderSalaryProcessing() : await window.AppUI.renderSalary();
+        } else if (hash === 'policy-test') {
+            if (!window.app_isAdminUser(user)) {
+                window.location.hash = 'dashboard';
+                return;
+            }
+            contentArea.innerHTML = await window.AppUI.renderPolicyTest();
+        } else if (hash === 'master-sheet') {
+            if (!window.app_canManageAttendanceSheet(user)) {
+                window.location.hash = 'dashboard';
+                return;
+            }
+            contentArea.innerHTML = await window.AppUI.renderMasterSheet();
+        } else if (hash === 'minutes') {
+            contentArea.innerHTML = await window.AppUI.renderMinutes();
+            startMinutesRealtimeListener();
+        } else if (hash === 'admin') {
+            if (!window.app_isAdminUser(user)) {
+                window.location.hash = 'dashboard';
+                return;
+            }
+            contentArea.innerHTML = await window.AppUI.renderAdmin();
+            window.AppAnalytics.initAdminCharts();
+            startAdminRealtimeListener();
+        }
+        if (window.app_updateStaffNavIndicator) {
+            await window.app_updateStaffNavIndicator();
+        }
+        if (window.app_refreshNotificationBell) {
+            await window.app_refreshNotificationBell();
+        }
+    } catch (e) {
+        console.error("Render Error:", e);
+        contentArea.innerHTML = `<div style="text-align:center; color:red; padding:2rem;">Error loading page: ${e.message}</div>`;
+    }
+}
+
+// --- Admin Realtime Listener ---
+function startAdminRealtimeListener() {
+    // Clear previous listeners
+    adminListenerUnsubscribe.forEach(u => typeof u === 'function' && u());
+    adminListenerUnsubscribe = [];
+
+    console.log("Starting Admin Realtime Listeners (Users & Audits)...");
+
+    let refreshTimer = null;
+    const queueAdminRefresh = () => {
+        if (refreshTimer) clearTimeout(refreshTimer);
+        refreshTimer = setTimeout(async () => {
+            refreshTimer = null;
+            await refreshAdminUI();
+        }, 600);
+    };
+
+    const refreshAdminUI = async () => {
+        const currentHash = window.location.hash.slice(1);
+        if (currentHash !== 'admin') return;
+
+        const openModal = document.querySelector('.modal-overlay[style*="display: flex"], .modal[style*="display: flex"]');
+        if (!openModal) {
+            console.log("Admin Data Update Received (Realtime) - Refreshing UI");
+            const contentArea = document.getElementById('page-content');
+            if (contentArea) {
+                // PRESERVE FILTERS
+                const startDate = document.getElementById('audit-start')?.value;
+                const endDate = document.getElementById('audit-end')?.value;
+
+                contentArea.innerHTML = await window.AppUI.renderAdmin(startDate, endDate);
+                if (window.AppAnalytics) window.AppAnalytics.initAdminCharts();
+            }
+        } else {
+            console.log("Admin Update received but skipped because a modal is open.");
+        }
+    };
+
+    const flags = (window.AppConfig && window.AppConfig.READ_OPT_FLAGS) || {};
+    if (flags.FF_READ_OPT_TARGETED_REALTIME && window.AppDB.listenQuery) {
+        // Users listener kept for status/login/logout changes; heartbeat writes are disabled by config.
+        adminListenerUnsubscribe.push(window.AppDB.listenQuery('users', [
+            { field: 'status', operator: 'in', value: ['in', 'out'] }
+        ], { limit: 300 }, queueAdminRefresh));
+
+        const since = new Date();
+        since.setDate(since.getDate() - 2);
+        adminListenerUnsubscribe.push(window.AppDB.listenQuery('location_audits', [
+            { field: 'timestamp', operator: '>=', value: since.getTime() }
+        ], { orderBy: [{ field: 'timestamp', direction: 'desc' }], limit: 300 }, queueAdminRefresh));
+    } else {
+        // Legacy mode
+        adminListenerUnsubscribe.push(window.AppDB.listen('users', queueAdminRefresh));
+        adminListenerUnsubscribe.push(window.AppDB.listen('location_audits', queueAdminRefresh));
+    }
+}
+
+function startMinutesRealtimeListener() {
+    if (!window.AppDB || !window.AppDB.listen) return;
+    if (typeof minutesListenerUnsubscribe === 'function') {
+        minutesListenerUnsubscribe();
+        minutesListenerUnsubscribe = null;
     }
 
-    // --- Event Handlers ---
+    const refreshMinutesUI = async () => {
+        const currentHash = window.location.hash.slice(1) || 'dashboard';
+        if (currentHash !== 'minutes') return;
+        if (document.getElementById('minute-detail-modal')) return;
 
-    function startTimer(targetUser = null, readOnly = false) {
-        if (timerInterval) clearInterval(timerInterval);
+        const page = document.getElementById('page-content');
+        if (!page) return;
+        page.innerHTML = await window.AppUI.renderMinutes();
+    };
 
-        const updateTimerUI = async () => {
-            let status = 'out';
-            let lastCheckIn = null;
-            if (targetUser) {
-                status = targetUser.status || 'out';
-                lastCheckIn = targetUser.lastCheckIn || null;
-            } else {
-                const statusInfo = await window.AppAttendance.getStatus();
-                status = statusInfo.status;
-                lastCheckIn = statusInfo.lastCheckIn;
-            }
-            const display = document.getElementById('timer-display');
-            const countdownContainer = document.getElementById('countdown-container');
-            const overtimeContainer = document.getElementById('overtime-container');
-            const countdownValue = document.getElementById('countdown-value');
-            const countdownProgress = document.getElementById('countdown-progress');
-            const overtimeValue = document.getElementById('overtime-value');
-            const timerLabel = document.getElementById('timer-label');
-
-            if (status === 'in' && lastCheckIn) {
-                // Determine Target Time (Example: 5:00 PM if Weekday)
-                const checkInDate = new Date(lastCheckIn);
-                const today = new Date();
-                const checkInLocalDate = `${checkInDate.getFullYear()}-${String(checkInDate.getMonth() + 1).padStart(2, '0')}-${String(checkInDate.getDate()).padStart(2, '0')}`;
-                const todayLocalDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-                const isStaleSession = checkInLocalDate !== todayLocalDate;
-                const targetTime = new Date(checkInDate); // Clone date
-                targetTime.setHours(17, 0, 0, 0); // 5:00 PM default
-
-                const day = checkInDate.getDay();
-                if (day === 6) targetTime.setHours(13, 0, 0, 0); // Saturday 1 PM target
-                if (day === 0) targetTime.setHours(17, 0, 0, 0); // Sunday (Default 5pm if working)
-
-                // Timer Interval
-                timerInterval = setInterval(() => {
-                    const now = Date.now();
-                    const diff = now - lastCheckIn; // Total Worked (Elapsed)
-
-                    // Format Elapsed (Main Timer)
-                    if (display) {
-                        let hrs = Math.floor(diff / (1000 * 60 * 60));
-                        let mins = Math.floor((diff / (1000 * 60)) % 60);
-                        let secs = Math.floor((diff / 1000) % 60);
-
-                        hrs = (hrs < 10) ? "0" + hrs : hrs;
-                        mins = (mins < 10) ? "0" + mins : mins;
-                        secs = (secs < 10) ? "0" + secs : secs;
-                        display.textContent = `${hrs} : ${mins} : ${secs}`;
-                    }
-
-                    // If session started on a previous day, avoid confusing overtime UI.
-                    if (isStaleSession) {
-                        if (countdownContainer) countdownContainer.style.display = 'none';
-                        if (overtimeContainer) overtimeContainer.style.display = 'none';
-                        if (display) display.style.color = '#b45309';
-                        if (timerLabel) {
-                            timerLabel.textContent = 'Session Carryover (Please Check Out)';
-                            timerLabel.style.color = '#b45309';
-                        }
-                        return;
-                    }
-
-                    // Countdown / Overtime Logic
-                    const timeToTarget = targetTime.getTime() - now;
-
-                    if (timeToTarget > 0) {
-                        // Regular Work Time
-                        if (countdownContainer) countdownContainer.style.display = 'block';
-                        if (overtimeContainer) overtimeContainer.style.display = 'none';
-                        if (timerLabel) {
-                            timerLabel.textContent = 'Elapsed Time';
-                            timerLabel.style.color = '#6b7280';
-                        }
-                        if (display) display.style.color = '#1f2937';
-
-                        // Calculate Remaining
-                        let rHrs = Math.floor((timeToTarget / (1000 * 60 * 60)) % 24);
-                        let rMins = Math.floor((timeToTarget / (1000 * 60)) % 60);
-                        let rSecs = Math.floor((timeToTarget / 1000) % 60);
-
-                        rHrs = (rHrs < 10) ? "0" + rHrs : rHrs;
-                        rMins = (rMins < 10) ? "0" + rMins : rMins;
-                        rSecs = (rSecs < 10) ? "0" + rSecs : rSecs;
-
-                        // Progress Bar calculation (Target is fixed duration from checkin or fixed time?)
-                        // Let's use CheckIn -> Target as the full bar.
-                        const totalShiftDuration = targetTime.getTime() - lastCheckIn;
-                        // Avoid division by zero
-                        const progress = totalShiftDuration > 0 ? Math.min(100, (diff / totalShiftDuration) * 100) : 100;
-
-                        if (countdownValue) countdownValue.textContent = `${rHrs}:${rMins}:${rSecs}`;
-                        if (countdownProgress) countdownProgress.style.width = `${progress}%`;
-                        if (countdownProgress) countdownProgress.style.background = 'var(--primary)'; // Normal Color
-
-                    } else {
-                        // Overtime
-                        if (countdownContainer) countdownContainer.style.display = 'none';
-                        if (overtimeContainer) overtimeContainer.style.display = 'block';
-
-                        // Calculate Overtime Duration
-                        const otDiff = Math.abs(now - targetTime.getTime());
-                        let oHrs = Math.floor(otDiff / (1000 * 60 * 60));
-                        let oMins = Math.floor((otDiff / (1000 * 60)) % 60);
-                        let oSecs = Math.floor((otDiff / 1000) % 60);
-
-                        oHrs = (oHrs < 10) ? "0" + oHrs : oHrs;
-                        oMins = (oMins < 10) ? "0" + oMins : oMins;
-                        oSecs = (oSecs < 10) ? "0" + oSecs : oSecs;
-
-                        if (overtimeValue) overtimeValue.textContent = `+ ${oHrs}:${oMins}:${oSecs}`;
-
-                        // Change Main Timer Color
-                        if (display) display.style.color = '#c2410c'; // Dark Orange
-                        if (timerLabel) {
-                            timerLabel.textContent = 'Total Elapsed (Overtime)';
-                            timerLabel.style.color = '#c2410c';
-                        }
-                    }
-
-                }, 1000);
-
-                // Start Activity Monitor
-                if (!readOnly && window.AppActivity && window.AppActivity.start) window.AppActivity.start();
-
-            } else {
-                if (display) {
-                    display.textContent = "00 : 00 : 00";
-                    display.style.color = ''; // Reset
-                }
-                if (timerLabel) {
-                    timerLabel.textContent = 'Elapsed Time';
-                    timerLabel.style.color = '';
-                }
-                if (countdownContainer) countdownContainer.style.display = 'none';
-                if (overtimeContainer) overtimeContainer.style.display = 'none';
-            }
-        };
-        updateTimerUI();
+    const flags = (window.AppConfig && window.AppConfig.READ_OPT_FLAGS) || {};
+    if (flags.FF_READ_OPT_TARGETED_REALTIME && window.AppDB.listenQuery) {
+        minutesListenerUnsubscribe = window.AppDB.listenQuery(
+            'minutes',
+            [],
+            { orderBy: [{ field: 'date', direction: 'desc' }], limit: 150 },
+            refreshMinutesUI
+        );
+    } else {
+        minutesListenerUnsubscribe = window.AppDB.listen('minutes', refreshMinutesUI);
     }
+}
 
-    window.getLocation = function getLocation() {
-        return new Promise((resolve, reject) => {
-            (async () => {
-                const host = (window.location && window.location.hostname) ? window.location.hostname : '';
-                const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host === '::1';
-                if (!window.isSecureContext && !isLocalhost) {
-                    reject('Location requires HTTPS on mobile. Open this app using an HTTPS URL and allow location access.');
-                    return;
-                }
+// --- Event Handlers ---
 
-                // Check Cache first
+function startTimer(targetUser = null, readOnly = false) {
+    if (timerInterval) clearInterval(timerInterval);
+
+    const updateTimerUI = async () => {
+        let status = 'out';
+        let lastCheckIn = null;
+        if (targetUser) {
+            status = targetUser.status || 'out';
+            lastCheckIn = targetUser.lastCheckIn || null;
+        } else {
+            const statusInfo = await window.AppAttendance.getStatus();
+            status = statusInfo.status;
+            lastCheckIn = statusInfo.lastCheckIn;
+        }
+        const display = document.getElementById('timer-display');
+        const countdownContainer = document.getElementById('countdown-container');
+        const overtimeContainer = document.getElementById('overtime-container');
+        const countdownValue = document.getElementById('countdown-value');
+        const countdownProgress = document.getElementById('countdown-progress');
+        const overtimeValue = document.getElementById('overtime-value');
+        const timerLabel = document.getElementById('timer-label');
+
+        if (status === 'in' && lastCheckIn) {
+            // Determine Target Time (Example: 5:00 PM if Weekday)
+            const checkInDate = new Date(lastCheckIn);
+            const today = new Date();
+            const checkInLocalDate = `${checkInDate.getFullYear()}-${String(checkInDate.getMonth() + 1).padStart(2, '0')}-${String(checkInDate.getDate()).padStart(2, '0')}`;
+            const todayLocalDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+            const isStaleSession = checkInLocalDate !== todayLocalDate;
+            const targetTime = new Date(checkInDate); // Clone date
+            targetTime.setHours(17, 0, 0, 0); // 5:00 PM default
+
+            const day = checkInDate.getDay();
+            if (day === 6) targetTime.setHours(13, 0, 0, 0); // Saturday 1 PM target
+            if (day === 0) targetTime.setHours(17, 0, 0, 0); // Sunday (Default 5pm if working)
+
+            // Timer Interval
+            timerInterval = setInterval(() => {
                 const now = Date.now();
-                if (cachedLocation && (now - lastLocationFetch < LOCATION_CACHE_TIME)) {
-                    console.log("Using cached location (freshness: " + (now - lastLocationFetch) + "ms)");
-                    resolve(cachedLocation);
+                const diff = now - lastCheckIn; // Total Worked (Elapsed)
+
+                // Format Elapsed (Main Timer)
+                if (display) {
+                    let hrs = Math.floor(diff / (1000 * 60 * 60));
+                    let mins = Math.floor((diff / (1000 * 60)) % 60);
+                    let secs = Math.floor((diff / 1000) % 60);
+
+                    hrs = (hrs < 10) ? "0" + hrs : hrs;
+                    mins = (mins < 10) ? "0" + mins : mins;
+                    secs = (secs < 10) ? "0" + secs : secs;
+                    display.textContent = `${hrs} : ${mins} : ${secs}`;
+                }
+
+                // If session started on a previous day, avoid confusing overtime UI.
+                if (isStaleSession) {
+                    if (countdownContainer) countdownContainer.style.display = 'none';
+                    if (overtimeContainer) overtimeContainer.style.display = 'none';
+                    if (display) display.style.color = '#b45309';
+                    if (timerLabel) {
+                        timerLabel.textContent = 'Session Carryover (Please Check Out)';
+                        timerLabel.style.color = '#b45309';
+                    }
                     return;
                 }
 
-                if (!navigator.geolocation) {
-                    reject('Geolocation is not supported by your browser.');
-                    return;
-                }
+                // Countdown / Overtime Logic
+                const timeToTarget = targetTime.getTime() - now;
 
-                try {
-                    if (navigator.permissions && navigator.permissions.query) {
-                        const perm = await navigator.permissions.query({ name: 'geolocation' });
-                        if (perm && perm.state === 'denied') {
-                            reject('Location permission is blocked. Enable location for this site in browser settings and try again.');
-                            return;
-                        }
+                if (timeToTarget > 0) {
+                    // Regular Work Time
+                    if (countdownContainer) countdownContainer.style.display = 'block';
+                    if (overtimeContainer) overtimeContainer.style.display = 'none';
+                    if (timerLabel) {
+                        timerLabel.textContent = 'Elapsed Time';
+                        timerLabel.style.color = '#6b7280';
                     }
-                } catch {
-                    // Ignore permissions API errors and continue to browser prompt flow.
-                }
+                    if (display) display.style.color = '#1f2937';
 
-                const getPosition = (options) => {
-                    return new Promise((res, rej) => {
-                        navigator.geolocation.getCurrentPosition(res, rej, options);
-                    });
-                };
+                    // Calculate Remaining
+                    let rHrs = Math.floor((timeToTarget / (1000 * 60 * 60)) % 24);
+                    let rMins = Math.floor((timeToTarget / (1000 * 60)) % 60);
+                    let rSecs = Math.floor((timeToTarget / 1000) % 60);
 
-                try {
-                    // Attempt 1: High Accuracy (GPS)
-                    console.log("Requesting Location: High Accuracy (GPS)...");
-                    const p = await getPosition({
-                        enableHighAccuracy: true,
-                        timeout: 10000,
-                        maximumAge: 5000
-                    });
-                    const pos = { lat: p.coords.latitude, lng: p.coords.longitude };
-                    cachedLocation = pos;
-                    lastLocationFetch = Date.now();
-                    resolve(pos);
-                } catch (err) {
-                    console.warn("High Accuracy Failed:", err.message);
+                    rHrs = (rHrs < 10) ? "0" + rHrs : rHrs;
+                    rMins = (rMins < 10) ? "0" + rMins : rMins;
+                    rSecs = (rSecs < 10) ? "0" + rSecs : rSecs;
 
-                    // Attempt 2: Low Accuracy - Fallback
-                    try {
-                        console.log("Requesting Location: Low Accuracy (Fallback)...");
-                        const p2 = await getPosition({
-                            enableHighAccuracy: false,
-                            timeout: 15000,
-                            maximumAge: 10000
-                        });
-                        const pos2 = { lat: p2.coords.latitude, lng: p2.coords.longitude };
-                        cachedLocation = pos2;
-                        lastLocationFetch = Date.now();
-                        resolve(pos2);
-                    } catch (err2) {
-                        console.error("Low Accuracy Failed:", err2.message);
-                        let msg = 'Unable to retrieve location.';
-                        if (err2.code === 1) msg = 'Location permission denied.';
-                        else if (err2.code === 2) msg = 'Location unavailable. Ensure GPS/Location Services are turned on.';
-                        else if (err2.code === 3) msg = 'Location request timed out. Move to open sky or better network and try again.';
-                        reject(msg);
-                    }
-                }
-            })().catch((err) => {
-                reject(err && err.message ? err.message : 'Unable to retrieve location.');
-            });
-        });
-    }
+                    // Progress Bar calculation (Target is fixed duration from checkin or fixed time?)
+                    // Let's use CheckIn -> Target as the full bar.
+                    const totalShiftDuration = targetTime.getTime() - lastCheckIn;
+                    // Avoid division by zero
+                    const progress = totalShiftDuration > 0 ? Math.min(100, (diff / totalShiftDuration) * 100) : 100;
 
-    // --- Work Plan Logic ---
+                    if (countdownValue) countdownValue.textContent = `${rHrs}:${rMins}:${rSecs}`;
+                    if (countdownProgress) countdownProgress.style.width = `${progress}%`;
+                    if (countdownProgress) countdownProgress.style.background = 'var(--primary)'; // Normal Color
 
-    const app_isIsoDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
-    const app_monthIndexMap = {
-        january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
-        july: 6, august: 7, september: 8, october: 9, november: 10, december: 11
-    };
-
-    const app_inferRangeFromText = (text = '') => {
-        const raw = String(text || '').trim();
-        if (!raw) return null;
-        const m = raw.match(/(\d{1,2})\s*-\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})/);
-        if (!m) return null;
-        const d1 = Number(m[1]);
-        const d2 = Number(m[2]);
-        const monthName = String(m[3] || '').toLowerCase();
-        const year = Number(m[4]);
-        const mi = app_monthIndexMap[monthName];
-        if (!Number.isInteger(d1) || !Number.isInteger(d2) || !Number.isInteger(mi) || !Number.isInteger(year)) return null;
-        const start = new Date(year, mi, d1);
-        const end = new Date(year, mi, d2);
-        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
-        const startDate = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
-        const endDate = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
-        if (endDate < startDate) return null;
-        return { startDate, endDate };
-    };
-
-    const app_getTaskRangeBounds = (task, planDate, plansCtx = null) => {
-        const safePlanDate = app_isIsoDate(planDate) ? String(planDate) : null;
-        const rawStart = task?.startDate;
-        const rawEnd = task?.endDate;
-        const inferred = (!app_isIsoDate(rawStart) && !app_isIsoDate(rawEnd))
-            ? app_inferRangeFromText(task?.task || '')
-            : null;
-        let startDate = app_isIsoDate(rawStart) ? String(rawStart) : (inferred?.startDate || safePlanDate);
-        let endDate = app_isIsoDate(rawEnd) ? String(rawEnd) : (inferred?.endDate || startDate || safePlanDate);
-
-        // Backward-compat: tagged copies may not store range; inherit from source plan task.
-        if ((!app_isIsoDate(rawStart) || !app_isIsoDate(rawEnd)) && task?.sourcePlanId && plansCtx?.workPlans) {
-            const sourcePlan = (plansCtx.workPlans || []).find(p => p.id === task.sourcePlanId);
-            const srcIdx = Number.isInteger(task.sourceTaskIndex) ? task.sourceTaskIndex : Number(task.sourceTaskIndex);
-            const sourceTask = sourcePlan && Array.isArray(sourcePlan.plans) && Number.isInteger(srcIdx)
-                ? sourcePlan.plans[srcIdx]
-                : null;
-            if (sourceTask) {
-                const srcStart = app_isIsoDate(sourceTask.startDate) ? sourceTask.startDate : (sourcePlan.date || startDate);
-                const srcEnd = app_isIsoDate(sourceTask.endDate) ? sourceTask.endDate : (sourceTask.startDate || sourcePlan.date || endDate);
-                if (!app_isIsoDate(rawStart)) startDate = srcStart;
-                if (!app_isIsoDate(rawEnd)) endDate = srcEnd;
-            }
-        }
-        if (startDate && endDate && endDate < startDate) {
-            return { startDate, endDate: startDate };
-        }
-        return { startDate, endDate };
-    };
-
-    const app_taskAppliesOnDate = (task, planDate, dateStr, plansCtx = null) => {
-        const { startDate, endDate } = app_getTaskRangeBounds(task, planDate, plansCtx);
-        if (!startDate || !endDate) return planDate === dateStr;
-        if (dateStr < startDate || dateStr > endDate) return false;
-        if (task?.completedDate && task.completedDate < dateStr) return false;
-        return true;
-    };
-
-    // opts can include: includeAuto (bool), dedupe (bool), userId (string|null)
-    // userId is used to filter personal work plans when showing popup details;
-    // admins bypass the filter. If not provided, behaviour is unchanged.
-    window.app_getDayEvents = (dateStr, plans, opts = {}) => {
-        const includeAuto = opts.includeAuto !== false;
-        const dedupe = opts.dedupe !== false;
-        const filterUser = opts.userId || null;
-        if (!plans) return [];
-        if (Array.isArray(plans)) return plans.filter(p => p.date === dateStr);
-        const dateObj = new Date(dateStr);
-
-        const evs = [];
-
-        // 1. Add Automatic Day Types (Saturdays, Sundays)
-        if (includeAuto && window.AppAnalytics) {
-            const dayType = window.AppAnalytics.getDayType(dateObj);
-            if (dayType === 'Holiday') {
-                evs.push({ title: 'Company Holiday (Weekend)', type: 'holiday', date: dateStr });
-            } else if (dayType === 'Half Day') {
-                evs.push({ title: 'Half Working Day (Sat)', type: 'event', date: dateStr });
-            }
-        }
-
-        (plans.leaves || []).forEach(l => {
-            if (dateStr >= l.startDate && dateStr <= l.endDate) {
-                evs.push({ title: `${l.userName || 'Staff'} (Leave)`, type: 'leave', userId: l.userId, date: dateStr });
-            }
-        });
-        (plans.events || []).forEach(e => {
-            if (e.date === dateStr) evs.push({ title: e.title, type: e.type || 'event', date: dateStr });
-        });
-        (plans.workPlans || []).forEach(p => {
-            if (p.date <= dateStr) {
-                const isAnnualPlan = (p.planScope || 'personal') === 'annual';
-                const titlePrefix = isAnnualPlan ? 'All Staff (Annual)' : (p.userName || 'Staff');
-                let title = '';
-                if (p.plans && p.plans.length > 0) {
-                    const activeTasks = p.plans.filter(task => app_taskAppliesOnDate(task, p.date, dateStr, plans));
-                    if (!activeTasks.length) return;
-                    title = `${titlePrefix}: ${activeTasks.map(pl => pl.task).join('; ')}`;
-                    evs.push({ title: title, type: 'work', userId: p.userId, plans: activeTasks, date: dateStr, planScope: p.planScope || 'personal' });
                 } else {
-                    if (p.date !== dateStr) return;
-                    title = `${titlePrefix}: ${p.plan || 'Work Plan'}`;
-                    evs.push({ title: title, type: 'work', userId: p.userId, plans: p.plans, date: dateStr, planScope: p.planScope || 'personal' });
-                }
-            }
-        });
+                    // Overtime
+                    if (countdownContainer) countdownContainer.style.display = 'none';
+                    if (overtimeContainer) overtimeContainer.style.display = 'block';
 
-        // filter personal work entries if a userId filter is provided
-        if (filterUser) {
-            // leave and event types are unaffected
-            const filtered = [];
-            evs.forEach(ev => {
-                if (ev.type !== 'work') {
-                    filtered.push(ev);
-                    return;
+                    // Calculate Overtime Duration
+                    const otDiff = Math.abs(now - targetTime.getTime());
+                    let oHrs = Math.floor(otDiff / (1000 * 60 * 60));
+                    let oMins = Math.floor((otDiff / (1000 * 60)) % 60);
+                    let oSecs = Math.floor((otDiff / 1000) % 60);
+
+                    oHrs = (oHrs < 10) ? "0" + oHrs : oHrs;
+                    oMins = (oMins < 10) ? "0" + oMins : oMins;
+                    oSecs = (oSecs < 10) ? "0" + oSecs : oSecs;
+
+                    if (overtimeValue) overtimeValue.textContent = `+ ${oHrs}:${oMins}:${oSecs}`;
+
+                    // Change Main Timer Color
+                    if (display) display.style.color = '#c2410c'; // Dark Orange
+                    if (timerLabel) {
+                        timerLabel.textContent = 'Total Elapsed (Overtime)';
+                        timerLabel.style.color = '#c2410c';
+                    }
                 }
-                // allow annual plan entries always
-                if ((ev.planScope || '').toLowerCase() === 'annual') {
-                    filtered.push(ev);
-                    return;
-                }
-                // allow if the event belongs to the user
-                if (ev.userId === filterUser) {
-                    filtered.push(ev);
-                    return;
-                }
-                // allow if any tagged task names the user with accepted status
-                if (Array.isArray(ev.plans)) {
-                    const hasTag = ev.plans.some(t => Array.isArray(t.tags) && t.tags.some(tag => tag.id === filterUser && tag.status === 'accepted'));
-                    if (hasTag) {
-                        filtered.push(ev);
+
+            }, 1000);
+
+            // Start Activity Monitor
+            if (!readOnly && window.AppActivity && window.AppActivity.start) window.AppActivity.start();
+
+        } else {
+            if (display) {
+                display.textContent = "00 : 00 : 00";
+                display.style.color = ''; // Reset
+            }
+            if (timerLabel) {
+                timerLabel.textContent = 'Elapsed Time';
+                timerLabel.style.color = '';
+            }
+            if (countdownContainer) countdownContainer.style.display = 'none';
+            if (overtimeContainer) overtimeContainer.style.display = 'none';
+        }
+    };
+    updateTimerUI();
+}
+
+window.getLocation = function getLocation() {
+    return new Promise((resolve, reject) => {
+        (async () => {
+            const host = (window.location && window.location.hostname) ? window.location.hostname : '';
+            const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+            if (!window.isSecureContext && !isLocalhost) {
+                reject('Location requires HTTPS on mobile. Open this app using an HTTPS URL and allow location access.');
+                return;
+            }
+
+            // Check Cache first
+            const now = Date.now();
+            if (cachedLocation && (now - lastLocationFetch < LOCATION_CACHE_TIME)) {
+                console.log("Using cached location (freshness: " + (now - lastLocationFetch) + "ms)");
+                resolve(cachedLocation);
+                return;
+            }
+
+            if (!navigator.geolocation) {
+                reject('Geolocation is not supported by your browser.');
+                return;
+            }
+
+            try {
+                if (navigator.permissions && navigator.permissions.query) {
+                    const perm = await navigator.permissions.query({ name: 'geolocation' });
+                    if (perm && perm.state === 'denied') {
+                        reject('Location permission is blocked. Enable location for this site in browser settings and try again.');
                         return;
                     }
                 }
-                // otherwise drop
-            });
-            // replace evs with filtered result
-            evs.length = 0;
-            evs.push(...filtered);
-        }
-        if (!dedupe) return evs;
-        const seen = new Set();
-        return evs.filter(ev => {
-            const type = ev.type || 'event';
-            if (type !== 'holiday' && type !== 'event') return true;
-            const key = `${type}|${ev.title || ''}|${ev.userId || ''}|${ev.date || dateStr}`;
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
+            } catch {
+                // Ignore permissions API errors and continue to browser prompt flow.
+            }
+
+            const getPosition = (options) => {
+                return new Promise((res, rej) => {
+                    navigator.geolocation.getCurrentPosition(res, rej, options);
+                });
+            };
+
+            try {
+                // Attempt 1: High Accuracy (GPS)
+                console.log("Requesting Location: High Accuracy (GPS)...");
+                const p = await getPosition({
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 5000
+                });
+                const pos = { lat: p.coords.latitude, lng: p.coords.longitude };
+                cachedLocation = pos;
+                lastLocationFetch = Date.now();
+                resolve(pos);
+            } catch (err) {
+                console.warn("High Accuracy Failed:", err.message);
+
+                // Attempt 2: Low Accuracy - Fallback
+                try {
+                    console.log("Requesting Location: Low Accuracy (Fallback)...");
+                    const p2 = await getPosition({
+                        enableHighAccuracy: false,
+                        timeout: 15000,
+                        maximumAge: 10000
+                    });
+                    const pos2 = { lat: p2.coords.latitude, lng: p2.coords.longitude };
+                    cachedLocation = pos2;
+                    lastLocationFetch = Date.now();
+                    resolve(pos2);
+                } catch (err2) {
+                    console.error("Low Accuracy Failed:", err2.message);
+                    let msg = 'Unable to retrieve location.';
+                    if (err2.code === 1) msg = 'Location permission denied.';
+                    else if (err2.code === 2) msg = 'Location unavailable. Ensure GPS/Location Services are turned on.';
+                    else if (err2.code === 3) msg = 'Location request timed out. Move to open sky or better network and try again.';
+                    reject(msg);
+                }
+            }
+        })().catch((err) => {
+            reject(err && err.message ? err.message : 'Unable to retrieve location.');
         });
-    };
+    });
+}
 
-    const app_resolveTargetUserId = (targetUserId, currentUserId) => {
-        const raw = String(targetUserId ?? '').trim();
-        if (!raw || raw === 'undefined' || raw === 'null') return currentUserId;
-        return raw;
-    };
+// --- Work Plan Logic ---
 
-    const app_escapeHtml = (value) => String(value ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
+const app_isIsoDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
+const app_monthIndexMap = {
+    january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+    july: 6, august: 7, september: 8, october: 9, november: 10, december: 11
+};
 
-    const app_escapeJsSingleQuote = (value) => String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+const app_inferRangeFromText = (text = '') => {
+    const raw = String(text || '').trim();
+    if (!raw) return null;
+    const m = raw.match(/(\d{1,2})\s*-\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})/);
+    if (!m) return null;
+    const d1 = Number(m[1]);
+    const d2 = Number(m[2]);
+    const monthName = String(m[3] || '').toLowerCase();
+    const year = Number(m[4]);
+    const mi = app_monthIndexMap[monthName];
+    if (!Number.isInteger(d1) || !Number.isInteger(d2) || !Number.isInteger(mi) || !Number.isInteger(year)) return null;
+    const start = new Date(year, mi, d1);
+    const end = new Date(year, mi, d2);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+    const startDate = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
+    const endDate = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
+    if (endDate < startDate) return null;
+    return { startDate, endDate };
+};
 
-    const app_getTaskSummary = (taskText = '') => {
-        const clean = String(taskText || '').replace(/\s+/g, ' ').trim();
-        if (!clean) return 'New task';
-        return clean.length > 72 ? `${clean.slice(0, 72)}...` : clean;
-    };
+const app_getTaskRangeBounds = (task, planDate, plansCtx = null) => {
+    const safePlanDate = app_isIsoDate(planDate) ? String(planDate) : null;
+    const rawStart = task?.startDate;
+    const rawEnd = task?.endDate;
+    const inferred = (!app_isIsoDate(rawStart) && !app_isIsoDate(rawEnd))
+        ? app_inferRangeFromText(task?.task || '')
+        : null;
+    let startDate = app_isIsoDate(rawStart) ? String(rawStart) : (inferred?.startDate || safePlanDate);
+    let endDate = app_isIsoDate(rawEnd) ? String(rawEnd) : (inferred?.endDate || startDate || safePlanDate);
 
-    const app_renderNoCollaboratorsPlaceholder = () => `
+    // Backward-compat: tagged copies may not store range; inherit from source plan task.
+    if ((!app_isIsoDate(rawStart) || !app_isIsoDate(rawEnd)) && task?.sourcePlanId && plansCtx?.workPlans) {
+        const sourcePlan = (plansCtx.workPlans || []).find(p => p.id === task.sourcePlanId);
+        const srcIdx = Number.isInteger(task.sourceTaskIndex) ? task.sourceTaskIndex : Number(task.sourceTaskIndex);
+        const sourceTask = sourcePlan && Array.isArray(sourcePlan.plans) && Number.isInteger(srcIdx)
+            ? sourcePlan.plans[srcIdx]
+            : null;
+        if (sourceTask) {
+            const srcStart = app_isIsoDate(sourceTask.startDate) ? sourceTask.startDate : (sourcePlan.date || startDate);
+            const srcEnd = app_isIsoDate(sourceTask.endDate) ? sourceTask.endDate : (sourceTask.startDate || sourcePlan.date || endDate);
+            if (!app_isIsoDate(rawStart)) startDate = srcStart;
+            if (!app_isIsoDate(rawEnd)) endDate = srcEnd;
+        }
+    }
+    if (startDate && endDate && endDate < startDate) {
+        return { startDate, endDate: startDate };
+    }
+    return { startDate, endDate };
+};
+
+const app_taskAppliesOnDate = (task, planDate, dateStr, plansCtx = null) => {
+    const { startDate, endDate } = app_getTaskRangeBounds(task, planDate, plansCtx);
+    if (!startDate || !endDate) return planDate === dateStr;
+    if (dateStr < startDate || dateStr > endDate) return false;
+    if (task?.completedDate && task.completedDate < dateStr) return false;
+    return true;
+};
+
+// opts can include: includeAuto (bool), dedupe (bool), userId (string|null)
+// userId is used to filter personal work plans when showing popup details;
+// admins bypass the filter. If not provided, behaviour is unchanged.
+window.app_getDayEvents = (dateStr, plans, opts = {}) => {
+    const includeAuto = opts.includeAuto !== false;
+    const dedupe = opts.dedupe !== false;
+    const filterUser = opts.userId || null;
+    if (!plans) return [];
+    if (Array.isArray(plans)) return plans.filter(p => p.date === dateStr);
+    const dateObj = new Date(dateStr);
+
+    const evs = [];
+
+    // 1. Add Automatic Day Types (Saturdays, Sundays)
+    if (includeAuto && window.AppAnalytics) {
+        const dayType = window.AppAnalytics.getDayType(dateObj);
+        if (dayType === 'Holiday') {
+            evs.push({ title: 'Company Holiday (Weekend)', type: 'holiday', date: dateStr });
+        } else if (dayType === 'Half Day') {
+            evs.push({ title: 'Half Working Day (Sat)', type: 'event', date: dateStr });
+        }
+    }
+
+    (plans.leaves || []).forEach(l => {
+        if (dateStr >= l.startDate && dateStr <= l.endDate) {
+            evs.push({ title: `${l.userName || 'Staff'} (Leave)`, type: 'leave', userId: l.userId, date: dateStr });
+        }
+    });
+    (plans.events || []).forEach(e => {
+        if (e.date === dateStr) evs.push({ title: e.title, type: e.type || 'event', date: dateStr });
+    });
+    (plans.workPlans || []).forEach(p => {
+        if (p.date <= dateStr) {
+            const isAnnualPlan = (p.planScope || 'personal') === 'annual';
+            const titlePrefix = isAnnualPlan ? 'All Staff (Annual)' : (p.userName || 'Staff');
+            let title = '';
+            if (p.plans && p.plans.length > 0) {
+                const activeTasks = p.plans.filter(task => app_taskAppliesOnDate(task, p.date, dateStr, plans));
+                if (!activeTasks.length) return;
+                title = `${titlePrefix}: ${activeTasks.map(pl => pl.task).join('; ')}`;
+                evs.push({ title: title, type: 'work', userId: p.userId, plans: activeTasks, date: dateStr, planScope: p.planScope || 'personal' });
+            } else {
+                if (p.date !== dateStr) return;
+                title = `${titlePrefix}: ${p.plan || 'Work Plan'}`;
+                evs.push({ title: title, type: 'work', userId: p.userId, plans: p.plans, date: dateStr, planScope: p.planScope || 'personal' });
+            }
+        }
+    });
+
+    // filter personal work entries if a userId filter is provided
+    if (filterUser) {
+        // leave and event types are unaffected
+        const filtered = [];
+        evs.forEach(ev => {
+            if (ev.type !== 'work') {
+                filtered.push(ev);
+                return;
+            }
+            // allow annual plan entries always
+            if ((ev.planScope || '').toLowerCase() === 'annual') {
+                filtered.push(ev);
+                return;
+            }
+            // allow if the event belongs to the user
+            if (ev.userId === filterUser) {
+                filtered.push(ev);
+                return;
+            }
+            // allow if any tagged task names the user with accepted status
+            if (Array.isArray(ev.plans)) {
+                const hasTag = ev.plans.some(t => Array.isArray(t.tags) && t.tags.some(tag => tag.id === filterUser && tag.status === 'accepted'));
+                if (hasTag) {
+                    filtered.push(ev);
+                    return;
+                }
+            }
+            // otherwise drop
+        });
+        // replace evs with filtered result
+        evs.length = 0;
+        evs.push(...filtered);
+    }
+    if (!dedupe) return evs;
+    const seen = new Set();
+    return evs.filter(ev => {
+        const type = ev.type || 'event';
+        if (type !== 'holiday' && type !== 'event') return true;
+        const key = `${type}|${ev.title || ''}|${ev.userId || ''}|${ev.date || dateStr}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+};
+
+const app_resolveTargetUserId = (targetUserId, currentUserId) => {
+    const raw = String(targetUserId ?? '').trim();
+    if (!raw || raw === 'undefined' || raw === 'null') return currentUserId;
+    return raw;
+};
+
+const app_escapeHtml = (value) => String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const app_escapeJsSingleQuote = (value) => String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+const app_getTaskSummary = (taskText = '') => {
+    const clean = String(taskText || '').replace(/\s+/g, ' ').trim();
+    if (!clean) return 'New task';
+    return clean.length > 72 ? `${clean.slice(0, 72)}...` : clean;
+};
+
+const app_renderNoCollaboratorsPlaceholder = () => `
         <div class="no-tags-placeholder day-plan-no-tags-placeholder">
             <p class="day-plan-no-tags-text">No collaborators yet</p>
         </div>
     `;
 
-    const app_buildCollaboratorChip = (userId, userName, status = 'pending') => `
+const app_buildCollaboratorChip = (userId, userName, status = 'pending') => `
         <div class="tag-chip day-plan-tag-chip" data-id="${app_escapeHtml(userId)}" data-name="${app_escapeHtml(userName)}" data-status="${app_escapeHtml(status)}">
             <span class="day-plan-tag-main">@${app_escapeHtml(userName)} <span class="day-plan-tag-pending">(${app_escapeHtml(status)})</span></span>
             <i class="fa-solid fa-times day-plan-remove-collab-btn" onclick="window.app_removeTagHint(this)"></i>
         </div>
     `;
 
-    window.app_refreshPlanBlockSummary = (block) => {
-        if (!block) return;
-        const taskInput = block.querySelector('.plan-task');
-        const summaryEl = block.querySelector('.day-plan-task-summary');
-        const scopeSelect = block.querySelector('.plan-scope');
-        const scopePill = block.querySelector('.day-plan-scope-pill');
-        const summary = app_getTaskSummary(taskInput ? taskInput.value : '');
-        if (summaryEl) summaryEl.textContent = summary;
-        if (scopePill && scopeSelect) scopePill.textContent = scopeSelect.value === 'annual' ? 'Annual Plan' : 'Personal Plan';
-    };
+window.app_refreshPlanBlockSummary = (block) => {
+    if (!block) return;
+    const taskInput = block.querySelector('.plan-task');
+    const summaryEl = block.querySelector('.day-plan-task-summary');
+    const scopeSelect = block.querySelector('.plan-scope');
+    const scopePill = block.querySelector('.day-plan-scope-pill');
+    const summary = app_getTaskSummary(taskInput ? taskInput.value : '');
+    if (summaryEl) summaryEl.textContent = summary;
+    if (scopePill && scopeSelect) scopePill.textContent = scopeSelect.value === 'annual' ? 'Annual Plan' : 'Personal Plan';
+};
 
-    window.app_togglePlanBlockCollapse = (btn) => {
-        const block = btn.closest('.plan-block');
-        if (!block) return;
-        block.classList.toggle('is-collapsed');
-        const collapsed = block.classList.contains('is-collapsed');
-        const icon = btn.querySelector('i');
-        if (icon) {
-            icon.classList.toggle('fa-chevron-down', !collapsed);
-            icon.classList.toggle('fa-chevron-up', collapsed);
-        }
-        const label = btn.querySelector('.day-plan-collapse-label');
-        if (label) label.textContent = collapsed ? 'Expand' : 'Minimize';
-        window.app_refreshPlanBlockSummary(block);
-    };
+window.app_togglePlanBlockCollapse = (btn) => {
+    const block = btn.closest('.plan-block');
+    if (!block) return;
+    block.classList.toggle('is-collapsed');
+    const collapsed = block.classList.contains('is-collapsed');
+    const icon = btn.querySelector('i');
+    if (icon) {
+        icon.classList.toggle('fa-chevron-down', !collapsed);
+        icon.classList.toggle('fa-chevron-up', collapsed);
+    }
+    const label = btn.querySelector('.day-plan-collapse-label');
+    if (label) label.textContent = collapsed ? 'Expand' : 'Minimize';
+    window.app_refreshPlanBlockSummary(block);
+};
 
-    window.app_toggleTaskCollaborator = (btn, userId, userName) => {
-        const block = btn.closest('.plan-block');
-        if (!block) return;
-        const tagsContainer = block.querySelector('.tags-container');
-        if (!tagsContainer) return;
+window.app_toggleTaskCollaborator = (btn, userId, userName) => {
+    const block = btn.closest('.plan-block');
+    if (!block) return;
+    const tagsContainer = block.querySelector('.tags-container');
+    if (!tagsContainer) return;
 
-        const escapedId = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(userId) : userId.replace(/"/g, '\\"');
-        const existing = tagsContainer.querySelector(`[data-id="${escapedId}"]`);
-        if (existing) {
-            existing.remove();
-            btn.classList.remove('selected');
-        } else {
-            const placeholder = tagsContainer.querySelector('.no-tags-placeholder');
-            if (placeholder) placeholder.remove();
-            tagsContainer.insertAdjacentHTML('beforeend', app_buildCollaboratorChip(userId, userName, 'pending'));
-            btn.classList.add('selected');
-        }
+    const escapedId = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(userId) : userId.replace(/"/g, '\\"');
+    const existing = tagsContainer.querySelector(`[data-id="${escapedId}"]`);
+    if (existing) {
+        existing.remove();
+        btn.classList.remove('selected');
+    } else {
+        const placeholder = tagsContainer.querySelector('.no-tags-placeholder');
+        if (placeholder) placeholder.remove();
+        tagsContainer.insertAdjacentHTML('beforeend', app_buildCollaboratorChip(userId, userName, 'pending'));
+        btn.classList.add('selected');
+    }
 
-        if (tagsContainer.querySelectorAll('.tag-chip').length === 0) {
-            tagsContainer.innerHTML = app_renderNoCollaboratorsPlaceholder();
-        }
-    };
+    if (tagsContainer.querySelectorAll('.tag-chip').length === 0) {
+        tagsContainer.innerHTML = app_renderNoCollaboratorsPlaceholder();
+    }
+};
 
 
 
-    window.app_getAnnualDayStaffPlans = (dateStr) => {
-        const plans = window._currentPlans || {};
-        const userMap = window._annualUserMap || {};
-        const workPlans = (plans.workPlans || []).filter(p => p.date <= dateStr);
-        const rows = workPlans.map(p => {
-            const ownerName = userMap[p.userId] || p.userName || 'Staff';
-            const ownerTaskMap = new Map();
-            const normalizeTopicKey = (text) => {
-                const raw = String(text || '').toLowerCase();
-                const noDateRange = raw.replace(/\d{1,2}\s*-\s*\d{1,2}\s+[a-z]+\s+\d{4}/g, ' ');
-                const noParens = noDateRange.replace(/\([^)]*\)/g, ' ');
-                const alpha = noParens.replace(/[^a-z\s]/g, ' ');
-                const words = alpha.split(/\s+/).filter(Boolean).slice(0, 8);
-                return words.join(' ');
-            };
-            const upsertOwnerTask = (rawText, suffix = '') => {
-                const base = String(rawText || 'Planned task').trim();
-                if (!base) return;
-                const norm = normalizeTopicKey(base) || base.toLowerCase().replace(/\s+/g, ' ');
-                const candidate = `${base}${suffix || ''}`;
-                if (!ownerTaskMap.has(norm)) {
-                    ownerTaskMap.set(norm, candidate);
-                    return;
-                }
-                const existing = ownerTaskMap.get(norm) || '';
-                // Prefer richer marker text over plain duplicates.
-                if (existing === base && candidate !== base) {
-                    ownerTaskMap.set(norm, candidate);
-                }
-            };
-            const tasks = (p.plans && p.plans.length)
-                ? p.plans
-                    .filter(t => app_taskAppliesOnDate(t, p.date, dateStr, plans))
-                    .map(t => {
-                        const { startDate, endDate } = app_getTaskRangeBounds(t, p.date, plans);
-                        const isMultiDay = !!(startDate && endDate && startDate !== endDate);
-                        const isEndDate = endDate === dateStr;
-                        const isStartDate = startDate === dateStr;
-                        const endedEarly = t.completedDate && t.completedDate < endDate;
-                        const suffix = endedEarly && t.completedDate === dateStr
-                            ? ` (Completed Early)`
-                            : (isMultiDay && isEndDate)
-                                ? ` (Ends Today)`
-                                : (isMultiDay && isStartDate)
-                                    ? ` (Starts Today)`
-                                    : '';
-                        upsertOwnerTask(t.task || 'Planned task', suffix);
-                        return '';
-                    })
-                    .filter(Boolean)
-                : (() => {
-                    if (p.date !== dateStr) return [];
-                    upsertOwnerTask(p.plan || 'Planned task', '');
-                    return [];
-                })();
-
-            const dedupedTasks = Array.from(ownerTaskMap.values());
-            if (!dedupedTasks.length && tasks.length) return { name: ownerName, tasks };
-            if (!dedupedTasks.length) return null;
-            return { name: ownerName, tasks: dedupedTasks };
-        }).filter(Boolean);
-
-        // Merge duplicate owner groups that can come from mixed legacy/new plan docs.
+window.app_getAnnualDayStaffPlans = (dateStr) => {
+    const plans = window._currentPlans || {};
+    const userMap = window._annualUserMap || {};
+    const workPlans = (plans.workPlans || []).filter(p => p.date <= dateStr);
+    const rows = workPlans.map(p => {
+        const ownerName = userMap[p.userId] || p.userName || 'Staff';
+        const ownerTaskMap = new Map();
         const normalizeTopicKey = (text) => {
             const raw = String(text || '').toLowerCase();
             const noDateRange = raw.replace(/\d{1,2}\s*-\s*\d{1,2}\s+[a-z]+\s+\d{4}/g, ' ');
@@ -1652,67 +1610,123 @@
             const words = alpha.split(/\s+/).filter(Boolean).slice(0, 8);
             return words.join(' ');
         };
-        const byOwner = new Map();
-        rows.forEach(row => {
-            const ownerKey = row.name || 'Staff';
-            if (!byOwner.has(ownerKey)) {
-                byOwner.set(ownerKey, new Map());
+        const upsertOwnerTask = (rawText, suffix = '') => {
+            const base = String(rawText || 'Planned task').trim();
+            if (!base) return;
+            const norm = normalizeTopicKey(base) || base.toLowerCase().replace(/\s+/g, ' ');
+            const candidate = `${base}${suffix || ''}`;
+            if (!ownerTaskMap.has(norm)) {
+                ownerTaskMap.set(norm, candidate);
+                return;
             }
-            const bucket = byOwner.get(ownerKey);
-            (row.tasks || []).forEach(t => {
-                const topic = normalizeTopicKey(t) || String(t || '').toLowerCase();
-                if (!bucket.has(topic)) bucket.set(topic, t);
-                else {
-                    const existing = bucket.get(topic) || '';
-                    const candidate = String(t || '');
-                    if (existing.length < candidate.length) bucket.set(topic, candidate);
-                }
-            });
-        });
+            const existing = ownerTaskMap.get(norm) || '';
+            // Prefer richer marker text over plain duplicates.
+            if (existing === base && candidate !== base) {
+                ownerTaskMap.set(norm, candidate);
+            }
+        };
+        const tasks = (p.plans && p.plans.length)
+            ? p.plans
+                .filter(t => app_taskAppliesOnDate(t, p.date, dateStr, plans))
+                .map(t => {
+                    const { startDate, endDate } = app_getTaskRangeBounds(t, p.date, plans);
+                    const isMultiDay = !!(startDate && endDate && startDate !== endDate);
+                    const isEndDate = endDate === dateStr;
+                    const isStartDate = startDate === dateStr;
+                    const endedEarly = t.completedDate && t.completedDate < endDate;
+                    const suffix = endedEarly && t.completedDate === dateStr
+                        ? ` (Completed Early)`
+                        : (isMultiDay && isEndDate)
+                            ? ` (Ends Today)`
+                            : (isMultiDay && isStartDate)
+                                ? ` (Starts Today)`
+                                : '';
+                    upsertOwnerTask(t.task || 'Planned task', suffix);
+                    return '';
+                })
+                .filter(Boolean)
+            : (() => {
+                if (p.date !== dateStr) return [];
+                upsertOwnerTask(p.plan || 'Planned task', '');
+                return [];
+            })();
 
-        return Array.from(byOwner.entries()).map(([name, taskMap]) => ({
-            name,
-            tasks: Array.from(taskMap.values())
-        }));
+        const dedupedTasks = Array.from(ownerTaskMap.values());
+        if (!dedupedTasks.length && tasks.length) return { name: ownerName, tasks };
+        if (!dedupedTasks.length) return null;
+        return { name: ownerName, tasks: dedupedTasks };
+    }).filter(Boolean);
+
+    // Merge duplicate owner groups that can come from mixed legacy/new plan docs.
+    const normalizeTopicKey = (text) => {
+        const raw = String(text || '').toLowerCase();
+        const noDateRange = raw.replace(/\d{1,2}\s*-\s*\d{1,2}\s+[a-z]+\s+\d{4}/g, ' ');
+        const noParens = noDateRange.replace(/\([^)]*\)/g, ' ');
+        const alpha = noParens.replace(/[^a-z\s]/g, ' ');
+        const words = alpha.split(/\s+/).filter(Boolean).slice(0, 8);
+        return words.join(' ');
     };
+    const byOwner = new Map();
+    rows.forEach(row => {
+        const ownerKey = row.name || 'Staff';
+        if (!byOwner.has(ownerKey)) {
+            byOwner.set(ownerKey, new Map());
+        }
+        const bucket = byOwner.get(ownerKey);
+        (row.tasks || []).forEach(t => {
+            const topic = normalizeTopicKey(t) || String(t || '').toLowerCase();
+            if (!bucket.has(topic)) bucket.set(topic, t);
+            else {
+                const existing = bucket.get(topic) || '';
+                const candidate = String(t || '');
+                if (existing.length < candidate.length) bucket.set(topic, candidate);
+            }
+        });
+    });
 
-    window.app_showAnnualHoverPreview = (event, dateStr) => {
-        const modalId = 'annual-hover-preview';
-        document.getElementById(modalId)?.remove();
-        const dayPlans = window.app_getAnnualDayStaffPlans(dateStr);
-        const body = dayPlans.length
-            ? dayPlans.map(row => `
+    return Array.from(byOwner.entries()).map(([name, taskMap]) => ({
+        name,
+        tasks: Array.from(taskMap.values())
+    }));
+};
+
+window.app_showAnnualHoverPreview = (event, dateStr) => {
+    const modalId = 'annual-hover-preview';
+    document.getElementById(modalId)?.remove();
+    const dayPlans = window.app_getAnnualDayStaffPlans(dateStr);
+    const body = dayPlans.length
+        ? dayPlans.map(row => `
                 <div style="margin-bottom:0.45rem;">
                     <div style="font-size:0.76rem; font-weight:700; color:#334155;">${row.name}</div>
                     <div style="font-size:0.72rem; color:#64748b;">${row.tasks.slice(0, 2).join(' | ')}${row.tasks.length > 2 ? ` (+${row.tasks.length - 2} more)` : ''}</div>
                 </div>
             `).join('')
-            : `<div style="font-size:0.74rem; color:#94a3b8;">No staff plans for this date</div>`;
-        const html = `
+        : `<div style="font-size:0.74rem; color:#94a3b8;">No staff plans for this date</div>`;
+    const html = `
             <div id="${modalId}" style="position:fixed; z-index:12000; left:${Math.min((event.clientX || 0) + 12, window.innerWidth - 290)}px; top:${Math.min((event.clientY || 0) + 12, window.innerHeight - 220)}px; width:280px; background:#fff; border:1px solid #dbeafe; border-radius:12px; box-shadow:0 12px 26px rgba(15,23,42,0.18); padding:0.65rem;">
                 <div style="font-size:0.76rem; font-weight:800; color:#1e3a8a; margin-bottom:0.5rem;">${dateStr} Plans</div>
                 ${body}
             </div>`;
-        (document.getElementById('modal-container') || document.body).insertAdjacentHTML('beforeend', html);
-    };
+    (document.getElementById('modal-container') || document.body).insertAdjacentHTML('beforeend', html);
+};
 
-    window.app_hideAnnualHoverPreview = () => {
-        document.getElementById('annual-hover-preview')?.remove();
-    };
+window.app_hideAnnualHoverPreview = () => {
+    document.getElementById('annual-hover-preview')?.remove();
+};
 
-    window.app_openAnnualDayPlan = async (dateStr) => {
-        window.app_hideAnnualHoverPreview();
-        const modalId = `annual-day-click-${Date.now()}`;
-        const dayPlans = window.app_getAnnualDayStaffPlans(dateStr);
-        const body = dayPlans.length
-            ? dayPlans.map(row => `
+window.app_openAnnualDayPlan = async (dateStr) => {
+    window.app_hideAnnualHoverPreview();
+    const modalId = `annual-day-click-${Date.now()}`;
+    const dayPlans = window.app_getAnnualDayStaffPlans(dateStr);
+    const body = dayPlans.length
+        ? dayPlans.map(row => `
                 <div style="border:1px solid #e2e8f0; border-radius:10px; padding:0.55rem; margin-bottom:0.45rem;">
                     <div style="font-size:0.8rem; font-weight:700; color:#334155; margin-bottom:0.25rem;">${row.name}</div>
                     <div style="font-size:0.76rem; color:#64748b;">${row.tasks.join(' | ')}</div>
                 </div>
             `).join('')
-            : `<div style="font-size:0.8rem; color:#94a3b8;">No plans yet for this date.</div>`;
-        const html = `
+        : `<div style="font-size:0.8rem; color:#94a3b8;">No plans yet for this date.</div>`;
+    const html = `
             <div class="modal-overlay annual-v2-modal" id="${modalId}" style="display:flex;">
                 <div class="modal-content annual-day-plan-content annual-v2-modal-content" style="max-width:560px;">
                     <div class="annual-day-plan-head annual-v2-modal-head" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.7rem;">
@@ -1725,19 +1739,19 @@
                     </button>
                 </div>
             </div>`;
-        window.app_showModal(html, modalId);
-    };
+    window.app_showModal(html, modalId);
+};
 
-    window.app_addPlanBlockUI = async () => {
-        const container = document.getElementById('plans-container');
-        if (!container) return;
-        const allUsers = await window.AppDB.getAll('users');
-        const currentUser = window.AppAuth.getUser();
-        const isAdmin = currentUser.role === 'Administrator' || currentUser.isAdmin;
-        const targetId = app_resolveTargetUserId(window.app_currentDayPlanTargetId, currentUser.id);
-        const defaultScope = container.dataset.defaultScope === 'annual' ? 'annual' : 'personal';
-        const selectableCollaborators = allUsers.filter(u => u.id !== targetId);
-        const collaboratorButtons = selectableCollaborators.map(u => `
+window.app_addPlanBlockUI = async () => {
+    const container = document.getElementById('plans-container');
+    if (!container) return;
+    const allUsers = await window.AppDB.getAll('users');
+    const currentUser = window.AppAuth.getUser();
+    const isAdmin = currentUser.role === 'Administrator' || currentUser.isAdmin;
+    const targetId = app_resolveTargetUserId(window.app_currentDayPlanTargetId, currentUser.id);
+    const defaultScope = container.dataset.defaultScope === 'annual' ? 'annual' : 'personal';
+    const selectableCollaborators = allUsers.filter(u => u.id !== targetId);
+    const collaboratorButtons = selectableCollaborators.map(u => `
             <button
                 type="button"
                 class="day-plan-collab-option"
@@ -1746,9 +1760,9 @@
                 title="Add or remove ${app_escapeHtml(u.name)}"
             >${app_escapeHtml(u.name)}</button>
         `).join('');
-        const newBlock = document.createElement('div');
-        newBlock.className = 'plan-block day-plan-block-shell';
-        newBlock.innerHTML = `
+    const newBlock = document.createElement('div');
+    newBlock.className = 'plan-block day-plan-block-shell';
+    newBlock.innerHTML = `
             <div class="day-plan-block-head" style="display:flex; align-items:center; justify-content:space-between; gap:0.7rem; padding:0.62rem 0.8rem; border-bottom:1px solid #dbeafe; background:linear-gradient(90deg,#f7faff 0%,#ecf4ff 100%);">
                 <div class="day-plan-block-head-main" style="display:flex; align-items:center; gap:0.55rem; min-width:0;">
                     <span class="day-plan-index-badge-step" style="background:#1d4ed8; color:#fff;">${container.querySelectorAll('.plan-block').length + 1}</span>
@@ -1823,656 +1837,656 @@
                 ` : ''}
             </div>
         `;
-        container.appendChild(newBlock);
-        const fromInput = newBlock.querySelector('.plan-start-date');
-        const toInput = newBlock.querySelector('.plan-end-date');
-        const dateMatch = document.querySelector('#day-plan-modal .day-plan-head p')?.textContent?.match(/\d{4}-\d{2}-\d{2}/);
-        const defaultDate = dateMatch ? dateMatch[0] : '';
-        if (fromInput) fromInput.value = defaultDate;
-        if (toInput) toInput.value = defaultDate;
-        const ta = newBlock.querySelector('.plan-task');
-        window.app_refreshPlanBlockSummary(newBlock);
-        if (ta) ta.focus();
-    };
+    container.appendChild(newBlock);
+    const fromInput = newBlock.querySelector('.plan-start-date');
+    const toInput = newBlock.querySelector('.plan-end-date');
+    const dateMatch = document.querySelector('#day-plan-modal .day-plan-head p')?.textContent?.match(/\d{4}-\d{2}-\d{2}/);
+    const defaultDate = dateMatch ? dateMatch[0] : '';
+    if (fromInput) fromInput.value = defaultDate;
+    if (toInput) toInput.value = defaultDate;
+    const ta = newBlock.querySelector('.plan-task');
+    window.app_refreshPlanBlockSummary(newBlock);
+    if (ta) ta.focus();
+};
 
-    window.app_addSubPlanRow = (btn) => {
-        const list = btn.closest('.plan-block')?.querySelector('.sub-plans-list');
-        if (!list) return;
-        const row = document.createElement('div');
-        row.className = 'sub-plan-row day-plan-sub-row';
-        row.innerHTML = `
+window.app_addSubPlanRow = (btn) => {
+    const list = btn.closest('.plan-block')?.querySelector('.sub-plans-list');
+    if (!list) return;
+    const row = document.createElement('div');
+    row.className = 'sub-plan-row day-plan-sub-row';
+    row.innerHTML = `
             <div class="day-plan-step-dot"></div>
             <input type="text" class="sub-plan-input day-plan-sub-input" placeholder="Add a step...">
             <button type="button" onclick="this.parentElement.remove()" title="Remove step" class="day-plan-remove-step-btn"><i class="fa-solid fa-circle-xmark"></i></button>
         `;
-        list.appendChild(row);
-        const input = row.querySelector('input');
-        if (input) input.focus();
-    };
+    list.appendChild(row);
+    const input = row.querySelector('input');
+    if (input) input.focus();
+};
 
-    window.app_checkMentions = (textarea, users) => {
-        const text = textarea.value;
-        const cursorPos = textarea.selectionStart;
-        const lastAt = text.lastIndexOf('@', cursorPos - 1);
-        const dropdown = document.getElementById('mention-dropdown');
-        if (!dropdown) return;
+window.app_checkMentions = (textarea, users) => {
+    const text = textarea.value;
+    const cursorPos = textarea.selectionStart;
+    const lastAt = text.lastIndexOf('@', cursorPos - 1);
+    const dropdown = document.getElementById('mention-dropdown');
+    if (!dropdown) return;
 
-        if (lastAt !== -1 && !text.substring(lastAt, cursorPos).includes(' ')) {
-            const query = text.substring(lastAt + 1, cursorPos).toLowerCase();
-            const filtered = users.filter(u => u.name.toLowerCase().includes(query));
-            if (!textarea.id) textarea.id = 'ta-' + Date.now();
-            if (filtered.length > 0) {
-                const rect = textarea.getBoundingClientRect();
-                dropdown.innerHTML = filtered.map(u => `
+    if (lastAt !== -1 && !text.substring(lastAt, cursorPos).includes(' ')) {
+        const query = text.substring(lastAt + 1, cursorPos).toLowerCase();
+        const filtered = users.filter(u => u.name.toLowerCase().includes(query));
+        if (!textarea.id) textarea.id = 'ta-' + Date.now();
+        if (filtered.length > 0) {
+            const rect = textarea.getBoundingClientRect();
+            dropdown.innerHTML = filtered.map(u => `
                     <div onclick="window.app_applyMention('${textarea.id}', '${u.id}', '${u.name.replace(/'/g, "\\'")}', ${lastAt})" class="mention-item day-plan-mention-item">
                         <img src="${u.avatar}" class="day-plan-mention-avatar" />
                         <span>${u.name}</span>
                     </div>
                 `).join('');
-                dropdown.style.top = `${rect.bottom + 6}px`;
-                dropdown.style.left = `${rect.left}px`;
-                dropdown.style.display = 'block';
-            } else {
-                dropdown.style.display = 'none';
-            }
+            dropdown.style.top = `${rect.bottom + 6}px`;
+            dropdown.style.left = `${rect.left}px`;
+            dropdown.style.display = 'block';
         } else {
             dropdown.style.display = 'none';
         }
-    };
+    } else {
+        dropdown.style.display = 'none';
+    }
+};
 
-    window.app_applyMention = (taId, userId, userName, atPos) => {
-        const textarea = document.getElementById(taId);
-        if (!textarea) return;
-        const cursorPos = textarea.selectionStart;
-        const before = textarea.value.substring(0, atPos);
-        const after = textarea.value.substring(cursorPos);
-        textarea.value = `${before}${userName} ${after}`;
-        textarea.focus();
+window.app_applyMention = (taId, userId, userName, atPos) => {
+    const textarea = document.getElementById(taId);
+    if (!textarea) return;
+    const cursorPos = textarea.selectionStart;
+    const before = textarea.value.substring(0, atPos);
+    const after = textarea.value.substring(cursorPos);
+    textarea.value = `${before}${userName} ${after}`;
+    textarea.focus();
 
-        const block = textarea.closest('.plan-block');
-        const tagsContainer = block?.querySelector('.tags-container');
-        if (!tagsContainer) return;
+    const block = textarea.closest('.plan-block');
+    const tagsContainer = block?.querySelector('.tags-container');
+    if (!tagsContainer) return;
 
-        const dropdown = document.getElementById('mention-dropdown');
-        if (dropdown) dropdown.style.display = 'none';
+    const dropdown = document.getElementById('mention-dropdown');
+    if (dropdown) dropdown.style.display = 'none';
 
-        const existing = tagsContainer.querySelector(`[data-id="${userId}"]`);
-        if (existing) return;
+    const existing = tagsContainer.querySelector(`[data-id="${userId}"]`);
+    if (existing) return;
 
-        const placeholder = tagsContainer.querySelector('.no-tags-placeholder');
-        if (placeholder) placeholder.remove();
+    const placeholder = tagsContainer.querySelector('.no-tags-placeholder');
+    if (placeholder) placeholder.remove();
 
-        tagsContainer.insertAdjacentHTML('beforeend', app_buildCollaboratorChip(userId, userName, 'pending'));
+    tagsContainer.insertAdjacentHTML('beforeend', app_buildCollaboratorChip(userId, userName, 'pending'));
+    const escapedId = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(userId) : userId.replace(/"/g, '\\"');
+    const pickerButton = block?.querySelector(`.day-plan-collab-option[data-id="${escapedId}"]`);
+    if (pickerButton) pickerButton.classList.add('selected');
+};
+
+window.app_removeTagHint = (btn) => {
+    const container = btn.closest('.tags-container');
+    const chip = btn.closest('.tag-chip');
+    const userId = chip ? chip.dataset.id : '';
+    const block = btn.closest('.plan-block');
+    btn.parentElement.remove();
+    if (block && userId) {
         const escapedId = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(userId) : userId.replace(/"/g, '\\"');
-        const pickerButton = block?.querySelector(`.day-plan-collab-option[data-id="${escapedId}"]`);
-        if (pickerButton) pickerButton.classList.add('selected');
-    };
+        const pickerButton = block.querySelector(`.day-plan-collab-option[data-id="${escapedId}"]`);
+        if (pickerButton) pickerButton.classList.remove('selected');
+    }
+    if (container && container.querySelectorAll('.tag-chip').length === 0) {
+        container.innerHTML = app_renderNoCollaboratorsPlaceholder();
+    }
+};
 
-    window.app_removeTagHint = (btn) => {
-        const container = btn.closest('.tags-container');
-        const chip = btn.closest('.tag-chip');
-        const userId = chip ? chip.dataset.id : '';
-        const block = btn.closest('.plan-block');
-        btn.parentElement.remove();
-        if (block && userId) {
-            const escapedId = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(userId) : userId.replace(/"/g, '\\"');
-            const pickerButton = block.querySelector(`.day-plan-collab-option[data-id="${escapedId}"]`);
-            if (pickerButton) pickerButton.classList.remove('selected');
+window.app_showStatusTooltip = () => { };
+
+
+
+// === CHECKOUT FORM HELPER FUNCTIONS ===
+
+// Hide checkout intro panel
+window.app_hideCheckoutIntro = () => {
+    const panel = document.getElementById('checkout-intro-panel');
+    if (panel) {
+        panel.style.display = 'none';
+        localStorage.setItem('checkoutIntroSeen', 'true');
+    }
+};
+
+// Update character counter in checkout textarea
+window.app_updateCharCounter = (textarea) => {
+    const counter = document.getElementById('char-counter');
+    if (counter) {
+        const length = textarea.value.length;
+        counter.textContent = `${length} / 500 recommended`;
+
+        // Visual feedback for length
+        if (length > 500) {
+            counter.style.color = '#f59e0b'; // Orange for long text
+        } else if (length > 300) {
+            counter.style.color = '#10b981'; // Green for good length
+        } else {
+            counter.style.color = '#94a3b8'; // Default gray
         }
-        if (container && container.querySelectorAll('.tag-chip').length === 0) {
-            container.innerHTML = app_renderNoCollaboratorsPlaceholder();
-        }
-    };
+    }
+};
 
-    window.app_showStatusTooltip = () => { };
-
-
-
-    // === CHECKOUT FORM HELPER FUNCTIONS ===
-
-    // Hide checkout intro panel
-    window.app_hideCheckoutIntro = () => {
-        const panel = document.getElementById('checkout-intro-panel');
-        if (panel) {
-            panel.style.display = 'none';
-            localStorage.setItem('checkoutIntroSeen', 'true');
-        }
-    };
-
-    // Update character counter in checkout textarea
-    window.app_updateCharCounter = (textarea) => {
-        const counter = document.getElementById('char-counter');
-        if (counter) {
-            const length = textarea.value.length;
-            counter.textContent = `${length} / 500 recommended`;
-
-            // Visual feedback for length
-            if (length > 500) {
-                counter.style.color = '#f59e0b'; // Orange for long text
-            } else if (length > 300) {
-                counter.style.color = '#10b981'; // Green for good length
-            } else {
-                counter.style.color = '#94a3b8'; // Default gray
-            }
-        }
-    };
-
-    // Select location reason (quick button)
-    window.app_selectLocationReason = (reason) => {
-        const textarea = document.getElementById('location-explanation');
-        if (textarea) {
-            // Clear previous selection styling
-            document.querySelectorAll('.location-reason-btn').forEach(btn => {
-                btn.style.background = '#e0f2fe';
-                btn.style.borderColor = '#7dd3fc';
-            });
-
-            // Highlight selected button
-            event.target.style.background = '#0ea5e9';
-            event.target.style.borderColor = '#0ea5e9';
-            event.target.style.color = 'white';
-
-            // Set textarea value
-            textarea.value = reason;
-            textarea.focus();
-        }
-    };
-
-    window.app_selectOvertimeReason = (buttonEl, reason, mode = 'overtime_work') => {
-        const textarea = document.getElementById('checkout-overtime-explanation');
-        const modeInput = document.getElementById('checkout-overtime-mode');
-
-        document.querySelectorAll('.overtime-reason-btn').forEach(btn => {
-            btn.style.background = '#fef3c7';
-            btn.style.borderColor = '#fcd34d';
-            btn.style.color = '#92400e';
+// Select location reason (quick button)
+window.app_selectLocationReason = (reason) => {
+    const textarea = document.getElementById('location-explanation');
+    if (textarea) {
+        // Clear previous selection styling
+        document.querySelectorAll('.location-reason-btn').forEach(btn => {
+            btn.style.background = '#e0f2fe';
+            btn.style.borderColor = '#7dd3fc';
         });
 
-        if (buttonEl) {
-            buttonEl.style.background = '#f59e0b';
-            buttonEl.style.borderColor = '#f59e0b';
-            buttonEl.style.color = 'white';
-        }
-        if (modeInput) modeInput.value = mode;
-        if (textarea) {
-            textarea.value = reason;
-            textarea.focus();
-        }
-    };
+        // Highlight selected button
+        event.target.style.background = '#0ea5e9';
+        event.target.style.borderColor = '#0ea5e9';
+        event.target.style.color = 'white';
 
-    // Use work plan to fill checkout summary
-    window.app_useWorkPlan = () => {
-        const planTextEl = document.getElementById('checkout-plan-text');
-        const summaryTextarea = document.getElementById('checkout-work-summary');
-        const rawText = planTextEl?.dataset?.rawText;
+        // Set textarea value
+        textarea.value = reason;
+        textarea.focus();
+    }
+};
 
-        if (rawText && summaryTextarea) {
-            summaryTextarea.value = rawText;
+window.app_selectOvertimeReason = (buttonEl, reason, mode = 'overtime_work') => {
+    const textarea = document.getElementById('checkout-overtime-explanation');
+    const modeInput = document.getElementById('checkout-overtime-mode');
 
-            // Update character counter
-            if (window.app_updateCharCounter) {
-                window.app_updateCharCounter(summaryTextarea);
-            }
+    document.querySelectorAll('.overtime-reason-btn').forEach(btn => {
+        btn.style.background = '#fef3c7';
+        btn.style.borderColor = '#fcd34d';
+        btn.style.color = '#92400e';
+    });
 
-            // Focus the textarea
-            summaryTextarea.focus();
+    if (buttonEl) {
+        buttonEl.style.background = '#f59e0b';
+        buttonEl.style.borderColor = '#f59e0b';
+        buttonEl.style.color = 'white';
+    }
+    if (modeInput) modeInput.value = mode;
+    if (textarea) {
+        textarea.value = reason;
+        textarea.focus();
+    }
+};
 
-            // Visual feedback
-            summaryTextarea.style.borderColor = '#8b5cf6';
-            summaryTextarea.style.background = '#f5f3ff';
-            setTimeout(() => {
-                summaryTextarea.style.borderColor = '#e2e8f0';
-                summaryTextarea.style.background = '#ffffff';
-            }, 1000);
-        }
-    };
+// Use work plan to fill checkout summary
+window.app_useWorkPlan = () => {
+    const planTextEl = document.getElementById('checkout-plan-text');
+    const summaryTextarea = document.getElementById('checkout-work-summary');
+    const rawText = planTextEl?.dataset?.rawText;
 
+    if (rawText && summaryTextarea) {
+        summaryTextarea.value = rawText;
 
-
-    window.app_deleteDayPlan = async (date, targetUserId = null, planScope = null) => {
-        if (!await window.appConfirm("Are you sure you want to delete this work plan?")) return;
-        const currentUser = window.AppAuth.getUser();
-        const targetId = app_resolveTargetUserId(targetUserId, currentUser.id);
-
-        try {
-            const hasScope = planScope === 'personal' || planScope === 'annual';
-            if (hasScope) {
-                await window.AppCalendar.deleteWorkPlan(date, targetId, { planScope: planScope });
-            } else {
-                await Promise.all([
-                    window.AppCalendar.deleteWorkPlan(date, targetId, { planScope: 'personal' }),
-                    window.AppCalendar.deleteWorkPlan(date, targetId, { planScope: 'annual' })
-                ]);
-            }
-            if (window.AppStore && window.AppStore.invalidatePlans) {
-                window.AppStore.invalidatePlans(); // CACHE INVALIDATION
-            }
-            alert("Plan deleted!");
-            document.getElementById('day-plan-modal')?.remove();
-
-            // Re-render Dashboard
-            const html = await window.AppUI.renderDashboard();
-            const contentArea = document.getElementById('page-content');
-            if (contentArea) {
-                contentArea.innerHTML = html;
-                if (window.setupDashboardEvents) window.setupDashboardEvents();
-            }
-        } catch (err) {
-            alert(err.message);
-        }
-    };
-
-    window.app_saveDayPlan = async (e, date, targetUserId = null) => {
-        e.preventDefault();
-        const currentUser = window.AppAuth.getUser();
-        const targetId = app_resolveTargetUserId(targetUserId, currentUser.id);
-        const form = e.target;
-        const hadPersonal = form?.dataset?.hadPersonal === '1';
-        const hadAnnual = form?.dataset?.hadAnnual === '1';
-
-        const planBlocks = document.querySelectorAll('.plan-block');
-        const plans = [];
-        const personalPlans = [];
-        const annualPlans = [];
-        const planIdsByScope = {};
-        let validationError = '';
-
-        planBlocks.forEach(block => {
-            const task = block.querySelector('.plan-task').value.trim();
-            const subPlanInputs = block.querySelectorAll('.sub-plan-input');
-            const subPlans = Array.from(subPlanInputs).map(input => input.value.trim()).filter(v => v !== '');
-            const tagChips = block.querySelectorAll('.tag-chip');
-            const tags = Array.from(tagChips).map(chip => ({
-                id: chip.dataset.id,
-                name: chip.dataset.name,
-                status: chip.dataset.status || 'pending'
-            }));
-            const status = block.querySelector('.plan-status').value;
-            const assigneeSelect = block.querySelector('.plan-assignee');
-            const assignedTo = assigneeSelect ? assigneeSelect.value : targetId;
-            const startDateInput = block.querySelector('.plan-start-date');
-            const endDateInput = block.querySelector('.plan-end-date');
-            const startDate = startDateInput ? String(startDateInput.value || '').trim() : '';
-            const endDate = endDateInput ? String(endDateInput.value || '').trim() : '';
-            const scopeSelect = block.querySelector('.plan-scope');
-            const taskScope = scopeSelect && scopeSelect.value === 'annual' ? 'annual' : 'personal';
-
-            if (task) {
-                if ((startDate && !endDate) || (!startDate && endDate)) {
-                    validationError = 'Please select both From Date and To Date for ranged tasks.';
-                    return;
-                }
-                if (startDate && endDate && endDate < startDate) {
-                    validationError = 'To Date cannot be earlier than From Date.';
-                    return;
-                }
-                const taskStartDate = startDate || date;
-                const taskEndDate = endDate || date;
-                const planPayload = {
-                    task,
-                    subPlans,
-                    tags,
-                    status: status || null,
-                    assignedTo: assignedTo || null,
-                    startDate: taskStartDate,
-                    endDate: taskEndDate,
-                    planScope: taskScope,
-                    completedDate: status === 'completed' ? new Date().toISOString().split('T')[0] : null
-                };
-                plans.push(planPayload);
-                if (taskScope === 'annual') annualPlans.push(planPayload);
-                else personalPlans.push(planPayload);
-            }
-        });
-
-        if (plans.length === 0) {
-            alert(validationError || "Please add at least one task.");
-            return;
-        }
-        if (validationError) {
-            alert(validationError);
-            return;
+        // Update character counter
+        if (window.app_updateCharCounter) {
+            window.app_updateCharCounter(summaryTextarea);
         }
 
-        try {
-            if (personalPlans.length > 0) {
-                await window.AppCalendar.setWorkPlan(date, personalPlans, targetId, { planScope: 'personal' });
-                planIdsByScope.personal = window.AppCalendar.getWorkPlanId(date, targetId, 'personal');
-            } else if (hadPersonal) {
-                await window.AppCalendar.deleteWorkPlan(date, targetId, { planScope: 'personal' });
-            }
+        // Focus the textarea
+        summaryTextarea.focus();
 
-            if (annualPlans.length > 0) {
-                await window.AppCalendar.setWorkPlan(date, annualPlans, targetId, { planScope: 'annual' });
-                planIdsByScope.annual = window.AppCalendar.getWorkPlanId(date, targetId, 'annual');
-            } else if (hadAnnual) {
-                await window.AppCalendar.deleteWorkPlan(date, targetId, { planScope: 'annual' });
-            }
+        // Visual feedback
+        summaryTextarea.style.borderColor = '#8b5cf6';
+        summaryTextarea.style.background = '#f5f3ff';
+        setTimeout(() => {
+            summaryTextarea.style.borderColor = '#e2e8f0';
+            summaryTextarea.style.background = '#ffffff';
+        }, 1000);
+    }
+};
 
-            if (window.AppStore && window.AppStore.invalidatePlans) {
-                window.AppStore.invalidatePlans(); // CACHE INVALIDATION
-            }
 
-            const allUsers = await window.AppDB.getAll('users');
 
-            // 1. Notify the owner if edited by an admin
-            if (targetId !== currentUser.id && (currentUser.role === 'Administrator' || currentUser.isAdmin)) {
-                const owner = allUsers.find(u => u.id === targetId);
-                if (owner) {
-                    if (!owner.notifications) owner.notifications = [];
-                    const lastNotif = owner.notifications[owner.notifications.length - 1];
-                    if (!lastNotif || lastNotif.message !== `Admin ${currentUser.name} has edited your Work Plan for ${date}`) {
-                        owner.notifications.push({
-                            type: 'admin_edit',
-                            message: `Admin ${currentUser.name} has edited your Work Plan for ${date}`,
-                            date: new Date().toLocaleString(),
-                            read: false
-                        });
-                        await window.AppDB.put('users', owner);
-                    }
-                }
-            }
+window.app_deleteDayPlan = async (date, targetUserId = null, planScope = null) => {
+    if (!await window.appConfirm("Are you sure you want to delete this work plan?")) return;
+    const currentUser = window.AppAuth.getUser();
+    const targetId = app_resolveTargetUserId(targetUserId, currentUser.id);
 
-            // 2. Send Notifications to newly tagged users
-            const distinctTaggedUsers = new Set();
-            plans.forEach(p => {
-                if (p.tags) p.tags.forEach(t => distinctTaggedUsers.add(t.id));
-            });
-
-            if (distinctTaggedUsers.size > 0) {
-                for (const uid of distinctTaggedUsers) {
-                    const targetUser = allUsers.find(u => u.id === uid);
-                    if (targetUser && uid !== currentUser.id) {
-                        if (!targetUser.notifications) targetUser.notifications = [];
-                        plans.forEach((p, idx) => {
-                            if (p.tags && p.tags.some(t => t.id === uid)) {
-                                const scopeKey = p.planScope === 'annual' ? 'annual' : 'personal';
-                                const scopedPlanId = planIdsByScope[scopeKey] || window.AppCalendar.getWorkPlanId(date, targetId, scopeKey);
-                                const alreadyNotified = targetUser.notifications.some(n =>
-                                    n.type === 'mention' && n.planId === scopedPlanId && n.taskIndex === idx
-                                );
-                                if (!alreadyNotified) {
-                                    targetUser.notifications.push({
-                                        id: `tag_${Date.now()}_${uid}_${idx}`,
-                                        type: 'tag',
-                                        title: p.task || 'Tagged task',
-                                        description: p.subPlans && p.subPlans.length > 0 ? p.subPlans.join(', ') : '',
-                                        taggedById: currentUser.id,
-                                        taggedByName: currentUser.name,
-                                        taggedAt: new Date().toISOString(),
-                                        status: 'pending',
-                                        source: 'plan',
-                                        planId: scopedPlanId,
-                                        taskIndex: idx,
-                                        message: `${currentUser.name} tagged you in: "${p.task}" for ${date}`,
-                                        date: new Date().toLocaleString(),
-                                        read: false
-                                    });
-                                }
-                            }
-                        });
-                        await window.AppDB.put('users', targetUser);
-                    }
-                }
-
-                for (let idx = 0; idx < plans.length; idx++) {
-                    const p = plans[idx];
-                    if (!p.tags) continue;
-                    for (const t of p.tags) {
-                        if (t.id === targetId) continue;
-                        const recipient = allUsers.find(u => u.id === t.id);
-                        if (!recipient || !window.AppCalendar) continue;
-                        const scopeKey = p.planScope === 'annual' ? 'annual' : 'personal';
-                        const scopedPlanId = planIdsByScope[scopeKey] || window.AppCalendar.getWorkPlanId(date, targetId, scopeKey);
-                        const details = p.subPlans && p.subPlans.length > 0 ? ` - ${p.subPlans.join(', ')}` : '';
-                        const taskText = `${p.task}${details} (Responsible: ${recipient.name})`;
-                        await window.AppCalendar.addWorkPlanTask(
-                            date,
-                            recipient.id,
-                            taskText,
-                            [{ id: currentUser.id, name: currentUser.name, status: 'pending' }],
-                            {
-                                addedFrom: 'tag',
-                                sourcePlanId: scopedPlanId,
-                                sourceTaskIndex: idx,
-                                taggedById: currentUser.id,
-                                taggedByName: currentUser.name,
-                                status: 'pending',
-                                subPlans: p.subPlans || [],
-                                startDate: p.startDate || date,
-                                endDate: p.endDate || p.startDate || date
-                            }
-                        );
-                    }
-                }
-            }
-            alert("Plans saved successfully!");
-            document.getElementById('day-plan-modal')?.remove();
-
-            // Refresh
-            const html = await window.AppUI.renderDashboard();
-            const contentArea = document.getElementById('page-content');
-            if (contentArea) {
-                contentArea.innerHTML = html;
-                if (window.setupDashboardEvents) window.setupDashboardEvents();
-            }
-        } catch (err) {
-            alert(err.message);
+    try {
+        const hasScope = planScope === 'personal' || planScope === 'annual';
+        if (hasScope) {
+            await window.AppCalendar.deleteWorkPlan(date, targetId, { planScope: planScope });
+        } else {
+            await Promise.all([
+                window.AppCalendar.deleteWorkPlan(date, targetId, { planScope: 'personal' }),
+                window.AppCalendar.deleteWorkPlan(date, targetId, { planScope: 'annual' })
+            ]);
         }
-    };
+        if (window.AppStore && window.AppStore.invalidatePlans) {
+            window.AppStore.invalidatePlans(); // CACHE INVALIDATION
+        }
+        alert("Plan deleted!");
+        document.getElementById('day-plan-modal')?.remove();
 
-    window.app_handleTagResponse = async (planId, taskIndex, response, notifIdx) => {
-        const user = window.AppAuth.getUser();
-        try {
-            // 1. Fetch the original work plan
-            const plan = await window.AppDB.get('work_plans', planId);
-            if (!plan || !plan.plans || !plan.plans[taskIndex]) {
-                throw new Error("Plan or task not found.");
+        // Re-render Dashboard
+        const html = await window.AppUI.renderDashboard();
+        const contentArea = document.getElementById('page-content');
+        if (contentArea) {
+            contentArea.innerHTML = html;
+            if (window.setupDashboardEvents) window.setupDashboardEvents();
+        }
+    } catch (err) {
+        alert(err.message);
+    }
+};
+
+window.app_saveDayPlan = async (e, date, targetUserId = null) => {
+    e.preventDefault();
+    const currentUser = window.AppAuth.getUser();
+    const targetId = app_resolveTargetUserId(targetUserId, currentUser.id);
+    const form = e.target;
+    const hadPersonal = form?.dataset?.hadPersonal === '1';
+    const hadAnnual = form?.dataset?.hadAnnual === '1';
+
+    const planBlocks = document.querySelectorAll('.plan-block');
+    const plans = [];
+    const personalPlans = [];
+    const annualPlans = [];
+    const planIdsByScope = {};
+    let validationError = '';
+
+    planBlocks.forEach(block => {
+        const task = block.querySelector('.plan-task').value.trim();
+        const subPlanInputs = block.querySelectorAll('.sub-plan-input');
+        const subPlans = Array.from(subPlanInputs).map(input => input.value.trim()).filter(v => v !== '');
+        const tagChips = block.querySelectorAll('.tag-chip');
+        const tags = Array.from(tagChips).map(chip => ({
+            id: chip.dataset.id,
+            name: chip.dataset.name,
+            status: chip.dataset.status || 'pending'
+        }));
+        const status = block.querySelector('.plan-status').value;
+        const assigneeSelect = block.querySelector('.plan-assignee');
+        const assignedTo = assigneeSelect ? assigneeSelect.value : targetId;
+        const startDateInput = block.querySelector('.plan-start-date');
+        const endDateInput = block.querySelector('.plan-end-date');
+        const startDate = startDateInput ? String(startDateInput.value || '').trim() : '';
+        const endDate = endDateInput ? String(endDateInput.value || '').trim() : '';
+        const scopeSelect = block.querySelector('.plan-scope');
+        const taskScope = scopeSelect && scopeSelect.value === 'annual' ? 'annual' : 'personal';
+
+        if (task) {
+            if ((startDate && !endDate) || (!startDate && endDate)) {
+                validationError = 'Please select both From Date and To Date for ranged tasks.';
+                return;
             }
-
-            // 2. Update the tag status for the current user
-            const task = plan.plans[taskIndex];
-            if (task.tags) {
-                const myTag = task.tags.find(t => t.id === user.id);
-                if (myTag) {
-                    myTag.status = response;
-                }
+            if (startDate && endDate && endDate < startDate) {
+                validationError = 'To Date cannot be earlier than From Date.';
+                return;
             }
+            const taskStartDate = startDate || date;
+            const taskEndDate = endDate || date;
+            const planPayload = {
+                task,
+                subPlans,
+                tags,
+                status: status || null,
+                assignedTo: assignedTo || null,
+                startDate: taskStartDate,
+                endDate: taskEndDate,
+                planScope: taskScope,
+                completedDate: status === 'completed' ? new Date().toISOString().split('T')[0] : null
+            };
+            plans.push(planPayload);
+            if (taskScope === 'annual') annualPlans.push(planPayload);
+            else personalPlans.push(planPayload);
+        }
+    });
 
-            // 3. Save the updated plan
-            await window.AppDB.put('work_plans', plan);
+    if (plans.length === 0) {
+        alert(validationError || "Please add at least one task.");
+        return;
+    }
+    if (validationError) {
+        alert(validationError);
+        return;
+    }
 
-            // 4. Update notification status (do not remove)
-            const updatedUser = await window.AppDB.get('users', user.id);
-            let rejectReason = '';
-            if (response === 'rejected') {
-                rejectReason = (await window.appPrompt('Optional: add a rejection reason', '', { title: 'Reject Task', confirmText: 'Submit Reason' })) || '';
-            }
-            if (updatedUser && updatedUser.notifications) {
-                const notif = updatedUser.notifications[notifIdx];
-                if (notif) {
-                    const nowIso = new Date().toISOString();
-                    notif.status = response;
-                    notif.respondedAt = nowIso;
-                    notif.read = true;
-                    notif.dismissedAt = nowIso;
-                    if (rejectReason) notif.rejectReason = rejectReason;
-                }
-                if (!updatedUser.tagHistory) updatedUser.tagHistory = [];
-                updatedUser.tagHistory.unshift({
-                    id: `taghist_${Date.now()}`,
-                    type: 'tag_response',
-                    title: notif?.title || plan.plans[taskIndex].task || 'Tagged task',
-                    taggedByName: notif?.taggedByName || plan.userName || 'Staff',
-                    status: response,
-                    reason: rejectReason,
-                    date: new Date().toISOString()
-                });
-                await window.AppDB.put('users', updatedUser);
-            }
+    try {
+        if (personalPlans.length > 0) {
+            await window.AppCalendar.setWorkPlan(date, personalPlans, targetId, { planScope: 'personal' });
+            planIdsByScope.personal = window.AppCalendar.getWorkPlanId(date, targetId, 'personal');
+        } else if (hadPersonal) {
+            await window.AppCalendar.deleteWorkPlan(date, targetId, { planScope: 'personal' });
+        }
 
-            // 4b. Notify the tagger
-            if (plan.userId) {
-                const tagger = await window.AppDB.get('users', plan.userId);
-                if (tagger) {
-                    if (!tagger.notifications) tagger.notifications = [];
-                    tagger.notifications.unshift({
-                        id: `tagresp_${Date.now()}`,
-                        type: 'tag_response',
-                        message: `${user.name} ${response} your tag request.`,
-                        title: plan.plans[taskIndex].task,
-                        taggedByName: user.name,
-                        status: response,
-                        reason: rejectReason,
-                        date: new Date().toISOString(),
+        if (annualPlans.length > 0) {
+            await window.AppCalendar.setWorkPlan(date, annualPlans, targetId, { planScope: 'annual' });
+            planIdsByScope.annual = window.AppCalendar.getWorkPlanId(date, targetId, 'annual');
+        } else if (hadAnnual) {
+            await window.AppCalendar.deleteWorkPlan(date, targetId, { planScope: 'annual' });
+        }
+
+        if (window.AppStore && window.AppStore.invalidatePlans) {
+            window.AppStore.invalidatePlans(); // CACHE INVALIDATION
+        }
+
+        const allUsers = await window.AppDB.getAll('users');
+
+        // 1. Notify the owner if edited by an admin
+        if (targetId !== currentUser.id && (currentUser.role === 'Administrator' || currentUser.isAdmin)) {
+            const owner = allUsers.find(u => u.id === targetId);
+            if (owner) {
+                if (!owner.notifications) owner.notifications = [];
+                const lastNotif = owner.notifications[owner.notifications.length - 1];
+                if (!lastNotif || lastNotif.message !== `Admin ${currentUser.name} has edited your Work Plan for ${date}`) {
+                    owner.notifications.push({
+                        type: 'admin_edit',
+                        message: `Admin ${currentUser.name} has edited your Work Plan for ${date}`,
+                        date: new Date().toLocaleString(),
                         read: false
                     });
-                    await window.AppDB.put('users', tagger);
+                    await window.AppDB.put('users', owner);
+                }
+            }
+        }
+
+        // 2. Send Notifications to newly tagged users
+        const distinctTaggedUsers = new Set();
+        plans.forEach(p => {
+            if (p.tags) p.tags.forEach(t => distinctTaggedUsers.add(t.id));
+        });
+
+        if (distinctTaggedUsers.size > 0) {
+            for (const uid of distinctTaggedUsers) {
+                const targetUser = allUsers.find(u => u.id === uid);
+                if (targetUser && uid !== currentUser.id) {
+                    if (!targetUser.notifications) targetUser.notifications = [];
+                    plans.forEach((p, idx) => {
+                        if (p.tags && p.tags.some(t => t.id === uid)) {
+                            const scopeKey = p.planScope === 'annual' ? 'annual' : 'personal';
+                            const scopedPlanId = planIdsByScope[scopeKey] || window.AppCalendar.getWorkPlanId(date, targetId, scopeKey);
+                            const alreadyNotified = targetUser.notifications.some(n =>
+                                n.type === 'mention' && n.planId === scopedPlanId && n.taskIndex === idx
+                            );
+                            if (!alreadyNotified) {
+                                targetUser.notifications.push({
+                                    id: `tag_${Date.now()}_${uid}_${idx}`,
+                                    type: 'tag',
+                                    title: p.task || 'Tagged task',
+                                    description: p.subPlans && p.subPlans.length > 0 ? p.subPlans.join(', ') : '',
+                                    taggedById: currentUser.id,
+                                    taggedByName: currentUser.name,
+                                    taggedAt: new Date().toISOString(),
+                                    status: 'pending',
+                                    source: 'plan',
+                                    planId: scopedPlanId,
+                                    taskIndex: idx,
+                                    message: `${currentUser.name} tagged you in: "${p.task}" for ${date}`,
+                                    date: new Date().toLocaleString(),
+                                    read: false
+                                });
+                            }
+                        }
+                    });
+                    await window.AppDB.put('users', targetUser);
                 }
             }
 
-            // 5. Refresh UI
-            if (window.AppStore && window.AppStore.invalidatePlans) {
-                window.AppStore.invalidatePlans(); // CACHE INVALIDATION
+            for (let idx = 0; idx < plans.length; idx++) {
+                const p = plans[idx];
+                if (!p.tags) continue;
+                for (const t of p.tags) {
+                    if (t.id === targetId) continue;
+                    const recipient = allUsers.find(u => u.id === t.id);
+                    if (!recipient || !window.AppCalendar) continue;
+                    const scopeKey = p.planScope === 'annual' ? 'annual' : 'personal';
+                    const scopedPlanId = planIdsByScope[scopeKey] || window.AppCalendar.getWorkPlanId(date, targetId, scopeKey);
+                    const details = p.subPlans && p.subPlans.length > 0 ? ` - ${p.subPlans.join(', ')}` : '';
+                    const taskText = `${p.task}${details} (Responsible: ${recipient.name})`;
+                    await window.AppCalendar.addWorkPlanTask(
+                        date,
+                        recipient.id,
+                        taskText,
+                        [{ id: currentUser.id, name: currentUser.name, status: 'pending' }],
+                        {
+                            addedFrom: 'tag',
+                            sourcePlanId: scopedPlanId,
+                            sourceTaskIndex: idx,
+                            taggedById: currentUser.id,
+                            taggedByName: currentUser.name,
+                            status: 'pending',
+                            subPlans: p.subPlans || [],
+                            startDate: p.startDate || date,
+                            endDate: p.endDate || p.startDate || date
+                        }
+                    );
+                }
             }
-            const contentArea = document.getElementById('page-content');
-            contentArea.innerHTML = await window.AppUI.renderDashboard();
-            if (window.setupDashboardEvents) window.setupDashboardEvents();
-
-            alert(`You have ${response} the collaboration request.`);
-        } catch (err) {
-            alert("Error: " + err.message);
         }
-    };
+        alert("Plans saved successfully!");
+        document.getElementById('day-plan-modal')?.remove();
 
-    window.app_changeCalMonth = (delta) => {
-        let newMonth = window.app_calMonth + delta;
-        if (newMonth < 0) { window.app_calYear--; newMonth = 11; }
-        if (newMonth > 11) { window.app_calYear++; newMonth = 0; }
-        window.app_calMonth = newMonth;
-        // Refresh Dashboard
-        window.AppUI.renderDashboard().then(async html => {
-            const contentArea = document.getElementById('page-content');
+        // Refresh
+        const html = await window.AppUI.renderDashboard();
+        const contentArea = document.getElementById('page-content');
+        if (contentArea) {
             contentArea.innerHTML = html;
-            // Re-setup dashboard specific events (like attendance button)
-            setupDashboardEvents();
-        });
-    };
+            if (window.setupDashboardEvents) window.setupDashboardEvents();
+        }
+    } catch (err) {
+        alert(err.message);
+    }
+};
 
-    window.app_exportCalendar = async () => {
-        const plans = window._currentPlans;
-        const month = window.app_calMonth;
-        const year = window.app_calYear;
-
-        if (!plans) {
-            alert("Calendar data not loaded yet.");
-            return;
+window.app_handleTagResponse = async (planId, taskIndex, response, notifIdx) => {
+    const user = window.AppAuth.getUser();
+    try {
+        // 1. Fetch the original work plan
+        const plan = await window.AppDB.get('work_plans', planId);
+        if (!plan || !plan.plans || !plan.plans[taskIndex]) {
+            throw new Error("Plan or task not found.");
         }
 
-        try {
-            await window.AppReports.exportCalendarPlansCSV(plans, month, year);
-        } catch (err) {
-            alert("Export failed: " + err.message);
-        }
-    };
-
-    // Meeting Minutes Handlers
-    window.app_newMeeting = async () => {
-        const user = window.AppAuth.getUser();
-        const newMeeting = {
-            id: 'meeting_' + Date.now(),
-            title: '',
-            date: new Date().toISOString().split('T')[0],
-            minutes: '',
-            author: user.name,
-            timestamp: new Date().toISOString()
-        };
-
-        await window.AppDB.put('meetings', newMeeting);
-        window._selectedMeetingId = newMeeting.id;
-
-        const contentArea = document.getElementById('page-content');
-        contentArea.innerHTML = await window.AppUI.renderMinutes();
-    };
-
-    window.app_selectMeeting = async (id) => {
-        window._selectedMeetingId = id;
-        const contentArea = document.getElementById('page-content');
-        contentArea.innerHTML = await window.AppUI.renderMinutes();
-    };
-
-    window.app_saveMeeting = async () => {
-        const title = document.getElementById('meeting-title')?.value;
-        const date = document.getElementById('meeting-date')?.value;
-        const minutes = document.getElementById('meeting-minutes')?.value;
-
-        if (!window._selectedMeetingId) {
-            alert('No meeting selected');
-            return;
+        // 2. Update the tag status for the current user
+        const task = plan.plans[taskIndex];
+        if (task.tags) {
+            const myTag = task.tags.find(t => t.id === user.id);
+            if (myTag) {
+                myTag.status = response;
+            }
         }
 
-        const meeting = await window.AppDB.get('meetings', window._selectedMeetingId);
-        if (!meeting) {
-            alert('Meeting not found');
-            return;
+        // 3. Save the updated plan
+        await window.AppDB.put('work_plans', plan);
+
+        // 4. Update notification status (do not remove)
+        const updatedUser = await window.AppDB.get('users', user.id);
+        let rejectReason = '';
+        if (response === 'rejected') {
+            rejectReason = (await window.appPrompt('Optional: add a rejection reason', '', { title: 'Reject Task', confirmText: 'Submit Reason' })) || '';
         }
-
-        meeting.title = title;
-        meeting.date = date;
-        meeting.minutes = minutes;
-        meeting.timestamp = new Date().toISOString();
-
-        await window.AppDB.put('meetings', meeting);
-
-        const contentArea = document.getElementById('page-content');
-        contentArea.innerHTML = await window.AppUI.renderMinutes();
-
-        alert('Meeting minutes saved successfully!');
-    };
-
-    window.app_deleteMeeting = async (id) => {
-        if (!await window.appConfirm('Are you sure you want to delete this meeting?')) return;
-
-        await window.AppDB.delete('meetings', id);
-        window._selectedMeetingId = null;
-
-        const contentArea = document.getElementById('page-content');
-        contentArea.innerHTML = await window.AppUI.renderMinutes();
-    };
-
-
-    // Helper to postpone a task
-    window.app_postponeTask = async (planId, taskIndex, targetDate) => {
-        if (!targetDate) return;
-        try {
-            const user = window.AppAuth.getUser();
-            await window.AppCalendar.updateTaskStatus(planId, taskIndex, 'postponed');
-            const plan = await window.AppDB.get('work_plans', planId);
-            const task = plan?.plans?.[taskIndex];
-            const details = (task && task.subPlans && task.subPlans.length) ? ` - ${task.subPlans.join(', ')}` : '';
-            const text = task ? `${task.task}${details}` : '';
-            const fromDate = plan?.date || new Date().toISOString().split('T')[0];
-            const cleanedText = text.replace(/\s*\(Postponed from [^)]+\)\s*$/i, '');
-            const postponedText = `${cleanedText} (Postponed from ${fromDate})`;
-            await window.AppCalendar.addWorkPlanTask(targetDate, user.id, postponedText, [], {
-                addedFrom: 'postponed',
-                sourcePlanId: planId,
-                sourceTaskIndex: taskIndex,
-                postponedFromDate: fromDate
+        if (updatedUser && updatedUser.notifications) {
+            const notif = updatedUser.notifications[notifIdx];
+            if (notif) {
+                const nowIso = new Date().toISOString();
+                notif.status = response;
+                notif.respondedAt = nowIso;
+                notif.read = true;
+                notif.dismissedAt = nowIso;
+                if (rejectReason) notif.rejectReason = rejectReason;
+            }
+            if (!updatedUser.tagHistory) updatedUser.tagHistory = [];
+            updatedUser.tagHistory.unshift({
+                id: `taghist_${Date.now()}`,
+                type: 'tag_response',
+                title: notif?.title || plan.plans[taskIndex].task || 'Tagged task',
+                taggedByName: notif?.taggedByName || plan.userName || 'Staff',
+                status: response,
+                reason: rejectReason,
+                date: new Date().toISOString()
             });
-            if (window.AppStore && window.AppStore.invalidatePlans) window.AppStore.invalidatePlans();
-            alert(`Task postponed to ${targetDate}`);
-            if (typeof handleAttendance === 'function') await handleAttendance();
-        } catch (err) {
-            alert("Failed to postpone task: " + err.message);
+            await window.AppDB.put('users', updatedUser);
         }
+
+        // 4b. Notify the tagger
+        if (plan.userId) {
+            const tagger = await window.AppDB.get('users', plan.userId);
+            if (tagger) {
+                if (!tagger.notifications) tagger.notifications = [];
+                tagger.notifications.unshift({
+                    id: `tagresp_${Date.now()}`,
+                    type: 'tag_response',
+                    message: `${user.name} ${response} your tag request.`,
+                    title: plan.plans[taskIndex].task,
+                    taggedByName: user.name,
+                    status: response,
+                    reason: rejectReason,
+                    date: new Date().toISOString(),
+                    read: false
+                });
+                await window.AppDB.put('users', tagger);
+            }
+        }
+
+        // 5. Refresh UI
+        if (window.AppStore && window.AppStore.invalidatePlans) {
+            window.AppStore.invalidatePlans(); // CACHE INVALIDATION
+        }
+        const contentArea = document.getElementById('page-content');
+        contentArea.innerHTML = await window.AppUI.renderDashboard();
+        if (window.setupDashboardEvents) window.setupDashboardEvents();
+
+        alert(`You have ${response} the collaboration request.`);
+    } catch (err) {
+        alert("Error: " + err.message);
+    }
+};
+
+window.app_changeCalMonth = (delta) => {
+    let newMonth = window.app_calMonth + delta;
+    if (newMonth < 0) { window.app_calYear--; newMonth = 11; }
+    if (newMonth > 11) { window.app_calYear++; newMonth = 0; }
+    window.app_calMonth = newMonth;
+    // Refresh Dashboard
+    window.AppUI.renderDashboard().then(async html => {
+        const contentArea = document.getElementById('page-content');
+        contentArea.innerHTML = html;
+        // Re-setup dashboard specific events (like attendance button)
+        setupDashboardEvents();
+    });
+};
+
+window.app_exportCalendar = async () => {
+    const plans = window._currentPlans;
+    const month = window.app_calMonth;
+    const year = window.app_calYear;
+
+    if (!plans) {
+        alert("Calendar data not loaded yet.");
+        return;
+    }
+
+    try {
+        await window.AppReports.exportCalendarPlansCSV(plans, month, year);
+    } catch (err) {
+        alert("Export failed: " + err.message);
+    }
+};
+
+// Meeting Minutes Handlers
+window.app_newMeeting = async () => {
+    const user = window.AppAuth.getUser();
+    const newMeeting = {
+        id: 'meeting_' + Date.now(),
+        title: '',
+        date: new Date().toISOString().split('T')[0],
+        minutes: '',
+        author: user.name,
+        timestamp: new Date().toISOString()
     };
 
-    window.app_openPostponeModal = function (planId, taskIndex) {
-        const modalId = 'postpone-task-modal';
-        document.getElementById(modalId)?.remove();
-        const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
-        const html = `
+    await window.AppDB.put('meetings', newMeeting);
+    window._selectedMeetingId = newMeeting.id;
+
+    const contentArea = document.getElementById('page-content');
+    contentArea.innerHTML = await window.AppUI.renderMinutes();
+};
+
+window.app_selectMeeting = async (id) => {
+    window._selectedMeetingId = id;
+    const contentArea = document.getElementById('page-content');
+    contentArea.innerHTML = await window.AppUI.renderMinutes();
+};
+
+window.app_saveMeeting = async () => {
+    const title = document.getElementById('meeting-title')?.value;
+    const date = document.getElementById('meeting-date')?.value;
+    const minutes = document.getElementById('meeting-minutes')?.value;
+
+    if (!window._selectedMeetingId) {
+        alert('No meeting selected');
+        return;
+    }
+
+    const meeting = await window.AppDB.get('meetings', window._selectedMeetingId);
+    if (!meeting) {
+        alert('Meeting not found');
+        return;
+    }
+
+    meeting.title = title;
+    meeting.date = date;
+    meeting.minutes = minutes;
+    meeting.timestamp = new Date().toISOString();
+
+    await window.AppDB.put('meetings', meeting);
+
+    const contentArea = document.getElementById('page-content');
+    contentArea.innerHTML = await window.AppUI.renderMinutes();
+
+    alert('Meeting minutes saved successfully!');
+};
+
+window.app_deleteMeeting = async (id) => {
+    if (!await window.appConfirm('Are you sure you want to delete this meeting?')) return;
+
+    await window.AppDB.delete('meetings', id);
+    window._selectedMeetingId = null;
+
+    const contentArea = document.getElementById('page-content');
+    contentArea.innerHTML = await window.AppUI.renderMinutes();
+};
+
+
+// Helper to postpone a task
+window.app_postponeTask = async (planId, taskIndex, targetDate) => {
+    if (!targetDate) return;
+    try {
+        const user = window.AppAuth.getUser();
+        await window.AppCalendar.updateTaskStatus(planId, taskIndex, 'postponed');
+        const plan = await window.AppDB.get('work_plans', planId);
+        const task = plan?.plans?.[taskIndex];
+        const details = (task && task.subPlans && task.subPlans.length) ? ` - ${task.subPlans.join(', ')}` : '';
+        const text = task ? `${task.task}${details}` : '';
+        const fromDate = plan?.date || new Date().toISOString().split('T')[0];
+        const cleanedText = text.replace(/\s*\(Postponed from [^)]+\)\s*$/i, '');
+        const postponedText = `${cleanedText} (Postponed from ${fromDate})`;
+        await window.AppCalendar.addWorkPlanTask(targetDate, user.id, postponedText, [], {
+            addedFrom: 'postponed',
+            sourcePlanId: planId,
+            sourceTaskIndex: taskIndex,
+            postponedFromDate: fromDate
+        });
+        if (window.AppStore && window.AppStore.invalidatePlans) window.AppStore.invalidatePlans();
+        alert(`Task postponed to ${targetDate}`);
+        if (typeof handleAttendance === 'function') await handleAttendance();
+    } catch (err) {
+        alert("Failed to postpone task: " + err.message);
+    }
+};
+
+window.app_openPostponeModal = function (planId, taskIndex) {
+    const modalId = 'postpone-task-modal';
+    document.getElementById(modalId)?.remove();
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+    const html = `
             <div class="modal-overlay" id="${modalId}" style="display:flex;">
                 <div class="modal-content" style="max-width:420px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.8rem;">
@@ -2487,30 +2501,30 @@
                     </div>
                 </div>
             </div>`;
-        window.app_showModal(html, modalId);
-    };
+    window.app_showModal(html, modalId);
+};
 
-    window.app_confirmPostponeTask = async function (planId, taskIndex) {
-        const targetDate = document.getElementById('postpone-date-input')?.value;
-        if (!targetDate) return alert('Please select a date.');
-        document.getElementById('postpone-task-modal')?.remove();
-        await window.app_postponeTask(planId, taskIndex, targetDate);
-    };
+window.app_confirmPostponeTask = async function (planId, taskIndex) {
+    const targetDate = document.getElementById('postpone-date-input')?.value;
+    if (!targetDate) return alert('Please select a date.');
+    document.getElementById('postpone-task-modal')?.remove();
+    await window.app_postponeTask(planId, taskIndex, targetDate);
+};
 
-    window.app_openDelegateModal = async function (planId, taskIndex) {
-        const modalId = 'delegate-task-modal';
-        document.getElementById(modalId)?.remove();
-        const users = await window.AppDB.getAll('users').catch(() => []);
-        const currentUser = window.AppAuth.getUser();
-        const candidates = (users || []).filter(u => u.id !== currentUser.id);
-        window.app_delegateModalContext = { planId, taskIndex, selectedUserId: '' };
-        const list = candidates.map(u => `
+window.app_openDelegateModal = async function (planId, taskIndex) {
+    const modalId = 'delegate-task-modal';
+    document.getElementById(modalId)?.remove();
+    const users = await window.AppDB.getAll('users').catch(() => []);
+    const currentUser = window.AppAuth.getUser();
+    const candidates = (users || []).filter(u => u.id !== currentUser.id);
+    window.app_delegateModalContext = { planId, taskIndex, selectedUserId: '' };
+    const list = candidates.map(u => `
             <button type="button" class="delegate-picker-item" data-user-id="${u.id}" data-name="${(u.name || '').toLowerCase()}" onclick="window.app_selectDelegateUser('${u.id}')">
                 <img src="${u.avatar || ''}" alt="${u.name}" class="delegate-user-avatar">
                 <span>${u.name}</span>
             </button>
         `).join('');
-        const html = `
+    const html = `
             <div class="modal-overlay" id="${modalId}" style="display:flex;">
                 <div class="modal-content" style="max-width:480px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.8rem;">
@@ -2525,477 +2539,475 @@
                     </div>
                 </div>
             </div>`;
-        window.app_showModal(html, modalId);
-    };
+    window.app_showModal(html, modalId);
+};
 
-    window.app_filterDelegateUsers = function (query) {
-        const q = String(query || '').toLowerCase().trim();
-        Array.from(document.querySelectorAll('#delegate-picker-list .delegate-picker-item')).forEach(item => {
-            const name = item.getAttribute('data-name') || '';
-            item.style.display = (!q || name.includes(q)) ? 'flex' : 'none';
-        });
-    };
+window.app_filterDelegateUsers = function (query) {
+    const q = String(query || '').toLowerCase().trim();
+    Array.from(document.querySelectorAll('#delegate-picker-list .delegate-picker-item')).forEach(item => {
+        const name = item.getAttribute('data-name') || '';
+        item.style.display = (!q || name.includes(q)) ? 'flex' : 'none';
+    });
+};
 
-    window.app_selectDelegateUser = function (userId) {
-        if (!window.app_delegateModalContext) return;
-        window.app_delegateModalContext.selectedUserId = userId;
-        Array.from(document.querySelectorAll('#delegate-picker-list .delegate-picker-item')).forEach(item => {
-            item.classList.toggle('selected', item.getAttribute('data-user-id') === userId);
-        });
-        const btn = document.getElementById('delegate-confirm-btn');
-        if (btn) btn.disabled = !userId;
-    };
+window.app_selectDelegateUser = function (userId) {
+    if (!window.app_delegateModalContext) return;
+    window.app_delegateModalContext.selectedUserId = userId;
+    Array.from(document.querySelectorAll('#delegate-picker-list .delegate-picker-item')).forEach(item => {
+        item.classList.toggle('selected', item.getAttribute('data-user-id') === userId);
+    });
+    const btn = document.getElementById('delegate-confirm-btn');
+    if (btn) btn.disabled = !userId;
+};
 
-    window.app_confirmDelegateTask = async function () {
-        const ctx = window.app_delegateModalContext;
-        if (!ctx || !ctx.selectedUserId) return alert('Please select a staff member.');
-        document.getElementById('delegate-task-modal')?.remove();
-        await window.app_delegateTo(ctx.planId, ctx.taskIndex, ctx.selectedUserId);
-    };
+window.app_confirmDelegateTask = async function () {
+    const ctx = window.app_delegateModalContext;
+    if (!ctx || !ctx.selectedUserId) return alert('Please select a staff member.');
+    document.getElementById('delegate-task-modal')?.remove();
+    await window.app_delegateTo(ctx.planId, ctx.taskIndex, ctx.selectedUserId);
+};
 
-    window.app_formatTaskWithPostponeChip = function (text) {
-        const raw = String(text || '');
-        const match = raw.match(/^(.*)\s+\(Postponed from ([^)]+)\)\s*$/i);
-        if (!match) return raw;
-        const base = match[1].trim();
-        const fromDate = match[2].trim();
-        return `${base} <span class="postponed-source-chip">Postponed from ${fromDate}</span>`;
-    };
+window.app_formatTaskWithPostponeChip = function (text) {
+    const raw = String(text || '');
+    const match = raw.match(/^(.*)\s+\(Postponed from ([^)]+)\)\s*$/i);
+    if (!match) return raw;
+    const base = match[1].trim();
+    const fromDate = match[2].trim();
+    return `${base} <span class="postponed-source-chip">Postponed from ${fromDate}</span>`;
+};
 
-    window.app_appendCompletedTaskToSummary = async function (planId, taskIndex) {
-        const plan = await window.AppDB.get('work_plans', planId);
-        const task = plan?.plans?.[taskIndex];
-        if (!task) return;
-        const details = (task.subPlans && task.subPlans.length) ? ` (${task.subPlans.join(', ')})` : '';
-        const line = `- ${task.task}${details}`;
-        const summaryTextarea = document.getElementById('checkout-work-summary');
-        const current = (summaryTextarea?.value || window.app_checkoutSummaryDraft || '').trim();
-        const exists = current.split('\n').some(l => l.trim() === line.trim());
-        const next = exists ? current : (current ? `${current}\n${line}` : line);
-        window.app_checkoutSummaryDraft = next;
-        if (summaryTextarea) {
-            summaryTextarea.value = next;
-            if (window.app_updateCharCounter) window.app_updateCharCounter(summaryTextarea);
-        }
-    };
-
-    window.app_handleChecklistAction = async function (planId, taskIndex, action) {
-        const checklistSection = document.getElementById('checkout-task-checklist');
-        const delegatePanel = document.getElementById('delegate-panel');
-        window.app_checkoutTaskActions = window.app_checkoutTaskActions || {};
-        const actionKey = `${planId}:${taskIndex}`;
-        if (!action) {
-            delete window.app_checkoutTaskActions[actionKey];
-            if (delegatePanel) delegatePanel.style.display = 'none';
-            if (checklistSection) checklistSection.classList.remove('delegate-open');
-            return;
-        }
-        window.app_checkoutTaskActions[actionKey] = action;
-        if (action === 'complete') {
-            if (delegatePanel) delegatePanel.style.display = 'none';
-            if (checklistSection) checklistSection.classList.remove('delegate-open');
-            await window.app_appendCompletedTaskToSummary(planId, taskIndex);
-            await window.app_markTaskCompleted(planId, taskIndex);
-            return;
-        }
-        if (action === 'postpone') {
-            if (delegatePanel) delegatePanel.style.display = 'none';
-            if (checklistSection) checklistSection.classList.remove('delegate-open');
-            await window.app_openPostponeModal(planId, taskIndex);
-            return;
-        }
-        if (action === 'delegate') {
-            if (delegatePanel) delegatePanel.style.display = 'none';
-            if (checklistSection) checklistSection.classList.remove('delegate-open');
-            await window.app_openDelegateModal(planId, taskIndex);
-        }
-    };
-    // Mark task completed (updates status and credit score via AppRating)
-    window.app_markTaskCompleted = async function (planId, taskIndex) {
-        try {
-            const today = new Date().toISOString().split('T')[0];
-            await window.AppCalendar.updateTaskStatus(planId, taskIndex, 'completed', today);
-            if (window.AppStore && window.AppStore.invalidatePlans) {
-                window.AppStore.invalidatePlans();
-            }
-            alert('Task marked as completed.');
-            if (typeof handleAttendance === 'function') await handleAttendance();
-        } catch (err) {
-            alert('Failed to mark completed: ' + err.message);
-        }
-    };
-
-    // Delegate task to another staff with acceptance and calendar entry
-    window.app_delegateTask = async function (planId, taskIndex) {
-        try {
-            const allUsers = await window.AppDB.getAll('users');
-            const names = allUsers.map(u => u.name).join(', ');
-            const chosen = await window.appPrompt(`Delegate to which staff? Enter name.\nAvailable: ${names}`, '', { title: 'Delegate Task', placeholder: 'Type staff name' });
-            if (!chosen) return;
-            const recipient = allUsers.find(u => u.name.toLowerCase() === chosen.toLowerCase());
-            if (!recipient) {
-                alert('Staff not found.');
-                return;
-            }
-            await window.app_delegateTo(planId, taskIndex, recipient.id);
-        } catch (err) {
-            alert('Failed to delegate task: ' + err.message);
-        }
-    };
-
-    window.app_delegateTo = async function (planId, taskIndex, userId) {
-        try {
-            const plan = await window.AppDB.get('work_plans', planId);
-            if (!plan || !plan.plans || !plan.plans[taskIndex]) {
-                alert('Task not found.');
-                return;
-            }
-            const currentUser = window.AppAuth.getUser();
-            const task = plan.plans[taskIndex];
-            const details = (task.subPlans && task.subPlans.length) ? ` — ${task.subPlans.join(', ')}` : '';
-            const text = `${task.task}${details}`;
-
-            // Update original plan: add tag and mark as delegated (pending)
-            if (!task.tags) task.tags = [];
-            const users = await window.AppDB.getAll('users');
-            const recipient = users.find(u => u.id === userId);
-            if (!recipient) {
-                alert('Staff not found.');
-                return;
-            }
-            if (!task.tags.some(t => t.id === recipient.id)) {
-                task.tags.push({ id: recipient.id, name: recipient.name, status: 'pending' });
-            }
-            task.status = task.status || 'pending';
-            plan.updatedAt = new Date().toISOString();
-            await window.AppDB.put('work_plans', plan);
-
-            // Create task in recipient's calendar (same date) with pending status
-            await window.AppCalendar.addWorkPlanTask(
-                plan.date,
-                recipient.id,
-                text,
-                [{ id: currentUser.id, name: currentUser.name, status: 'pending' }],
-                {
-                    addedFrom: 'delegated',
-                    sourcePlanId: planId,
-                    sourceTaskIndex: taskIndex,
-                    taggedById: currentUser.id,
-                    taggedByName: currentUser.name,
-                    status: 'pending',
-                    subPlans: task.subPlans || []
-                }
-            );
-
-            // Notify recipient
-            const recUser = await window.AppDB.get('users', recipient.id);
-            if (recUser) {
-                if (!recUser.notifications) recUser.notifications = [];
-                recUser.notifications.unshift({
-                    id: `task_${Date.now()}`,
-                    type: 'task',
-                    title: task.task || 'Delegated task',
-                    description: task.subPlans && task.subPlans.length > 0 ? task.subPlans.join(', ') : '',
-                    taggedById: currentUser.id,
-                    taggedByName: currentUser.name,
-                    taggedAt: new Date().toISOString(),
-                    status: 'pending',
-                    source: 'delegation',
-                    date: new Date().toLocaleString(),
-                    read: false
-                });
-                await window.AppDB.put('users', recUser);
-            }
-
-            if (window.AppStore && window.AppStore.invalidatePlans) {
-                window.AppStore.invalidatePlans();
-            }
-            alert(`Task delegated to ${recipient.name}.`);
-            if (typeof handleAttendance === 'function') await handleAttendance();
-        } catch (err) {
-            alert('Failed to delegate task: ' + err.message);
-        }
-    };
-
-    // Helper to calculate distance in meters between two coordinates
-    function calculateDistance(lat1, lon1, lat2, lon2) {
-        if (!lat1 || !lon1 || !lat2 || !lon2) return 0;
-        const earthRadiusMeters = 6371e3;
-        const latRad1 = lat1 * Math.PI / 180;
-        const latRad2 = lat2 * Math.PI / 180;
-        const deltaLat = (lat2 - lat1) * Math.PI / 180;
-        const deltaLon = (lon2 - lon1) * Math.PI / 180;
-        const a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
-            Math.cos(latRad1) * Math.cos(latRad2) *
-            Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return earthRadiusMeters * c;
+window.app_appendCompletedTaskToSummary = async function (planId, taskIndex) {
+    const plan = await window.AppDB.get('work_plans', planId);
+    const task = plan?.plans?.[taskIndex];
+    if (!task) return;
+    const details = (task.subPlans && task.subPlans.length) ? ` (${task.subPlans.join(', ')})` : '';
+    const line = `- ${task.task}${details}`;
+    const summaryTextarea = document.getElementById('checkout-work-summary');
+    const current = (summaryTextarea?.value || window.app_checkoutSummaryDraft || '').trim();
+    const exists = current.split('\n').some(l => l.trim() === line.trim());
+    const next = exists ? current : (current ? `${current}\n${line}` : line);
+    window.app_checkoutSummaryDraft = next;
+    if (summaryTextarea) {
+        summaryTextarea.value = next;
+        if (window.app_updateCharCounter) window.app_updateCharCounter(summaryTextarea);
     }
+};
 
-    const BASE_SHIFT_MS = 8 * 60 * 60 * 1000;
-    const OVERTIME_PROMPT_THRESHOLD_MS = 9 * 60 * 60 * 1000; // 8h + 1h
+window.app_handleChecklistAction = async function (planId, taskIndex, action) {
+    const checklistSection = document.getElementById('checkout-task-checklist');
+    const delegatePanel = document.getElementById('delegate-panel');
+    window.app_checkoutTaskActions = window.app_checkoutTaskActions || {};
+    const actionKey = `${planId}:${taskIndex}`;
+    if (!action) {
+        delete window.app_checkoutTaskActions[actionKey];
+        if (delegatePanel) delegatePanel.style.display = 'none';
+        if (checklistSection) checklistSection.classList.remove('delegate-open');
+        return;
+    }
+    window.app_checkoutTaskActions[actionKey] = action;
+    if (action === 'complete') {
+        if (delegatePanel) delegatePanel.style.display = 'none';
+        if (checklistSection) checklistSection.classList.remove('delegate-open');
+        await window.app_appendCompletedTaskToSummary(planId, taskIndex);
+        await window.app_markTaskCompleted(planId, taskIndex);
+        return;
+    }
+    if (action === 'postpone') {
+        if (delegatePanel) delegatePanel.style.display = 'none';
+        if (checklistSection) checklistSection.classList.remove('delegate-open');
+        await window.app_openPostponeModal(planId, taskIndex);
+        return;
+    }
+    if (action === 'delegate') {
+        if (delegatePanel) delegatePanel.style.display = 'none';
+        if (checklistSection) checklistSection.classList.remove('delegate-open');
+        await window.app_openDelegateModal(planId, taskIndex);
+    }
+};
+// Mark task completed (updates status and credit score via AppRating)
+window.app_markTaskCompleted = async function (planId, taskIndex) {
+    try {
+        const today = new Date().toISOString().split('T')[0];
+        await window.AppCalendar.updateTaskStatus(planId, taskIndex, 'completed', today);
+        if (window.AppStore && window.AppStore.invalidatePlans) {
+            window.AppStore.invalidatePlans();
+        }
+        alert('Task marked as completed.');
+        if (typeof handleAttendance === 'function') await handleAttendance();
+    } catch (err) {
+        alert('Failed to mark completed: ' + err.message);
+    }
+};
 
-    const parseLogDateTime = (dateStr, timeStr) => {
-        if (!dateStr || !timeStr) return null;
-        const date = String(dateStr).trim();
-        const time = String(timeStr).trim();
-        if (!date || !time || time.toLowerCase().includes('active now')) return null;
+// Delegate task to another staff with acceptance and calendar entry
+window.app_delegateTask = async function (planId, taskIndex) {
+    try {
+        const allUsers = await window.AppDB.getAll('users');
+        const names = allUsers.map(u => u.name).join(', ');
+        const chosen = await window.appPrompt(`Delegate to which staff? Enter name.\nAvailable: ${names}`, '', { title: 'Delegate Task', placeholder: 'Type staff name' });
+        if (!chosen) return;
+        const recipient = allUsers.find(u => u.name.toLowerCase() === chosen.toLowerCase());
+        if (!recipient) {
+            alert('Staff not found.');
+            return;
+        }
+        await window.app_delegateTo(planId, taskIndex, recipient.id);
+    } catch (err) {
+        alert('Failed to delegate task: ' + err.message);
+    }
+};
 
-        const dt = new Date(`${date}T${time}`);
-        if (!Number.isNaN(dt.getTime())) return dt;
+window.app_delegateTo = async function (planId, taskIndex, userId) {
+    try {
+        const plan = await window.AppDB.get('work_plans', planId);
+        if (!plan || !plan.plans || !plan.plans[taskIndex]) {
+            alert('Task not found.');
+            return;
+        }
+        const currentUser = window.AppAuth.getUser();
+        const task = plan.plans[taskIndex];
+        const details = (task.subPlans && task.subPlans.length) ? ` — ${task.subPlans.join(', ')}` : '';
+        const text = `${task.task}${details}`;
 
-        const fallback = new Date(`${date} ${time}`);
-        return Number.isNaN(fallback.getTime()) ? null : fallback;
-    };
+        // Update original plan: add tag and mark as delegated (pending)
+        if (!task.tags) task.tags = [];
+        const users = await window.AppDB.getAll('users');
+        const recipient = users.find(u => u.id === userId);
+        if (!recipient) {
+            alert('Staff not found.');
+            return;
+        }
+        if (!task.tags.some(t => t.id === recipient.id)) {
+            task.tags.push({ id: recipient.id, name: recipient.name, status: 'pending' });
+        }
+        task.status = task.status || 'pending';
+        plan.updatedAt = new Date().toISOString();
+        await window.AppDB.put('work_plans', plan);
 
-    const hasManualLogDuringRange = async (userId, rangeStartMs, rangeEndMs) => {
-        if (!userId || !window.AppDB || rangeEndMs <= rangeStartMs) return false;
-        const logs = await window.AppDB.getAll('attendance');
-        const targetId = String(userId);
+        // Create task in recipient's calendar (same date) with pending status
+        await window.AppCalendar.addWorkPlanTask(
+            plan.date,
+            recipient.id,
+            text,
+            [{ id: currentUser.id, name: currentUser.name, status: 'pending' }],
+            {
+                addedFrom: 'delegated',
+                sourcePlanId: planId,
+                sourceTaskIndex: taskIndex,
+                taggedById: currentUser.id,
+                taggedByName: currentUser.name,
+                status: 'pending',
+                subPlans: task.subPlans || []
+            }
+        );
 
-        return (logs || []).some((log) => {
-            if (!log || String(log.user_id || '') !== targetId) return false;
-            if (!log.isManualOverride) return false;
-
-            const start = parseLogDateTime(log.date, log.checkIn);
-            const end = parseLogDateTime(log.date, log.checkOut);
-            if (!start || !end) return false;
-
-            let startMs = start.getTime();
-            let endMs = end.getTime();
-            if (endMs <= startMs) endMs += 24 * 60 * 60 * 1000;
-
-            const overlapStart = Math.max(rangeStartMs, startMs);
-            const overlapEnd = Math.min(rangeEndMs, endMs);
-            return overlapEnd > overlapStart;
-        });
-    };
-
-    const evaluateCheckoutOvertimePrompt = async (user) => {
-        const base = {
-            showPrompt: false,
-            hasManualLog: false,
-            overtimeStartMs: null,
-            overtimeEndMs: null
-        };
-        if (!user || !user.lastCheckIn) return base;
-
-        const checkInMs = Number(user.lastCheckIn);
-        if (!Number.isFinite(checkInMs)) return base;
-
-        const nowMs = Date.now();
-        const workedMs = nowMs - checkInMs;
-        if (workedMs <= OVERTIME_PROMPT_THRESHOLD_MS) return base;
-
-        const overtimeStartMs = checkInMs + BASE_SHIFT_MS;
-        const hasManualLog = await hasManualLogDuringRange(user.id, overtimeStartMs, nowMs);
-        if (hasManualLog) {
-            return {
-                showPrompt: false,
-                hasManualLog: true,
-                overtimeStartMs,
-                overtimeEndMs: nowMs
-            };
+        // Notify recipient
+        const recUser = await window.AppDB.get('users', recipient.id);
+        if (recUser) {
+            if (!recUser.notifications) recUser.notifications = [];
+            recUser.notifications.unshift({
+                id: `task_${Date.now()}`,
+                type: 'task',
+                title: task.task || 'Delegated task',
+                description: task.subPlans && task.subPlans.length > 0 ? task.subPlans.join(', ') : '',
+                taggedById: currentUser.id,
+                taggedByName: currentUser.name,
+                taggedAt: new Date().toISOString(),
+                status: 'pending',
+                source: 'delegation',
+                date: new Date().toLocaleString(),
+                read: false
+            });
+            await window.AppDB.put('users', recUser);
         }
 
+        if (window.AppStore && window.AppStore.invalidatePlans) {
+            window.AppStore.invalidatePlans();
+        }
+        alert(`Task delegated to ${recipient.name}.`);
+        if (typeof handleAttendance === 'function') await handleAttendance();
+    } catch (err) {
+        alert('Failed to delegate task: ' + err.message);
+    }
+};
+
+// Helper to calculate distance in meters between two coordinates
+function calculateDistance(lat1, lon1, lat2, lon2) {
+    if (!lat1 || !lon1 || !lat2 || !lon2) return 0;
+    const earthRadiusMeters = 6371e3;
+    const latRad1 = lat1 * Math.PI / 180;
+    const latRad2 = lat2 * Math.PI / 180;
+    const deltaLat = (lat2 - lat1) * Math.PI / 180;
+    const deltaLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+        Math.cos(latRad1) * Math.cos(latRad2) *
+        Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return earthRadiusMeters * c;
+}
+
+const BASE_SHIFT_MS = 8 * 60 * 60 * 1000;
+const OVERTIME_PROMPT_THRESHOLD_MS = 9 * 60 * 60 * 1000; // 8h + 1h
+
+const parseLogDateTime = (dateStr, timeStr) => {
+    if (!dateStr || !timeStr) return null;
+    const date = String(dateStr).trim();
+    const time = String(timeStr).trim();
+    if (!date || !time || time.toLowerCase().includes('active now')) return null;
+
+    const dt = new Date(`${date}T${time}`);
+    if (!Number.isNaN(dt.getTime())) return dt;
+
+    const fallback = new Date(`${date} ${time}`);
+    return Number.isNaN(fallback.getTime()) ? null : fallback;
+};
+
+const hasManualLogDuringRange = async (userId, rangeStartMs, rangeEndMs) => {
+    if (!userId || !window.AppDB || rangeEndMs <= rangeStartMs) return false;
+    const logs = await window.AppDB.getAll('attendance');
+    const targetId = String(userId);
+
+    return (logs || []).some((log) => {
+        if (!log || String(log.user_id || '') !== targetId) return false;
+        if (!log.isManualOverride) return false;
+
+        const start = parseLogDateTime(log.date, log.checkIn);
+        const end = parseLogDateTime(log.date, log.checkOut);
+        if (!start || !end) return false;
+
+        let startMs = start.getTime();
+        let endMs = end.getTime();
+        if (endMs <= startMs) endMs += 24 * 60 * 60 * 1000;
+
+        const overlapStart = Math.max(rangeStartMs, startMs);
+        const overlapEnd = Math.min(rangeEndMs, endMs);
+        return overlapEnd > overlapStart;
+    });
+};
+
+const evaluateCheckoutOvertimePrompt = async (user) => {
+    const base = {
+        showPrompt: false,
+        hasManualLog: false,
+        overtimeStartMs: null,
+        overtimeEndMs: null
+    };
+    if (!user || !user.lastCheckIn) return base;
+
+    const checkInMs = Number(user.lastCheckIn);
+    if (!Number.isFinite(checkInMs)) return base;
+
+    const nowMs = Date.now();
+    const workedMs = nowMs - checkInMs;
+    if (workedMs <= OVERTIME_PROMPT_THRESHOLD_MS) return base;
+
+    const overtimeStartMs = checkInMs + BASE_SHIFT_MS;
+    const hasManualLog = await hasManualLogDuringRange(user.id, overtimeStartMs, nowMs);
+    if (hasManualLog) {
         return {
-            showPrompt: true,
-            hasManualLog: false,
+            showPrompt: false,
+            hasManualLog: true,
             overtimeStartMs,
             overtimeEndMs: nowMs
         };
+    }
+
+    return {
+        showPrompt: true,
+        hasManualLog: false,
+        overtimeStartMs,
+        overtimeEndMs: nowMs
     };
+};
 
-    window.app_prepareCheckoutOvertimeSection = async (user) => {
-        const section = document.getElementById('checkout-overtime-section');
-        const explanation = document.getElementById('checkout-overtime-explanation');
-        const modeInput = document.getElementById('checkout-overtime-mode');
-        const reasonHint = document.getElementById('checkout-overtime-hint');
+window.app_prepareCheckoutOvertimeSection = async (user) => {
+    const section = document.getElementById('checkout-overtime-section');
+    const explanation = document.getElementById('checkout-overtime-explanation');
+    const modeInput = document.getElementById('checkout-overtime-mode');
+    const reasonHint = document.getElementById('checkout-overtime-hint');
 
-        window.app_checkoutOvertimeState = {
-            showPrompt: false,
-            hasManualLog: false
-        };
-        if (!section || !explanation || !modeInput) return;
+    window.app_checkoutOvertimeState = {
+        showPrompt: false,
+        hasManualLog: false
+    };
+    if (!section || !explanation || !modeInput) return;
 
-        section.style.display = 'none';
-        explanation.required = false;
-        explanation.value = '';
-        modeInput.value = 'overtime_work';
-        document.querySelectorAll('.overtime-reason-btn').forEach(btn => {
-            btn.style.background = '#fef3c7';
-            btn.style.borderColor = '#fcd34d';
-            btn.style.color = '#92400e';
-        });
+    section.style.display = 'none';
+    explanation.required = false;
+    explanation.value = '';
+    modeInput.value = 'overtime_work';
+    document.querySelectorAll('.overtime-reason-btn').forEach(btn => {
+        btn.style.background = '#fef3c7';
+        btn.style.borderColor = '#fcd34d';
+        btn.style.color = '#92400e';
+    });
 
-        try {
-            const state = await evaluateCheckoutOvertimePrompt(user);
-            window.app_checkoutOvertimeState = state;
-            if (!state.showPrompt) return;
+    try {
+        const state = await evaluateCheckoutOvertimePrompt(user);
+        window.app_checkoutOvertimeState = state;
+        if (!state.showPrompt) return;
 
-            if (reasonHint) {
-                reasonHint.textContent = 'You worked over 1 hour extra. Please capture what was done during overtime.';
-            }
-            section.style.display = 'block';
-            explanation.required = true;
-        } catch (err) {
-            console.warn('Overtime prompt check failed:', err);
+        if (reasonHint) {
+            reasonHint.textContent = 'You worked over 1 hour extra. Please capture what was done during overtime.';
         }
-    };
+        section.style.display = 'block';
+        explanation.required = true;
+    } catch (err) {
+        console.warn('Overtime prompt check failed:', err);
+    }
+};
 
-    async function handleAttendance() {
-        const btn = document.getElementById('attendance-btn');
-        const locationText = document.getElementById('location-text');
-        const { status } = await window.AppAttendance.getStatus();
+async function handleAttendance() {
+    const btn = document.getElementById('attendance-btn');
+    const locationText = document.getElementById('location-text');
+    const { status } = await window.AppAttendance.getStatus();
 
-        if (btn) btn.disabled = true;
-        attendanceActionInFlight = true;
+    if (btn) btn.disabled = true;
+    attendanceActionInFlight = true;
 
-        try {
-            if (status === 'out') {
-                if (btn) btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Locating...`;
-                const pos = await window.getLocation();
-                const checkInAddress = `Lat: ${pos.lat.toFixed(4)}, Lng: ${pos.lng.toFixed(4)}`;
-                if (locationText) locationText.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${checkInAddress}`;
-                const checkInResult = await window.AppAttendance.checkIn(pos.lat, pos.lng, checkInAddress);
-                if (checkInResult && checkInResult.conflict) {
-                    window.app_showSyncToast(checkInResult.message || 'Status updated from another device.');
-                    contentArea.innerHTML = await window.AppUI.renderDashboard();
-                    setupDashboardEvents();
-                    return;
-                }
-                markLocalAttendanceMutation();
-                contentArea.innerHTML = await window.AppUI.renderDashboard();
-                setupDashboardEvents();
-                if (checkInResult && checkInResult.resolvedMissedCheckout && checkInResult.noticeMessage) {
-                    window.app_showAttendanceNotice(checkInResult.noticeMessage);
-                }
-                // Check if a reminder popup is needed
-                await window.AppUI.checkDailyPlanReminder();
-            } else {
-                // Pre-fill Checkout Description from Work Plan
-                const user = window.AppAuth.getUser();
-                const today = getLocalISO();
-                const workPlan = await window.AppCalendar.getWorkPlan(user.id, today, { includeAnnual: true, mergeAnnual: true });
-                const collaborations = await window.AppCalendar.getCollaborations(user.id, today);
-                if (window.app_checkoutSummaryDate !== today) {
-                    window.app_checkoutSummaryDate = today;
-                    window.app_checkoutSummaryDraft = '';
-                }
-                if (window.app_checkoutActionDate !== today) {
-                    window.app_checkoutActionDate = today;
-                    window.app_checkoutTaskActions = {};
-                }
+    try {
+        if (status === 'out') {
+            if (btn) btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Locating...`;
+            const pos = await window.getLocation();
+            const checkInAddress = `Lat: ${pos.lat.toFixed(4)}, Lng: ${pos.lng.toFixed(4)}`;
+            if (locationText) locationText.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${checkInAddress}`;
+            const checkInResult = await window.AppAttendance.checkIn(pos.lat, pos.lng, checkInAddress);
+            if (checkInResult && checkInResult.conflict) {
+                window.app_showSyncToast(checkInResult.message || 'Status updated from another device.');
+                if (window.app_refreshDashboard) await window.app_refreshDashboard();
+                return;
+            }
+            markLocalAttendanceMutation();
+            if (window.app_refreshDashboard) await window.app_refreshDashboard();
+            if (checkInResult && checkInResult.resolvedMissedCheckout && checkInResult.noticeMessage) {
+                window.app_showAttendanceNotice(checkInResult.noticeMessage);
+            }
+            // Check if a reminder popup is needed
+            await window.AppUI.checkDailyPlanReminder();
+        } else {
+            // Pre-fill Checkout Description from Work Plan
+            const user = window.AppAuth.getUser();
+            const today = getLocalISO();
+            const workPlan = await window.AppCalendar.getWorkPlan(user.id, today, { includeAnnual: true, mergeAnnual: true });
+            const collaborations = await window.AppCalendar.getCollaborations(user.id, today);
+            if (window.app_checkoutSummaryDate !== today) {
+                window.app_checkoutSummaryDate = today;
+                window.app_checkoutSummaryDraft = '';
+            }
+            if (window.app_checkoutActionDate !== today) {
+                window.app_checkoutActionDate = today;
+                window.app_checkoutTaskActions = {};
+            }
 
-                // Ensure persistent modals are present
-                const modalContainer = document.getElementById('modal-container');
-                if (modalContainer && !document.getElementById('checkout-modal')) {
-                    modalContainer.insertAdjacentHTML('beforeend', window.AppUI.renderModals());
-                }
+            // Ensure persistent modals are present
+            const modalContainer = document.getElementById('modal-container');
+            if (modalContainer && !document.getElementById('checkout-modal')) {
+                modalContainer.insertAdjacentHTML('beforeend', window.AppUI.renderModals());
+            }
 
-                // Show Check-Out Modal
-                const modal = document.getElementById('checkout-modal');
-                if (modal) {
-                    const planTextEl = document.getElementById('checkout-plan-text');
-                    const descArea = modal.querySelector('textarea[name="description"]');
+            // Show Check-Out Modal
+            const modal = document.getElementById('checkout-modal');
+            if (modal) {
+                const planTextEl = document.getElementById('checkout-plan-text');
+                const descArea = modal.querySelector('textarea[name="description"]');
 
-                    if (workPlan && (workPlan.plans || workPlan.plan)) {
-                        let displayPlan = "";
-                        let rawPlanText = "";
+                if (workPlan && (workPlan.plans || workPlan.plan)) {
+                    let displayPlan = "";
+                    let rawPlanText = "";
 
-                        if (workPlan.plans && workPlan.plans.length > 0) {
-                            displayPlan = workPlan.plans.map((p, idx) => {
-                                let txt = `<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px; padding-bottom:12px; border-bottom:1px dashed #e9d5ff;">
+                    if (workPlan.plans && workPlan.plans.length > 0) {
+                        displayPlan = workPlan.plans.map((p, idx) => {
+                            let txt = `<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px; padding-bottom:12px; border-bottom:1px dashed #e9d5ff;">
                                     <div style="flex:1;">
                                         <div style="font-weight:600; color:#4c1d95;">${window.app_formatTaskWithPostponeChip(p.task)}</div>
                                         ${p.subPlans && p.subPlans.length > 0 ? `<div style="font-size:0.75rem; color:#7c3aed; margin-top:2px;">👣 ${p.subPlans.join(', ')}</div>` : ''}
                                     </div>
                                     <div style="display:flex; gap:6px; flex-shrink:0;">
                                         ${p.status === 'completed'
-                                        ? '<span style="font-size:0.75rem; color:#059669; font-weight:700;">✅ Done</span>'
-                                        : `<button type="button" onclick="window.app_postponeTask('${p._planId || workPlan.id}', ${typeof p._taskIndex === 'number' ? p._taskIndex : idx})" style="background:#f3e8ff; color:#7c3aed; border:1px solid #ddd6fe; border-radius:8px; padding:6px 12px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#ddd6fe'" onmouseout="this.style.background='#f3e8ff'">⌛ Postpone</button>`
-                                    }
+                                    ? '<span style="font-size:0.75rem; color:#059669; font-weight:700;">✅ Done</span>'
+                                    : `<button type="button" onclick="window.app_postponeTask('${p._planId || workPlan.id}', ${typeof p._taskIndex === 'number' ? p._taskIndex : idx})" style="background:#f3e8ff; color:#7c3aed; border:1px solid #ddd6fe; border-radius:8px; padding:6px 12px; font-size:0.8rem; font-weight:600; cursor:pointer;" onmouseover="this.style.background='#ddd6fe'" onmouseout="this.style.background='#f3e8ff'">⌛ Postpone</button>`
+                                }
                                     </div>
                                 </div>`;
-                                return txt;
-                            }).join('');
+                            return txt;
+                        }).join('');
 
-                            const completedPlans = workPlan.plans.filter(p =>
-                                window.AppCalendar.getSmartTaskStatus(workPlan.date, p.status) === 'completed'
-                            );
-                            rawPlanText = completedPlans.map(p => {
-                                let txt = `• ${p.task}`;
-                                if (p.subPlans && p.subPlans.length > 0) txt += ` (${p.subPlans.join(', ')})`;
+                        const completedPlans = workPlan.plans.filter(p =>
+                            window.AppCalendar.getSmartTaskStatus(workPlan.date, p.status) === 'completed'
+                        );
+                        rawPlanText = completedPlans.map(p => {
+                            let txt = `• ${p.task}`;
+                            if (p.subPlans && p.subPlans.length > 0) txt += ` (${p.subPlans.join(', ')})`;
+                            return txt;
+                        }).join('\n');
+
+                    } else if (workPlan.plan) {
+                        // Legacy
+                        displayPlan = `<div style="font-weight:600; color:#4c1d95;">${workPlan.plan}</div>`;
+                        rawPlanText = `• ${workPlan.plan}`;
+                        if (workPlan.subPlans && workPlan.subPlans.length > 0) {
+                            displayPlan += `<div style="font-size:0.75rem; color:#7c3aed; margin-top:2px;">👣 ${workPlan.subPlans.join(', ')}</div>`;
+                            rawPlanText += ` (${workPlan.subPlans.join(', ')})`;
+                        }
+                    }
+
+                    // Add Collaborations
+                    if (collaborations && collaborations.length > 0) {
+                        const collabText = collaborations.map(cp => {
+                            return cp.plans.filter(p =>
+                                p.tags && p.tags.some(t => t.id === user.id && t.status === 'accepted')
+                            ).map(p => {
+                                let txt = `🤝 [Collaborated with ${cp.userName}] ${p.task}`;
+                                if (p.subPlans && p.subPlans.length > 0) {
+                                    txt += '\n👣 Steps: ' + p.subPlans.join(', ');
+                                }
                                 return txt;
                             }).join('\n');
+                        }).join('\n\n');
 
-                        } else if (workPlan.plan) {
-                            // Legacy
-                            displayPlan = `<div style="font-weight:600; color:#4c1d95;">${workPlan.plan}</div>`;
-                            rawPlanText = `• ${workPlan.plan}`;
-                            if (workPlan.subPlans && workPlan.subPlans.length > 0) {
-                                displayPlan += `<div style="font-size:0.75rem; color:#7c3aed; margin-top:2px;">👣 ${workPlan.subPlans.join(', ')}</div>`;
-                                rawPlanText += ` (${workPlan.subPlans.join(', ')})`;
-                            }
-                        }
+                        if (displayPlan) displayPlan += '\n\n' + collabText;
+                        else displayPlan = collabText;
 
-                        // Add Collaborations
-                        if (collaborations && collaborations.length > 0) {
-                            const collabText = collaborations.map(cp => {
-                                return cp.plans.filter(p =>
-                                    p.tags && p.tags.some(t => t.id === user.id && t.status === 'accepted')
-                                ).map(p => {
-                                    let txt = `🤝 [Collaborated with ${cp.userName}] ${p.task}`;
-                                    if (p.subPlans && p.subPlans.length > 0) {
-                                        txt += '\n👣 Steps: ' + p.subPlans.join(', ');
-                                    }
-                                    return txt;
-                                }).join('\n');
-                            }).join('\n\n');
+                        // Keep summary focused on completed checklist tasks only.
+                    }
 
-                            if (displayPlan) displayPlan += '\n\n' + collabText;
-                            else displayPlan = collabText;
+                    if (planTextEl) planTextEl.innerHTML = displayPlan;
+                    // Store raw text for the action button
+                    if (planTextEl) planTextEl.dataset.rawText = rawPlanText;
 
-                            // Keep summary focused on completed checklist tasks only.
-                        }
-
-                        if (planTextEl) planTextEl.innerHTML = displayPlan;
-                        // Store raw text for the action button
-                        if (planTextEl) planTextEl.dataset.rawText = rawPlanText;
-
-                        // Do not auto-fill on open. Only preserve manual/complete-action draft if it exists.
-                        if (descArea && !descArea.value.trim() && window.app_checkoutSummaryDraft) {
-                            descArea.value = window.app_checkoutSummaryDraft;
-                            if (window.app_updateCharCounter) window.app_updateCharCounter(descArea);
-                        }
-                        // Populate checkout task checklist
-                        const taskListEl = document.getElementById('checkout-task-list');
-                        const delegatePanel = document.getElementById('delegate-panel');
-                        const delegateList = document.getElementById('delegate-list');
-                        const delegateSelTask = document.getElementById('delegate-selected-task');
-                        if (taskListEl) {
-                            if (workPlan && Array.isArray(workPlan.plans) && workPlan.plans.length > 0) {
-                                const allUsers = await window.AppDB.getAll('users').catch(() => []);
-                                const rows = workPlan.plans.map((p, idx) => {
-                                    const details = (p.subPlans && p.subPlans.length) ? ` — ${p.subPlans.join(', ')}` : '';
-                                    const text = `${p.task}${details}`;
-                                    const planIdForTask = p._planId || workPlan.id;
-                                    const taskIndexForTask = typeof p._taskIndex === 'number' ? p._taskIndex : idx;
-                                    const status = window.AppCalendar.getSmartTaskStatus(p._planDate || workPlan.date, p.status);
-                                    const actionKey = `${planIdForTask}:${taskIndexForTask}`;
-                                    const rememberedAction = window.app_checkoutTaskActions && window.app_checkoutTaskActions[actionKey]
-                                        ? window.app_checkoutTaskActions[actionKey]
-                                        : '';
-                                    const inferredAction = rememberedAction || (
-                                        (p.status === 'completed' || status === 'completed') ? 'complete' :
-                                            (p.status === 'postponed' ? 'postpone' : '')
-                                    );
-                                    const statusLabel = status === 'completed' ? 'Completed' :
-                                        status === 'in-process' ? 'In Process' :
-                                            status === 'overdue' ? 'Overdue' :
-                                                status === 'to-be-started' ? 'To Be Started' :
-                                                    (p.status || 'Pending');
-                                    return `
+                    // Do not auto-fill on open. Only preserve manual/complete-action draft if it exists.
+                    if (descArea && !descArea.value.trim() && window.app_checkoutSummaryDraft) {
+                        descArea.value = window.app_checkoutSummaryDraft;
+                        if (window.app_updateCharCounter) window.app_updateCharCounter(descArea);
+                    }
+                    // Populate checkout task checklist
+                    const taskListEl = document.getElementById('checkout-task-list');
+                    const delegatePanel = document.getElementById('delegate-panel');
+                    const delegateList = document.getElementById('delegate-list');
+                    const delegateSelTask = document.getElementById('delegate-selected-task');
+                    if (taskListEl) {
+                        if (workPlan && Array.isArray(workPlan.plans) && workPlan.plans.length > 0) {
+                            const allUsers = await window.AppDB.getAll('users').catch(() => []);
+                            const rows = workPlan.plans.map((p, idx) => {
+                                const details = (p.subPlans && p.subPlans.length) ? ` — ${p.subPlans.join(', ')}` : '';
+                                const text = `${p.task}${details}`;
+                                const planIdForTask = p._planId || workPlan.id;
+                                const taskIndexForTask = typeof p._taskIndex === 'number' ? p._taskIndex : idx;
+                                const status = window.AppCalendar.getSmartTaskStatus(p._planDate || workPlan.date, p.status);
+                                const actionKey = `${planIdForTask}:${taskIndexForTask}`;
+                                const rememberedAction = window.app_checkoutTaskActions && window.app_checkoutTaskActions[actionKey]
+                                    ? window.app_checkoutTaskActions[actionKey]
+                                    : '';
+                                const inferredAction = rememberedAction || (
+                                    (p.status === 'completed' || status === 'completed') ? 'complete' :
+                                        (p.status === 'postponed' ? 'postpone' : '')
+                                );
+                                const statusLabel = status === 'completed' ? 'Completed' :
+                                    status === 'in-process' ? 'In Process' :
+                                        status === 'overdue' ? 'Overdue' :
+                                            status === 'to-be-started' ? 'To Be Started' :
+                                                (p.status || 'Pending');
+                                return `
                                         <div class="checkout-task-row">
                                             <div class="checkout-task-copy">
                                                 <div class="checkout-task-title">${window.app_formatTaskWithPostponeChip(text)}</div>
@@ -3008,730 +3020,730 @@
                                                 <option value="delegate" ${inferredAction === 'delegate' ? 'selected' : ''}>Delegate</option>
                                             </select>
                                         </div>`;
-                                }).join('');
-                                taskListEl.innerHTML = rows;
+                            }).join('');
+                            taskListEl.innerHTML = rows;
 
-                                if (delegatePanel && delegateList && delegateSelTask) {
-                                    delegatePanel.style.display = 'none';
-                                    const checklistSection = document.getElementById('checkout-task-checklist');
-                                    if (checklistSection) checklistSection.classList.remove('delegate-open');
-                                    const currentUser = window.AppAuth.getUser();
-                                    const candidates = (allUsers || []).filter(u => u.id !== currentUser.id);
-                                    delegateList.innerHTML = candidates.map(u => `
+                            if (delegatePanel && delegateList && delegateSelTask) {
+                                delegatePanel.style.display = 'none';
+                                const checklistSection = document.getElementById('checkout-task-checklist');
+                                if (checklistSection) checklistSection.classList.remove('delegate-open');
+                                const currentUser = window.AppAuth.getUser();
+                                const candidates = (allUsers || []).filter(u => u.id !== currentUser.id);
+                                delegateList.innerHTML = candidates.map(u => `
                                         <button type="button" data-user-id="${u.id}" class="delegate-user-btn">
                                             <img src="${u.avatar}" alt="${u.name}" class="delegate-user-avatar">
                                             <span style="flex:1;">${u.name}</span>
                                         </button>
                                     `).join('');
-                                }
-                            } else {
-                                taskListEl.innerHTML = `<div style="font-size:0.8rem; color:#6b7280;">No tasks planned for today.</div>`;
                             }
+                        } else {
+                            taskListEl.innerHTML = `<div style="font-size:0.8rem; color:#6b7280;">No tasks planned for today.</div>`;
                         }
                     }
-
-                    await window.app_prepareCheckoutOvertimeSection(user);
-                    modal.style.display = 'flex';
-                    if (btn) btn.disabled = false;
-
-                    // Background Location Verification (Deferred)
-                    const mismatchDiv = document.getElementById('checkout-location-mismatch');
-                    const mismatchLoading = document.getElementById('checkout-location-loading');
-
-                    if (mismatchLoading) mismatchLoading.style.display = 'block';
-                    if (mismatchDiv) mismatchDiv.style.display = 'none';
-
-                    // Use an async IIFE to not block the UI from showing the modal
-                    (async () => {
-                        try {
-                            const currentPos = await window.getLocation();
-                            const checkInLoc = user.currentLocation || user.lastLocation;
-
-                            if (mismatchLoading) mismatchLoading.style.display = 'none';
-
-                            if (checkInLoc && checkInLoc.lat && checkInLoc.lng) {
-                                const dist = calculateDistance(currentPos.lat, currentPos.lng, checkInLoc.lat, checkInLoc.lng);
-                                if (dist > 500) {
-                                    if (mismatchDiv) mismatchDiv.style.display = 'block';
-                                } else {
-                                    if (mismatchDiv) mismatchDiv.style.display = 'none';
-                                }
-                            }
-                        } catch (locErr) {
-                            console.warn("Background location check failed:", locErr);
-                            if (mismatchLoading) mismatchLoading.style.display = 'none';
-                        }
-                    })();
-                } else {
-                    const result = await window.AppAttendance.checkOut();
-                    if (result && !result.conflict) {
-                        markLocalAttendanceMutation();
-                    }
-                    if (result && result.conflict) {
-                        window.app_showSyncToast(result.message || 'Status updated from another device.');
-                    }
-                    const contentArea = document.getElementById('page-content');
-                    contentArea.innerHTML = await window.AppUI.renderDashboard();
-                    setupDashboardEvents();
                 }
-            }
-        } catch (err) {
-            alert(err.message || err);
-            if (btn) {
-                btn.disabled = false;
-                btn.innerHTML = status === 'out' ? 'Check-in <i class="fa-solid fa-fingerprint"></i>' : 'Check-out <i class="fa-solid fa-fingerprint"></i>';
-            }
-        } finally {
-            attendanceActionInFlight = false;
-        }
-    }
 
-    // New Function: Handle Check-Out Submission
-    window.app_submitCheckOut = async function (event) {
-        event.preventDefault();
-        const form = event.target;
-        const description = form.description.value;
-        const submitBtn = form.querySelector('button[type="submit"]');
-        attendanceActionInFlight = true;
+                await window.app_prepareCheckoutOvertimeSection(user);
+                modal.style.display = 'flex';
+                if (btn) btn.disabled = false;
 
-        try {
-            submitBtn.disabled = true;
-            submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Locating & Saving...`;
-
-            // Fetch location during checkout - fallback to manual explanation if denied
-            let pos = null;
-            let locationError = null;
-            try {
-                pos = await window.getLocation();
-            } catch (err) {
-                locationError = err;
-            }
-
-            // Detect mismatch for saving
-            let locationMismatched = false;
-            const checkInLoc = window.AppAuth.getUser()?.currentLocation;
-
-            if (pos) {
-                // Try to use cached location first for speed, otherwise use fetched pos
-                const checkPos = (cachedLocation && (Date.now() - lastLocationFetch < LOCATION_CACHE_TIME))
-                    ? cachedLocation
-                    : pos;
-
-                // Standardize pos to the one we are using for calculation/saving
-                pos = checkPos;
-
-                if (checkInLoc && checkInLoc.lat && checkInLoc.lng && pos.lat && pos.lng) {
-                    const dist = calculateDistance(pos.lat, pos.lng, checkInLoc.lat, checkInLoc.lng);
-                    if (dist > 500) locationMismatched = true;
-                }
-            }
-
-            const explanation = form.locationExplanation ? form.locationExplanation.value.trim() : '';
-            const overtimeState = window.app_checkoutOvertimeState || {};
-            const overtimeExplanation = form.overtimeExplanation ? form.overtimeExplanation.value.trim() : '';
-            const overtimeMode = form.overtimeMode ? String(form.overtimeMode.value || 'overtime_work') : 'overtime_work';
-            const checkOutOptions = {};
-
-            if (overtimeState.showPrompt) {
-                if (!overtimeExplanation) {
-                    alert('Please describe the overtime work before checkout.');
-                    submitBtn.disabled = false;
-                    submitBtn.textContent = 'Complete Check-Out';
-                    return;
-                }
-                checkOutOptions.overtimePrompted = true;
-                checkOutOptions.overtimeExplanation = overtimeExplanation;
-                checkOutOptions.overtimeReasonTag = overtimeMode;
-
-                if (overtimeMode === 'forgot_checkout') {
-                    const checkInTs = Number(window.AppAuth.getUser()?.lastCheckIn);
-                    if (Number.isFinite(checkInTs)) {
-                        checkOutOptions.checkOutTime = new Date(checkInTs + BASE_SHIFT_MS).toISOString();
-                        checkOutOptions.overtimeCappedToEightHours = true;
-                    }
-                }
-            }
-
-            if (!pos && !explanation) {
+                // Background Location Verification (Deferred)
                 const mismatchDiv = document.getElementById('checkout-location-mismatch');
-                if (mismatchDiv) mismatchDiv.style.display = 'block';
-                alert("Location unavailable. Please provide a reason for checking out from a different location.");
+                const mismatchLoading = document.getElementById('checkout-location-loading');
+
+                if (mismatchLoading) mismatchLoading.style.display = 'block';
+                if (mismatchDiv) mismatchDiv.style.display = 'none';
+
+                // Use an async IIFE to not block the UI from showing the modal
+                (async () => {
+                    try {
+                        const currentPos = await window.getLocation();
+                        const checkInLoc = user.currentLocation || user.lastLocation;
+
+                        if (mismatchLoading) mismatchLoading.style.display = 'none';
+
+                        if (checkInLoc && checkInLoc.lat && checkInLoc.lng) {
+                            const dist = calculateDistance(currentPos.lat, currentPos.lng, checkInLoc.lat, checkInLoc.lng);
+                            if (dist > 500) {
+                                if (mismatchDiv) mismatchDiv.style.display = 'block';
+                            } else {
+                                if (mismatchDiv) mismatchDiv.style.display = 'none';
+                            }
+                        }
+                    } catch (locErr) {
+                        console.warn("Background location check failed:", locErr);
+                        if (mismatchLoading) mismatchLoading.style.display = 'none';
+                    }
+                })();
+            } else {
+                const result = await window.AppAttendance.checkOut();
+                if (result && !result.conflict) {
+                    markLocalAttendanceMutation();
+                }
+                if (result && result.conflict) {
+                    window.app_showSyncToast(result.message || 'Status updated from another device.');
+                }
+                const contentArea = document.getElementById('page-content');
+                contentArea.innerHTML = await window.AppUI.renderDashboard();
+                setupDashboardEvents();
+            }
+        }
+    } catch (err) {
+        alert(err.message || err);
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = status === 'out' ? 'Check-in <i class="fa-solid fa-fingerprint"></i>' : 'Check-out <i class="fa-solid fa-fingerprint"></i>';
+        }
+    } finally {
+        attendanceActionInFlight = false;
+    }
+}
+
+// New Function: Handle Check-Out Submission
+window.app_submitCheckOut = async function (event) {
+    event.preventDefault();
+    const form = event.target;
+    const description = form.description.value;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    attendanceActionInFlight = true;
+
+    try {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Locating & Saving...`;
+
+        // Fetch location during checkout - fallback to manual explanation if denied
+        let pos = null;
+        let locationError = null;
+        try {
+            pos = await window.getLocation();
+        } catch (err) {
+            locationError = err;
+        }
+
+        // Detect mismatch for saving
+        let locationMismatched = false;
+        const checkInLoc = window.AppAuth.getUser()?.currentLocation;
+
+        if (pos) {
+            // Try to use cached location first for speed, otherwise use fetched pos
+            const checkPos = (cachedLocation && (Date.now() - lastLocationFetch < LOCATION_CACHE_TIME))
+                ? cachedLocation
+                : pos;
+
+            // Standardize pos to the one we are using for calculation/saving
+            pos = checkPos;
+
+            if (checkInLoc && checkInLoc.lat && checkInLoc.lng && pos.lat && pos.lng) {
+                const dist = calculateDistance(pos.lat, pos.lng, checkInLoc.lat, checkInLoc.lng);
+                if (dist > 500) locationMismatched = true;
+            }
+        }
+
+        const explanation = form.locationExplanation ? form.locationExplanation.value.trim() : '';
+        const overtimeState = window.app_checkoutOvertimeState || {};
+        const overtimeExplanation = form.overtimeExplanation ? form.overtimeExplanation.value.trim() : '';
+        const overtimeMode = form.overtimeMode ? String(form.overtimeMode.value || 'overtime_work') : 'overtime_work';
+        const checkOutOptions = {};
+
+        if (overtimeState.showPrompt) {
+            if (!overtimeExplanation) {
+                alert('Please describe the overtime work before checkout.');
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Complete Check-Out';
                 return;
             }
+            checkOutOptions.overtimePrompted = true;
+            checkOutOptions.overtimeExplanation = overtimeExplanation;
+            checkOutOptions.overtimeReasonTag = overtimeMode;
 
-            // Create formatted address string if no address available
-            const formattedAddress = pos
-                ? `Lat: ${Number(pos.lat).toFixed(4)}, Lng: ${Number(pos.lng).toFixed(4)}`
-                : 'Location unavailable (reason provided)';
-            const tomorrowGoal = form.tomorrowGoal ? form.tomorrowGoal.value.trim() : '';
-
-            // 1. Save tomorrow's goal if provided
-            if (tomorrowGoal) {
-                const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
-                await window.AppCalendar.addWorkPlanTask(tomorrow, window.AppAuth.getUser().id, tomorrowGoal);
-                console.log("Tomorrow's goal saved:", tomorrowGoal);
-            }
-
-            const checkOutResult = await window.AppAttendance.checkOut(
-                description,
-                pos ? pos.lat : null,
-                pos ? pos.lng : null,
-                formattedAddress,
-                locationMismatched || !pos,
-                explanation || (locationError ? String(locationError) : ''),
-                checkOutOptions
-            );
-
-            if (checkOutResult && checkOutResult.conflict) {
-                const modal = document.getElementById('checkout-modal');
-                if (modal) modal.style.display = 'none';
-                window.app_showSyncToast(checkOutResult.message || 'Status updated from another device.');
-                const contentArea = document.getElementById('page-content');
-                if (contentArea) {
-                    contentArea.innerHTML = await window.AppUI.renderDashboard();
-                    setupDashboardEvents();
+            if (overtimeMode === 'forgot_checkout') {
+                const checkInTs = Number(window.AppAuth.getUser()?.lastCheckIn);
+                if (Number.isFinite(checkInTs)) {
+                    checkOutOptions.checkOutTime = new Date(checkInTs + BASE_SHIFT_MS).toISOString();
+                    checkOutOptions.overtimeCappedToEightHours = true;
                 }
-                return;
             }
-            markLocalAttendanceMutation();
+        }
 
-            window.app_checkoutSummaryDraft = '';
+        if (!pos && !explanation) {
+            const mismatchDiv = document.getElementById('checkout-location-mismatch');
+            if (mismatchDiv) mismatchDiv.style.display = 'block';
+            alert("Location unavailable. Please provide a reason for checking out from a different location.");
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Complete Check-Out';
+            return;
+        }
 
-            // Hide modal
-            document.getElementById('checkout-modal').style.display = 'none';
+        // Create formatted address string if no address available
+        const formattedAddress = pos
+            ? `Lat: ${Number(pos.lat).toFixed(4)}, Lng: ${Number(pos.lng).toFixed(4)}`
+            : 'Location unavailable (reason provided)';
+        const tomorrowGoal = form.tomorrowGoal ? form.tomorrowGoal.value.trim() : '';
 
-            // Refresh
+        // 1. Save tomorrow's goal if provided
+        if (tomorrowGoal) {
+            const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+            await window.AppCalendar.addWorkPlanTask(tomorrow, window.AppAuth.getUser().id, tomorrowGoal);
+            console.log("Tomorrow's goal saved:", tomorrowGoal);
+        }
+
+        const checkOutResult = await window.AppAttendance.checkOut(
+            description,
+            pos ? pos.lat : null,
+            pos ? pos.lng : null,
+            formattedAddress,
+            locationMismatched || !pos,
+            explanation || (locationError ? String(locationError) : ''),
+            checkOutOptions
+        );
+
+        if (checkOutResult && checkOutResult.conflict) {
+            const modal = document.getElementById('checkout-modal');
+            if (modal) modal.style.display = 'none';
+            window.app_showSyncToast(checkOutResult.message || 'Status updated from another device.');
             const contentArea = document.getElementById('page-content');
             if (contentArea) {
                 contentArea.innerHTML = await window.AppUI.renderDashboard();
                 setupDashboardEvents();
             }
-        } catch (err) {
-            alert("Check-out failed: " + err.message);
-            submitBtn.disabled = false;
-            submitBtn.textContent = 'Complete Check-Out';
-        } finally {
-            attendanceActionInFlight = false;
+            return;
         }
+        markLocalAttendanceMutation();
+
+        window.app_checkoutSummaryDraft = '';
+
+        // Hide modal
+        document.getElementById('checkout-modal').style.display = 'none';
+
+        // Refresh
+        const contentArea = document.getElementById('page-content');
+        if (contentArea) {
+            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            setupDashboardEvents();
+        }
+    } catch (err) {
+        alert("Check-out failed: " + err.message);
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Complete Check-Out';
+    } finally {
+        attendanceActionInFlight = false;
+    }
+};
+
+async function handleManualLog(e) {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const dur = calculateDuration(formData.get('checkIn'), formData.get('checkOut'));
+    if (dur === 'Invalid') {
+        alert('End time must be after Start time');
+        return;
+    }
+    const date = formData.get('date');
+    const checkIn = formData.get('checkIn');
+    const checkOut = formData.get('checkOut');
+    const checkInDate = window.AppAttendance.buildDateTime(date, checkIn);
+    const checkOutDate = window.AppAttendance.buildDateTime(date, checkOut);
+    const durationMs = (checkInDate && checkOutDate) ? (checkOutDate - checkInDate) : 0;
+    const workedHours = Math.max(0, durationMs) / (1000 * 60 * 60);
+    const attendanceEligible = workedHours >= 4;
+    let resolvedType = 'Work Log';
+    let resolvedDayCredit = 0;
+    if (workedHours >= 8) {
+        resolvedType = 'Present';
+        resolvedDayCredit = 1;
+    } else if (workedHours >= 4) {
+        resolvedType = 'Half Day';
+        resolvedDayCredit = 0.5;
+    }
+
+    const logData = {
+        date: formData.get('date'),
+        checkIn: checkIn,
+        checkOut: checkOut,
+        duration: dur,
+        durationMs: durationMs,
+        location: formData.get('location'),
+        workDescription: formData.get('location'), // Save description here too
+        type: resolvedType,
+        dayCredit: resolvedDayCredit,
+        lateCountable: false,
+        extraWorkedMs: 0,
+        policyVersion: 'v2',
+        entrySource: 'staff_manual_work',
+        attendanceEligible: attendanceEligible,
+        isManualOverride: false
+    };
+    await window.AppAttendance.addManualLog(logData);
+    alert('Log added successfully!');
+    document.getElementById('log-modal').style.display = 'none';
+    contentArea.innerHTML = await window.AppUI.renderTimesheet();
+}
+
+async function handleAddUser(e) {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+
+    // Sanitize Input (Trim whitespace)
+    const name = formData.get('name').trim();
+    const username = formData.get('username').trim();
+    const password = formData.get('password').trim();
+    const email = formData.get('email').trim();
+
+    const isAdmin = formData.get('isAdmin') === 'on' || formData.get('isAdmin') === 'true';
+    const canManageAttendanceSheet = formData.get('canManageAttendanceSheet') === 'on' || formData.get('canManageAttendanceSheet') === 'true';
+
+    const userData = {
+        id: 'u' + Date.now(),
+        name: name,
+        username: username,
+        password: password,
+        role: formData.get('role'),
+        dept: formData.get('dept'),
+        email: email,
+        phone: formData.get('phone'),
+        joinDate: formData.get('joinDate'),
+        isAdmin: isAdmin,
+        canManageAttendanceSheet: canManageAttendanceSheet,
+        avatar: `https://ui-avatars.com/api/?name=${formData.get('name')}&background=random&color=fff`,
+        status: 'out',
+        lastCheckIn: null
     };
 
-    async function handleManualLog(e) {
-        e.preventDefault();
-        const formData = new FormData(e.target);
-        const dur = calculateDuration(formData.get('checkIn'), formData.get('checkOut'));
-        if (dur === 'Invalid') {
-            alert('End time must be after Start time');
-            return;
-        }
-        const date = formData.get('date');
-        const checkIn = formData.get('checkIn');
-        const checkOut = formData.get('checkOut');
-        const checkInDate = window.AppAttendance.buildDateTime(date, checkIn);
-        const checkOutDate = window.AppAttendance.buildDateTime(date, checkOut);
-        const durationMs = (checkInDate && checkOutDate) ? (checkOutDate - checkInDate) : 0;
-        const workedHours = Math.max(0, durationMs) / (1000 * 60 * 60);
-        const attendanceEligible = workedHours >= 4;
-        let resolvedType = 'Work Log';
-        let resolvedDayCredit = 0;
-        if (workedHours >= 8) {
-            resolvedType = 'Present';
-            resolvedDayCredit = 1;
-        } else if (workedHours >= 4) {
-            resolvedType = 'Half Day';
-            resolvedDayCredit = 0.5;
-        }
-
-        const logData = {
-            date: formData.get('date'),
-            checkIn: checkIn,
-            checkOut: checkOut,
-            duration: dur,
-            durationMs: durationMs,
-            location: formData.get('location'),
-            workDescription: formData.get('location'), // Save description here too
-            type: resolvedType,
-            dayCredit: resolvedDayCredit,
-            lateCountable: false,
-            extraWorkedMs: 0,
-            policyVersion: 'v2',
-            entrySource: 'staff_manual_work',
-            attendanceEligible: attendanceEligible,
-            isManualOverride: false
-        };
-        await window.AppAttendance.addManualLog(logData);
-        alert('Log added successfully!');
-        document.getElementById('log-modal').style.display = 'none';
-        contentArea.innerHTML = await window.AppUI.renderTimesheet();
-    }
-
-    async function handleAddUser(e) {
-        e.preventDefault();
-        const formData = new FormData(e.target);
-
-        // Sanitize Input (Trim whitespace)
-        const name = formData.get('name').trim();
-        const username = formData.get('username').trim();
-        const password = formData.get('password').trim();
-        const email = formData.get('email').trim();
-
-        const isAdmin = formData.get('isAdmin') === 'on' || formData.get('isAdmin') === 'true';
-        const canManageAttendanceSheet = formData.get('canManageAttendanceSheet') === 'on' || formData.get('canManageAttendanceSheet') === 'true';
-
-        const userData = {
-            id: 'u' + Date.now(),
-            name: name,
-            username: username,
-            password: password,
-            role: formData.get('role'),
-            dept: formData.get('dept'),
-            email: email,
-            phone: formData.get('phone'),
-            joinDate: formData.get('joinDate'),
-            isAdmin: isAdmin,
-            canManageAttendanceSheet: canManageAttendanceSheet,
-            avatar: `https://ui-avatars.com/api/?name=${formData.get('name')}&background=random&color=fff`,
-            status: 'out',
-            lastCheckIn: null
-        };
-
-        try {
-            // isAdmin/role sync is handled by auth.updateUser but handleAddUser adds directly to DB.
-            // Let's ensure sync here too or use a common create function.
-            if (userData.isAdmin || userData.role === 'Administrator') {
-                userData.isAdmin = true;
-                userData.role = 'Administrator';
-                userData.canManageAttendanceSheet = true;
-            }
-
-            await window.AppDB.add('users', userData);
-            alert('Success! Account created.');
-            document.getElementById('add-user-modal').style.display = 'none';
-            contentArea.innerHTML = await window.AppUI.renderAdmin();
-        } catch (err) {
-            alert('Error creating user: ' + err.message);
-        }
-    }
-
-    window.app_submitEditUser = async (e) => {
-        if (e) e.preventDefault();
-
-        // VALIDATED: Your evaluation is correct. e.target is the form, currentTarget is document.
-        const form = (e && e.target && e.target.tagName === 'FORM') ? e.target : document.getElementById('edit-user-form');
-
-        if (!form) {
-            console.error("Critical Failure: Edit user form not found.");
-            alert("Error: Form missing.");
-            return;
-        }
-
-        const formData = new FormData(form);
-        // VALIDATED: name="id" is present in ui.js, so this lookup is correct.
-        const id = (formData.get('id') || "").trim();
-
-        if (!id) {
-            console.error("Data Failure: No 'id' name attribute found in form data.", {
-                target: e.target,
-                allData: Object.fromEntries(formData.entries())
-            });
-            alert('Error: User ID missing. Please refresh.');
-            return;
-        }
-
-        const isAdminEl = form.querySelector('[name="isAdmin"]');
-        const isAdmin = !!(isAdminEl && isAdminEl.checked);
-        const canManageAttendanceSheetEl = form.querySelector('[name="canManageAttendanceSheet"]');
-        const canManageAttendanceSheet = !!(canManageAttendanceSheetEl && canManageAttendanceSheetEl.checked);
-        const deriveEmployeeId = (joinDateRaw, userIdRaw) => {
-            const joinDate = String(joinDateRaw || '').trim();
-            if (!/^\d{4}-\d{2}-\d{2}$/.test(joinDate)) return 'NA';
-            const compact = joinDate.replace(/-/g, '');
-            const suffix = String(userIdRaw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-3) || 'USR';
-            return `EMP-${compact}-${suffix}`;
-        };
-        const pan = String(formData.get('pan') || '').trim().toUpperCase();
-        const bankIfsc = String(formData.get('bankIfsc') || '').trim().toUpperCase();
-        const joinDate = String(formData.get('joinDate') || '').trim();
-        const inputEmployeeId = String(formData.get('employeeId') || '').trim();
-        const panPattern = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
-        const ifscPattern = /^[A-Z]{4}0[A-Z0-9]{6}$/;
-
-        if (joinDate) {
-            const today = new Date();
-            const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-            if (joinDate > todayStr) {
-                alert('Join Date cannot be in the future.');
-                return;
-            }
-        }
-
-        if (pan && !panPattern.test(pan)) {
-            alert('Invalid PAN format. Use format like ABCDE1234F');
-            return;
-        }
-
-        if (bankIfsc && !ifscPattern.test(bankIfsc)) {
-            alert('Invalid IFSC format. Use format like SBIN0001234');
-            return;
-        }
-
-        const employeeId = joinDate
-            ? (inputEmployeeId || deriveEmployeeId(joinDate, id))
-            : 'NA';
-
-        const userData = {
-            id,
-            name: (formData.get('name') || "").trim(),
-            username: (formData.get('username') || "").trim(),
-            password: (formData.get('password') || "").trim(),
-            role: formData.get('role'),
-            dept: formData.get('dept'),
-            email: (formData.get('email') || "").trim(),
-            phone: (formData.get('phone') || "").trim(),
-            isAdmin,
-            canManageAttendanceSheet,
-            employeeId,
-            joinDate: joinDate || null,
-            baseSalary: Number(formData.get('baseSalary') || 0),
-            otherAllowances: Number(formData.get('otherAllowances') || 0),
-            providentFund: Number(formData.get('providentFund') || 0),
-            professionalTax: Number(formData.get('professionalTax') || 0),
-            loanAdvance: Number(formData.get('loanAdvance') || 0),
-            tdsPercent: Number(formData.get('tdsPercent') || 0),
-            bankName: (formData.get('bankName') || '').trim(),
-            bankAccount: (formData.get('bankAccount') || '').trim(),
-            bankIfsc: bankIfsc,
-            pan: pan,
-            uan: (formData.get('uan') || '').trim()
-        };
-
-        console.log("Executing Update for User:", userData);
+    try {
+        // isAdmin/role sync is handled by auth.updateUser but handleAddUser adds directly to DB.
+        // Let's ensure sync here too or use a common create function.
         if (userData.isAdmin || userData.role === 'Administrator') {
+            userData.isAdmin = true;
+            userData.role = 'Administrator';
             userData.canManageAttendanceSheet = true;
         }
 
-        try {
-            const success = await window.AppAuth.updateUser(userData);
+        await window.AppDB.add('users', userData);
+        alert('Success! Account created.');
+        document.getElementById('add-user-modal').style.display = 'none';
+        contentArea.innerHTML = await window.AppUI.renderAdmin();
+    } catch (err) {
+        alert('Error creating user: ' + err.message);
+    }
+}
 
-            if (success) {
-                console.log("Success: User updated in DB.");
-                alert(`SUCCESS: Details for '${userData.name}' have been saved.`);
-                document.getElementById('edit-user-modal').style.display = 'none';
+window.app_submitEditUser = async (e) => {
+    if (e) e.preventDefault();
 
-                const contentArea = document.getElementById('page-content');
-                if (contentArea) {
-                    // Small delay to let DB settle
-                    setTimeout(async () => {
-                        contentArea.innerHTML = await window.AppUI.renderAdmin();
-                        if (window.AppAnalytics) await window.AppAnalytics.initAdminCharts();
-                    }, 50);
-                }
-            } else {
-                alert('Update failed: User not found.');
-            }
-        } catch (err) {
-            console.error("Update Error:", err);
-            alert('Error: ' + err.message);
+    // VALIDATED: Your evaluation is correct. e.target is the form, currentTarget is document.
+    const form = (e && e.target && e.target.tagName === 'FORM') ? e.target : document.getElementById('edit-user-form');
+
+    if (!form) {
+        console.error("Critical Failure: Edit user form not found.");
+        alert("Error: Form missing.");
+        return;
+    }
+
+    const formData = new FormData(form);
+    // VALIDATED: name="id" is present in ui.js, so this lookup is correct.
+    const id = (formData.get('id') || "").trim();
+
+    if (!id) {
+        console.error("Data Failure: No 'id' name attribute found in form data.", {
+            target: e.target,
+            allData: Object.fromEntries(formData.entries())
+        });
+        alert('Error: User ID missing. Please refresh.');
+        return;
+    }
+
+    const isAdminEl = form.querySelector('[name="isAdmin"]');
+    const isAdmin = !!(isAdminEl && isAdminEl.checked);
+    const canManageAttendanceSheetEl = form.querySelector('[name="canManageAttendanceSheet"]');
+    const canManageAttendanceSheet = !!(canManageAttendanceSheetEl && canManageAttendanceSheetEl.checked);
+    const deriveEmployeeId = (joinDateRaw, userIdRaw) => {
+        const joinDate = String(joinDateRaw || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(joinDate)) return 'NA';
+        const compact = joinDate.replace(/-/g, '');
+        const suffix = String(userIdRaw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-3) || 'USR';
+        return `EMP-${compact}-${suffix}`;
+    };
+    const pan = String(formData.get('pan') || '').trim().toUpperCase();
+    const bankIfsc = String(formData.get('bankIfsc') || '').trim().toUpperCase();
+    const joinDate = String(formData.get('joinDate') || '').trim();
+    const inputEmployeeId = String(formData.get('employeeId') || '').trim();
+    const panPattern = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+    const ifscPattern = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+
+    if (joinDate) {
+        const today = new Date();
+        const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        if (joinDate > todayStr) {
+            alert('Join Date cannot be in the future.');
+            return;
         }
+    }
+
+    if (pan && !panPattern.test(pan)) {
+        alert('Invalid PAN format. Use format like ABCDE1234F');
+        return;
+    }
+
+    if (bankIfsc && !ifscPattern.test(bankIfsc)) {
+        alert('Invalid IFSC format. Use format like SBIN0001234');
+        return;
+    }
+
+    const employeeId = joinDate
+        ? (inputEmployeeId || deriveEmployeeId(joinDate, id))
+        : 'NA';
+
+    const userData = {
+        id,
+        name: (formData.get('name') || "").trim(),
+        username: (formData.get('username') || "").trim(),
+        password: (formData.get('password') || "").trim(),
+        role: formData.get('role'),
+        dept: formData.get('dept'),
+        email: (formData.get('email') || "").trim(),
+        phone: (formData.get('phone') || "").trim(),
+        isAdmin,
+        canManageAttendanceSheet,
+        employeeId,
+        joinDate: joinDate || null,
+        baseSalary: Number(formData.get('baseSalary') || 0),
+        otherAllowances: Number(formData.get('otherAllowances') || 0),
+        providentFund: Number(formData.get('providentFund') || 0),
+        professionalTax: Number(formData.get('professionalTax') || 0),
+        loanAdvance: Number(formData.get('loanAdvance') || 0),
+        tdsPercent: Number(formData.get('tdsPercent') || 0),
+        bankName: (formData.get('bankName') || '').trim(),
+        bankAccount: (formData.get('bankAccount') || '').trim(),
+        bankIfsc: bankIfsc,
+        pan: pan,
+        uan: (formData.get('uan') || '').trim()
     };
 
-    // --- Helpers ---
-
-    function calculateDuration(start, end) {
-        const [h1, m1] = start.split(':');
-        const [h2, m2] = end.split(':');
-        const mins = (parseInt(h2) * 60 + parseInt(m2)) - (parseInt(h1) * 60 + parseInt(m1));
-        if (mins < 0) return 'Invalid';
-        const h = Math.floor(mins / 60);
-        const m = mins % 60;
-        return `${h}h ${m}m`;
+    console.log("Executing Update for User:", userData);
+    if (userData.isAdmin || userData.role === 'Administrator') {
+        userData.canManageAttendanceSheet = true;
     }
 
-    function setupDashboardEvents() {
-        const btn = document.getElementById('attendance-btn');
-        const readOnly = !!window.app_dashboardReadOnly;
-        const targetUser = window.app_dashboardTargetUser || null;
-        if (btn && !readOnly) btn.addEventListener('click', handleAttendance);
-        startTimer(targetUser, readOnly);
-        applyUpdateCtaState();
-        if (window.app_refreshNotificationBell) {
-            window.app_refreshNotificationBell().catch(() => { });
+    try {
+        const success = await window.AppAuth.updateUser(userData);
+
+        if (success) {
+            console.log("Success: User updated in DB.");
+            alert(`SUCCESS: Details for '${userData.name}' have been saved.`);
+            document.getElementById('edit-user-modal').style.display = 'none';
+
+            const contentArea = document.getElementById('page-content');
+            if (contentArea) {
+                // Small delay to let DB settle
+                setTimeout(async () => {
+                    contentArea.innerHTML = await window.AppUI.renderAdmin();
+                    if (window.AppAnalytics) await window.AppAnalytics.initAdminCharts();
+                }, 50);
+            }
+        } else {
+            alert('Update failed: User not found.');
         }
+    } catch (err) {
+        console.error("Update Error:", err);
+        alert('Error: ' + err.message);
     }
-    window.setupDashboardEvents = setupDashboardEvents;
+};
 
-    // --- Global Event Delegation ---
+// --- Helpers ---
 
-    document.addEventListener('submit', (e) => {
-        // Force prevent default for ALL forms in this app to prevent query param reloads
-        e.preventDefault();
+function calculateDuration(start, end) {
+    const [h1, m1] = start.split(':');
+    const [h2, m2] = end.split(':');
+    const mins = (parseInt(h2) * 60 + parseInt(m2)) - (parseInt(h1) * 60 + parseInt(m1));
+    if (mins < 0) return 'Invalid';
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return `${h}h ${m}m`;
+}
 
-        // Use getAttribute('id') because elements with name="id" shadow the form.id property!
-        const id = e.target.getAttribute('id');
-        console.log("Submit Event Intercepted. Form ID:", id);
+function setupDashboardEvents() {
+    const btn = document.getElementById('attendance-btn');
+    const readOnly = !!window.app_dashboardReadOnly;
+    const targetUser = window.app_dashboardTargetUser || null;
+    if (btn && !readOnly) btn.addEventListener('click', handleAttendance);
+    startTimer(targetUser, readOnly);
+    applyUpdateCtaState();
+    if (window.app_refreshNotificationBell) {
+        window.app_refreshNotificationBell().catch(() => { });
+    }
+}
+window.setupDashboardEvents = setupDashboardEvents;
 
-        if (id === 'manual-log-form') handleManualLog(e);
-        else if (id === 'checkout-form') window.app_submitCheckOut(e);
-        else if (id === 'add-user-form') handleAddUser(e);
-        else if (id === 'login-form') {
-            (async () => {
-                const fd = new FormData(e.target);
-                try {
-                    const pos = await window.getLocation();
-                    const success = await window.AppAuth.login(fd.get('username'), fd.get('password'));
-                    if (!success) {
-                        alert('Invalid Credentials');
-                        return;
-                    }
-                    const currentUser = window.AppAuth.getUser();
-                    if (currentUser) {
-                        currentUser.lastLoginLocation = {
-                            lat: pos.lat,
-                            lng: pos.lng,
-                            capturedAt: Date.now()
-                        };
-                        await window.AppDB.put('users', currentUser);
-                    }
-                    window.location.reload();
-                } catch (locErr) {
-                    alert(`Login blocked: ${String(locErr)}\n\nPlease enable location and try again.`);
+// --- Global Event Delegation ---
+
+document.addEventListener('submit', (e) => {
+    // Force prevent default for ALL forms in this app to prevent query param reloads
+    e.preventDefault();
+
+    // Use getAttribute('id') because elements with name="id" shadow the form.id property!
+    const id = e.target.getAttribute('id');
+    console.log("Submit Event Intercepted. Form ID:", id);
+
+    if (id === 'manual-log-form') handleManualLog(e);
+    else if (id === 'checkout-form') window.app_submitCheckOut(e);
+    else if (id === 'add-user-form') handleAddUser(e);
+    else if (id === 'login-form') {
+        (async () => {
+            const fd = new FormData(e.target);
+            try {
+                const pos = await window.getLocation();
+                const success = await window.AppAuth.login(fd.get('username'), fd.get('password'));
+                if (!success) {
+                    alert('Invalid Credentials');
+                    return;
                 }
-            })();
-        }
-        else if (id === 'edit-user-form') {
-            console.log("Routing to app_submitEditUser...");
-            window.app_submitEditUser(e);
-        }
-        else if (id === 'notify-form') handleNotifyUser(e);
-        else if (id === 'leave-request-form') handleLeaveRequest(e);
-        else {
-            console.warn("Unhandled form submission ID:", id, "Target:", e.target);
-        }
+                const currentUser = window.AppAuth.getUser();
+                if (currentUser) {
+                    currentUser.lastLoginLocation = {
+                        lat: pos.lat,
+                        lng: pos.lng,
+                        capturedAt: Date.now()
+                    };
+                    await window.AppDB.put('users', currentUser);
+                }
+                window.location.reload();
+            } catch (locErr) {
+                alert(`Login blocked: ${String(locErr)}\n\nPlease enable location and try again.`);
+            }
+        })();
+    }
+    else if (id === 'edit-user-form') {
+        console.log("Routing to app_submitEditUser...");
+        window.app_submitEditUser(e);
+    }
+    else if (id === 'notify-form') handleNotifyUser(e);
+    else if (id === 'leave-request-form') handleLeaveRequest(e);
+    else {
+        console.warn("Unhandled form submission ID:", id, "Target:", e.target);
+    }
+});
+
+async function handleLeaveRequest(e) {
+    const fd = new FormData(e.target);
+    const user = window.AppAuth.getUser();
+    await window.AppLeaves.requestLeave({
+        userId: user.id,
+        userName: user.name,
+        startDate: fd.get('startDate'),
+        endDate: fd.get('endDate'),
+        startTime: fd.get('startTime') || '',
+        endTime: fd.get('endTime') || '',
+        type: fd.get('type'),
+        reason: fd.get('reason'),
+        durationHours: fd.get('durationHours') || ''
     });
 
-    async function handleLeaveRequest(e) {
-        const fd = new FormData(e.target);
-        const user = window.AppAuth.getUser();
-        await window.AppLeaves.requestLeave({
-            userId: user.id,
-            userName: user.name,
-            startDate: fd.get('startDate'),
-            endDate: fd.get('endDate'),
-            startTime: fd.get('startTime') || '',
-            endTime: fd.get('endTime') || '',
-            type: fd.get('type'),
-            reason: fd.get('reason'),
-            durationHours: fd.get('durationHours') || ''
-        });
+    alert('Leave requested successfully!');
+    document.getElementById('leave-modal').style.display = 'none';
+    e.target.reset();
+}
 
-        alert('Leave requested successfully!');
-        document.getElementById('leave-modal').style.display = 'none';
-        e.target.reset();
+async function handleNotifyUser(e) {
+
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const toUserId = formData.get('toUserId');
+    const reminderMsg = formData.get('reminderMessage') || '';
+    const reminderLink = formData.get('reminderLink') || '';
+    const taskTitle = formData.get('taskTitle') || '';
+    const taskDesc = formData.get('taskDescription') || '';
+    const taskDue = formData.get('taskDueDate') || '';
+
+    try {
+        if (!reminderMsg.trim() && !taskTitle.trim()) {
+            alert('Please enter a reminder or a task.');
+            return;
+        }
+        // Check if user exists
+        const user = await window.AppDB.get('users', toUserId);
+        if (!user) throw new Error("User not found");
+
+        const currentUser = window.AppAuth.getUser();
+        const nowIso = new Date().toISOString();
+        // Add notification(s)
+        if (!user.notifications) user.notifications = [];
+        if (reminderMsg.trim()) {
+            user.notifications.unshift({
+                id: `rem_${Date.now()}`,
+                type: 'reminder',
+                message: reminderMsg.trim(),
+                taggedById: currentUser.id,
+                taggedByName: currentUser.name,
+                taggedAt: nowIso,
+                status: 'pending',
+                date: nowIso,
+                read: false
+            });
+            await window.AppDB.add('staff_messages', {
+                id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                type: 'text',
+                message: reminderMsg.trim(),
+                link: reminderLink.trim(),
+                fromId: currentUser.id,
+                fromName: currentUser.name,
+                toId: toUserId,
+                toName: user.name,
+                createdAt: nowIso,
+                read: false
+            });
+        }
+        if (taskTitle.trim()) {
+            user.notifications.unshift({
+                id: `task_${Date.now()}`,
+                type: 'task',
+                title: taskTitle.trim(),
+                description: taskDesc.trim(),
+                taggedById: currentUser.id,
+                taggedByName: currentUser.name,
+                taggedAt: nowIso,
+                status: 'pending',
+                dueDate: taskDue || '',
+                date: nowIso,
+                read: false
+            });
+            await window.AppDB.add('staff_messages', {
+                id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                type: 'task',
+                title: taskTitle.trim(),
+                description: taskDesc.trim(),
+                dueDate: taskDue || '',
+                status: 'pending',
+                fromId: currentUser.id,
+                fromName: currentUser.name,
+                toId: toUserId,
+                toName: user.name,
+                createdAt: nowIso,
+                read: false,
+                history: [{ action: 'created', byId: currentUser.id, byName: currentUser.name, at: nowIso }]
+            });
+        }
+
+        await window.AppAuth.updateUser(user);
+        alert('Notification sent!');
+        document.getElementById('notify-modal').style.display = 'none';
+        if (window.app_updateStaffNavIndicator) {
+            await window.app_updateStaffNavIndicator();
+        }
+    } catch (err) {
+        alert('Failed to send: ' + err.message);
     }
+}
 
-    async function handleNotifyUser(e) {
-
-        e.preventDefault();
-        const formData = new FormData(e.target);
-        const toUserId = formData.get('toUserId');
-        const reminderMsg = formData.get('reminderMessage') || '';
-        const reminderLink = formData.get('reminderLink') || '';
-        const taskTitle = formData.get('taskTitle') || '';
-        const taskDesc = formData.get('taskDescription') || '';
-        const taskDue = formData.get('taskDueDate') || '';
-
-        try {
-            if (!reminderMsg.trim() && !taskTitle.trim()) {
-                alert('Please enter a reminder or a task.');
-                return;
-            }
-            // Check if user exists
-            const user = await window.AppDB.get('users', toUserId);
-            if (!user) throw new Error("User not found");
-
-            const currentUser = window.AppAuth.getUser();
-            const nowIso = new Date().toISOString();
-            // Add notification(s)
-            if (!user.notifications) user.notifications = [];
-            if (reminderMsg.trim()) {
-                user.notifications.unshift({
-                    id: `rem_${Date.now()}`,
-                    type: 'reminder',
-                    message: reminderMsg.trim(),
-                    taggedById: currentUser.id,
-                    taggedByName: currentUser.name,
-                    taggedAt: nowIso,
-                    status: 'pending',
-                    date: nowIso,
-                    read: false
-                });
-                await window.AppDB.add('staff_messages', {
-                    id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-                    type: 'text',
-                    message: reminderMsg.trim(),
-                    link: reminderLink.trim(),
-                    fromId: currentUser.id,
-                    fromName: currentUser.name,
-                    toId: toUserId,
-                    toName: user.name,
-                    createdAt: nowIso,
-                    read: false
-                });
-            }
-            if (taskTitle.trim()) {
-                user.notifications.unshift({
-                    id: `task_${Date.now()}`,
-                    type: 'task',
-                    title: taskTitle.trim(),
-                    description: taskDesc.trim(),
-                    taggedById: currentUser.id,
-                    taggedByName: currentUser.name,
-                    taggedAt: nowIso,
-                    status: 'pending',
-                    dueDate: taskDue || '',
-                    date: nowIso,
-                    read: false
-                });
-                await window.AppDB.add('staff_messages', {
-                    id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-                    type: 'task',
-                    title: taskTitle.trim(),
-                    description: taskDesc.trim(),
-                    dueDate: taskDue || '',
-                    status: 'pending',
-                    fromId: currentUser.id,
-                    fromName: currentUser.name,
-                    toId: toUserId,
-                    toName: user.name,
-                    createdAt: nowIso,
-                    read: false,
-                    history: [{ action: 'created', byId: currentUser.id, byName: currentUser.name, at: nowIso }]
-                });
-            }
-
-            await window.AppAuth.updateUser(user);
-            alert('Notification sent!');
-            document.getElementById('notify-modal').style.display = 'none';
-            if (window.app_updateStaffNavIndicator) {
-                await window.app_updateStaffNavIndicator();
-            }
-        } catch (err) {
-            alert('Failed to send: ' + err.message);
-        }
+window.app_openStaffThread = async (userId) => {
+    window.app_staffThreadId = userId;
+    const currentUser = window.AppAuth.getUser();
+    if (!currentUser) return;
+    const messages = await window.app_getMyMessages();
+    const updates = messages.filter(m => m.toId === currentUser.id && m.fromId === userId && !m.read);
+    for (const msg of updates) {
+        msg.read = true;
+        msg.readAt = new Date().toISOString();
+        await window.AppDB.put('staff_messages', msg);
     }
+    const contentArea = document.getElementById('page-content');
+    if (contentArea) {
+        contentArea.innerHTML = await window.AppUI.renderStaffDirectoryPage();
+    }
+    if (window.app_updateStaffNavIndicator) {
+        await window.app_updateStaffNavIndicator();
+    }
+};
 
-    window.app_openStaffThread = async (userId) => {
-        window.app_staffThreadId = userId;
-        const currentUser = window.AppAuth.getUser();
-        if (!currentUser) return;
-        const messages = await window.app_getMyMessages();
-        const updates = messages.filter(m => m.toId === currentUser.id && m.fromId === userId && !m.read);
-        for (const msg of updates) {
-            msg.read = true;
-            msg.readAt = new Date().toISOString();
-            await window.AppDB.put('staff_messages', msg);
-        }
-        const contentArea = document.getElementById('page-content');
-        if (contentArea) {
-            contentArea.innerHTML = await window.AppUI.renderStaffDirectoryPage();
-        }
-        if (window.app_updateStaffNavIndicator) {
-            await window.app_updateStaffNavIndicator();
-        }
-    };
+window.app_sendStaffText = async (e) => {
+    e.preventDefault();
+    const currentUser = window.AppAuth.getUser();
+    const formData = new FormData(e.target);
+    const toUserId = formData.get('toUserId');
+    const message = (formData.get('message') || '').trim();
+    const link = (formData.get('link') || '').trim();
+    if (!message) {
+        alert('Please type a message.');
+        return;
+    }
+    const toUser = await window.AppDB.get('users', toUserId);
+    if (!toUser) {
+        alert('Staff member not found.');
+        return;
+    }
+    await window.AppDB.add('staff_messages', {
+        id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        type: 'text',
+        message,
+        link,
+        fromId: currentUser.id,
+        fromName: currentUser.name,
+        toId: toUserId,
+        toName: toUser.name,
+        createdAt: new Date().toISOString(),
+        read: false
+    });
+    e.target.reset();
+    const messageModal = document.getElementById('staff-message-modal');
+    if (messageModal) messageModal.remove();
+    const contentArea = document.getElementById('page-content');
+    if (contentArea) {
+        contentArea.innerHTML = await window.AppUI.renderStaffDirectoryPage();
+    }
+    if (window.app_updateStaffNavIndicator) {
+        await window.app_updateStaffNavIndicator();
+    }
+};
 
-    window.app_sendStaffText = async (e) => {
-        e.preventDefault();
-        const currentUser = window.AppAuth.getUser();
-        const formData = new FormData(e.target);
-        const toUserId = formData.get('toUserId');
-        const message = (formData.get('message') || '').trim();
-        const link = (formData.get('link') || '').trim();
-        if (!message) {
-            alert('Please type a message.');
-            return;
-        }
-        const toUser = await window.AppDB.get('users', toUserId);
-        if (!toUser) {
-            alert('Staff member not found.');
-            return;
-        }
-        await window.AppDB.add('staff_messages', {
-            id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-            type: 'text',
-            message,
-            link,
-            fromId: currentUser.id,
-            fromName: currentUser.name,
-            toId: toUserId,
-            toName: toUser.name,
-            createdAt: new Date().toISOString(),
-            read: false
-        });
-        e.target.reset();
-        const messageModal = document.getElementById('staff-message-modal');
-        if (messageModal) messageModal.remove();
-        const contentArea = document.getElementById('page-content');
-        if (contentArea) {
-            contentArea.innerHTML = await window.AppUI.renderStaffDirectoryPage();
-        }
-        if (window.app_updateStaffNavIndicator) {
-            await window.app_updateStaffNavIndicator();
-        }
-    };
+window.app_sendStaffTask = async (e) => {
+    e.preventDefault();
+    const currentUser = window.AppAuth.getUser();
+    const formData = new FormData(e.target);
+    const toUserId = formData.get('toUserId');
+    const title = (formData.get('taskTitle') || '').trim();
+    const description = (formData.get('taskDescription') || '').trim();
+    const dueDate = (formData.get('taskDueDate') || '').trim();
+    if (!title) {
+        alert('Please provide a task title.');
+        return;
+    }
+    const toUser = await window.AppDB.get('users', toUserId);
+    if (!toUser) {
+        alert('Staff member not found.');
+        return;
+    }
+    await window.AppDB.add('staff_messages', {
+        id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        type: 'task',
+        title,
+        description,
+        dueDate,
+        status: 'pending',
+        fromId: currentUser.id,
+        fromName: currentUser.name,
+        toId: toUserId,
+        toName: toUser.name,
+        createdAt: new Date().toISOString(),
+        read: false,
+        history: [{ action: 'created', byId: currentUser.id, byName: currentUser.name, at: new Date().toISOString() }]
+    });
+    e.target.reset();
+    const taskModal = document.getElementById('staff-task-modal');
+    if (taskModal) taskModal.remove();
+    const contentArea = document.getElementById('page-content');
+    if (contentArea) {
+        contentArea.innerHTML = await window.AppUI.renderStaffDirectoryPage();
+    }
+    if (window.app_updateStaffNavIndicator) {
+        await window.app_updateStaffNavIndicator();
+    }
+};
 
-    window.app_sendStaffTask = async (e) => {
-        e.preventDefault();
-        const currentUser = window.AppAuth.getUser();
-        const formData = new FormData(e.target);
-        const toUserId = formData.get('toUserId');
-        const title = (formData.get('taskTitle') || '').trim();
-        const description = (formData.get('taskDescription') || '').trim();
-        const dueDate = (formData.get('taskDueDate') || '').trim();
-        if (!title) {
-            alert('Please provide a task title.');
-            return;
-        }
-        const toUser = await window.AppDB.get('users', toUserId);
-        if (!toUser) {
-            alert('Staff member not found.');
-            return;
-        }
-        await window.AppDB.add('staff_messages', {
-            id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-            type: 'task',
-            title,
-            description,
-            dueDate,
-            status: 'pending',
-            fromId: currentUser.id,
-            fromName: currentUser.name,
-            toId: toUserId,
-            toName: toUser.name,
-            createdAt: new Date().toISOString(),
-            read: false,
-            history: [{ action: 'created', byId: currentUser.id, byName: currentUser.name, at: new Date().toISOString() }]
-        });
-        e.target.reset();
-        const taskModal = document.getElementById('staff-task-modal');
-        if (taskModal) taskModal.remove();
-        const contentArea = document.getElementById('page-content');
-        if (contentArea) {
-            contentArea.innerHTML = await window.AppUI.renderStaffDirectoryPage();
-        }
-        if (window.app_updateStaffNavIndicator) {
-            await window.app_updateStaffNavIndicator();
-        }
-    };
-
-    window.app_openStaffMessageModal = (toUserId, toName) => {
-        if (!toUserId) {
-            alert('Select a staff member first.');
-            return;
-        }
-        const safeName = String(toName || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const html = `
+window.app_openStaffMessageModal = (toUserId, toName) => {
+    if (!toUserId) {
+        alert('Select a staff member first.');
+        return;
+    }
+    const safeName = String(toName || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const html = `
             <div class="modal-overlay" id="staff-message-modal" style="display:flex;">
                 <div class="modal-content staff-message-modal">
                     <div class="staff-modal-head">
@@ -3750,16 +3762,16 @@
                 </div>
             </div>
         `;
-        window.app_showModal(html, 'staff-message-modal');
-    };
+    window.app_showModal(html, 'staff-message-modal');
+};
 
-    window.app_openStaffTaskModal = (toUserId, toName) => {
-        if (!toUserId) {
-            alert('Select a staff member first.');
-            return;
-        }
-        const safeName = String(toName || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const html = `
+window.app_openStaffTaskModal = (toUserId, toName) => {
+    if (!toUserId) {
+        alert('Select a staff member first.');
+        return;
+    }
+    const safeName = String(toName || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const html = `
             <div class="modal-overlay" id="staff-task-modal" style="display:flex;">
                 <div class="modal-content staff-message-modal">
                     <div class="staff-modal-head">
@@ -3779,458 +3791,458 @@
                 </div>
             </div>
         `;
-        window.app_showModal(html, 'staff-task-modal');
-    };
+    window.app_showModal(html, 'staff-task-modal');
+};
 
-    window.app_respondStaffTask = async (messageId, response) => {
-        const currentUser = window.AppAuth.getUser();
-        const msg = await window.AppDB.get('staff_messages', messageId);
-        if (!msg) {
-            alert('Task not found.');
-            return;
+window.app_respondStaffTask = async (messageId, response) => {
+    const currentUser = window.AppAuth.getUser();
+    const msg = await window.AppDB.get('staff_messages', messageId);
+    if (!msg) {
+        alert('Task not found.');
+        return;
+    }
+    if (msg.toId !== currentUser.id) {
+        alert('Only the recipient can approve or reject this task.');
+        return;
+    }
+    let reason = '';
+    if (response === 'rejected') {
+        reason = (await window.appPrompt('Optional: add a rejection reason', '', { title: 'Reject Task', confirmText: 'Submit Reason' })) || '';
+    }
+    msg.status = response;
+    msg.respondedAt = new Date().toISOString();
+    if (reason) msg.rejectReason = reason;
+    if (!msg.history) msg.history = [];
+    msg.history.unshift({ action: response, byId: currentUser.id, byName: currentUser.name, at: msg.respondedAt, reason });
+
+    if (response === 'approved' && !msg.calendarSynced) {
+        const taskDate = msg.dueDate || new Date().toISOString().split('T')[0];
+        const recipientName = msg.toName || currentUser.name;
+        const details = `${msg.title}${msg.description ? ` - ${msg.description}` : ''}`;
+        if (window.AppCalendar) {
+            await window.AppCalendar.addWorkPlanTask(taskDate, msg.toId, `${details} (Responsible: ${recipientName})`, [], {
+                addedFrom: 'staff',
+                sourcePlanId: msg.id,
+                sourceTaskIndex: 0,
+                taggedById: msg.fromId,
+                taggedByName: msg.fromName,
+                status: 'pending'
+            });
+            await window.AppCalendar.addWorkPlanTask(taskDate, msg.fromId, `${details} (Assigned to ${recipientName})`, [], {
+                addedFrom: 'staff',
+                sourcePlanId: msg.id,
+                sourceTaskIndex: 1,
+                taggedById: msg.fromId,
+                taggedByName: msg.fromName,
+                status: 'pending'
+            });
+            msg.calendarSynced = true;
         }
-        if (msg.toId !== currentUser.id) {
-            alert('Only the recipient can approve or reject this task.');
-            return;
-        }
+    }
+    await window.AppDB.put('staff_messages', msg);
+
+    const sender = await window.AppDB.get('users', msg.fromId);
+    if (sender) {
+        if (!sender.notifications) sender.notifications = [];
+        sender.notifications.unshift({
+            id: `taskresp_${Date.now()}`,
+            type: 'task_response',
+            message: `${currentUser.name} ${response} a task.`,
+            title: msg.title,
+            taggedByName: currentUser.name,
+            status: response,
+            reason,
+            date: msg.respondedAt,
+            read: false
+        });
+        await window.AppDB.put('users', sender);
+    }
+    const contentArea = document.getElementById('page-content');
+    if (contentArea) {
+        contentArea.innerHTML = await window.AppUI.renderStaffDirectoryPage();
+    }
+    if (window.app_updateStaffNavIndicator) {
+        await window.app_updateStaffNavIndicator();
+    }
+};
+
+window.app_updateStaffNavIndicator = async () => {
+    const currentUser = window.AppAuth.getUser();
+    if (!currentUser) return;
+    const navTargets = document.querySelectorAll('[data-page="staff-directory"]');
+    if (!navTargets.length) return;
+    const messages = await window.app_getMyMessages();
+    const hasUnread = messages.some(m => m.toId === currentUser.id && !m.read);
+    navTargets.forEach(el => {
+        if (hasUnread) el.classList.add('has-new-msg');
+        else el.classList.remove('has-new-msg');
+    });
+};
+
+window.app_handleTagDecision = async (notifId, response) => {
+    const user = window.AppAuth.getUser();
+    try {
+        const updatedUser = await window.AppDB.get('users', user.id);
+        if (!updatedUser || !updatedUser.notifications) throw new Error('Notification not found');
+        const notif = updatedUser.notifications.find(n => n.id === notifId);
+        if (!notif) throw new Error('Notification not found');
         let reason = '';
-        if (response === 'rejected') {
-            reason = (await window.appPrompt('Optional: add a rejection reason', '', { title: 'Reject Task', confirmText: 'Submit Reason' })) || '';
-        }
-        msg.status = response;
-        msg.respondedAt = new Date().toISOString();
-        if (reason) msg.rejectReason = reason;
-        if (!msg.history) msg.history = [];
-        msg.history.unshift({ action: response, byId: currentUser.id, byName: currentUser.name, at: msg.respondedAt, reason });
+        if (response === 'rejected') reason = (await window.appPrompt('Optional: add a rejection reason', '', { title: 'Reject Item', confirmText: 'Submit Reason' })) || '';
+        const nowIso = new Date().toISOString();
+        notif.status = response;
+        notif.respondedAt = nowIso;
+        notif.read = true;
+        notif.dismissedAt = nowIso;
+        if (reason) notif.rejectReason = reason;
+        if (!updatedUser.tagHistory) updatedUser.tagHistory = [];
+        updatedUser.tagHistory.unshift({
+            id: `taghist_${Date.now()}`,
+            type: 'tag_response',
+            title: notif.title || notif.message || 'Tagged item',
+            taggedByName: notif.taggedByName || 'Staff',
+            status: response,
+            reason,
+            date: new Date().toISOString()
+        });
+        await window.AppDB.put('users', updatedUser);
 
-        if (response === 'approved' && !msg.calendarSynced) {
-            const taskDate = msg.dueDate || new Date().toISOString().split('T')[0];
-            const recipientName = msg.toName || currentUser.name;
-            const details = `${msg.title}${msg.description ? ` - ${msg.description}` : ''}`;
-            if (window.AppCalendar) {
-                await window.AppCalendar.addWorkPlanTask(taskDate, msg.toId, `${details} (Responsible: ${recipientName})`, [], {
-                    addedFrom: 'staff',
-                    sourcePlanId: msg.id,
-                    sourceTaskIndex: 0,
-                    taggedById: msg.fromId,
-                    taggedByName: msg.fromName,
-                    status: 'pending'
+        if (notif.taggedById) {
+            const tagger = await window.AppDB.get('users', notif.taggedById);
+            if (tagger) {
+                if (!tagger.notifications) tagger.notifications = [];
+                tagger.notifications.unshift({
+                    id: `tagresp_${Date.now()}`,
+                    type: 'tag_response',
+                    message: `${user.name} ${response} your ${notif.type || 'tag'}.`,
+                    title: notif.title || '',
+                    taggedByName: user.name,
+                    status: response,
+                    reason,
+                    date: new Date().toISOString(),
+                    read: false
                 });
-                await window.AppCalendar.addWorkPlanTask(taskDate, msg.fromId, `${details} (Assigned to ${recipientName})`, [], {
-                    addedFrom: 'staff',
-                    sourcePlanId: msg.id,
-                    sourceTaskIndex: 1,
-                    taggedById: msg.fromId,
-                    taggedByName: msg.fromName,
-                    status: 'pending'
-                });
-                msg.calendarSynced = true;
+                await window.AppDB.put('users', tagger);
             }
         }
-        await window.AppDB.put('staff_messages', msg);
 
-        const sender = await window.AppDB.get('users', msg.fromId);
-        if (sender) {
-            if (!sender.notifications) sender.notifications = [];
-            sender.notifications.unshift({
-                id: `taskresp_${Date.now()}`,
-                type: 'task_response',
-                message: `${currentUser.name} ${response} a task.`,
-                title: msg.title,
-                taggedByName: currentUser.name,
-                status: response,
-                reason,
-                date: msg.respondedAt,
-                read: false
-            });
-            await window.AppDB.put('users', sender);
-        }
         const contentArea = document.getElementById('page-content');
         if (contentArea) {
-            contentArea.innerHTML = await window.AppUI.renderStaffDirectoryPage();
+            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            if (window.setupDashboardEvents) window.setupDashboardEvents();
+        }
+    } catch (err) {
+        alert('Failed to update tag: ' + err.message);
+    }
+};
+
+document.addEventListener('auth-logout', () => window.AppAuth.logout());
+
+window.app_reviewMinuteAccessFromNotification = async (notifIndex, notifId, decision) => {
+    try {
+        const currentUser = window.AppAuth.getUser();
+        const isAdmin = currentUser && (currentUser.isAdmin || currentUser.role === 'Administrator');
+        if (!isAdmin) {
+            alert('Only admin can review access requests.');
+            return;
+        }
+
+        const adminUser = await window.AppDB.get('users', currentUser.id);
+        if (!adminUser || !Array.isArray(adminUser.notifications)) {
+            alert('Notification not found.');
+            return;
+        }
+
+        let notif = null;
+        if (typeof notifIndex === 'number' && adminUser.notifications[notifIndex]) {
+            notif = adminUser.notifications[notifIndex];
+        }
+        if (!notif && notifId) {
+            notif = adminUser.notifications.find(n => String(n.id) === String(notifId));
+        }
+        if (!notif || notif.type !== 'minute-access-request') {
+            alert('This notification is no longer available.');
+            return;
+        }
+
+        const minuteId = notif.minuteId;
+        const requesterId = notif.taggedById || notif.requesterId;
+        if (!minuteId || !requesterId) {
+            alert('Invalid access request payload.');
+            return;
+        }
+
+        const minute = await window.AppDB.get('minutes', minuteId);
+        if (!minute) {
+            alert('Minute not found.');
+            return;
+        }
+
+        const accessRequests = Array.isArray(minute.accessRequests) ? minute.accessRequests.slice() : [];
+        const existingIndex = accessRequests.findIndex(r => r.userId === requesterId);
+        if (existingIndex < 0) {
+            accessRequests.push({
+                userId: requesterId,
+                userName: notif.taggedByName || 'Staff',
+                requestedAt: notif.taggedAt || notif.date || new Date().toISOString(),
+                status: 'pending',
+                reviewedAt: '',
+                reviewedBy: ''
+            });
+        }
+
+        const reqIndex = accessRequests.findIndex(r => r.userId === requesterId);
+        accessRequests[reqIndex] = {
+            ...accessRequests[reqIndex],
+            status: decision,
+            reviewedAt: new Date().toISOString(),
+            reviewedBy: currentUser.name
+        };
+
+        let allowedViewers = Array.isArray(minute.allowedViewers) ? minute.allowedViewers.slice() : [];
+        if (decision === 'approved') {
+            if (!allowedViewers.includes(requesterId)) allowedViewers.push(requesterId);
+        } else {
+            allowedViewers = allowedViewers.filter(uid => uid !== requesterId);
+        }
+
+        await window.AppMinutes.updateMinute(
+            minuteId,
+            { accessRequests, allowedViewers },
+            decision === 'approved' ? 'Admin approved minutes access from notification' : 'Admin rejected minutes access from notification'
+        );
+
+        const requester = await window.AppDB.get('users', requesterId);
+        if (requester) {
+            if (!requester.notifications) requester.notifications = [];
+            requester.notifications.unshift({
+                id: Date.now() + Math.random(),
+                type: 'minute-access-reviewed',
+                title: 'Minutes Access Update',
+                message: `Your request for "${minute.title}" was ${decision}.`,
+                minuteId,
+                taggedById: currentUser.id,
+                taggedByName: currentUser.name,
+                status: decision,
+                taggedAt: new Date().toISOString(),
+                date: new Date().toISOString()
+            });
+            await window.AppDB.put('users', requester);
+        }
+
+        const targetNotif = adminUser.notifications.find(n => String(n.id) === String(notif.id));
+        if (targetNotif) {
+            targetNotif.status = decision;
+            targetNotif.respondedAt = new Date().toISOString();
+            targetNotif.read = true;
+            await window.AppAuth.updateUser(adminUser);
+        }
+
+        contentArea.innerHTML = await window.AppUI.renderDashboard();
+        if (window.setupDashboardEvents) window.setupDashboardEvents();
+        if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
+    } catch (err) {
+        alert('Failed to review access request: ' + err.message);
+    }
+};
+
+document.addEventListener('dismiss-notification', async (e) => {
+    const payload = e.detail;
+    const index = (typeof payload === 'object' && payload !== null) ? payload.notifIndex : payload;
+    const notifId = (typeof payload === 'object' && payload !== null) ? String(payload.notifId || '') : '';
+    const user = window.AppAuth.getUser();
+    if (user && user.notifications && Number.isInteger(index) && index >= 0) {
+        let notif = user.notifications[index];
+        if (!notif && notifId) {
+            notif = user.notifications.find(n => String(n.id || '') === notifId);
+        }
+        if (!notif) return;
+        notif.read = true;
+        notif.dismissedAt = new Date().toISOString();
+        await window.AppAuth.updateUser(user);
+        const hash = window.location.hash.slice(1) || 'dashboard';
+        if (hash === 'dashboard') {
+            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            if (window.setupDashboardEvents) window.setupDashboardEvents();
+        }
+        if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
+    } else if (user && user.notifications && notifId) {
+        const notif = user.notifications.find(n => String(n.id || '') === notifId);
+        if (!notif) return;
+        notif.read = true;
+        notif.dismissedAt = new Date().toISOString();
+        await window.AppAuth.updateUser(user);
+        const hash = window.location.hash.slice(1) || 'dashboard';
+        if (hash === 'dashboard') {
+            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            if (window.setupDashboardEvents) window.setupDashboardEvents();
+        }
+        if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
+    }
+});
+
+document.addEventListener('dismiss-tag-history', async (e) => {
+    const historyId = String(e.detail || '');
+    const user = window.AppAuth.getUser();
+    if (!historyId || !user) return;
+    if (!Array.isArray(user.tagHistory)) return;
+    const removeIndex = user.tagHistory.findIndex(h => String(h.id) === historyId);
+    if (removeIndex < 0) return;
+    user.tagHistory.splice(removeIndex, 1);
+    await window.AppAuth.updateUser(user);
+    contentArea.innerHTML = await window.AppUI.renderDashboard();
+    if (window.setupDashboardEvents) window.setupDashboardEvents();
+});
+
+// Manual Log Logic
+document.addEventListener('open-log-modal', () => {
+    const modal = document.getElementById('log-modal');
+    if (!modal) return;
+    const now = new Date();
+    const pad = n => n.toString().padStart(2, '0');
+    document.getElementById('log-date').value = now.toISOString().split('T')[0];
+    document.getElementById('log-start-time').value = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    const later = new Date(now.getTime() + 3600000);
+    document.getElementById('log-end-time').value = `${pad(later.getHours())}:${pad(later.getMinutes())}`;
+    modal.style.display = 'flex';
+});
+
+document.addEventListener('set-duration', (e) => {
+    const minutes = e.detail;
+    const startTimeInput = document.getElementById('log-start-time');
+    const endTimeInput = document.getElementById('log-end-time');
+    if (startTimeInput.value) {
+        const [h, m] = startTimeInput.value.split(':').map(Number);
+        const startDate = new Date();
+        startDate.setHours(h, m);
+        const endDate = new Date(startDate.getTime() + minutes * 60 * 1000);
+        const pad = n => n.toString().padStart(2, '0');
+        endTimeInput.value = `${pad(endDate.getHours())}:${pad(endDate.getMinutes())}`;
+    }
+});
+
+// Admin Events
+// --- Global Functions (Exposed for UI onclicks) ---
+
+window.app_editUser = async (userId) => {
+    console.log("Opening Edit Modal for ID:", userId);
+    const user = await window.AppDB.get('users', userId);
+    console.log("User Data Found:", user);
+    if (!user) return;
+    const normalizeIsoDate = (value) => {
+        const raw = String(value || '').trim();
+        if (!raw) return '';
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+        const d = new Date(raw);
+        if (!Number.isNaN(d.getTime())) {
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+        return '';
+    };
+    const deriveEmployeeId = (joinDateRaw, idRaw) => {
+        const joinDate = normalizeIsoDate(joinDateRaw);
+        if (!joinDate) return 'NA';
+        const compact = joinDate.replace(/-/g, '');
+        const suffix = String(idRaw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-3) || 'USR';
+        return `EMP-${compact}-${suffix}`;
+    };
+    const form = document.getElementById('edit-user-form');
+    form.querySelector('#edit-user-id').value = user.id;
+    form.querySelector('#edit-user-name').value = user.name;
+    form.querySelector('#edit-user-username').value = user.username;
+    form.querySelector('#edit-user-password').value = user.password;
+    form.querySelector('#edit-user-role').value = user.role;
+    form.querySelector('#edit-user-dept').value = user.dept;
+    form.querySelector('#edit-user-email').value = user.email;
+    form.querySelector('#edit-user-phone').value = user.phone;
+    form.querySelector('#edit-user-isAdmin').checked = !!(user.isAdmin || user.role === 'Administrator');
+    form.querySelector('#edit-user-can-manage-attendance-sheet').checked = !!(user.canManageAttendanceSheet || user.isAdmin || user.role === 'Administrator');
+    const normalizedJoinDate = normalizeIsoDate(user.joinDate);
+    form.querySelector('#edit-user-join-date').value = normalizedJoinDate;
+    form.querySelector('#edit-user-employee-id').value = normalizedJoinDate
+        ? (user.employeeId || deriveEmployeeId(normalizedJoinDate, user.id))
+        : 'NA';
+    form.querySelector('#edit-user-base-salary').value = Number(user.baseSalary || 0);
+    form.querySelector('#edit-user-other-allowances').value = Number(user.otherAllowances || 0);
+    form.querySelector('#edit-user-pf').value = Number(user.providentFund || 0);
+    form.querySelector('#edit-user-professional-tax').value = Number(user.professionalTax || 0);
+    form.querySelector('#edit-user-loan-advance').value = Number(user.loanAdvance || 0);
+    form.querySelector('#edit-user-tds-percent').value = Number(user.tdsPercent || 0);
+    form.querySelector('#edit-user-bank-name').value = user.bankName || '';
+    form.querySelector('#edit-user-bank-account').value = user.bankAccount || user.accountNumber || '';
+    form.querySelector('#edit-user-bank-ifsc').value = user.bankIfsc || user.ifsc || '';
+    form.querySelector('#edit-user-pan').value = user.pan || user.PAN || '';
+    form.querySelector('#edit-user-uan').value = user.uan || user.UAN || '';
+    document.getElementById('edit-user-modal').style.display = 'flex';
+};
+
+window.app_notifyUser = (userId) => {
+    console.log("Opening Notify for:", userId);
+    document.getElementById('notify-user-id').value = userId;
+    document.getElementById('notify-modal').style.display = 'flex';
+};
+
+window.app_quickAddTask = async (userId) => {
+    const currentUser = window.AppAuth.getUser();
+    const isAdmin = currentUser && (currentUser.role === 'Administrator' || currentUser.isAdmin);
+    if (!isAdmin && userId !== currentUser.id) {
+        alert('Only administrators can assign tasks to other staff.');
+        return;
+    }
+    const taskText = await window.appPrompt('Task to assign:', '', { title: 'Assign Task', placeholder: 'Enter task title', confirmText: 'Next' });
+    if (!taskText || !taskText.trim()) return;
+    const dateInput = await window.appPrompt('Task date (YYYY-MM-DD). Leave blank for today:', '', { title: 'Assign Task Date', placeholder: 'YYYY-MM-DD', confirmText: 'Create Task' });
+    const date = dateInput && dateInput.trim()
+        ? dateInput.trim()
+        : new Date().toISOString().split('T')[0];
+    try {
+        if (!window.AppCalendar) throw new Error('Calendar module not available.');
+        await window.AppCalendar.addWorkPlanTask(date, userId, taskText.trim());
+        await window.AppDB.add('staff_messages', {
+            id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            type: 'task',
+            title: taskText.trim(),
+            description: '',
+            dueDate: date,
+            status: 'pending',
+            fromId: currentUser.id,
+            fromName: currentUser.name,
+            toId: userId,
+            toName: (await window.AppDB.get('users', userId))?.name || 'Staff',
+            createdAt: new Date().toISOString(),
+            read: false,
+            history: [{ action: 'created', byId: currentUser.id, byName: currentUser.name, at: new Date().toISOString() }]
+        });
+        alert('Task added successfully.');
+        const contentArea = document.getElementById('page-content');
+        if (contentArea) {
+            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            if (window.setupDashboardEvents) window.setupDashboardEvents();
         }
         if (window.app_updateStaffNavIndicator) {
             await window.app_updateStaffNavIndicator();
         }
-    };
+    } catch (err) {
+        alert('Failed to add task: ' + err.message);
+    }
+};
 
-    window.app_updateStaffNavIndicator = async () => {
-        const currentUser = window.AppAuth.getUser();
-        if (!currentUser) return;
-        const navTargets = document.querySelectorAll('[data-page="staff-directory"]');
-        if (!navTargets.length) return;
-        const messages = await window.app_getMyMessages();
-        const hasUnread = messages.some(m => m.toId === currentUser.id && !m.read);
-        navTargets.forEach(el => {
-            if (hasUnread) el.classList.add('has-new-msg');
-            else el.classList.remove('has-new-msg');
-        });
-    };
+window.app_viewLogs = async (userId) => {
+    if (!window.app_canManageAttendanceSheet()) {
+        alert("You do not have permission for this action.");
+        return;
+    }
+    console.log("Viewing details for:", userId);
+    const user = await window.AppDB.get('users', userId);
+    let logs = await window.AppAttendance.getLogs(userId);
 
-    window.app_handleTagDecision = async (notifId, response) => {
-        const user = window.AppAuth.getUser();
-        try {
-            const updatedUser = await window.AppDB.get('users', user.id);
-            if (!updatedUser || !updatedUser.notifications) throw new Error('Notification not found');
-            const notif = updatedUser.notifications.find(n => n.id === notifId);
-            if (!notif) throw new Error('Notification not found');
-            let reason = '';
-            if (response === 'rejected') reason = (await window.appPrompt('Optional: add a rejection reason', '', { title: 'Reject Item', confirmText: 'Submit Reason' })) || '';
-            const nowIso = new Date().toISOString();
-            notif.status = response;
-            notif.respondedAt = nowIso;
-            notif.read = true;
-            notif.dismissedAt = nowIso;
-            if (reason) notif.rejectReason = reason;
-            if (!updatedUser.tagHistory) updatedUser.tagHistory = [];
-            updatedUser.tagHistory.unshift({
-                id: `taghist_${Date.now()}`,
-                type: 'tag_response',
-                title: notif.title || notif.message || 'Tagged item',
-                taggedByName: notif.taggedByName || 'Staff',
-                status: response,
-                reason,
-                date: new Date().toISOString()
-            });
-            await window.AppDB.put('users', updatedUser);
+    // Sort: Chronological (Oldest First) for the detailed report view if requested
+    // But usually, newest first is better for quick check. 
+    // Let's stick to newest first as per attendance.js, but ensure it's clear.
 
-            if (notif.taggedById) {
-                const tagger = await window.AppDB.get('users', notif.taggedById);
-                if (tagger) {
-                    if (!tagger.notifications) tagger.notifications = [];
-                    tagger.notifications.unshift({
-                        id: `tagresp_${Date.now()}`,
-                        type: 'tag_response',
-                        message: `${user.name} ${response} your ${notif.type || 'tag'}.`,
-                        title: notif.title || '',
-                        taggedByName: user.name,
-                        status: response,
-                        reason,
-                        date: new Date().toISOString(),
-                        read: false
-                    });
-                    await window.AppDB.put('users', tagger);
-                }
-            }
+    window.currentViewedLogs = logs;
+    window.currentViewedUser = user;
 
-            const contentArea = document.getElementById('page-content');
-            if (contentArea) {
-                contentArea.innerHTML = await window.AppUI.renderDashboard();
-                if (window.setupDashboardEvents) window.setupDashboardEvents();
-            }
-        } catch (err) {
-            alert('Failed to update tag: ' + err.message);
-        }
-    };
-
-    document.addEventListener('auth-logout', () => window.AppAuth.logout());
-
-    window.app_reviewMinuteAccessFromNotification = async (notifIndex, notifId, decision) => {
-        try {
-            const currentUser = window.AppAuth.getUser();
-            const isAdmin = currentUser && (currentUser.isAdmin || currentUser.role === 'Administrator');
-            if (!isAdmin) {
-                alert('Only admin can review access requests.');
-                return;
-            }
-
-            const adminUser = await window.AppDB.get('users', currentUser.id);
-            if (!adminUser || !Array.isArray(adminUser.notifications)) {
-                alert('Notification not found.');
-                return;
-            }
-
-            let notif = null;
-            if (typeof notifIndex === 'number' && adminUser.notifications[notifIndex]) {
-                notif = adminUser.notifications[notifIndex];
-            }
-            if (!notif && notifId) {
-                notif = adminUser.notifications.find(n => String(n.id) === String(notifId));
-            }
-            if (!notif || notif.type !== 'minute-access-request') {
-                alert('This notification is no longer available.');
-                return;
-            }
-
-            const minuteId = notif.minuteId;
-            const requesterId = notif.taggedById || notif.requesterId;
-            if (!minuteId || !requesterId) {
-                alert('Invalid access request payload.');
-                return;
-            }
-
-            const minute = await window.AppDB.get('minutes', minuteId);
-            if (!minute) {
-                alert('Minute not found.');
-                return;
-            }
-
-            const accessRequests = Array.isArray(minute.accessRequests) ? minute.accessRequests.slice() : [];
-            const existingIndex = accessRequests.findIndex(r => r.userId === requesterId);
-            if (existingIndex < 0) {
-                accessRequests.push({
-                    userId: requesterId,
-                    userName: notif.taggedByName || 'Staff',
-                    requestedAt: notif.taggedAt || notif.date || new Date().toISOString(),
-                    status: 'pending',
-                    reviewedAt: '',
-                    reviewedBy: ''
-                });
-            }
-
-            const reqIndex = accessRequests.findIndex(r => r.userId === requesterId);
-            accessRequests[reqIndex] = {
-                ...accessRequests[reqIndex],
-                status: decision,
-                reviewedAt: new Date().toISOString(),
-                reviewedBy: currentUser.name
-            };
-
-            let allowedViewers = Array.isArray(minute.allowedViewers) ? minute.allowedViewers.slice() : [];
-            if (decision === 'approved') {
-                if (!allowedViewers.includes(requesterId)) allowedViewers.push(requesterId);
-            } else {
-                allowedViewers = allowedViewers.filter(uid => uid !== requesterId);
-            }
-
-            await window.AppMinutes.updateMinute(
-                minuteId,
-                { accessRequests, allowedViewers },
-                decision === 'approved' ? 'Admin approved minutes access from notification' : 'Admin rejected minutes access from notification'
-            );
-
-            const requester = await window.AppDB.get('users', requesterId);
-            if (requester) {
-                if (!requester.notifications) requester.notifications = [];
-                requester.notifications.unshift({
-                    id: Date.now() + Math.random(),
-                    type: 'minute-access-reviewed',
-                    title: 'Minutes Access Update',
-                    message: `Your request for "${minute.title}" was ${decision}.`,
-                    minuteId,
-                    taggedById: currentUser.id,
-                    taggedByName: currentUser.name,
-                    status: decision,
-                    taggedAt: new Date().toISOString(),
-                    date: new Date().toISOString()
-                });
-                await window.AppDB.put('users', requester);
-            }
-
-            const targetNotif = adminUser.notifications.find(n => String(n.id) === String(notif.id));
-            if (targetNotif) {
-                targetNotif.status = decision;
-                targetNotif.respondedAt = new Date().toISOString();
-                targetNotif.read = true;
-                await window.AppAuth.updateUser(adminUser);
-            }
-
-            contentArea.innerHTML = await window.AppUI.renderDashboard();
-            if (window.setupDashboardEvents) window.setupDashboardEvents();
-            if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
-        } catch (err) {
-            alert('Failed to review access request: ' + err.message);
-        }
-    };
-
-    document.addEventListener('dismiss-notification', async (e) => {
-        const payload = e.detail;
-        const index = (typeof payload === 'object' && payload !== null) ? payload.notifIndex : payload;
-        const notifId = (typeof payload === 'object' && payload !== null) ? String(payload.notifId || '') : '';
-        const user = window.AppAuth.getUser();
-        if (user && user.notifications && Number.isInteger(index) && index >= 0) {
-            let notif = user.notifications[index];
-            if (!notif && notifId) {
-                notif = user.notifications.find(n => String(n.id || '') === notifId);
-            }
-            if (!notif) return;
-            notif.read = true;
-            notif.dismissedAt = new Date().toISOString();
-            await window.AppAuth.updateUser(user);
-            const hash = window.location.hash.slice(1) || 'dashboard';
-            if (hash === 'dashboard') {
-                contentArea.innerHTML = await window.AppUI.renderDashboard();
-                if (window.setupDashboardEvents) window.setupDashboardEvents();
-            }
-            if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
-        } else if (user && user.notifications && notifId) {
-            const notif = user.notifications.find(n => String(n.id || '') === notifId);
-            if (!notif) return;
-            notif.read = true;
-            notif.dismissedAt = new Date().toISOString();
-            await window.AppAuth.updateUser(user);
-            const hash = window.location.hash.slice(1) || 'dashboard';
-            if (hash === 'dashboard') {
-                contentArea.innerHTML = await window.AppUI.renderDashboard();
-                if (window.setupDashboardEvents) window.setupDashboardEvents();
-            }
-            if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
-        }
-    });
-
-    document.addEventListener('dismiss-tag-history', async (e) => {
-        const historyId = String(e.detail || '');
-        const user = window.AppAuth.getUser();
-        if (!historyId || !user) return;
-        if (!Array.isArray(user.tagHistory)) return;
-        const removeIndex = user.tagHistory.findIndex(h => String(h.id) === historyId);
-        if (removeIndex < 0) return;
-        user.tagHistory.splice(removeIndex, 1);
-        await window.AppAuth.updateUser(user);
-        contentArea.innerHTML = await window.AppUI.renderDashboard();
-        if (window.setupDashboardEvents) window.setupDashboardEvents();
-    });
-
-    // Manual Log Logic
-    document.addEventListener('open-log-modal', () => {
-        const modal = document.getElementById('log-modal');
-        if (!modal) return;
-        const now = new Date();
-        const pad = n => n.toString().padStart(2, '0');
-        document.getElementById('log-date').value = now.toISOString().split('T')[0];
-        document.getElementById('log-start-time').value = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-        const later = new Date(now.getTime() + 3600000);
-        document.getElementById('log-end-time').value = `${pad(later.getHours())}:${pad(later.getMinutes())}`;
-        modal.style.display = 'flex';
-    });
-
-    document.addEventListener('set-duration', (e) => {
-        const minutes = e.detail;
-        const startTimeInput = document.getElementById('log-start-time');
-        const endTimeInput = document.getElementById('log-end-time');
-        if (startTimeInput.value) {
-            const [h, m] = startTimeInput.value.split(':').map(Number);
-            const startDate = new Date();
-            startDate.setHours(h, m);
-            const endDate = new Date(startDate.getTime() + minutes * 60 * 1000);
-            const pad = n => n.toString().padStart(2, '0');
-            endTimeInput.value = `${pad(endDate.getHours())}:${pad(endDate.getMinutes())}`;
-        }
-    });
-
-    // Admin Events
-    // --- Global Functions (Exposed for UI onclicks) ---
-
-    window.app_editUser = async (userId) => {
-        console.log("Opening Edit Modal for ID:", userId);
-        const user = await window.AppDB.get('users', userId);
-        console.log("User Data Found:", user);
-        if (!user) return;
-        const normalizeIsoDate = (value) => {
-            const raw = String(value || '').trim();
-            if (!raw) return '';
-            if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-            const d = new Date(raw);
-            if (!Number.isNaN(d.getTime())) {
-                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-            }
-            return '';
-        };
-        const deriveEmployeeId = (joinDateRaw, idRaw) => {
-            const joinDate = normalizeIsoDate(joinDateRaw);
-            if (!joinDate) return 'NA';
-            const compact = joinDate.replace(/-/g, '');
-            const suffix = String(idRaw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-3) || 'USR';
-            return `EMP-${compact}-${suffix}`;
-        };
-        const form = document.getElementById('edit-user-form');
-        form.querySelector('#edit-user-id').value = user.id;
-        form.querySelector('#edit-user-name').value = user.name;
-        form.querySelector('#edit-user-username').value = user.username;
-        form.querySelector('#edit-user-password').value = user.password;
-        form.querySelector('#edit-user-role').value = user.role;
-        form.querySelector('#edit-user-dept').value = user.dept;
-        form.querySelector('#edit-user-email').value = user.email;
-        form.querySelector('#edit-user-phone').value = user.phone;
-        form.querySelector('#edit-user-isAdmin').checked = !!(user.isAdmin || user.role === 'Administrator');
-        form.querySelector('#edit-user-can-manage-attendance-sheet').checked = !!(user.canManageAttendanceSheet || user.isAdmin || user.role === 'Administrator');
-        const normalizedJoinDate = normalizeIsoDate(user.joinDate);
-        form.querySelector('#edit-user-join-date').value = normalizedJoinDate;
-        form.querySelector('#edit-user-employee-id').value = normalizedJoinDate
-            ? (user.employeeId || deriveEmployeeId(normalizedJoinDate, user.id))
-            : 'NA';
-        form.querySelector('#edit-user-base-salary').value = Number(user.baseSalary || 0);
-        form.querySelector('#edit-user-other-allowances').value = Number(user.otherAllowances || 0);
-        form.querySelector('#edit-user-pf').value = Number(user.providentFund || 0);
-        form.querySelector('#edit-user-professional-tax').value = Number(user.professionalTax || 0);
-        form.querySelector('#edit-user-loan-advance').value = Number(user.loanAdvance || 0);
-        form.querySelector('#edit-user-tds-percent').value = Number(user.tdsPercent || 0);
-        form.querySelector('#edit-user-bank-name').value = user.bankName || '';
-        form.querySelector('#edit-user-bank-account').value = user.bankAccount || user.accountNumber || '';
-        form.querySelector('#edit-user-bank-ifsc').value = user.bankIfsc || user.ifsc || '';
-        form.querySelector('#edit-user-pan').value = user.pan || user.PAN || '';
-        form.querySelector('#edit-user-uan').value = user.uan || user.UAN || '';
-        document.getElementById('edit-user-modal').style.display = 'flex';
-    };
-
-    window.app_notifyUser = (userId) => {
-        console.log("Opening Notify for:", userId);
-        document.getElementById('notify-user-id').value = userId;
-        document.getElementById('notify-modal').style.display = 'flex';
-    };
-
-    window.app_quickAddTask = async (userId) => {
-        const currentUser = window.AppAuth.getUser();
-        const isAdmin = currentUser && (currentUser.role === 'Administrator' || currentUser.isAdmin);
-        if (!isAdmin && userId !== currentUser.id) {
-            alert('Only administrators can assign tasks to other staff.');
-            return;
-        }
-        const taskText = await window.appPrompt('Task to assign:', '', { title: 'Assign Task', placeholder: 'Enter task title', confirmText: 'Next' });
-        if (!taskText || !taskText.trim()) return;
-        const dateInput = await window.appPrompt('Task date (YYYY-MM-DD). Leave blank for today:', '', { title: 'Assign Task Date', placeholder: 'YYYY-MM-DD', confirmText: 'Create Task' });
-        const date = dateInput && dateInput.trim()
-            ? dateInput.trim()
-            : new Date().toISOString().split('T')[0];
-        try {
-            if (!window.AppCalendar) throw new Error('Calendar module not available.');
-            await window.AppCalendar.addWorkPlanTask(date, userId, taskText.trim());
-            await window.AppDB.add('staff_messages', {
-                id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-                type: 'task',
-                title: taskText.trim(),
-                description: '',
-                dueDate: date,
-                status: 'pending',
-                fromId: currentUser.id,
-                fromName: currentUser.name,
-                toId: userId,
-                toName: (await window.AppDB.get('users', userId))?.name || 'Staff',
-                createdAt: new Date().toISOString(),
-                read: false,
-                history: [{ action: 'created', byId: currentUser.id, byName: currentUser.name, at: new Date().toISOString() }]
-            });
-            alert('Task added successfully.');
-            const contentArea = document.getElementById('page-content');
-            if (contentArea) {
-                contentArea.innerHTML = await window.AppUI.renderDashboard();
-                if (window.setupDashboardEvents) window.setupDashboardEvents();
-            }
-            if (window.app_updateStaffNavIndicator) {
-                await window.app_updateStaffNavIndicator();
-            }
-        } catch (err) {
-            alert('Failed to add task: ' + err.message);
-        }
-    };
-
-    window.app_viewLogs = async (userId) => {
-        if (!window.app_canManageAttendanceSheet()) {
-            alert("You do not have permission for this action.");
-            return;
-        }
-        console.log("Viewing details for:", userId);
-        const user = await window.AppDB.get('users', userId);
-        let logs = await window.AppAttendance.getLogs(userId);
-
-        // Sort: Chronological (Oldest First) for the detailed report view if requested
-        // But usually, newest first is better for quick check. 
-        // Let's stick to newest first as per attendance.js, but ensure it's clear.
-
-        window.currentViewedLogs = logs;
-        window.currentViewedUser = user;
-
-        const logsHTML = logs.length ? `
+    const logsHTML = logs.length ? `
             <div class="table-container">
                 <table>
                     <thead>
@@ -4245,13 +4257,13 @@
                     </thead>
                     <tbody>
                         ${logs.map(log => {
-            let locDisplay = log.location || 'N/A';
-            if (log.lat && log.lng) {
-                locDisplay = `<a href="https://www.google.com/maps?q=${log.lat},${log.lng}" target="_blank" style="color:var(--primary);text-decoration:none;">
+        let locDisplay = log.location || 'N/A';
+        if (log.lat && log.lng) {
+            locDisplay = `<a href="https://www.google.com/maps?q=${log.lat},${log.lng}" target="_blank" style="color:var(--primary);text-decoration:none;">
                                     <i class="fa-solid fa-map-pin"></i> ${Number(log.lat).toFixed(4)}, ${Number(log.lng).toFixed(4)}
                                 </a>`;
-            }
-            return `
+        }
+        return `
                             <tr>
                                 <td>${log.date}</td>
                                 <td>${log.checkIn}</td>
@@ -4265,12 +4277,12 @@
                                     </div>
                                 </td>
                             </tr>`;
-        }).join('')}
+    }).join('')}
                     </tbody>
                 </table>
             </div>` : '<p style="text-align:center; padding:1rem; color:#6b7280;">No logs found for this user.</p>';
 
-        document.getElementById('user-details-content').innerHTML = `
+    document.getElementById('user-details-content').innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
                 <div>
                      <h3>${user.name}</h3>
@@ -4287,15 +4299,15 @@
             </div>
             ${logsHTML}
         `;
-        document.getElementById('user-details-modal').style.display = 'flex';
-    };
+    document.getElementById('user-details-modal').style.display = 'flex';
+};
 
-    window.app_openManualLogModal = (userId) => {
-        if (!window.app_canManageAttendanceSheet()) {
-            alert("You do not have permission for this action.");
-            return;
-        }
-        const html = `
+window.app_openManualLogModal = (userId) => {
+    if (!window.app_canManageAttendanceSheet()) {
+        alert("You do not have permission for this action.");
+        return;
+    }
+    const html = `
             <div class="modal-overlay" id="manual-admin-log-modal" style="display:flex;">
                 <div class="modal-content">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
@@ -4339,216 +4351,216 @@
                 </div>
             </div>
         `;
-        window.app_showModal(html, 'manual-admin-log-modal');
+    window.app_showModal(html, 'manual-admin-log-modal');
+};
+
+window.app_submitManualLog = async (e, userId) => {
+    if (!window.app_canManageAttendanceSheet()) {
+        alert("You do not have permission for this action.");
+        return;
+    }
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const checkIn = fd.get('checkIn');
+    const checkOut = fd.get('checkOut');
+
+    const dur = calculateDuration(checkIn, checkOut);
+    if (dur === 'Invalid') {
+        alert('End time must be after Start time');
+        return;
+    }
+    const date = fd.get('date');
+    const checkInDate = window.AppAttendance.buildDateTime(date, checkIn);
+    const checkOutDate = window.AppAttendance.buildDateTime(date, checkOut);
+    const durationMs = (checkInDate && checkOutDate) ? (checkOutDate - checkInDate) : 0;
+    const statusMeta = window.AppAttendance.evaluateAttendanceStatus(checkInDate || new Date(), durationMs);
+
+    // Convert 24h back to AM/PM for display consistency (optional, but better)
+    const formatTime = (timeStr) => {
+        const [h, m] = timeStr.split(':');
+        const hours = parseInt(h);
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        const displayH = hours % 12 || 12;
+        return `${String(displayH).padStart(2, '0')}:${m} ${ampm}`;
     };
 
-    window.app_submitManualLog = async (e, userId) => {
-        if (!window.app_canManageAttendanceSheet()) {
-            alert("You do not have permission for this action.");
-            return;
-        }
-        e.preventDefault();
-        const fd = new FormData(e.target);
-        const checkIn = fd.get('checkIn');
-        const checkOut = fd.get('checkOut');
-
-        const dur = calculateDuration(checkIn, checkOut);
-        if (dur === 'Invalid') {
-            alert('End time must be after Start time');
-            return;
-        }
-        const date = fd.get('date');
-        const checkInDate = window.AppAttendance.buildDateTime(date, checkIn);
-        const checkOutDate = window.AppAttendance.buildDateTime(date, checkOut);
-        const durationMs = (checkInDate && checkOutDate) ? (checkOutDate - checkInDate) : 0;
-        const statusMeta = window.AppAttendance.evaluateAttendanceStatus(checkInDate || new Date(), durationMs);
-
-        // Convert 24h back to AM/PM for display consistency (optional, but better)
-        const formatTime = (timeStr) => {
-            const [h, m] = timeStr.split(':');
-            const hours = parseInt(h);
-            const ampm = hours >= 12 ? 'PM' : 'AM';
-            const displayH = hours % 12 || 12;
-            return `${String(displayH).padStart(2, '0')}:${m} ${ampm}`;
-        };
-
-        const logData = {
-            date,
-            checkIn: formatTime(checkIn),
-            checkOut: formatTime(checkOut),
-            duration: dur,
-            type: statusMeta.status,
-            workDescription: fd.get('description') || 'Manual Entry by Admin',
-            location: 'Office (Manual)',
-            durationMs: durationMs,
-            dayCredit: statusMeta.dayCredit,
-            lateCountable: statusMeta.lateCountable,
-            extraWorkedMs: statusMeta.extraWorkedMs || 0,
-            policyVersion: 'v2',
-            isManualOverride: true,
-            entrySource: 'admin_override',
-            attendanceEligible: true
-        };
-
-        try {
-            await window.AppAttendance.addAdminLog(userId, logData);
-            alert("Attendance added manually.");
-            document.getElementById('manual-admin-log-modal')?.remove();
-            // Refresh logs view
-            window.app_viewLogs(userId);
-        } catch (err) {
-            alert("Error: " + err.message);
-        }
+    const logData = {
+        date,
+        checkIn: formatTime(checkIn),
+        checkOut: formatTime(checkOut),
+        duration: dur,
+        type: statusMeta.status,
+        workDescription: fd.get('description') || 'Manual Entry by Admin',
+        location: 'Office (Manual)',
+        durationMs: durationMs,
+        dayCredit: statusMeta.dayCredit,
+        lateCountable: statusMeta.lateCountable,
+        extraWorkedMs: statusMeta.extraWorkedMs || 0,
+        policyVersion: 'v2',
+        isManualOverride: true,
+        entrySource: 'admin_override',
+        attendanceEligible: true
     };
 
-    window.app_deleteLog = async (logId, userId) => {
-        if (!window.app_canManageAttendanceSheet()) {
-            alert("You do not have permission for this action.");
-            return;
-        }
-        if (!await window.appConfirm("Are you sure you want to delete this attendance record?")) return;
-        try {
-            await window.AppAttendance.deleteLog(logId);
-            alert("Record deleted.");
-            window.app_viewLogs(userId);
-        } catch (err) {
-            alert("Error: " + err.message);
-        }
-    };
+    try {
+        await window.AppAttendance.addAdminLog(userId, logData);
+        alert("Attendance added manually.");
+        document.getElementById('manual-admin-log-modal')?.remove();
+        // Refresh logs view
+        window.app_viewLogs(userId);
+    } catch (err) {
+        alert("Error: " + err.message);
+    }
+};
 
-    // --- Leave Management Handlers ---
-    window.app_approveLeave = async (leaveId) => {
-        if (!await window.appConfirm("Are you sure you want to APPROVE this leave request?")) return;
-        try {
-            const user = window.AppAuth.getUser();
-            await window.AppLeaves.updateLeaveStatus(leaveId, 'Approved', user.id);
-            alert("Leave Approved! Attendance logs have been automatically generated.");
+window.app_deleteLog = async (logId, userId) => {
+    if (!window.app_canManageAttendanceSheet()) {
+        alert("You do not have permission for this action.");
+        return;
+    }
+    if (!await window.appConfirm("Are you sure you want to delete this attendance record?")) return;
+    try {
+        await window.AppAttendance.deleteLog(logId);
+        alert("Record deleted.");
+        window.app_viewLogs(userId);
+    } catch (err) {
+        alert("Error: " + err.message);
+    }
+};
 
-            // Refresh Dashboard
-            const contentArea = document.getElementById('page-content');
-            if (contentArea) {
-                contentArea.innerHTML = await window.AppUI.renderDashboard();
-                setupDashboardEvents();
-            }
-        } catch (err) {
-            alert("Error: " + err.message);
-        }
-    };
+// --- Leave Management Handlers ---
+window.app_approveLeave = async (leaveId) => {
+    if (!await window.appConfirm("Are you sure you want to APPROVE this leave request?")) return;
+    try {
+        const user = window.AppAuth.getUser();
+        await window.AppLeaves.updateLeaveStatus(leaveId, 'Approved', user.id);
+        alert("Leave Approved! Attendance logs have been automatically generated.");
 
-    window.app_rejectLeave = async (leaveId) => {
-        const reason = await window.appPrompt("Enter rejection reason (optional):", "", { title: 'Reject Leave', confirmText: 'Reject Leave' });
-        if (reason === null) return; // Cancelled
-
-        try {
-            const user = window.AppAuth.getUser();
-            await window.AppLeaves.updateLeaveStatus(leaveId, 'Rejected', user.id, reason);
-            alert("Leave Rejected.");
-
-            // Refresh Dashboard
-            const contentArea = document.getElementById('page-content');
-            if (contentArea) {
-                contentArea.innerHTML = await window.AppUI.renderDashboard();
-                setupDashboardEvents();
-            }
-        } catch (err) {
-            alert("Error: " + err.message);
-        }
-    };
-
-    window.app_addLeaveComment = async (leaveId) => {
-        const leave = await window.AppDB.get('leaves', leaveId);
-        const comment = await window.appPrompt("Enter/Edit Admin Comment:", leave.adminComment || "", { title: 'Admin Comment', confirmText: 'Save Comment' });
-        if (comment === null) return;
-
-        try {
-            const user = window.AppAuth.getUser();
-            await window.AppLeaves.updateLeaveStatus(leaveId, leave.status, user.id, comment);
-            alert("Comment saved.");
-
-            // Refresh Dashboard
-            const contentArea = document.getElementById('page-content');
-            if (contentArea) {
-                contentArea.innerHTML = await window.AppUI.renderDashboard();
-                setupDashboardEvents();
-            }
-        } catch (err) {
-            alert("Error: " + err.message);
-        }
-    };
-
-    window.app_exportLeaves = async () => {
-        try {
-            const allLeaves = await window.AppLeaves.getAllLeaves();
-            if (allLeaves.length === 0) {
-                alert("No leave requests found to export.");
-                return;
-            }
-            await window.AppReports.exportLeavesCSV(allLeaves);
-        } catch (err) {
-            alert("Export Failed: " + err.message);
-        }
-    };
-
-
-    window.app_refreshMasterSheet = async () => {
+        // Refresh Dashboard
         const contentArea = document.getElementById('page-content');
         if (contentArea) {
-            const m = document.getElementById('sheet-month')?.value;
-            const y = document.getElementById('sheet-year')?.value;
-            contentArea.innerHTML = await window.AppUI.renderMasterSheet(m, y);
+            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            setupDashboardEvents();
         }
-    };
+    } catch (err) {
+        alert("Error: " + err.message);
+    }
+};
 
-    window.app_exportMasterSheet = async () => {
-        if (!window.app_canManageAttendanceSheet()) {
-            alert("You do not have permission for this action.");
+window.app_rejectLeave = async (leaveId) => {
+    const reason = await window.appPrompt("Enter rejection reason (optional):", "", { title: 'Reject Leave', confirmText: 'Reject Leave' });
+    if (reason === null) return; // Cancelled
+
+    try {
+        const user = window.AppAuth.getUser();
+        await window.AppLeaves.updateLeaveStatus(leaveId, 'Rejected', user.id, reason);
+        alert("Leave Rejected.");
+
+        // Refresh Dashboard
+        const contentArea = document.getElementById('page-content');
+        if (contentArea) {
+            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            setupDashboardEvents();
+        }
+    } catch (err) {
+        alert("Error: " + err.message);
+    }
+};
+
+window.app_addLeaveComment = async (leaveId) => {
+    const leave = await window.AppDB.get('leaves', leaveId);
+    const comment = await window.appPrompt("Enter/Edit Admin Comment:", leave.adminComment || "", { title: 'Admin Comment', confirmText: 'Save Comment' });
+    if (comment === null) return;
+
+    try {
+        const user = window.AppAuth.getUser();
+        await window.AppLeaves.updateLeaveStatus(leaveId, leave.status, user.id, comment);
+        alert("Comment saved.");
+
+        // Refresh Dashboard
+        const contentArea = document.getElementById('page-content');
+        if (contentArea) {
+            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            setupDashboardEvents();
+        }
+    } catch (err) {
+        alert("Error: " + err.message);
+    }
+};
+
+window.app_exportLeaves = async () => {
+    try {
+        const allLeaves = await window.AppLeaves.getAllLeaves();
+        if (allLeaves.length === 0) {
+            alert("No leave requests found to export.");
             return;
         }
-        const month = parseInt(document.getElementById('sheet-month').value);
-        const year = parseInt(document.getElementById('sheet-year').value);
-        const users = await window.AppDB.getAll('users');
+        await window.AppReports.exportLeavesCSV(allLeaves);
+    } catch (err) {
+        alert("Export Failed: " + err.message);
+    }
+};
 
-        // Filtered Query for Logs (Optimization)
-        const startDateStr = `${year}-${String(month + 1).padStart(2, '0')}-01`;
-        const endDateStr = `${year}-${String(month + 1).padStart(2, '0')}-31`;
-        const logs = await window.AppDB.query('attendance', 'date', '>=', startDateStr);
-        const filteredLogs = logs.filter(l => l.date <= endDateStr);
 
-        await window.AppReports.exportMasterSheetCSV(month, year, users, filteredLogs);
-    };
+window.app_refreshMasterSheet = async () => {
+    const contentArea = document.getElementById('page-content');
+    if (contentArea) {
+        const m = document.getElementById('sheet-month')?.value;
+        const y = document.getElementById('sheet-year')?.value;
+        contentArea.innerHTML = await window.AppUI.renderMasterSheet(m, y);
+    }
+};
 
-    window.app_openCellOverride = async (userId, dateStr) => {
-        if (!window.app_canManageAttendanceSheet()) {
-            alert("You do not have permission for this action.");
-            return;
+window.app_exportMasterSheet = async () => {
+    if (!window.app_canManageAttendanceSheet()) {
+        alert("You do not have permission for this action.");
+        return;
+    }
+    const month = parseInt(document.getElementById('sheet-month').value);
+    const year = parseInt(document.getElementById('sheet-year').value);
+    const users = await window.AppDB.getAll('users');
+
+    // Filtered Query for Logs (Optimization)
+    const startDateStr = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    const endDateStr = `${year}-${String(month + 1).padStart(2, '0')}-31`;
+    const logs = await window.AppDB.query('attendance', 'date', '>=', startDateStr);
+    const filteredLogs = logs.filter(l => l.date <= endDateStr);
+
+    await window.AppReports.exportMasterSheetCSV(month, year, users, filteredLogs);
+};
+
+window.app_openCellOverride = async (userId, dateStr) => {
+    if (!window.app_canManageAttendanceSheet()) {
+        alert("You do not have permission for this action.");
+        return;
+    }
+    const user = (await window.AppDB.getAll('users')).find(u => u.id === userId);
+    const logs = await window.AppDB.getAll('attendance');
+    const isAttendanceEligibleLog = (log) => {
+        if (Object.prototype.hasOwnProperty.call(log || {}, 'attendanceEligible')) {
+            return log.attendanceEligible === true;
         }
-        const user = (await window.AppDB.getAll('users')).find(u => u.id === userId);
-        const logs = await window.AppDB.getAll('attendance');
-        const isAttendanceEligibleLog = (log) => {
-            if (Object.prototype.hasOwnProperty.call(log || {}, 'attendanceEligible')) {
-                return log.attendanceEligible === true;
-            }
-            const src = String(log?.entrySource || '');
-            if (src === 'staff_manual_work') return false;
-            if (src === 'admin_override' || src === 'checkin_checkout') return true;
-            if (log?.isManualOverride) return true;
-            if (log?.location === 'Office (Manual)' || log?.location === 'Office (Override)') return true;
-            const hasSystemSignals =
-                typeof log?.activityScore !== 'undefined' ||
-                typeof log?.locationMismatched !== 'undefined' ||
-                typeof log?.autoCheckout !== 'undefined' ||
-                !!log?.checkOutLocation ||
-                typeof log?.outLat !== 'undefined' ||
-                typeof log?.outLng !== 'undefined';
-            if (hasSystemSignals) return true;
-            const type = String(log?.type || '');
-            return type.includes('Leave') || log?.location === 'On Leave';
-        };
-        const existingLog = logs
-            .filter(l => (l.userId === userId || l.user_id === userId) && l.date === dateStr && isAttendanceEligibleLog(l))
-            .sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0];
+        const src = String(log?.entrySource || '');
+        if (src === 'staff_manual_work') return false;
+        if (src === 'admin_override' || src === 'checkin_checkout') return true;
+        if (log?.isManualOverride) return true;
+        if (log?.location === 'Office (Manual)' || log?.location === 'Office (Override)') return true;
+        const hasSystemSignals =
+            typeof log?.activityScore !== 'undefined' ||
+            typeof log?.locationMismatched !== 'undefined' ||
+            typeof log?.autoCheckout !== 'undefined' ||
+            !!log?.checkOutLocation ||
+            typeof log?.outLat !== 'undefined' ||
+            typeof log?.outLng !== 'undefined';
+        if (hasSystemSignals) return true;
+        const type = String(log?.type || '');
+        return type.includes('Leave') || log?.location === 'On Leave';
+    };
+    const existingLog = logs
+        .filter(l => (l.userId === userId || l.user_id === userId) && l.date === dateStr && isAttendanceEligibleLog(l))
+        .sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0];
 
-        const html = `
+    const html = `
             <div class="modal-overlay" id="cell-override-modal" style="display:flex;">
                 <div class="modal-content">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
@@ -4603,848 +4615,848 @@
                 </div>
             </div>
         `;
-        window.app_showModal(html, 'cell-override-modal');
+    window.app_showModal(html, 'cell-override-modal');
+};
+
+window.app_submitCellOverride = async (e, userId, dateStr, logId) => {
+    if (!window.app_canManageAttendanceSheet()) {
+        alert("You do not have permission for this action.");
+        return;
+    }
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const checkIn = fd.get('checkIn');
+    const checkOut = fd.get('checkOut');
+
+    const dur = calculateDuration(checkIn, checkOut);
+    if (dur === 'Invalid') {
+        alert('End time must be after Start time');
+        return;
+    }
+    const checkInDate = window.AppAttendance.buildDateTime(dateStr, checkIn);
+    const checkOutDate = window.AppAttendance.buildDateTime(dateStr, checkOut);
+    const durationMs = (checkInDate && checkOutDate) ? (checkOutDate - checkInDate) : 0;
+    const statusMeta = window.AppAttendance.evaluateAttendanceStatus(checkInDate || new Date(), durationMs);
+    const isManualOverride = fd.get('isManualOverride') === 'on';
+    const selectedType = String(fd.get('type') || '').trim();
+    const finalType = isManualOverride && selectedType ? selectedType : statusMeta.status;
+
+    const formatTime = (timeStr) => {
+        if (!timeStr || timeStr === '--') return '--';
+        const [h, m] = timeStr.split(':');
+        const hours = parseInt(h);
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        const displayH = hours % 12 || 12;
+        return `${String(displayH).padStart(2, '0')}:${m} ${ampm}`;
     };
 
-    window.app_submitCellOverride = async (e, userId, dateStr, logId) => {
-        if (!window.app_canManageAttendanceSheet()) {
-            alert("You do not have permission for this action.");
-            return;
-        }
-        e.preventDefault();
-        const fd = new FormData(e.target);
-        const checkIn = fd.get('checkIn');
-        const checkOut = fd.get('checkOut');
-
-        const dur = calculateDuration(checkIn, checkOut);
-        if (dur === 'Invalid') {
-            alert('End time must be after Start time');
-            return;
-        }
-        const checkInDate = window.AppAttendance.buildDateTime(dateStr, checkIn);
-        const checkOutDate = window.AppAttendance.buildDateTime(dateStr, checkOut);
-        const durationMs = (checkInDate && checkOutDate) ? (checkOutDate - checkInDate) : 0;
-        const statusMeta = window.AppAttendance.evaluateAttendanceStatus(checkInDate || new Date(), durationMs);
-        const isManualOverride = fd.get('isManualOverride') === 'on';
-        const selectedType = String(fd.get('type') || '').trim();
-        const finalType = isManualOverride && selectedType ? selectedType : statusMeta.status;
-
-        const formatTime = (timeStr) => {
-            if (!timeStr || timeStr === '--') return '--';
-            const [h, m] = timeStr.split(':');
-            const hours = parseInt(h);
-            const ampm = hours >= 12 ? 'PM' : 'AM';
-            const displayH = hours % 12 || 12;
-            return `${String(displayH).padStart(2, '0')}:${m} ${ampm}`;
-        };
-
-        const logData = {
-            date: dateStr,
-            checkIn: formatTime(checkIn),
-            checkOut: formatTime(checkOut),
-            duration: dur,
-            type: finalType,
-            workDescription: fd.get('description') || 'Admin Override',
-            location: 'Office (Override)',
-            durationMs: durationMs,
-            dayCredit: statusMeta.dayCredit,
-            lateCountable: statusMeta.lateCountable,
-            extraWorkedMs: statusMeta.extraWorkedMs || 0,
-            policyVersion: 'v2',
-            isManualOverride: isManualOverride,
-            entrySource: 'admin_override',
-            attendanceEligible: true,
-            autoCheckoutExtraApproved: fd.get('autoCheckoutExtraApproved') === 'on'
-        };
-
-        try {
-            if (logId) {
-                await window.AppAttendance.updateLog(logId, logData);
-            } else {
-                await window.AppAttendance.addAdminLog(userId, logData);
-            }
-            alert("Override successful.");
-            document.getElementById('cell-override-modal')?.remove();
-            window.app_refreshMasterSheet();
-        } catch (err) {
-            alert("Error: " + err.message);
-        }
+    const logData = {
+        date: dateStr,
+        checkIn: formatTime(checkIn),
+        checkOut: formatTime(checkOut),
+        duration: dur,
+        type: finalType,
+        workDescription: fd.get('description') || 'Admin Override',
+        location: 'Office (Override)',
+        durationMs: durationMs,
+        dayCredit: statusMeta.dayCredit,
+        lateCountable: statusMeta.lateCountable,
+        extraWorkedMs: statusMeta.extraWorkedMs || 0,
+        policyVersion: 'v2',
+        isManualOverride: isManualOverride,
+        entrySource: 'admin_override',
+        attendanceEligible: true,
+        autoCheckoutExtraApproved: fd.get('autoCheckoutExtraApproved') === 'on'
     };
 
-    window.app_deleteCellLog = async (logId, _userId) => {
-        if (!window.app_canManageAttendanceSheet()) {
-            alert("You do not have permission for this action.");
-            return;
+    try {
+        if (logId) {
+            await window.AppAttendance.updateLog(logId, logData);
+        } else {
+            await window.AppAttendance.addAdminLog(userId, logData);
         }
-        if (!await window.appConfirm("Delete this attendance record?")) return;
-        try {
-            await window.AppAttendance.deleteLog(logId);
-            document.getElementById('cell-override-modal')?.remove();
-            window.app_refreshMasterSheet();
-        } catch (err) {
-            alert("Error: " + err.message);
-        }
-    };
+        alert("Override successful.");
+        document.getElementById('cell-override-modal')?.remove();
+        window.app_refreshMasterSheet();
+    } catch (err) {
+        alert("Error: " + err.message);
+    }
+};
 
-    function convertTo24h(timeStr) {
-        if (!timeStr || timeStr === '--' || timeStr === 'Active Now') return '09:00';
-        const [time, ampm] = timeStr.split(' ');
-        let [h, m] = time.split(':');
-        let hours = parseInt(h);
-        if (ampm === 'PM' && hours < 12) hours += 12;
-        if (ampm === 'AM' && hours === 12) hours = 0;
-        return `${String(hours).padStart(2, '0')}:${m}`;
+window.app_deleteCellLog = async (logId, _userId) => {
+    if (!window.app_canManageAttendanceSheet()) {
+        alert("You do not have permission for this action.");
+        return;
+    }
+    if (!await window.appConfirm("Delete this attendance record?")) return;
+    try {
+        await window.AppAttendance.deleteLog(logId);
+        document.getElementById('cell-override-modal')?.remove();
+        window.app_refreshMasterSheet();
+    } catch (err) {
+        alert("Error: " + err.message);
+    }
+};
+
+function convertTo24h(timeStr) {
+    if (!timeStr || timeStr === '--' || timeStr === 'Active Now') return '09:00';
+    const [time, ampm] = timeStr.split(' ');
+    let [h, m] = time.split(':');
+    let hours = parseInt(h);
+    if (ampm === 'PM' && hours < 12) hours += 12;
+    if (ampm === 'AM' && hours === 12) hours = 0;
+    return `${String(hours).padStart(2, '0')}:${m}`;
+}
+
+const parseLogDateToISO = (value) => {
+    if (!value) return null;
+    const raw = String(value).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+
+    // Let native parser handle locale formats first (e.g. 2/19/2026).
+    const native = new Date(raw);
+    if (!Number.isNaN(native.getTime())) {
+        const y = native.getFullYear();
+        const m = String(native.getMonth() + 1).padStart(2, '0');
+        const d = String(native.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
     }
 
-    const parseLogDateToISO = (value) => {
-        if (!value) return null;
-        const raw = String(value).trim();
-        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    // Support common dd/mm/yyyy or d/m/yyyy forms
+    const dm = raw.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+    if (dm) {
+        const a = Number(dm[1]);
+        const b = Number(dm[2]);
+        const y = Number(dm[3]);
+        let day = a;
+        let month = b;
 
-        // Let native parser handle locale formats first (e.g. 2/19/2026).
-        const native = new Date(raw);
-        if (!Number.isNaN(native.getTime())) {
-            const y = native.getFullYear();
-            const m = String(native.getMonth() + 1).padStart(2, '0');
-            const d = String(native.getDate()).padStart(2, '0');
-            return `${y}-${m}-${d}`;
+        // If impossible month in day-first, try month-first interpretation.
+        if (month > 12 && a <= 12) {
+            month = a;
+            day = b;
         }
+        if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+        return `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
 
-        // Support common dd/mm/yyyy or d/m/yyyy forms
-        const dm = raw.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
-        if (dm) {
-            const a = Number(dm[1]);
-            const b = Number(dm[2]);
-            const y = Number(dm[3]);
-            let day = a;
-            let month = b;
+    return null;
+};
 
-            // If impossible month in day-first, try month-first interpretation.
-            if (month > 12 && a <= 12) {
-                month = a;
-                day = b;
+window.app_runAttendancePolicyMigration = async () => {
+    if (!window.app_canManageAttendanceSheet()) {
+        alert("You do not have permission for this action.");
+        return;
+    }
+    const confirmed = await window.appConfirm(
+        "Recalculate historical attendance logs with the current policy? This updates stored status/credits for existing office logs.",
+        "Run Attendance Migration"
+    );
+    if (!confirmed) return;
+
+    try {
+        const logs = await window.AppDB.getAll('attendance');
+        let scanned = 0;
+        let updated = 0;
+        let skipped = 0;
+        const specialTypes = new Set([
+            'Work - Home',
+            'Training',
+            'On Duty',
+            'Holiday',
+            'National Holiday',
+            'Regional Holidays'
+        ]);
+        let duplicateNeutralized = 0;
+        let invalidTimeNeutralized = 0;
+
+        const metaById = new Map();
+        const groupBuckets = new Map();
+
+        const inferMeta = (log) => {
+            const dateIso = parseLogDateToISO(log?.date);
+            const hasSystemSignals =
+                typeof log?.activityScore !== 'undefined' ||
+                typeof log?.locationMismatched !== 'undefined' ||
+                typeof log?.autoCheckout !== 'undefined' ||
+                !!log?.checkOutLocation ||
+                typeof log?.outLat !== 'undefined' ||
+                typeof log?.outLng !== 'undefined';
+            const explicitSource = String(log?.entrySource || '').trim();
+            let inferredSource = explicitSource;
+            if (!inferredSource) {
+                if (log?.isManualOverride || log?.location === 'Office (Manual)' || log?.location === 'Office (Override)') {
+                    inferredSource = 'admin_override';
+                } else if (hasSystemSignals) {
+                    inferredSource = 'checkin_checkout';
+                } else {
+                    inferredSource = 'staff_manual_work';
+                }
             }
-            if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-            return `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+            const in24 = (log?.checkIn && log?.checkOut && log?.checkOut !== 'Active Now') ? convertTo24h(log.checkIn) : null;
+            const out24 = (log?.checkIn && log?.checkOut && log?.checkOut !== 'Active Now') ? convertTo24h(log.checkOut) : null;
+            const inDt = (dateIso && in24) ? window.AppAttendance.buildDateTime(dateIso, in24) : null;
+            const outDt = (dateIso && out24) ? window.AppAttendance.buildDateTime(dateIso, out24) : null;
+            const validTimeRange = !!(inDt && outDt && outDt > inDt);
+            const parsedDurationMs = validTimeRange ? (outDt - inDt) : null;
+            const resolvedDurationMs = typeof log?.durationMs === 'number' ? log.durationMs : parsedDurationMs;
+            const workedHours = typeof resolvedDurationMs === 'number'
+                ? Math.max(0, resolvedDurationMs) / (1000 * 60 * 60)
+                : 0;
+
+            let inferredAttendanceEligible;
+            if (Object.prototype.hasOwnProperty.call(log || {}, 'attendanceEligible')) {
+                inferredAttendanceEligible = log.attendanceEligible === true;
+            } else if (inferredSource === 'staff_manual_work') {
+                inferredAttendanceEligible = workedHours >= 4;
+            } else {
+                inferredAttendanceEligible = true;
+            }
+
+            return {
+                dateIso,
+                inDt,
+                outDt,
+                validTimeRange,
+                resolvedDurationMs,
+                workedHours,
+                inferredSource,
+                inferredAttendanceEligible
+            };
+        };
+
+        const rankLog = (log, meta) => {
+            const normalizedType = window.AppAttendance.normalizeType(log?.type);
+            let creditScore = 0;
+            if (meta.inferredSource === 'staff_manual_work') {
+                if (meta.workedHours >= 8) creditScore = 100;
+                else if (meta.workedHours >= 4) creditScore = 50;
+            } else {
+                creditScore = Number(window.AppAttendance.getDayCredit(normalizedType) || 0) * 100;
+            }
+            let score = 0;
+            score += creditScore;
+            score += Math.min(20, Math.floor(Math.max(0, meta.workedHours || 0)));
+            if (meta.inferredAttendanceEligible) score += 40;
+            if (meta.validTimeRange) score += 10;
+            if (meta.inferredSource === 'checkin_checkout') score += 8;
+            else if (meta.inferredSource === 'admin_override') score += 6;
+            else score += 4;
+            if (log?.isManualOverride) score += 4;
+            if (String(log?.type || '').includes('Leave') || log?.location === 'On Leave') score += 6;
+            score += Number(log?.id || 0) / 1e13;
+            return score;
+        };
+
+        for (const log of logs) {
+            if (!log || !log.id) continue;
+            const meta = inferMeta(log);
+            metaById.set(log.id, meta);
+            const uid = log.user_id || log.userId;
+            if (!uid || !meta.dateIso) continue;
+            const key = `${uid}|${meta.dateIso}`;
+            if (!groupBuckets.has(key)) groupBuckets.set(key, []);
+            groupBuckets.get(key).push(log);
         }
 
-        return null;
-    };
-
-    window.app_runAttendancePolicyMigration = async () => {
-        if (!window.app_canManageAttendanceSheet()) {
-            alert("You do not have permission for this action.");
-            return;
+        const keeperByGroup = new Map();
+        for (const [key, bucket] of groupBuckets.entries()) {
+            if (!bucket || bucket.length === 0) continue;
+            const sorted = bucket.slice().sort((a, b) => {
+                const am = metaById.get(a.id) || inferMeta(a);
+                const bm = metaById.get(b.id) || inferMeta(b);
+                return rankLog(b, bm) - rankLog(a, am);
+            });
+            keeperByGroup.set(key, sorted[0]?.id);
         }
-        const confirmed = await window.appConfirm(
-            "Recalculate historical attendance logs with the current policy? This updates stored status/credits for existing office logs.",
-            "Run Attendance Migration"
-        );
-        if (!confirmed) return;
 
+        for (const log of logs) {
+            scanned++;
+            if (!log || !log.id) {
+                skipped++;
+                continue;
+            }
+            const normalizedType = window.AppAttendance.normalizeType(log.type);
+            const meta = metaById.get(log.id) || inferMeta(log);
+            const dateIso = meta.dateIso;
+            const inDt = meta.inDt;
+            const outDt = meta.outDt;
+            const resolvedDurationMs = meta.resolvedDurationMs;
+            const workedHours = meta.workedHours;
+            const inferredSource = meta.inferredSource;
+            let inferredAttendanceEligible = meta.inferredAttendanceEligible;
+            const uid = log.user_id || log.userId;
+            const groupKey = (uid && dateIso) ? `${uid}|${dateIso}` : null;
+            const keeperId = groupKey ? keeperByGroup.get(groupKey) : null;
+            const isDuplicate = !!(keeperId && keeperId !== log.id);
+            const hasTimePair = !!(log.checkIn && log.checkOut && log.checkOut !== 'Active Now');
+            const invalidTimeRange = hasTimePair && !!(inDt && outDt && outDt <= inDt);
+
+            let nextType = log.type;
+            let nextDayCredit = log.dayCredit;
+            let nextLateCountable = log.lateCountable;
+            let nextExtraWorkedMs = log.extraWorkedMs || 0;
+
+            if (isDuplicate) {
+                inferredAttendanceEligible = false;
+                if (!String(log.type || '').includes('Leave')) nextType = 'Work Log';
+                nextDayCredit = 0;
+                nextLateCountable = false;
+                nextExtraWorkedMs = 0;
+                duplicateNeutralized++;
+            }
+
+            if (invalidTimeRange) {
+                inferredAttendanceEligible = false;
+                if (!String(log.type || '').includes('Leave')) nextType = 'Work Log';
+                nextDayCredit = 0;
+                nextLateCountable = false;
+                nextExtraWorkedMs = 0;
+                invalidTimeNeutralized++;
+            }
+
+            // Staff manual work logs: derive attendance only from worked duration.
+            if (inferredSource === 'staff_manual_work' && !isDuplicate && !invalidTimeRange) {
+                if (workedHours >= 8) {
+                    nextType = 'Present';
+                    nextDayCredit = 1;
+                } else if (workedHours >= 4) {
+                    nextType = 'Half Day';
+                    nextDayCredit = 0.5;
+                } else {
+                    nextType = 'Work Log';
+                    nextDayCredit = 0;
+                }
+                nextLateCountable = false;
+                nextExtraWorkedMs = 0;
+            } else if (
+                !log.isManualOverride &&
+                inferredAttendanceEligible &&
+                !(specialTypes.has(normalizedType) || String(normalizedType).includes('Leave') || normalizedType === 'Office') &&
+                inDt && outDt && outDt > inDt
+            ) {
+                const statusMeta = window.AppAttendance.evaluateAttendanceStatus(inDt, outDt - inDt);
+                nextType = statusMeta.status;
+                nextDayCredit = statusMeta.dayCredit;
+                nextLateCountable = statusMeta.lateCountable;
+                nextExtraWorkedMs = statusMeta.extraWorkedMs || 0;
+            }
+
+            const normalizedDurationMs = (typeof resolvedDurationMs === 'number') ? resolvedDurationMs : null;
+            const nextRecord = {
+                ...log,
+                entrySource: inferredSource,
+                attendanceEligible: inferredAttendanceEligible,
+                type: nextType,
+                dayCredit: typeof nextDayCredit === 'number' ? nextDayCredit : 0,
+                lateCountable: nextLateCountable === true,
+                extraWorkedMs: nextExtraWorkedMs || 0,
+                durationMs: normalizedDurationMs,
+                policyVersion: 'v2'
+            };
+
+            const changed =
+                log.entrySource !== nextRecord.entrySource ||
+                log.attendanceEligible !== nextRecord.attendanceEligible ||
+                log.type !== nextRecord.type ||
+                log.dayCredit !== nextRecord.dayCredit ||
+                log.lateCountable !== nextRecord.lateCountable ||
+                (log.extraWorkedMs || 0) !== (nextRecord.extraWorkedMs || 0) ||
+                log.durationMs !== nextRecord.durationMs ||
+                log.policyVersion !== 'v2';
+
+            if (!changed) {
+                skipped++;
+                continue;
+            }
+
+            await window.AppDB.put('attendance', nextRecord);
+            updated++;
+        }
+
+        alert(`Migration complete.\nScanned: ${scanned}\nUpdated: ${updated}\nSkipped: ${skipped}\nDuplicates neutralized: ${duplicateNeutralized}\nInvalid-time logs neutralized: ${invalidTimeNeutralized}`);
+
+        const hash = window.location.hash.slice(1);
+        const contentArea = document.getElementById('page-content');
+        if (!contentArea) return;
+        if (hash === 'policy-test') {
+            contentArea.innerHTML = await window.AppUI.renderPolicyTest();
+        } else if (hash === 'dashboard') {
+            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            if (window.setupDashboardEvents) window.setupDashboardEvents();
+        } else if (hash === 'salary') {
+            contentArea.innerHTML = await window.AppUI.renderSalaryProcessing();
+            if (window.app_recalculateAllSalaries) {
+                window.app_recalculateAllSalaries();
+            }
+        } else if (hash === 'timesheet') {
+            contentArea.innerHTML = await window.AppUI.renderTimesheet();
+        }
+    } catch (err) {
+        console.error("Attendance migration failed:", err);
+        alert("Migration failed: " + err.message);
+    }
+};
+
+
+window.app_deleteUser = async (userId) => {
+    if (await window.appConfirm('Are you sure you want to delete this user? This action cannot be undone.')) {
         try {
-            const logs = await window.AppDB.getAll('attendance');
-            let scanned = 0;
-            let updated = 0;
-            let skipped = 0;
-            const specialTypes = new Set([
-                'Work - Home',
-                'Training',
-                'On Duty',
-                'Holiday',
-                'National Holiday',
-                'Regional Holidays'
-            ]);
-            let duplicateNeutralized = 0;
-            let invalidTimeNeutralized = 0;
-
-            const metaById = new Map();
-            const groupBuckets = new Map();
-
-            const inferMeta = (log) => {
-                const dateIso = parseLogDateToISO(log?.date);
-                const hasSystemSignals =
-                    typeof log?.activityScore !== 'undefined' ||
-                    typeof log?.locationMismatched !== 'undefined' ||
-                    typeof log?.autoCheckout !== 'undefined' ||
-                    !!log?.checkOutLocation ||
-                    typeof log?.outLat !== 'undefined' ||
-                    typeof log?.outLng !== 'undefined';
-                const explicitSource = String(log?.entrySource || '').trim();
-                let inferredSource = explicitSource;
-                if (!inferredSource) {
-                    if (log?.isManualOverride || log?.location === 'Office (Manual)' || log?.location === 'Office (Override)') {
-                        inferredSource = 'admin_override';
-                    } else if (hasSystemSignals) {
-                        inferredSource = 'checkin_checkout';
-                    } else {
-                        inferredSource = 'staff_manual_work';
-                    }
-                }
-
-                const in24 = (log?.checkIn && log?.checkOut && log?.checkOut !== 'Active Now') ? convertTo24h(log.checkIn) : null;
-                const out24 = (log?.checkIn && log?.checkOut && log?.checkOut !== 'Active Now') ? convertTo24h(log.checkOut) : null;
-                const inDt = (dateIso && in24) ? window.AppAttendance.buildDateTime(dateIso, in24) : null;
-                const outDt = (dateIso && out24) ? window.AppAttendance.buildDateTime(dateIso, out24) : null;
-                const validTimeRange = !!(inDt && outDt && outDt > inDt);
-                const parsedDurationMs = validTimeRange ? (outDt - inDt) : null;
-                const resolvedDurationMs = typeof log?.durationMs === 'number' ? log.durationMs : parsedDurationMs;
-                const workedHours = typeof resolvedDurationMs === 'number'
-                    ? Math.max(0, resolvedDurationMs) / (1000 * 60 * 60)
-                    : 0;
-
-                let inferredAttendanceEligible;
-                if (Object.prototype.hasOwnProperty.call(log || {}, 'attendanceEligible')) {
-                    inferredAttendanceEligible = log.attendanceEligible === true;
-                } else if (inferredSource === 'staff_manual_work') {
-                    inferredAttendanceEligible = workedHours >= 4;
-                } else {
-                    inferredAttendanceEligible = true;
-                }
-
-                return {
-                    dateIso,
-                    inDt,
-                    outDt,
-                    validTimeRange,
-                    resolvedDurationMs,
-                    workedHours,
-                    inferredSource,
-                    inferredAttendanceEligible
-                };
-            };
-
-            const rankLog = (log, meta) => {
-                const normalizedType = window.AppAttendance.normalizeType(log?.type);
-                let creditScore = 0;
-                if (meta.inferredSource === 'staff_manual_work') {
-                    if (meta.workedHours >= 8) creditScore = 100;
-                    else if (meta.workedHours >= 4) creditScore = 50;
-                } else {
-                    creditScore = Number(window.AppAttendance.getDayCredit(normalizedType) || 0) * 100;
-                }
-                let score = 0;
-                score += creditScore;
-                score += Math.min(20, Math.floor(Math.max(0, meta.workedHours || 0)));
-                if (meta.inferredAttendanceEligible) score += 40;
-                if (meta.validTimeRange) score += 10;
-                if (meta.inferredSource === 'checkin_checkout') score += 8;
-                else if (meta.inferredSource === 'admin_override') score += 6;
-                else score += 4;
-                if (log?.isManualOverride) score += 4;
-                if (String(log?.type || '').includes('Leave') || log?.location === 'On Leave') score += 6;
-                score += Number(log?.id || 0) / 1e13;
-                return score;
-            };
-
-            for (const log of logs) {
-                if (!log || !log.id) continue;
-                const meta = inferMeta(log);
-                metaById.set(log.id, meta);
-                const uid = log.user_id || log.userId;
-                if (!uid || !meta.dateIso) continue;
-                const key = `${uid}|${meta.dateIso}`;
-                if (!groupBuckets.has(key)) groupBuckets.set(key, []);
-                groupBuckets.get(key).push(log);
-            }
-
-            const keeperByGroup = new Map();
-            for (const [key, bucket] of groupBuckets.entries()) {
-                if (!bucket || bucket.length === 0) continue;
-                const sorted = bucket.slice().sort((a, b) => {
-                    const am = metaById.get(a.id) || inferMeta(a);
-                    const bm = metaById.get(b.id) || inferMeta(b);
-                    return rankLog(b, bm) - rankLog(a, am);
-                });
-                keeperByGroup.set(key, sorted[0]?.id);
-            }
-
-            for (const log of logs) {
-                scanned++;
-                if (!log || !log.id) {
-                    skipped++;
-                    continue;
-                }
-                const normalizedType = window.AppAttendance.normalizeType(log.type);
-                const meta = metaById.get(log.id) || inferMeta(log);
-                const dateIso = meta.dateIso;
-                const inDt = meta.inDt;
-                const outDt = meta.outDt;
-                const resolvedDurationMs = meta.resolvedDurationMs;
-                const workedHours = meta.workedHours;
-                const inferredSource = meta.inferredSource;
-                let inferredAttendanceEligible = meta.inferredAttendanceEligible;
-                const uid = log.user_id || log.userId;
-                const groupKey = (uid && dateIso) ? `${uid}|${dateIso}` : null;
-                const keeperId = groupKey ? keeperByGroup.get(groupKey) : null;
-                const isDuplicate = !!(keeperId && keeperId !== log.id);
-                const hasTimePair = !!(log.checkIn && log.checkOut && log.checkOut !== 'Active Now');
-                const invalidTimeRange = hasTimePair && !!(inDt && outDt && outDt <= inDt);
-
-                let nextType = log.type;
-                let nextDayCredit = log.dayCredit;
-                let nextLateCountable = log.lateCountable;
-                let nextExtraWorkedMs = log.extraWorkedMs || 0;
-
-                if (isDuplicate) {
-                    inferredAttendanceEligible = false;
-                    if (!String(log.type || '').includes('Leave')) nextType = 'Work Log';
-                    nextDayCredit = 0;
-                    nextLateCountable = false;
-                    nextExtraWorkedMs = 0;
-                    duplicateNeutralized++;
-                }
-
-                if (invalidTimeRange) {
-                    inferredAttendanceEligible = false;
-                    if (!String(log.type || '').includes('Leave')) nextType = 'Work Log';
-                    nextDayCredit = 0;
-                    nextLateCountable = false;
-                    nextExtraWorkedMs = 0;
-                    invalidTimeNeutralized++;
-                }
-
-                // Staff manual work logs: derive attendance only from worked duration.
-                if (inferredSource === 'staff_manual_work' && !isDuplicate && !invalidTimeRange) {
-                    if (workedHours >= 8) {
-                        nextType = 'Present';
-                        nextDayCredit = 1;
-                    } else if (workedHours >= 4) {
-                        nextType = 'Half Day';
-                        nextDayCredit = 0.5;
-                    } else {
-                        nextType = 'Work Log';
-                        nextDayCredit = 0;
-                    }
-                    nextLateCountable = false;
-                    nextExtraWorkedMs = 0;
-                } else if (
-                    !log.isManualOverride &&
-                    inferredAttendanceEligible &&
-                    !(specialTypes.has(normalizedType) || String(normalizedType).includes('Leave') || normalizedType === 'Office') &&
-                    inDt && outDt && outDt > inDt
-                ) {
-                    const statusMeta = window.AppAttendance.evaluateAttendanceStatus(inDt, outDt - inDt);
-                    nextType = statusMeta.status;
-                    nextDayCredit = statusMeta.dayCredit;
-                    nextLateCountable = statusMeta.lateCountable;
-                    nextExtraWorkedMs = statusMeta.extraWorkedMs || 0;
-                }
-
-                const normalizedDurationMs = (typeof resolvedDurationMs === 'number') ? resolvedDurationMs : null;
-                const nextRecord = {
-                    ...log,
-                    entrySource: inferredSource,
-                    attendanceEligible: inferredAttendanceEligible,
-                    type: nextType,
-                    dayCredit: typeof nextDayCredit === 'number' ? nextDayCredit : 0,
-                    lateCountable: nextLateCountable === true,
-                    extraWorkedMs: nextExtraWorkedMs || 0,
-                    durationMs: normalizedDurationMs,
-                    policyVersion: 'v2'
-                };
-
-                const changed =
-                    log.entrySource !== nextRecord.entrySource ||
-                    log.attendanceEligible !== nextRecord.attendanceEligible ||
-                    log.type !== nextRecord.type ||
-                    log.dayCredit !== nextRecord.dayCredit ||
-                    log.lateCountable !== nextRecord.lateCountable ||
-                    (log.extraWorkedMs || 0) !== (nextRecord.extraWorkedMs || 0) ||
-                    log.durationMs !== nextRecord.durationMs ||
-                    log.policyVersion !== 'v2';
-
-                if (!changed) {
-                    skipped++;
-                    continue;
-                }
-
-                await window.AppDB.put('attendance', nextRecord);
-                updated++;
-            }
-
-            alert(`Migration complete.\nScanned: ${scanned}\nUpdated: ${updated}\nSkipped: ${skipped}\nDuplicates neutralized: ${duplicateNeutralized}\nInvalid-time logs neutralized: ${invalidTimeNeutralized}`);
-
-            const hash = window.location.hash.slice(1);
+            await window.AppDB.delete('users', userId);
+            alert('User deleted successfully.');
+            // Refresh Admin View
             const contentArea = document.getElementById('page-content');
-            if (!contentArea) return;
-            if (hash === 'policy-test') {
-                contentArea.innerHTML = await window.AppUI.renderPolicyTest();
-            } else if (hash === 'dashboard') {
-                contentArea.innerHTML = await window.AppUI.renderDashboard();
-                if (window.setupDashboardEvents) window.setupDashboardEvents();
-            } else if (hash === 'salary') {
-                contentArea.innerHTML = await window.AppUI.renderSalaryProcessing();
-                if (window.app_recalculateAllSalaries) {
-                    window.app_recalculateAllSalaries();
-                }
-            } else if (hash === 'timesheet') {
-                contentArea.innerHTML = await window.AppUI.renderTimesheet();
+            if (contentArea) {
+                contentArea.innerHTML = await window.AppUI.renderAdmin();
             }
         } catch (err) {
-            console.error("Attendance migration failed:", err);
-            alert("Migration failed: " + err.message);
+            alert('Failed to delete user: ' + err.message);
         }
-    };
+    }
+};
 
 
-    window.app_deleteUser = async (userId) => {
-        if (await window.appConfirm('Are you sure you want to delete this user? This action cannot be undone.')) {
-            try {
-                await window.AppDB.delete('users', userId);
-                alert('User deleted successfully.');
-                // Refresh Admin View
-                const contentArea = document.getElementById('page-content');
-                if (contentArea) {
-                    contentArea.innerHTML = await window.AppUI.renderAdmin();
-                }
-            } catch (err) {
-                alert('Failed to delete user: ' + err.message);
-            }
+
+window.app_recalculateRow = (row) => {
+    const base = parseFloat(row.querySelector('.base-salary-input').value) || 0;
+    const dailyRate = base / 22;
+    const unpaid = parseFloat(row.querySelector('.unpaid-leaves-count').innerText) || 0;
+    const lateCount = parseFloat(row.querySelector('.late-count')?.innerText || '0') || 0;
+    const rawLateDeductionDays = Math.floor(lateCount / (window.AppConfig.LATE_GRACE_COUNT || 3)) * (window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
+    const extraWorkedHours = parseFloat(row.querySelector('.extra-work-hours')?.innerText || '0') || 0;
+    const lateOffsetDays = Math.floor(extraWorkedHours / (window.AppConfig.EXTRA_HOURS_FOR_HALF_DAY_OFFSET || 4)) * (window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
+    const lateDeductionDays = Math.max(0, rawLateDeductionDays - lateOffsetDays);
+    const totalDeductionDays = unpaid + lateDeductionDays;
+    const globalTds = parseFloat(document.getElementById('global-tds-percent').value) || 0;
+    const tdsInput = row.querySelector('.tds-input');
+    if (tdsInput && !tdsInput.dataset.manual) {
+        tdsInput.value = globalTds;
+    }
+    const tdsPercent = tdsInput ? (parseFloat(tdsInput.value) || 0) : globalTds;
+
+    const attendanceDeduction = Math.round(dailyRate * totalDeductionDays);
+    const lateDedDaysEl = row.querySelector('.late-deduction-days');
+    const lateDedRawEl = row.querySelector('.late-deduction-raw');
+    const penaltyOffsetEl = row.querySelector('.penalty-offset-days');
+    const totalDedDaysEl = row.querySelector('.deduction-days');
+    const attendanceDeductionEl = row.querySelector('.attendance-deduction-amount');
+    if (lateDedRawEl) lateDedRawEl.innerText = rawLateDeductionDays.toFixed(1);
+    if (penaltyOffsetEl) penaltyOffsetEl.innerText = lateOffsetDays.toFixed(1);
+    if (lateDedDaysEl) lateDedDaysEl.innerText = lateDeductionDays.toFixed(1);
+    if (totalDedDaysEl) totalDedDaysEl.innerText = totalDeductionDays.toFixed(1);
+    if (attendanceDeductionEl) attendanceDeductionEl.innerText = '-Rs ' + attendanceDeduction.toLocaleString();
+    row.querySelector('.deduction-amount').innerText = '-Rs ' + attendanceDeduction.toLocaleString();
+
+    const adjInput = row.querySelector('.salary-input');
+    if (!adjInput.dataset.manual) {
+        adjInput.value = Math.max(0, base - attendanceDeduction);
+    }
+
+    const adjusted = parseFloat(adjInput.value) || 0;
+    const tdsAmount = Math.round(adjusted * (tdsPercent / 100));
+    const finalNet = Math.max(0, adjusted - tdsAmount);
+
+    row.querySelector('.tds-amount').innerText = 'Rs ' + tdsAmount.toLocaleString();
+    row.querySelector('.tds-amount').dataset.value = tdsAmount;
+    row.querySelector('.final-net-salary').innerText = 'Rs ' + finalNet.toLocaleString();
+    row.querySelector('.final-net-salary').dataset.value = finalNet;
+};
+
+const app_getLateDeductionMetricsFromRow = (row) => {
+    const unpaidLeaves = parseFloat(row.querySelector('.unpaid-leaves-count')?.innerText || '0') || 0;
+    const lateCount = parseFloat(row.querySelector('.late-count')?.innerText || '0') || 0;
+    const extraWorkedHours = parseFloat(row.querySelector('.extra-work-hours')?.innerText || '0') || 0;
+    const rawLateDeductionDays = Math.floor(lateCount / (window.AppConfig.LATE_GRACE_COUNT || 3)) * (window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
+    const penaltyOffsetDays = Math.floor(extraWorkedHours / (window.AppConfig.EXTRA_HOURS_FOR_HALF_DAY_OFFSET || 4)) * (window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
+    const lateDeductionDays = Math.max(0, rawLateDeductionDays - penaltyOffsetDays);
+    const deductionDays = unpaidLeaves + lateDeductionDays;
+    return { unpaidLeaves, lateCount, extraWorkedHours, rawLateDeductionDays, penaltyOffsetDays, lateDeductionDays, deductionDays };
+};
+
+window.app_recalculateAllSalaries = () => {
+    document.querySelectorAll('tr[data-user-id]').forEach(row => {
+        window.app_recalculateRow(row);
+    });
+};
+
+const parsePayrollMonth = (value, fallbackDate = new Date()) => {
+    if (/^\d{4}-\d{2}$/.test(String(value || '').trim())) {
+        const [year, month] = String(value).split('-').map(Number);
+        if (Number.isFinite(year) && Number.isFinite(month) && month >= 1 && month <= 12) {
+            return { year, monthIndex: month - 1 };
         }
-    };
+    }
+    return { year: fallbackDate.getFullYear(), monthIndex: fallbackDate.getMonth() };
+};
 
+window.app_toggleSalaryPeriodMode = function () {
+    const mode = document.getElementById('salary-period-mode')?.value || 'single';
+    const singleWrap = document.getElementById('salary-period-single-wrap');
+    const rangeWrap = document.getElementById('salary-period-range-wrap');
+    if (singleWrap) singleWrap.style.display = mode === 'range' ? 'none' : 'block';
+    if (rangeWrap) rangeWrap.style.display = mode === 'range' ? 'flex' : 'none';
+};
 
-
-    window.app_recalculateRow = (row) => {
-        const base = parseFloat(row.querySelector('.base-salary-input').value) || 0;
-        const dailyRate = base / 22;
-        const unpaid = parseFloat(row.querySelector('.unpaid-leaves-count').innerText) || 0;
-        const lateCount = parseFloat(row.querySelector('.late-count')?.innerText || '0') || 0;
-        const rawLateDeductionDays = Math.floor(lateCount / (window.AppConfig.LATE_GRACE_COUNT || 3)) * (window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
-        const extraWorkedHours = parseFloat(row.querySelector('.extra-work-hours')?.innerText || '0') || 0;
-        const lateOffsetDays = Math.floor(extraWorkedHours / (window.AppConfig.EXTRA_HOURS_FOR_HALF_DAY_OFFSET || 4)) * (window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
-        const lateDeductionDays = Math.max(0, rawLateDeductionDays - lateOffsetDays);
-        const totalDeductionDays = unpaid + lateDeductionDays;
-        const globalTds = parseFloat(document.getElementById('global-tds-percent').value) || 0;
-        const tdsInput = row.querySelector('.tds-input');
-        if (tdsInput && !tdsInput.dataset.manual) {
-            tdsInput.value = globalTds;
+window.app_getSalaryPayPeriodInfo = function () {
+    const now = new Date();
+    const mode = document.getElementById('salary-period-mode')?.value || 'single';
+    if (mode === 'range') {
+        const fromRaw = document.getElementById('salary-pay-period-from')?.value || '';
+        const toRaw = document.getElementById('salary-pay-period-to')?.value || '';
+        let from = parsePayrollMonth(fromRaw, now);
+        let to = parsePayrollMonth(toRaw, now);
+        const fromKeyNum = from.year * 100 + (from.monthIndex + 1);
+        const toKeyNum = to.year * 100 + (to.monthIndex + 1);
+        if (toKeyNum < fromKeyNum) {
+            const tmp = from;
+            from = to;
+            to = tmp;
         }
-        const tdsPercent = tdsInput ? (parseFloat(tdsInput.value) || 0) : globalTds;
-
-        const attendanceDeduction = Math.round(dailyRate * totalDeductionDays);
-        const lateDedDaysEl = row.querySelector('.late-deduction-days');
-        const lateDedRawEl = row.querySelector('.late-deduction-raw');
-        const penaltyOffsetEl = row.querySelector('.penalty-offset-days');
-        const totalDedDaysEl = row.querySelector('.deduction-days');
-        const attendanceDeductionEl = row.querySelector('.attendance-deduction-amount');
-        if (lateDedRawEl) lateDedRawEl.innerText = rawLateDeductionDays.toFixed(1);
-        if (penaltyOffsetEl) penaltyOffsetEl.innerText = lateOffsetDays.toFixed(1);
-        if (lateDedDaysEl) lateDedDaysEl.innerText = lateDeductionDays.toFixed(1);
-        if (totalDedDaysEl) totalDedDaysEl.innerText = totalDeductionDays.toFixed(1);
-        if (attendanceDeductionEl) attendanceDeductionEl.innerText = '-Rs ' + attendanceDeduction.toLocaleString();
-        row.querySelector('.deduction-amount').innerText = '-Rs ' + attendanceDeduction.toLocaleString();
-
-        const adjInput = row.querySelector('.salary-input');
-        if (!adjInput.dataset.manual) {
-            adjInput.value = Math.max(0, base - attendanceDeduction);
-        }
-
-        const adjusted = parseFloat(adjInput.value) || 0;
-        const tdsAmount = Math.round(adjusted * (tdsPercent / 100));
-        const finalNet = Math.max(0, adjusted - tdsAmount);
-
-        row.querySelector('.tds-amount').innerText = 'Rs ' + tdsAmount.toLocaleString();
-        row.querySelector('.tds-amount').dataset.value = tdsAmount;
-        row.querySelector('.final-net-salary').innerText = 'Rs ' + finalNet.toLocaleString();
-        row.querySelector('.final-net-salary').dataset.value = finalNet;
-    };
-
-    const app_getLateDeductionMetricsFromRow = (row) => {
-        const unpaidLeaves = parseFloat(row.querySelector('.unpaid-leaves-count')?.innerText || '0') || 0;
-        const lateCount = parseFloat(row.querySelector('.late-count')?.innerText || '0') || 0;
-        const extraWorkedHours = parseFloat(row.querySelector('.extra-work-hours')?.innerText || '0') || 0;
-        const rawLateDeductionDays = Math.floor(lateCount / (window.AppConfig.LATE_GRACE_COUNT || 3)) * (window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
-        const penaltyOffsetDays = Math.floor(extraWorkedHours / (window.AppConfig.EXTRA_HOURS_FOR_HALF_DAY_OFFSET || 4)) * (window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
-        const lateDeductionDays = Math.max(0, rawLateDeductionDays - penaltyOffsetDays);
-        const deductionDays = unpaidLeaves + lateDeductionDays;
-        return { unpaidLeaves, lateCount, extraWorkedHours, rawLateDeductionDays, penaltyOffsetDays, lateDeductionDays, deductionDays };
-    };
-
-    window.app_recalculateAllSalaries = () => {
-        document.querySelectorAll('tr[data-user-id]').forEach(row => {
-            window.app_recalculateRow(row);
-        });
-    };
-
-    const parsePayrollMonth = (value, fallbackDate = new Date()) => {
-        if (/^\d{4}-\d{2}$/.test(String(value || '').trim())) {
-            const [year, month] = String(value).split('-').map(Number);
-            if (Number.isFinite(year) && Number.isFinite(month) && month >= 1 && month <= 12) {
-                return { year, monthIndex: month - 1 };
-            }
-        }
-        return { year: fallbackDate.getFullYear(), monthIndex: fallbackDate.getMonth() };
-    };
-
-    window.app_toggleSalaryPeriodMode = function () {
-        const mode = document.getElementById('salary-period-mode')?.value || 'single';
-        const singleWrap = document.getElementById('salary-period-single-wrap');
-        const rangeWrap = document.getElementById('salary-period-range-wrap');
-        if (singleWrap) singleWrap.style.display = mode === 'range' ? 'none' : 'block';
-        if (rangeWrap) rangeWrap.style.display = mode === 'range' ? 'flex' : 'none';
-    };
-
-    window.app_getSalaryPayPeriodInfo = function () {
-        const now = new Date();
-        const mode = document.getElementById('salary-period-mode')?.value || 'single';
-        if (mode === 'range') {
-            const fromRaw = document.getElementById('salary-pay-period-from')?.value || '';
-            const toRaw = document.getElementById('salary-pay-period-to')?.value || '';
-            let from = parsePayrollMonth(fromRaw, now);
-            let to = parsePayrollMonth(toRaw, now);
-            const fromKeyNum = from.year * 100 + (from.monthIndex + 1);
-            const toKeyNum = to.year * 100 + (to.monthIndex + 1);
-            if (toKeyNum < fromKeyNum) {
-                const tmp = from;
-                from = to;
-                to = tmp;
-            }
-            const startDate = new Date(from.year, from.monthIndex, 1);
-            const endDate = new Date(to.year, to.monthIndex + 1, 0);
-            const fromKey = `${from.year}-${String(from.monthIndex + 1).padStart(2, '0')}`;
-            const toKey = `${to.year}-${String(to.monthIndex + 1).padStart(2, '0')}`;
-            return {
-                mode: 'range',
-                startDate,
-                endDate,
-                startKey: fromKey,
-                endKey: toKey,
-                key: `${fromKey}_to_${toKey}`,
-                label: `${startDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })} to ${endDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`
-            };
-        }
-
-        const singleRaw = document.getElementById('salary-pay-period')?.value || '';
-        const single = parsePayrollMonth(singleRaw, now);
-        const startDate = new Date(single.year, single.monthIndex, 1);
-        const endDate = new Date(single.year, single.monthIndex + 1, 0);
-        const key = `${single.year}-${String(single.monthIndex + 1).padStart(2, '0')}`;
+        const startDate = new Date(from.year, from.monthIndex, 1);
+        const endDate = new Date(to.year, to.monthIndex + 1, 0);
+        const fromKey = `${from.year}-${String(from.monthIndex + 1).padStart(2, '0')}`;
+        const toKey = `${to.year}-${String(to.monthIndex + 1).padStart(2, '0')}`;
         return {
-            mode: 'single',
+            mode: 'range',
             startDate,
             endDate,
-            startKey: key,
-            endKey: key,
-            key,
-            label: startDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+            startKey: fromKey,
+            endKey: toKey,
+            key: `${fromKey}_to_${toKey}`,
+            label: `${startDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })} to ${endDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`
         };
+    }
+
+    const singleRaw = document.getElementById('salary-pay-period')?.value || '';
+    const single = parsePayrollMonth(singleRaw, now);
+    const startDate = new Date(single.year, single.monthIndex, 1);
+    const endDate = new Date(single.year, single.monthIndex + 1, 0);
+    const key = `${single.year}-${String(single.monthIndex + 1).padStart(2, '0')}`;
+    return {
+        mode: 'single',
+        startDate,
+        endDate,
+        startKey: key,
+        endKey: key,
+        key,
+        label: startDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
     };
+};
 
-    window.app_saveAllSalaries = async () => {
-        const rows = document.querySelectorAll('tr[data-user-id]');
-        const salaryRecords = [];
-        const userUpdates = [];
-        const payPeriodInfo = window.app_getSalaryPayPeriodInfo();
-        const monthKey = payPeriodInfo.key;
-        const payDateInput = document.getElementById('salary-pay-date')?.value || '';
-        const payDateTs = payDateInput ? new Date(payDateInput).getTime() : Date.now();
-        const globalTdsPercent = parseFloat(document.getElementById('global-tds-percent').value) || 0;
+window.app_saveAllSalaries = async () => {
+    const rows = document.querySelectorAll('tr[data-user-id]');
+    const salaryRecords = [];
+    const userUpdates = [];
+    const payPeriodInfo = window.app_getSalaryPayPeriodInfo();
+    const monthKey = payPeriodInfo.key;
+    const payDateInput = document.getElementById('salary-pay-date')?.value || '';
+    const payDateTs = payDateInput ? new Date(payDateInput).getTime() : Date.now();
+    const globalTdsPercent = parseFloat(document.getElementById('global-tds-percent').value) || 0;
 
-        for (const row of rows) {
-            const userId = row.dataset.userId;
-            const baseSalaryInput = row.querySelector('.base-salary-input').value;
-            const adjustedSalary = row.querySelector('.salary-input').value;
-            const comment = row.querySelector('.comment-input').value;
-            const tdsInput = row.querySelector('.tds-input');
-            const rowTdsPercent = tdsInput ? (parseFloat(tdsInput.value) || 0) : globalTdsPercent;
-            const tdsAmount = row.querySelector('.tds-amount').dataset.value || 0;
-            const finalNet = row.querySelector('.final-net-salary').dataset.value || 0;
-            const lateMetrics = app_getLateDeductionMetricsFromRow(row);
-            const unpaidLeaves = lateMetrics.unpaidLeaves;
-            const lateCount = lateMetrics.lateCount;
-            const extraWorkedHours = lateMetrics.extraWorkedHours;
-            const lateDeductionRawDays = lateMetrics.rawLateDeductionDays;
-            const penaltyOffsetDays = lateMetrics.penaltyOffsetDays;
-            const lateDeductionDays = lateMetrics.lateDeductionDays;
-            const deductionDays = lateMetrics.deductionDays;
-            const attendanceDeduction = Number(String(row.querySelector('.attendance-deduction-amount')?.innerText || '0').replace(/[^0-9.-]+/g, ""));
-            const deriveEmployeeId = (joinDateRaw, userIdRaw) => {
-                const d = String(joinDateRaw || '').trim();
-                if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return 'NA';
-                const compact = d.replace(/-/g, '');
-                const suffix = String(userIdRaw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-3) || 'USR';
-                return `EMP-${compact}-${suffix}`;
-            };
-            const rawEmployeeId = String(row.querySelector('.employee-id-input')?.value || '').trim();
-            const designation = String(row.querySelector('.designation-input')?.value || '').trim();
-            const department = String(row.querySelector('.department-input')?.value || '').trim();
-            const joinDate = String(row.querySelector('.join-date-input')?.value || '').trim();
-            const employeeId = joinDate ? (rawEmployeeId || deriveEmployeeId(joinDate, userId)) : 'NA';
-            const bankName = String(row.querySelector('.bank-name-input')?.value || '').trim();
-            const bankAccount = String(row.querySelector('.bank-account-input')?.value || '').trim();
-            const pan = String(row.querySelector('.pan-input')?.value || '').trim();
-            const uan = String(row.querySelector('.uan-input')?.value || '').trim();
-            const otherAllowances = Number(row.querySelector('.other-allowances-input')?.value || 0);
-            const providentFund = Number(row.querySelector('.pf-input')?.value || 0);
-            const professionalTax = Number(row.querySelector('.professional-tax-input')?.value || 0);
-            const loanAdvance = Number(row.querySelector('.loan-advance-input')?.value || 0);
+    for (const row of rows) {
+        const userId = row.dataset.userId;
+        const baseSalaryInput = row.querySelector('.base-salary-input').value;
+        const adjustedSalary = row.querySelector('.salary-input').value;
+        const comment = row.querySelector('.comment-input').value;
+        const tdsInput = row.querySelector('.tds-input');
+        const rowTdsPercent = tdsInput ? (parseFloat(tdsInput.value) || 0) : globalTdsPercent;
+        const tdsAmount = row.querySelector('.tds-amount').dataset.value || 0;
+        const finalNet = row.querySelector('.final-net-salary').dataset.value || 0;
+        const lateMetrics = app_getLateDeductionMetricsFromRow(row);
+        const unpaidLeaves = lateMetrics.unpaidLeaves;
+        const lateCount = lateMetrics.lateCount;
+        const extraWorkedHours = lateMetrics.extraWorkedHours;
+        const lateDeductionRawDays = lateMetrics.rawLateDeductionDays;
+        const penaltyOffsetDays = lateMetrics.penaltyOffsetDays;
+        const lateDeductionDays = lateMetrics.lateDeductionDays;
+        const deductionDays = lateMetrics.deductionDays;
+        const attendanceDeduction = Number(String(row.querySelector('.attendance-deduction-amount')?.innerText || '0').replace(/[^0-9.-]+/g, ""));
+        const deriveEmployeeId = (joinDateRaw, userIdRaw) => {
+            const d = String(joinDateRaw || '').trim();
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return 'NA';
+            const compact = d.replace(/-/g, '');
+            const suffix = String(userIdRaw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-3) || 'USR';
+            return `EMP-${compact}-${suffix}`;
+        };
+        const rawEmployeeId = String(row.querySelector('.employee-id-input')?.value || '').trim();
+        const designation = String(row.querySelector('.designation-input')?.value || '').trim();
+        const department = String(row.querySelector('.department-input')?.value || '').trim();
+        const joinDate = String(row.querySelector('.join-date-input')?.value || '').trim();
+        const employeeId = joinDate ? (rawEmployeeId || deriveEmployeeId(joinDate, userId)) : 'NA';
+        const bankName = String(row.querySelector('.bank-name-input')?.value || '').trim();
+        const bankAccount = String(row.querySelector('.bank-account-input')?.value || '').trim();
+        const pan = String(row.querySelector('.pan-input')?.value || '').trim();
+        const uan = String(row.querySelector('.uan-input')?.value || '').trim();
+        const otherAllowances = Number(row.querySelector('.other-allowances-input')?.value || 0);
+        const providentFund = Number(row.querySelector('.pf-input')?.value || 0);
+        const professionalTax = Number(row.querySelector('.professional-tax-input')?.value || 0);
+        const loanAdvance = Number(row.querySelector('.loan-advance-input')?.value || 0);
 
-            // Check if comment required
-            if (row.querySelector('.comment-input').required && !comment) {
-                alert(`Please provide a comment for user ID: ${userId} as the salary was adjusted.`);
-                return;
-            }
-
-            // Record for the month
-            salaryRecords.push({
-                id: `salary_${userId}_${monthKey}`,
-                userId,
-                month: monthKey,
-                periodMode: payPeriodInfo.mode,
-                periodStart: payPeriodInfo.startKey,
-                periodEnd: payPeriodInfo.endKey,
-                periodLabel: payPeriodInfo.label,
-                payDate: payDateTs,
-                baseAmount: Number(baseSalaryInput),
-                otherAllowances: otherAllowances,
-                providentFund: providentFund,
-                professionalTax: professionalTax,
-                loanAdvance: loanAdvance,
-                employeeId: employeeId,
-                designation: designation,
-                department: department,
-                joinDate: joinDate || null,
-                bankName: bankName,
-                bankAccount: bankAccount,
-                pan: pan,
-                uan: uan,
-                attendanceDeduction: attendanceDeduction,
-                deductions: Number(row.querySelector('.deduction-amount').innerText.replace(/[^0-9.-]+/g, "")),
-                unpaidLeaves: unpaidLeaves,
-                lateCount: lateCount,
-                extraWorkedHours: extraWorkedHours,
-                lateDeductionRawDays: lateDeductionRawDays,
-                penaltyOffsetDays: penaltyOffsetDays,
-                lateDeductionDays: lateDeductionDays,
-                deductionDays: deductionDays,
-                adjustedAmount: Number(adjustedSalary),
-                tdsPercent: rowTdsPercent,
-                tdsAmount: Number(tdsAmount),
-                finalNet: Number(finalNet),
-                comment: comment || '',
-                processedAt: Date.now()
-            });
-
-            // Update user's base salary if changed
-            userUpdates.push({
-                id: userId,
-                baseSalary: Number(baseSalaryInput),
-                tdsPercent: rowTdsPercent,
-                employeeId: employeeId,
-                designation: designation,
-                dept: department,
-                joinDate: joinDate || null,
-                bankName: bankName,
-                bankAccount: bankAccount,
-                pan: pan,
-                uan: uan,
-                otherAllowances: otherAllowances,
-                providentFund: providentFund,
-                professionalTax: professionalTax,
-                loanAdvance: loanAdvance
-            });
+        // Check if comment required
+        if (row.querySelector('.comment-input').required && !comment) {
+            alert(`Please provide a comment for user ID: ${userId} as the salary was adjusted.`);
+            return;
         }
 
-        try {
-            // Persist monthly records
-            for (const record of salaryRecords) {
-                await window.AppDB.put('salaries', record);
-            }
-
-            // Sync user base salaries
-            for (const update of userUpdates) {
-                const existingUser = await window.AppDB.get('users', update.id);
-                if (existingUser) {
-                    Object.assign(existingUser, update);
-                    await window.AppDB.put('users', existingUser);
-                }
-            }
-
-            alert('All records and TDS details saved successfully!');
-            // Refresh view to ensure calculations sync with any base salary changes
-            const contentArea = document.getElementById('page-content');
-            contentArea.innerHTML = await window.AppUI.renderSalaryProcessing();
-        } catch (err) {
-            console.error("Salary Save Error:", err);
-            alert('Failed to save records: ' + err.message);
-        }
-    };
-
-    window.app_exportSalaryCSV = () => {
-        const rows = document.querySelectorAll('tr[data-user-id]');
-        let csv = 'Staff Name,Emp ID,Designation,Department,Join Date,Bank Name,Bank Account,PAN,UAN,Base Salary,Other Allowances,PF,Professional Tax,Loan Advance,Present,Late,Unpaid Leaves,Extra Work Hours,Late Deduction Raw,Penalty Offset Days,Late Deduction Days,Total Deduction Days,Attendance Deduction,Total Deductions,Adjusted Salary,TDS (%),TDS Amount,Final Net,Comment\n';
-
-        rows.forEach(row => {
-            const name = row.querySelector('div[style*="font-weight: 600"]').innerText;
-            const base = row.querySelector('.base-salary-input').value;
-            const employeeId = row.querySelector('.employee-id-input')?.value || '';
-            const designation = row.querySelector('.designation-input')?.value || '';
-            const department = row.querySelector('.department-input')?.value || '';
-            const joinDate = row.querySelector('.join-date-input')?.value || '';
-            const bankName = row.querySelector('.bank-name-input')?.value || '';
-            const bankAccount = row.querySelector('.bank-account-input')?.value || '';
-            const pan = row.querySelector('.pan-input')?.value || '';
-            const uan = row.querySelector('.uan-input')?.value || '';
-            const otherAllowances = row.querySelector('.other-allowances-input')?.value || '0';
-            const providentFund = row.querySelector('.pf-input')?.value || '0';
-            const professionalTax = row.querySelector('.professional-tax-input')?.value || '0';
-            const loanAdvance = row.querySelector('.loan-advance-input')?.value || '0';
-            const present = row.querySelector('.present-count')?.innerText || '0';
-            const late = row.querySelector('.late-count')?.innerText || '0';
-            const unpaidLeaves = row.querySelector('.unpaid-leaves-count')?.innerText || '0';
-            const extraWorkedHours = row.querySelector('.extra-work-hours')?.innerText || '0';
-            const lateDeductionRaw = row.querySelector('.late-deduction-raw')?.innerText || '0';
-            const penaltyOffsetDays = row.querySelector('.penalty-offset-days')?.innerText || '0';
-            const lateDeductionDays = row.querySelector('.late-deduction-days')?.innerText || '0';
-            const deductionDays = row.querySelector('.deduction-days')?.innerText || '0';
-            const attendanceDeduction = (row.querySelector('.attendance-deduction-amount')?.innerText || '').replace(/[^0-9.-]+/g, '') || '0';
-            const deduct = (row.querySelector('.deduction-amount').innerText || '').replace(/[^0-9.-]+/g, '');
-            const adjusted = row.querySelector('.salary-input').value;
-            const globalTdsPercent = parseFloat(document.getElementById('global-tds-percent').value) || 0;
-            const tdsInput = row.querySelector('.tds-input');
-            const tdsP = tdsInput && tdsInput.value !== ''
-                ? tdsInput.value
-                : globalTdsPercent;
-            const tdsA = (row.querySelector('.tds-amount').innerText || '').replace(/[^0-9.-]+/g, '');
-            const net = (row.querySelector('.final-net-salary').innerText || '').replace(/[^0-9.-]+/g, '');
-            const comment = row.querySelector('.comment-input').value;
-
-            csv += `"${name}","${employeeId}","${designation}","${department}","${joinDate}","${bankName}","${bankAccount}","${pan}","${uan}",${base},${otherAllowances},${providentFund},${professionalTax},${loanAdvance},${present},${late},${unpaidLeaves},${extraWorkedHours},${lateDeductionRaw},${penaltyOffsetDays},${lateDeductionDays},${deductionDays},${attendanceDeduction},${deduct},${adjusted},${tdsP},${tdsA},${net},"${comment}"\n`;
+        // Record for the month
+        salaryRecords.push({
+            id: `salary_${userId}_${monthKey}`,
+            userId,
+            month: monthKey,
+            periodMode: payPeriodInfo.mode,
+            periodStart: payPeriodInfo.startKey,
+            periodEnd: payPeriodInfo.endKey,
+            periodLabel: payPeriodInfo.label,
+            payDate: payDateTs,
+            baseAmount: Number(baseSalaryInput),
+            otherAllowances: otherAllowances,
+            providentFund: providentFund,
+            professionalTax: professionalTax,
+            loanAdvance: loanAdvance,
+            employeeId: employeeId,
+            designation: designation,
+            department: department,
+            joinDate: joinDate || null,
+            bankName: bankName,
+            bankAccount: bankAccount,
+            pan: pan,
+            uan: uan,
+            attendanceDeduction: attendanceDeduction,
+            deductions: Number(row.querySelector('.deduction-amount').innerText.replace(/[^0-9.-]+/g, "")),
+            unpaidLeaves: unpaidLeaves,
+            lateCount: lateCount,
+            extraWorkedHours: extraWorkedHours,
+            lateDeductionRawDays: lateDeductionRawDays,
+            penaltyOffsetDays: penaltyOffsetDays,
+            lateDeductionDays: lateDeductionDays,
+            deductionDays: deductionDays,
+            adjustedAmount: Number(adjustedSalary),
+            tdsPercent: rowTdsPercent,
+            tdsAmount: Number(tdsAmount),
+            finalNet: Number(finalNet),
+            comment: comment || '',
+            processedAt: Date.now()
         });
 
-        const blob = new Blob([csv], { type: 'text/csv' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        const payPeriodInfo = window.app_getSalaryPayPeriodInfo();
-        a.setAttribute('href', url);
-        a.setAttribute('download', `Salaries_${payPeriodInfo.key.replace(/[^a-zA-Z0-9_-]/g, '_')}.csv`);
-        a.click();
-    };
+        // Update user's base salary if changed
+        userUpdates.push({
+            id: userId,
+            baseSalary: Number(baseSalaryInput),
+            tdsPercent: rowTdsPercent,
+            employeeId: employeeId,
+            designation: designation,
+            dept: department,
+            joinDate: joinDate || null,
+            bankName: bankName,
+            bankAccount: bankAccount,
+            pan: pan,
+            uan: uan,
+            otherAllowances: otherAllowances,
+            providentFund: providentFund,
+            professionalTax: professionalTax,
+            loanAdvance: loanAdvance
+        });
+    }
 
-    const maskSensitiveValue = (value, visible = 4) => {
-        const raw = String(value || '').trim();
-        if (!raw) return 'NA';
-        if (raw.length <= visible) return raw;
-        return `${'*'.repeat(Math.max(0, raw.length - visible))}${raw.slice(-visible)}`;
-    };
+    try {
+        // Persist monthly records
+        for (const record of salaryRecords) {
+            await window.AppDB.put('salaries', record);
+        }
 
-    const numberToWordsIndian = (num) => {
-        const n = Math.floor(Number(num) || 0);
-        if (n === 0) return 'Zero';
-        const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
-            'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
-        const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
-        const twoDigits = (x) => {
-            if (x < 20) return ones[x];
-            const t = Math.floor(x / 10);
-            const o = x % 10;
-            return `${tens[t]}${o ? ` ${ones[o]}` : ''}`.trim();
-        };
-        const threeDigits = (x) => {
-            const h = Math.floor(x / 100);
-            const r = x % 100;
-            if (!h) return twoDigits(r);
-            return `${ones[h]} Hundred${r ? ` ${twoDigits(r)}` : ''}`.trim();
-        };
-        let value = n;
-        const crore = Math.floor(value / 10000000); value %= 10000000;
-        const lakh = Math.floor(value / 100000); value %= 100000;
-        const thousand = Math.floor(value / 1000); value %= 1000;
-        const hundredPart = value;
-        const parts = [];
-        if (crore) parts.push(`${twoDigits(crore)} Crore`);
-        if (lakh) parts.push(`${twoDigits(lakh)} Lakh`);
-        if (thousand) parts.push(`${twoDigits(thousand)} Thousand`);
-        if (hundredPart) parts.push(threeDigits(hundredPart));
-        return parts.join(' ').trim();
-    };
+        // Sync user base salaries
+        for (const update of userUpdates) {
+            const existingUser = await window.AppDB.get('users', update.id);
+            if (existingUser) {
+                Object.assign(existingUser, update);
+                await window.AppDB.put('users', existingUser);
+            }
+        }
 
-    window.app_printSalarySlip = function () {
-        const modal = document.getElementById('salary-slip-modal');
-        if (!modal) return;
-        const wrap = modal.querySelector('.salary-slip-print-root');
-        if (!wrap) return;
-        document.body.classList.add('salary-slip-print-mode');
-        wrap.classList.add('print-active');
+        alert('All records and TDS details saved successfully!');
+        // Refresh view to ensure calculations sync with any base salary changes
+        const contentArea = document.getElementById('page-content');
+        contentArea.innerHTML = await window.AppUI.renderSalaryProcessing();
+    } catch (err) {
+        console.error("Salary Save Error:", err);
+        alert('Failed to save records: ' + err.message);
+    }
+};
+
+window.app_exportSalaryCSV = () => {
+    const rows = document.querySelectorAll('tr[data-user-id]');
+    let csv = 'Staff Name,Emp ID,Designation,Department,Join Date,Bank Name,Bank Account,PAN,UAN,Base Salary,Other Allowances,PF,Professional Tax,Loan Advance,Present,Late,Unpaid Leaves,Extra Work Hours,Late Deduction Raw,Penalty Offset Days,Late Deduction Days,Total Deduction Days,Attendance Deduction,Total Deductions,Adjusted Salary,TDS (%),TDS Amount,Final Net,Comment\n';
+
+    rows.forEach(row => {
+        const name = row.querySelector('div[style*="font-weight: 600"]').innerText;
+        const base = row.querySelector('.base-salary-input').value;
+        const employeeId = row.querySelector('.employee-id-input')?.value || '';
+        const designation = row.querySelector('.designation-input')?.value || '';
+        const department = row.querySelector('.department-input')?.value || '';
+        const joinDate = row.querySelector('.join-date-input')?.value || '';
+        const bankName = row.querySelector('.bank-name-input')?.value || '';
+        const bankAccount = row.querySelector('.bank-account-input')?.value || '';
+        const pan = row.querySelector('.pan-input')?.value || '';
+        const uan = row.querySelector('.uan-input')?.value || '';
+        const otherAllowances = row.querySelector('.other-allowances-input')?.value || '0';
+        const providentFund = row.querySelector('.pf-input')?.value || '0';
+        const professionalTax = row.querySelector('.professional-tax-input')?.value || '0';
+        const loanAdvance = row.querySelector('.loan-advance-input')?.value || '0';
+        const present = row.querySelector('.present-count')?.innerText || '0';
+        const late = row.querySelector('.late-count')?.innerText || '0';
+        const unpaidLeaves = row.querySelector('.unpaid-leaves-count')?.innerText || '0';
+        const extraWorkedHours = row.querySelector('.extra-work-hours')?.innerText || '0';
+        const lateDeductionRaw = row.querySelector('.late-deduction-raw')?.innerText || '0';
+        const penaltyOffsetDays = row.querySelector('.penalty-offset-days')?.innerText || '0';
+        const lateDeductionDays = row.querySelector('.late-deduction-days')?.innerText || '0';
+        const deductionDays = row.querySelector('.deduction-days')?.innerText || '0';
+        const attendanceDeduction = (row.querySelector('.attendance-deduction-amount')?.innerText || '').replace(/[^0-9.-]+/g, '') || '0';
+        const deduct = (row.querySelector('.deduction-amount').innerText || '').replace(/[^0-9.-]+/g, '');
+        const adjusted = row.querySelector('.salary-input').value;
+        const globalTdsPercent = parseFloat(document.getElementById('global-tds-percent').value) || 0;
+        const tdsInput = row.querySelector('.tds-input');
+        const tdsP = tdsInput && tdsInput.value !== ''
+            ? tdsInput.value
+            : globalTdsPercent;
+        const tdsA = (row.querySelector('.tds-amount').innerText || '').replace(/[^0-9.-]+/g, '');
+        const net = (row.querySelector('.final-net-salary').innerText || '').replace(/[^0-9.-]+/g, '');
+        const comment = row.querySelector('.comment-input').value;
+
+        csv += `"${name}","${employeeId}","${designation}","${department}","${joinDate}","${bankName}","${bankAccount}","${pan}","${uan}",${base},${otherAllowances},${providentFund},${professionalTax},${loanAdvance},${present},${late},${unpaidLeaves},${extraWorkedHours},${lateDeductionRaw},${penaltyOffsetDays},${lateDeductionDays},${deductionDays},${attendanceDeduction},${deduct},${adjusted},${tdsP},${tdsA},${net},"${comment}"\n`;
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const payPeriodInfo = window.app_getSalaryPayPeriodInfo();
+    a.setAttribute('href', url);
+    a.setAttribute('download', `Salaries_${payPeriodInfo.key.replace(/[^a-zA-Z0-9_-]/g, '_')}.csv`);
+    a.click();
+};
+
+const maskSensitiveValue = (value, visible = 4) => {
+    const raw = String(value || '').trim();
+    if (!raw) return 'NA';
+    if (raw.length <= visible) return raw;
+    return `${'*'.repeat(Math.max(0, raw.length - visible))}${raw.slice(-visible)}`;
+};
+
+const numberToWordsIndian = (num) => {
+    const n = Math.floor(Number(num) || 0);
+    if (n === 0) return 'Zero';
+    const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
+        'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+    const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+    const twoDigits = (x) => {
+        if (x < 20) return ones[x];
+        const t = Math.floor(x / 10);
+        const o = x % 10;
+        return `${tens[t]}${o ? ` ${ones[o]}` : ''}`.trim();
+    };
+    const threeDigits = (x) => {
+        const h = Math.floor(x / 100);
+        const r = x % 100;
+        if (!h) return twoDigits(r);
+        return `${ones[h]} Hundred${r ? ` ${twoDigits(r)}` : ''}`.trim();
+    };
+    let value = n;
+    const crore = Math.floor(value / 10000000); value %= 10000000;
+    const lakh = Math.floor(value / 100000); value %= 100000;
+    const thousand = Math.floor(value / 1000); value %= 1000;
+    const hundredPart = value;
+    const parts = [];
+    if (crore) parts.push(`${twoDigits(crore)} Crore`);
+    if (lakh) parts.push(`${twoDigits(lakh)} Lakh`);
+    if (thousand) parts.push(`${twoDigits(thousand)} Thousand`);
+    if (hundredPart) parts.push(threeDigits(hundredPart));
+    return parts.join(' ').trim();
+};
+
+window.app_printSalarySlip = function () {
+    const modal = document.getElementById('salary-slip-modal');
+    if (!modal) return;
+    const wrap = modal.querySelector('.salary-slip-print-root');
+    if (!wrap) return;
+    document.body.classList.add('salary-slip-print-mode');
+    wrap.classList.add('print-active');
+    setTimeout(() => {
+        window.print();
         setTimeout(() => {
-            window.print();
-            setTimeout(() => {
-                wrap.classList.remove('print-active');
-                document.body.classList.remove('salary-slip-print-mode');
-            }, 150);
-        }, 60);
-    };
+            wrap.classList.remove('print-active');
+            document.body.classList.remove('salary-slip-print-mode');
+        }, 150);
+    }, 60);
+};
 
-    window.app_generateSalarySlip = async function (userId) {
-        try {
-            const row = document.querySelector(`tr[data-user-id="${userId}"]`);
-            if (!row) {
-                alert('Unable to locate salary row for this user.');
-                return;
-            }
-            const user = await window.AppDB.get('users', userId);
-            if (!user) {
-                alert('User details not found.');
-                return;
-            }
+window.app_generateSalarySlip = async function (userId) {
+    try {
+        const row = document.querySelector(`tr[data-user-id="${userId}"]`);
+        if (!row) {
+            alert('Unable to locate salary row for this user.');
+            return;
+        }
+        const user = await window.AppDB.get('users', userId);
+        if (!user) {
+            alert('User details not found.');
+            return;
+        }
 
-            const now = new Date();
-            const payPeriodInfo = window.app_getSalaryPayPeriodInfo();
-            const payPeriodLabel = payPeriodInfo.label;
-            const payPeriodStart = payPeriodInfo.startDate.toLocaleDateString('en-GB');
-            const payPeriodEnd = payPeriodInfo.endDate.toLocaleDateString('en-GB');
-            const payDateInput = document.getElementById('salary-pay-date')?.value || '';
-            const payDate = payDateInput ? new Date(payDateInput).toLocaleDateString('en-GB') : now.toLocaleDateString('en-GB');
-            const generatedAt = now.toLocaleString('en-GB');
-            const payrollRef = `CRWI-${payPeriodInfo.key.replace(/[^a-zA-Z0-9]/g, '')}-${userId}-${String(now.getTime()).slice(-5)}`;
+        const now = new Date();
+        const payPeriodInfo = window.app_getSalaryPayPeriodInfo();
+        const payPeriodLabel = payPeriodInfo.label;
+        const payPeriodStart = payPeriodInfo.startDate.toLocaleDateString('en-GB');
+        const payPeriodEnd = payPeriodInfo.endDate.toLocaleDateString('en-GB');
+        const payDateInput = document.getElementById('salary-pay-date')?.value || '';
+        const payDate = payDateInput ? new Date(payDateInput).toLocaleDateString('en-GB') : now.toLocaleDateString('en-GB');
+        const generatedAt = now.toLocaleString('en-GB');
+        const payrollRef = `CRWI-${payPeriodInfo.key.replace(/[^a-zA-Z0-9]/g, '')}-${userId}-${String(now.getTime()).slice(-5)}`;
 
-            const baseSalary = Number(row.querySelector('.base-salary-input')?.value || 0);
-            const adjustedSalary = Number(row.querySelector('.salary-input')?.value || 0);
-            const tdsPercent = Number(row.querySelector('.tds-input')?.value || 0);
-            const tdsAmount = Number((row.querySelector('.tds-amount')?.dataset?.value || '0'));
-            const finalNet = Number((row.querySelector('.final-net-salary')?.dataset?.value || '0'));
-            const attendanceDeduction = Number(String(row.querySelector('.attendance-deduction-amount')?.innerText || '0').replace(/[^0-9.-]+/g, '')) || 0;
-            const lateMetrics = app_getLateDeductionMetricsFromRow(row);
-            const lateRawDays = lateMetrics.rawLateDeductionDays;
-            const penaltyOffsetDays = lateMetrics.penaltyOffsetDays;
-            const lateDeductionDays = lateMetrics.lateDeductionDays;
-            const totalDeductionDays = lateMetrics.deductionDays;
-            const unpaidLeaves = lateMetrics.unpaidLeaves;
-            const lateCount = lateMetrics.lateCount;
-            const comment = String(row.querySelector('.comment-input')?.value || '').trim();
-            const otherAllowances = Number(row.querySelector('.other-allowances-input')?.value || user.otherAllowances || 0);
-            const grossEarnings = baseSalary + otherAllowances;
-            const loanAdvance = Number(row.querySelector('.loan-advance-input')?.value || user.loanAdvance || 0);
-            const pf = Number(row.querySelector('.pf-input')?.value || user.providentFund || 0);
-            const profTax = Number(row.querySelector('.professional-tax-input')?.value || user.professionalTax || 0);
-            const joinDateCandidate = String(row.querySelector('.join-date-input')?.value || user.joinDate || '').trim();
-            const enteredEmployeeId = String(row.querySelector('.employee-id-input')?.value || user.employeeId || '').trim();
-            const employeeId = joinDateCandidate
-                ? (enteredEmployeeId || deriveEmployeeId(joinDateCandidate, user.id))
-                : 'NA';
-            const designation = String(row.querySelector('.designation-input')?.value || user.designation || user.role || '').trim();
-            const department = String(row.querySelector('.department-input')?.value || user.dept || user.department || '').trim();
-            const joinDateValue = String(row.querySelector('.join-date-input')?.value || user.joinDate || '').trim();
-            const bankName = String(row.querySelector('.bank-name-input')?.value || user.bankName || '').trim();
-            const bankAccount = String(row.querySelector('.bank-account-input')?.value || user.bankAccount || user.accountNumber || '').trim();
-            const pan = String(row.querySelector('.pan-input')?.value || user.pan || user.PAN || '').trim();
-            const uan = String(row.querySelector('.uan-input')?.value || user.uan || user.UAN || '').trim();
-            const totalDeductions = attendanceDeduction + tdsAmount + loanAdvance + pf + profTax;
-            const netSalaryInWords = `${numberToWordsIndian(finalNet)} Rupees Only`;
+        const baseSalary = Number(row.querySelector('.base-salary-input')?.value || 0);
+        const adjustedSalary = Number(row.querySelector('.salary-input')?.value || 0);
+        const tdsPercent = Number(row.querySelector('.tds-input')?.value || 0);
+        const tdsAmount = Number((row.querySelector('.tds-amount')?.dataset?.value || '0'));
+        const finalNet = Number((row.querySelector('.final-net-salary')?.dataset?.value || '0'));
+        const attendanceDeduction = Number(String(row.querySelector('.attendance-deduction-amount')?.innerText || '0').replace(/[^0-9.-]+/g, '')) || 0;
+        const lateMetrics = app_getLateDeductionMetricsFromRow(row);
+        const lateRawDays = lateMetrics.rawLateDeductionDays;
+        const penaltyOffsetDays = lateMetrics.penaltyOffsetDays;
+        const lateDeductionDays = lateMetrics.lateDeductionDays;
+        const totalDeductionDays = lateMetrics.deductionDays;
+        const unpaidLeaves = lateMetrics.unpaidLeaves;
+        const lateCount = lateMetrics.lateCount;
+        const comment = String(row.querySelector('.comment-input')?.value || '').trim();
+        const otherAllowances = Number(row.querySelector('.other-allowances-input')?.value || user.otherAllowances || 0);
+        const grossEarnings = baseSalary + otherAllowances;
+        const loanAdvance = Number(row.querySelector('.loan-advance-input')?.value || user.loanAdvance || 0);
+        const pf = Number(row.querySelector('.pf-input')?.value || user.providentFund || 0);
+        const profTax = Number(row.querySelector('.professional-tax-input')?.value || user.professionalTax || 0);
+        const joinDateCandidate = String(row.querySelector('.join-date-input')?.value || user.joinDate || '').trim();
+        const enteredEmployeeId = String(row.querySelector('.employee-id-input')?.value || user.employeeId || '').trim();
+        const employeeId = joinDateCandidate
+            ? (enteredEmployeeId || deriveEmployeeId(joinDateCandidate, user.id))
+            : 'NA';
+        const designation = String(row.querySelector('.designation-input')?.value || user.designation || user.role || '').trim();
+        const department = String(row.querySelector('.department-input')?.value || user.dept || user.department || '').trim();
+        const joinDateValue = String(row.querySelector('.join-date-input')?.value || user.joinDate || '').trim();
+        const bankName = String(row.querySelector('.bank-name-input')?.value || user.bankName || '').trim();
+        const bankAccount = String(row.querySelector('.bank-account-input')?.value || user.bankAccount || user.accountNumber || '').trim();
+        const pan = String(row.querySelector('.pan-input')?.value || user.pan || user.PAN || '').trim();
+        const uan = String(row.querySelector('.uan-input')?.value || user.uan || user.UAN || '').trim();
+        const totalDeductions = attendanceDeduction + tdsAmount + loanAdvance + pf + profTax;
+        const netSalaryInWords = `${numberToWordsIndian(finalNet)} Rupees Only`;
 
-            const deductionRows = [
-                { label: 'Attendance Deduction', amount: attendanceDeduction, remarks: `Unpaid Leaves: ${unpaidLeaves}, Late Count: ${lateCount}, Late Raw: ${lateRawDays.toFixed(1)}, Offset: ${penaltyOffsetDays.toFixed(1)}, Late Deduction: ${lateDeductionDays.toFixed(1)}, Total Deduction Days: ${totalDeductionDays.toFixed(1)}` },
-                { label: 'TDS', amount: tdsAmount, remarks: `Applied at ${tdsPercent.toFixed(2)}%` },
-                { label: 'Provident Fund', amount: pf, remarks: pf ? 'Configured as per employee profile' : 'NA' },
-                { label: 'Professional Tax', amount: profTax, remarks: profTax ? 'Configured as per employee profile' : 'NA' },
-                { label: 'Loan / Advance', amount: loanAdvance, remarks: loanAdvance ? 'Recovered in this cycle' : 'Nil' }
-            ];
+        const deductionRows = [
+            { label: 'Attendance Deduction', amount: attendanceDeduction, remarks: `Unpaid Leaves: ${unpaidLeaves}, Late Count: ${lateCount}, Late Raw: ${lateRawDays.toFixed(1)}, Offset: ${penaltyOffsetDays.toFixed(1)}, Late Deduction: ${lateDeductionDays.toFixed(1)}, Total Deduction Days: ${totalDeductionDays.toFixed(1)}` },
+            { label: 'TDS', amount: tdsAmount, remarks: `Applied at ${tdsPercent.toFixed(2)}%` },
+            { label: 'Provident Fund', amount: pf, remarks: pf ? 'Configured as per employee profile' : 'NA' },
+            { label: 'Professional Tax', amount: profTax, remarks: profTax ? 'Configured as per employee profile' : 'NA' },
+            { label: 'Loan / Advance', amount: loanAdvance, remarks: loanAdvance ? 'Recovered in this cycle' : 'Nil' }
+        ];
 
-            const money = (v) => `Rs ${Number(v || 0).toLocaleString('en-IN')}`;
+        const money = (v) => `Rs ${Number(v || 0).toLocaleString('en-IN')}`;
 
-            const html = `
+        const html = `
                 <div class="modal-overlay" id="salary-slip-modal" style="display:flex;">
                     <div class="salary-slip-modal-shell salary-slip-print-root">
                         <div class="salary-slip-actions no-print">
@@ -5518,89 +5530,89 @@
                     </div>
                 </div>
             `;
-            window.app_showModal(html, 'salary-slip-modal');
-        } catch (err) {
-            console.error('Salary slip generation failed:', err);
-            alert(`Failed to generate salary slip: ${err.message}`);
+        window.app_showModal(html, 'salary-slip-modal');
+    } catch (err) {
+        console.error('Salary slip generation failed:', err);
+        alert(`Failed to generate salary slip: ${err.message}`);
+    }
+};
+
+// --- Admin Task Management Functions ---
+
+/**
+ * Edit task status (admin or user)
+ */
+window.app_editTaskStatus = async function (planId, taskIndex, newStatus) {
+    try {
+        const _user = window.AppAuth.getUser();
+        const completedDate = newStatus === 'completed' ? new Date().toISOString().split('T')[0] : null;
+
+        await window.AppCalendar.updateTaskStatus(planId, taskIndex, newStatus, completedDate);
+
+        // Refresh dashboard
+        const contentArea = document.getElementById('page-content');
+        contentArea.innerHTML = await window.AppUI.renderDashboard();
+        alert(`Task status updated to: ${newStatus}`);
+    } catch (err) {
+        console.error('Failed to update task status:', err);
+        alert('Failed to update task status. Please try again.');
+    }
+};
+
+/**
+ * Reassign task to another user (admin only)
+ */
+window.app_reassignTask = async function (planId, taskIndex, newUserId) {
+    try {
+        const user = window.AppAuth.getUser();
+        if (user.role !== 'Administrator' && !user.isAdmin) {
+            alert('Only administrators can reassign tasks.');
+            return;
         }
-    };
 
-    // --- Admin Task Management Functions ---
+        await window.AppCalendar.reassignTask(planId, taskIndex, newUserId);
 
-    /**
-     * Edit task status (admin or user)
-     */
-    window.app_editTaskStatus = async function (planId, taskIndex, newStatus) {
-        try {
-            const _user = window.AppAuth.getUser();
-            const completedDate = newStatus === 'completed' ? new Date().toISOString().split('T')[0] : null;
+        // Refresh dashboard
+        const contentArea = document.getElementById('page-content');
+        contentArea.innerHTML = await window.AppUI.renderDashboard();
+        alert('Task reassigned successfully!');
+    } catch (err) {
+        console.error('Failed to reassign task:', err);
+        alert('Failed to reassign task. Please try again.');
+    }
+};
 
-            await window.AppCalendar.updateTaskStatus(planId, taskIndex, newStatus, completedDate);
-
-            // Refresh dashboard
-            const contentArea = document.getElementById('page-content');
-            contentArea.innerHTML = await window.AppUI.renderDashboard();
-            alert(`Task status updated to: ${newStatus}`);
-        } catch (err) {
-            console.error('Failed to update task status:', err);
-            alert('Failed to update task status. Please try again.');
+/**
+ * View task details modal
+ */
+window.app_viewTaskDetails = async function (planId, taskIndex) {
+    try {
+        const plan = await window.AppDB.get('work_plans', planId);
+        if (!plan || !plan.plans || !plan.plans[taskIndex]) {
+            alert('Task not found.');
+            return;
         }
-    };
 
-    /**
-     * Reassign task to another user (admin only)
-     */
-    window.app_reassignTask = async function (planId, taskIndex, newUserId) {
-        try {
-            const user = window.AppAuth.getUser();
-            if (user.role !== 'Administrator' && !user.isAdmin) {
-                alert('Only administrators can reassign tasks.');
-                return;
-            }
+        const task = plan.plans[taskIndex];
+        const status = window.AppCalendar.getSmartTaskStatus(plan.date, task.status);
 
-            await window.AppCalendar.reassignTask(planId, taskIndex, newUserId);
+        const statusColors = {
+            'to-be-started': '#3b82f6',
+            'in-process': '#eab308',
+            'completed': '#22c55e',
+            'overdue': '#ef4444',
+            'not-completed': '#6b7280'
+        };
 
-            // Refresh dashboard
-            const contentArea = document.getElementById('page-content');
-            contentArea.innerHTML = await window.AppUI.renderDashboard();
-            alert('Task reassigned successfully!');
-        } catch (err) {
-            console.error('Failed to reassign task:', err);
-            alert('Failed to reassign task. Please try again.');
-        }
-    };
+        const statusLabels = {
+            'to-be-started': '🔵 To Be Started',
+            'in-process': '🟡 In Process',
+            'completed': '🟢 Completed',
+            'overdue': '🔴 Overdue',
+            'not-completed': '⚫ Not Completed'
+        };
 
-    /**
-     * View task details modal
-     */
-    window.app_viewTaskDetails = async function (planId, taskIndex) {
-        try {
-            const plan = await window.AppDB.get('work_plans', planId);
-            if (!plan || !plan.plans || !plan.plans[taskIndex]) {
-                alert('Task not found.');
-                return;
-            }
-
-            const task = plan.plans[taskIndex];
-            const status = window.AppCalendar.getSmartTaskStatus(plan.date, task.status);
-
-            const statusColors = {
-                'to-be-started': '#3b82f6',
-                'in-process': '#eab308',
-                'completed': '#22c55e',
-                'overdue': '#ef4444',
-                'not-completed': '#6b7280'
-            };
-
-            const statusLabels = {
-                'to-be-started': '🔵 To Be Started',
-                'in-process': '🟡 In Process',
-                'completed': '🟢 Completed',
-                'overdue': '🔴 Overdue',
-                'not-completed': '⚫ Not Completed'
-            };
-
-            const modalHTML = `
+        const modalHTML = `
                 <div class="modal-overlay" id="task-details-modal" style="display: flex;">
                     <div class="modal-content" style="max-width: 500px;">
                         <h2 style="margin-bottom: 1rem;">Task Details</h2>
@@ -5649,173 +5661,173 @@
                 </div>
             `;
 
-            document.getElementById('modal-container').innerHTML = modalHTML;
-        } catch (err) {
-            console.error('Failed to view task details:', err);
-            alert('Failed to load task details.');
+        document.getElementById('modal-container').innerHTML = modalHTML;
+    } catch (err) {
+        console.error('Failed to view task details:', err);
+        alert('Failed to load task details.');
+    }
+};
+
+/**
+ * Recalculate all user ratings (admin only)
+ */
+window.app_recalculateRatings = async function () {
+    try {
+        const user = window.AppAuth.getUser();
+        if (user.role !== 'Administrator' && !user.isAdmin) {
+            alert('Only administrators can recalculate ratings.');
+            return;
         }
-    };
 
-    /**
-     * Recalculate all user ratings (admin only)
-     */
-    window.app_recalculateRatings = async function () {
-        try {
-            const user = window.AppAuth.getUser();
-            if (user.role !== 'Administrator' && !user.isAdmin) {
-                alert('Only administrators can recalculate ratings.');
-                return;
-            }
-
-            if (!await window.appConfirm('This will recalculate ratings for all users. Continue?')) {
-                return;
-            }
-
-            const updatedUsers = await window.AppRating.updateAllRatings();
-            alert(`Successfully updated ratings for ${updatedUsers.length} users!`);
-
-            // Refresh dashboard
-            const contentArea = document.getElementById('page-content');
-            contentArea.innerHTML = await window.AppUI.renderDashboard();
-        } catch (err) {
-            console.error('Failed to recalculate ratings:', err);
-            alert('Failed to recalculate ratings. Please try again.');
+        if (!await window.appConfirm('This will recalculate ratings for all users. Continue?')) {
+            return;
         }
-    };
 
-    // Listeners for Modal Events 
-    // (We keep these as they are internal to app.js logic or standard form submits)
-    // Removed old document.addEventListener calls for admin actions since we use global funcs now.
+        const updatedUsers = await window.AppRating.updateAllRatings();
+        alert(`Successfully updated ratings for ${updatedUsers.length} users!`);
 
-    window.app_triggerManualAudit = async () => {
-        if (!await window.appConfirm("Trigger a manual location audit for all active staff?")) return;
-        const slotName = `Manual Audit @ ${new Date().toLocaleTimeString()}`;
-        try {
-            await window.AppDB.add('system_commands', {
-                type: 'audit',
-                slotName: slotName,
-                timestamp: Date.now(),
-                requestedBy: window.AppAuth.getUser()?.name || 'Admin',
-                status: 'pending'
-            });
-            alert("Manual audit command sent. All active staff devices will now perform a stealth check.");
-        } catch (err) {
-            console.error("Failed to trigger manual audit:", err);
-            alert("Error: " + err.message);
-        }
-    };
-
-    window.app_applyAuditFilter = async () => {
-        const start = document.getElementById('audit-start')?.value;
-        const end = document.getElementById('audit-end')?.value;
+        // Refresh dashboard
         const contentArea = document.getElementById('page-content');
-        if (contentArea) {
-            contentArea.innerHTML = await window.AppUI.renderAdmin(start, end);
-            if (window.AppAnalytics) window.AppAnalytics.initAdminCharts();
-        }
-    };
+        contentArea.innerHTML = await window.AppUI.renderDashboard();
+    } catch (err) {
+        console.error('Failed to recalculate ratings:', err);
+        alert('Failed to recalculate ratings. Please try again.');
+    }
+};
 
-    window.app_exportAudits = async () => {
-        const start = document.getElementById('audit-start')?.value;
-        const end = document.getElementById('audit-end')?.value;
+// Listeners for Modal Events 
+// (We keep these as they are internal to app.js logic or standard form submits)
+// Removed old document.addEventListener calls for admin actions since we use global funcs now.
 
-        try {
-            let audits = await window.AppDB.getAll('location_audits');
-            if (start && end) {
-                audits = audits.filter(a => {
-                    const d = new Date(a.timestamp).toISOString().split('T')[0];
-                    return d >= start && d <= end;
-                });
-            }
-            audits.sort((a, b) => b.timestamp - a.timestamp);
-
-            if (audits.length === 0) {
-                alert("No audits found for the selected range.");
-                return;
-            }
-
-            const headers = ['Timestamp', 'Date', 'Time', 'Staff Member', 'Slot', 'Status', 'Latitude', 'Longitude'];
-            const rows = audits.map(a => [
-                a.timestamp,
-                new Date(a.timestamp).toLocaleDateString(),
-                new Date(a.timestamp).toLocaleTimeString(),
-                a.userName || 'Unknown',
-                a.slot,
-                a.status,
-                a.lat || '',
-                a.lng || ''
-            ]);
-
-            const csvContent = [headers, ...rows].map(r => r.join(',')).join('\n');
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement("a");
-            const url = URL.createObjectURL(blob);
-            link.setAttribute("href", url);
-            link.setAttribute("download", `security_audits_${start || 'export'}.csv`);
-            link.style.visibility = 'hidden';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        } catch (err) {
-            console.error("Export failed:", err);
-            alert("Export failed: " + err.message);
-        }
-    };
-
-    window.app_changeAnnualYear = (delta) => {
-        window.app_annualYear = (window.app_annualYear || new Date().getFullYear()) + delta;
-        window.app_renderAnnualPlanPage();
-    };
-
-    window.app_toggleAnnualLegendFilter = (key) => {
-        const filters = window.app_annualLegendFilters || {
-            leave: true,
-            event: true,
-            work: true,
-            overdue: true,
-            completed: true
-        };
-        if (Object.prototype.hasOwnProperty.call(filters, key)) {
-            filters[key] = !filters[key];
-            window.app_annualLegendFilters = filters;
-            window.app_renderAnnualPlanPage();
-        }
-    };
-
-    window.app_showAnnualDayDetails = async (dateStr) => {
-        if (!dateStr) return;
-        const plans = window._currentPlans || await window.AppCalendar.getPlans();
-        const filters = window.app_annualLegendFilters || {
-            leave: true,
-            event: true,
-            work: true,
-            overdue: true,
-            completed: true
-        };
-        // determine user filter: only apply for non-admins
-        const currentUser = window.AppAuth.getUser() || {};
-        const isAdmin = currentUser.role === 'Administrator' || currentUser.isAdmin;
-        const events = (window.app_getDayEvents(dateStr, plans, { includeAuto: false, userId: isAdmin ? null : currentUser.id }) || []).filter(ev => {
-            if (ev.type === 'leave') return !!filters.leave;
-            if (ev.type === 'work') return !!filters.work;
-            if (ev.type === 'holiday') return !!filters.event;
-            return !!filters.event;
+window.app_triggerManualAudit = async () => {
+    if (!await window.appConfirm("Trigger a manual location audit for all active staff?")) return;
+    const slotName = `Manual Audit @ ${new Date().toLocaleTimeString()}`;
+    try {
+        await window.AppDB.add('system_commands', {
+            type: 'audit',
+            slotName: slotName,
+            timestamp: Date.now(),
+            requestedBy: window.AppAuth.getUser()?.name || 'Admin',
+            status: 'pending'
         });
-        const listHTML = events.length ? events.map(ev => {
-            const type = ev.type || 'event';
-            const tagStyle = type === 'leave'
-                ? 'background:#fee2e2;color:#991b1b;'
-                : type === 'work'
-                    ? 'background:#e0e7ff;color:#3730a3;'
-                    : type === 'holiday'
-                        ? 'background:#f1f5f9;color:#334155;'
-                        : 'background:#dcfce7;color:#166534;';
-            const tasks = type === 'work' && Array.isArray(ev.plans) && ev.plans.length
-                ? `<ul style="margin:0.5rem 0 0 1rem; padding:0; color:#475569; font-size:0.8rem;">
+        alert("Manual audit command sent. All active staff devices will now perform a stealth check.");
+    } catch (err) {
+        console.error("Failed to trigger manual audit:", err);
+        alert("Error: " + err.message);
+    }
+};
+
+window.app_applyAuditFilter = async () => {
+    const start = document.getElementById('audit-start')?.value;
+    const end = document.getElementById('audit-end')?.value;
+    const contentArea = document.getElementById('page-content');
+    if (contentArea) {
+        contentArea.innerHTML = await window.AppUI.renderAdmin(start, end);
+        if (window.AppAnalytics) window.AppAnalytics.initAdminCharts();
+    }
+};
+
+window.app_exportAudits = async () => {
+    const start = document.getElementById('audit-start')?.value;
+    const end = document.getElementById('audit-end')?.value;
+
+    try {
+        let audits = await window.AppDB.getAll('location_audits');
+        if (start && end) {
+            audits = audits.filter(a => {
+                const d = new Date(a.timestamp).toISOString().split('T')[0];
+                return d >= start && d <= end;
+            });
+        }
+        audits.sort((a, b) => b.timestamp - a.timestamp);
+
+        if (audits.length === 0) {
+            alert("No audits found for the selected range.");
+            return;
+        }
+
+        const headers = ['Timestamp', 'Date', 'Time', 'Staff Member', 'Slot', 'Status', 'Latitude', 'Longitude'];
+        const rows = audits.map(a => [
+            a.timestamp,
+            new Date(a.timestamp).toLocaleDateString(),
+            new Date(a.timestamp).toLocaleTimeString(),
+            a.userName || 'Unknown',
+            a.slot,
+            a.status,
+            a.lat || '',
+            a.lng || ''
+        ]);
+
+        const csvContent = [headers, ...rows].map(r => r.join(',')).join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        const url = URL.createObjectURL(blob);
+        link.setAttribute("href", url);
+        link.setAttribute("download", `security_audits_${start || 'export'}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    } catch (err) {
+        console.error("Export failed:", err);
+        alert("Export failed: " + err.message);
+    }
+};
+
+window.app_changeAnnualYear = (delta) => {
+    window.app_annualYear = (window.app_annualYear || new Date().getFullYear()) + delta;
+    window.app_renderAnnualPlanPage();
+};
+
+window.app_toggleAnnualLegendFilter = (key) => {
+    const filters = window.app_annualLegendFilters || {
+        leave: true,
+        event: true,
+        work: true,
+        overdue: true,
+        completed: true
+    };
+    if (Object.prototype.hasOwnProperty.call(filters, key)) {
+        filters[key] = !filters[key];
+        window.app_annualLegendFilters = filters;
+        window.app_renderAnnualPlanPage();
+    }
+};
+
+window.app_showAnnualDayDetails = async (dateStr) => {
+    if (!dateStr) return;
+    const plans = window._currentPlans || await window.AppCalendar.getPlans();
+    const filters = window.app_annualLegendFilters || {
+        leave: true,
+        event: true,
+        work: true,
+        overdue: true,
+        completed: true
+    };
+    // determine user filter: only apply for non-admins
+    const currentUser = window.AppAuth.getUser() || {};
+    const isAdmin = currentUser.role === 'Administrator' || currentUser.isAdmin;
+    const events = (window.app_getDayEvents(dateStr, plans, { includeAuto: false, userId: isAdmin ? null : currentUser.id }) || []).filter(ev => {
+        if (ev.type === 'leave') return !!filters.leave;
+        if (ev.type === 'work') return !!filters.work;
+        if (ev.type === 'holiday') return !!filters.event;
+        return !!filters.event;
+    });
+    const listHTML = events.length ? events.map(ev => {
+        const type = ev.type || 'event';
+        const tagStyle = type === 'leave'
+            ? 'background:#fee2e2;color:#991b1b;'
+            : type === 'work'
+                ? 'background:#e0e7ff;color:#3730a3;'
+                : type === 'holiday'
+                    ? 'background:#f1f5f9;color:#334155;'
+                    : 'background:#dcfce7;color:#166534;';
+        const tasks = type === 'work' && Array.isArray(ev.plans) && ev.plans.length
+            ? `<ul style="margin:0.5rem 0 0 1rem; padding:0; color:#475569; font-size:0.8rem;">
                     ${ev.plans.map(p => `<li>${window.app_formatTaskWithPostponeChip(p.task || 'Work plan item')}</li>`).join('')}
                    </ul>`
-                : '';
-            return `
+            : '';
+        return `
                 <div class="annual-v2-detail-item" style="border:1px solid #eef2f7; border-radius:12px; padding:0.75rem;">
                     <div class="annual-v2-detail-item-head" style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
                         <span class="annual-v2-detail-tag" style="padding:2px 8px; border-radius:999px; font-size:0.7rem; font-weight:700; ${tagStyle}">${type.toUpperCase()}</span>
@@ -5823,8 +5835,8 @@
                     </div>
                     ${tasks}
                 </div>`;
-        }).join('') : '<div style="text-align:center; color:#94a3b8; padding:1rem;">No visible items for this date with current filters.</div>';
-        const html = `
+    }).join('') : '<div style="text-align:center; color:#94a3b8; padding:1rem;">No visible items for this date with current filters.</div>';
+    const html = `
             <div class="modal-overlay annual-v2-modal" id="annual-day-detail-modal" style="display:flex;">
                 <div class="annual-detail-modal annual-v2-modal-content">
                     <div class="annual-detail-modal-header annual-v2-detail-head">
@@ -5841,103 +5853,103 @@
                     </div>
                 </div>
             </div>`;
-        window.app_showModal(html, 'annual-day-detail-modal');
-    };
+    window.app_showModal(html, 'annual-day-detail-modal');
+};
 
-    window.app_toggleAnnualView = (mode) => {
-        window.app_annualViewMode = mode;
-        window.app_renderAnnualPlanPage();
-    };
+window.app_toggleAnnualView = (mode) => {
+    window.app_annualViewMode = mode;
+    window.app_renderAnnualPlanPage();
+};
 
-    window.app_jumpToAnnualToday = () => {
-        const today = new Date();
-        window.app_annualYear = today.getFullYear();
-        window.app_selectedAnnualDate = today.toISOString().split('T')[0];
-        window.app_renderAnnualPlanPage().then(() => {
-            window.app_showAnnualDayDetails(window.app_selectedAnnualDate);
-        });
-    };
+window.app_jumpToAnnualToday = () => {
+    const today = new Date();
+    window.app_annualYear = today.getFullYear();
+    window.app_selectedAnnualDate = today.toISOString().split('T')[0];
+    window.app_renderAnnualPlanPage().then(() => {
+        window.app_showAnnualDayDetails(window.app_selectedAnnualDate);
+    });
+};
 
-    window.app_renderAnnualPlanPage = async () => {
-        const contentArea = document.getElementById('page-content');
-        if (!contentArea) return;
-        contentArea.innerHTML = await window.AppUI.renderAnnualPlan();
-    };
+window.app_renderAnnualPlanPage = async () => {
+    const contentArea = document.getElementById('page-content');
+    if (!contentArea) return;
+    contentArea.innerHTML = await window.AppUI.renderAnnualPlan();
+};
 
-    window.app_setAnnualStaffFilter = (value) => {
-        window.app_annualStaffFilter = String(value || '').trim();
-        window.app_renderAnnualPlanPage();
-    };
+window.app_setAnnualStaffFilter = (value) => {
+    window.app_annualStaffFilter = String(value || '').trim();
+    window.app_renderAnnualPlanPage();
+};
 
-    window.app_setAnnualListSearch = (value) => {
-        window.app_annualListSearch = String(value || '').trim();
-        window.app_renderAnnualPlanPage();
-    };
+window.app_setAnnualListSearch = (value) => {
+    window.app_annualListSearch = String(value || '').trim();
+    window.app_renderAnnualPlanPage();
+};
 
-    window.app_setAnnualListSort = (value) => {
-        window.app_annualListSort = String(value || 'date-asc').trim();
-        window.app_renderAnnualPlanPage();
-    };
+window.app_setAnnualListSort = (value) => {
+    window.app_annualListSort = String(value || 'date-asc').trim();
+    window.app_renderAnnualPlanPage();
+};
 
-    window.app_renderTimesheetPage = async () => {
-        const contentArea = document.getElementById('page-content');
-        if (!contentArea) return;
-        contentArea.innerHTML = await window.AppUI.renderTimesheet();
-    };
+window.app_renderTimesheetPage = async () => {
+    const contentArea = document.getElementById('page-content');
+    if (!contentArea) return;
+    contentArea.innerHTML = await window.AppUI.renderTimesheet();
+};
 
-    window.app_setTimesheetView = (mode) => {
-        window.app_timesheetViewMode = mode === 'calendar' ? 'calendar' : 'list';
-        window.app_renderTimesheetPage();
-    };
+window.app_setTimesheetView = (mode) => {
+    window.app_timesheetViewMode = mode === 'calendar' ? 'calendar' : 'list';
+    window.app_renderTimesheetPage();
+};
 
-    window.app_changeTimesheetMonth = (delta) => {
-        const today = new Date();
-        const currentMonth = Number.isInteger(window.app_timesheetMonth) ? window.app_timesheetMonth : today.getMonth();
-        const currentYear = Number.isInteger(window.app_timesheetYear) ? window.app_timesheetYear : today.getFullYear();
-        const d = new Date(currentYear, currentMonth, 1);
-        d.setMonth(d.getMonth() + delta);
-        window.app_timesheetMonth = d.getMonth();
-        window.app_timesheetYear = d.getFullYear();
-        window.app_renderTimesheetPage();
-    };
+window.app_changeTimesheetMonth = (delta) => {
+    const today = new Date();
+    const currentMonth = Number.isInteger(window.app_timesheetMonth) ? window.app_timesheetMonth : today.getMonth();
+    const currentYear = Number.isInteger(window.app_timesheetYear) ? window.app_timesheetYear : today.getFullYear();
+    const d = new Date(currentYear, currentMonth, 1);
+    d.setMonth(d.getMonth() + delta);
+    window.app_timesheetMonth = d.getMonth();
+    window.app_timesheetYear = d.getFullYear();
+    window.app_renderTimesheetPage();
+};
 
-    window.app_jumpTimesheetToday = () => {
-        const today = new Date();
-        window.app_timesheetMonth = today.getMonth();
-        window.app_timesheetYear = today.getFullYear();
-        window.app_renderTimesheetPage();
-    };
+window.app_jumpTimesheetToday = () => {
+    const today = new Date();
+    window.app_timesheetMonth = today.getMonth();
+    window.app_timesheetYear = today.getFullYear();
+    window.app_renderTimesheetPage();
+};
 
-    window.app_closeModal = (el) => {
-        const overlay = el && el.closest ? el.closest('.modal-overlay') : null;
-        if (overlay) overlay.remove();
-    };
+window.app_closeModal = (el) => {
+    const overlay = el && el.closest ? el.closest('.modal-overlay') : null;
+    if (overlay) overlay.remove();
+};
 
-    window.app_getSystemUpdateNotes = () => ([
-        {
-            date: '2026-02-21',
-            summary: 'Check for System Update now shows this quick update popup before refreshing.'
-        },
-        {
-            date: '2026-02-21',
-            summary: 'The update action shortcut was changed from Ctrl+F5 to Ctrl+Shift+R.'
-        }
-    ]);
+window.app_getSystemUpdateNotes = () => ([
+    {
+        date: '2026-02-21',
+        summary: 'Check for System Update now shows this quick update popup before refreshing.'
+    },
+    {
+        date: '2026-02-21',
+        summary: 'The update action shortcut was changed from Ctrl+F5 to Ctrl+Shift+R.'
+    }
+]);
 
-    window.app_showSystemUpdatePopup = () => {
-        const modalId = 'system-update-modal';
-        const state = getReleaseUpdateSnapshot();
-        const notes = (window.app_getSystemUpdateNotes() || []).slice(0, 5);
-        const listHtml = notes.length
-            ? notes.map(n => `
+window.app_showSystemUpdatePopup = () => {
+    const modalId = 'system-update-modal';
+    const state = getReleaseUpdateSnapshot();
+    const notes = (window.app_getSystemUpdateNotes() || []).slice(0, 5);
+    const listHtml = notes.length
+        ? notes.map(n => `
                 <li style="margin:0 0 0.7rem 0; color:#334155; line-height:1.45;">
                     <span style="display:block; font-size:0.72rem; color:#64748b; font-weight:700;">${escapeDialogHtml(n.date || '')}</span>
                     <span>${escapeDialogHtml(n.summary || '')}</span>
                 </li>
             `).join('')
-            : '<li style="color:#64748b;">No update notes available.</li>';
-        const releaseMeta = state.active
-            ? `
+        : '<li style="color:#64748b;">No update notes available.</li>';
+    const releaseMeta = state.active
+        ? `
                 <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:0.6rem 0.75rem; margin-bottom:0.8rem;">
                     <div style="font-size:0.78rem; font-weight:700; color:#0f172a;">Update detected</div>
                     <div style="font-size:0.74rem; color:#475569; margin-top:0.15rem;">
@@ -5949,9 +5961,9 @@
                     </div>
                 </div>
             `
-            : '';
+        : '';
 
-        const html = `
+    const html = `
             <div class="modal-overlay" id="${modalId}" style="display:flex;">
                 <div class="modal-content" style="max-width:560px;">
                     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.8rem;">
@@ -5971,45 +5983,44 @@
                 </div>
             </div>
         `;
-        window.app_showModal(html, modalId);
-        const syncCountdown = () => {
-            const el = document.getElementById('system-update-countdown');
-            if (!el) return;
-            const latest = getReleaseUpdateSnapshot();
-            el.textContent = latest.countdownLabel;
-        };
-        syncCountdown();
-        const countdownTimer = setInterval(() => {
-            if (!document.getElementById(modalId)) {
-                clearInterval(countdownTimer);
-                return;
-            }
-            syncCountdown();
-        }, 1000);
+    window.app_showModal(html, modalId);
+    const syncCountdown = () => {
+        const el = document.getElementById('system-update-countdown');
+        if (!el) return;
+        const latest = getReleaseUpdateSnapshot();
+        el.textContent = latest.countdownLabel;
     };
-
-    window.app_forceRefresh = async () => {
-        clearReleaseUpdateState(true);
-        try {
-            if (navigator.serviceWorker) {
-                const regs = await navigator.serviceWorker.getRegistrations();
-                await Promise.all(regs.map(r => r.unregister()));
-            }
-            if (window.caches) {
-                const keys = await caches.keys();
-                await Promise.all(keys.map(k => caches.delete(k)));
-            }
-        } catch (err) {
-            console.warn('Force refresh cleanup failed:', err);
+    syncCountdown();
+    const countdownTimer = setInterval(() => {
+        if (!document.getElementById(modalId)) {
+            clearInterval(countdownTimer);
+            return;
         }
-        window.location.reload(true);
-    };
+        syncCountdown();
+    }, 1000);
+};
 
-    // Initialization
-    init();
+window.app_forceRefresh = async () => {
+    clearReleaseUpdateState(true);
+    try {
+        if (navigator.serviceWorker) {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map(r => r.unregister()));
+        }
+        if (window.caches) {
+            const keys = await caches.keys();
+            await Promise.all(keys.map(k => caches.delete(k)));
+        }
+    } catch (err) {
+        console.warn('Force refresh cleanup failed:', err);
+    }
+    window.location.reload(true);
+};
 
-    console.log("App.js Loaded & Globals Ready");
-})();
+// Initialization
+init();
+
+console.log("App.js Loaded & Globals Ready");
 
 
 

@@ -39,6 +39,7 @@
         opacity: 0;
         transform: translateY(10px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
@@ -50,6 +51,7 @@
         opacity: 0;
         transform: scale(0.98);
     }
+
     to {
         opacity: 1;
         transform: scale(1);
@@ -234,24 +236,92 @@ body {
     font-size: 0.95rem;
 }
 
-.nav-item[data-page="dashboard"] { --nav-icon-bg: rgba(63, 99, 168, 0.25); --nav-icon-active-bg: #3f63a8; --nav-icon-fg: #a9c1ff; }
-.nav-item[data-page="staff-directory"] { --nav-icon-bg: rgba(16, 185, 129, 0.2); --nav-icon-active-bg: #10b981; --nav-icon-fg: #b7f7dd; }
-.nav-item[data-page="policies"] { --nav-icon-bg: rgba(245, 158, 11, 0.2); --nav-icon-active-bg: #f59e0b; --nav-icon-fg: #fde7b0; }
-.nav-item[data-page="annual-plan"] { --nav-icon-bg: rgba(99, 102, 241, 0.2); --nav-icon-active-bg: #6366f1; --nav-icon-fg: #c7c9ff; }
-.nav-item[data-page="timesheet"] { --nav-icon-bg: rgba(14, 165, 233, 0.18); --nav-icon-active-bg: #0ea5e9; --nav-icon-fg: #b7e9ff; }
-.nav-item[data-page="profile"] { --nav-icon-bg: rgba(236, 72, 153, 0.18); --nav-icon-active-bg: #ec4899; --nav-icon-fg: #ffc0e2; }
-.nav-item[data-page="minutes"] { --nav-icon-bg: rgba(139, 92, 246, 0.2); --nav-icon-active-bg: #8b5cf6; --nav-icon-fg: #decaff; }
-.nav-item[data-page="admin"] { --nav-icon-bg: rgba(249, 115, 22, 0.2); --nav-icon-active-bg: #f97316; --nav-icon-fg: #ffd2ad; }
-.nav-item[data-page="master-sheet"] { --nav-icon-bg: rgba(20, 184, 166, 0.2); --nav-icon-active-bg: #14b8a6; --nav-icon-fg: #baf4ee; }
-.nav-item[data-page="salary"] { --nav-icon-bg: rgba(34, 197, 94, 0.2); --nav-icon-active-bg: #22c55e; --nav-icon-fg: #c9f7d9; }
-.nav-item[data-page="widget"] { --nav-icon-bg: rgba(148, 163, 184, 0.2); --nav-icon-active-bg: #64748b; --nav-icon-fg: #e2e8f0; }
+.nav-item[data-page="dashboard"] {
+    --nav-icon-bg: rgba(63, 99, 168, 0.25);
+    --nav-icon-active-bg: #3f63a8;
+    --nav-icon-fg: #a9c1ff;
+}
+
+.nav-item[data-page="staff-directory"] {
+    --nav-icon-bg: rgba(16, 185, 129, 0.2);
+    --nav-icon-active-bg: #10b981;
+    --nav-icon-fg: #b7f7dd;
+}
+
+.nav-item[data-page="policies"] {
+    --nav-icon-bg: rgba(245, 158, 11, 0.2);
+    --nav-icon-active-bg: #f59e0b;
+    --nav-icon-fg: #fde7b0;
+}
+
+.nav-item[data-page="annual-plan"] {
+    --nav-icon-bg: rgba(99, 102, 241, 0.2);
+    --nav-icon-active-bg: #6366f1;
+    --nav-icon-fg: #c7c9ff;
+}
+
+.nav-item[data-page="timesheet"] {
+    --nav-icon-bg: rgba(14, 165, 233, 0.18);
+    --nav-icon-active-bg: #0ea5e9;
+    --nav-icon-fg: #b7e9ff;
+}
+
+.nav-item[data-page="profile"] {
+    --nav-icon-bg: rgba(236, 72, 153, 0.18);
+    --nav-icon-active-bg: #ec4899;
+    --nav-icon-fg: #ffc0e2;
+}
+
+.nav-item[data-page="minutes"] {
+    --nav-icon-bg: rgba(139, 92, 246, 0.2);
+    --nav-icon-active-bg: #8b5cf6;
+    --nav-icon-fg: #decaff;
+}
+
+.nav-item[data-page="admin"] {
+    --nav-icon-bg: rgba(249, 115, 22, 0.2);
+    --nav-icon-active-bg: #f97316;
+    --nav-icon-fg: #ffd2ad;
+}
+
+.nav-item[data-page="master-sheet"] {
+    --nav-icon-bg: rgba(20, 184, 166, 0.2);
+    --nav-icon-active-bg: #14b8a6;
+    --nav-icon-fg: #baf4ee;
+}
+
+.nav-item[data-page="salary"] {
+    --nav-icon-bg: rgba(34, 197, 94, 0.2);
+    --nav-icon-active-bg: #22c55e;
+    --nav-icon-fg: #c9f7d9;
+}
+
+.nav-item[data-page="widget"] {
+    --nav-icon-bg: rgba(148, 163, 184, 0.2);
+    --nav-icon-active-bg: #64748b;
+    --nav-icon-fg: #e2e8f0;
+}
 
 @keyframes nav-jiggle {
-    0% { transform: rotate(0deg) translateY(0); }
-    25% { transform: rotate(-4deg) translateY(-1px); }
-    50% { transform: rotate(4deg) translateY(0); }
-    75% { transform: rotate(-3deg) translateY(1px); }
-    100% { transform: rotate(0deg) translateY(0); }
+    0% {
+        transform: rotate(0deg) translateY(0);
+    }
+
+    25% {
+        transform: rotate(-4deg) translateY(-1px);
+    }
+
+    50% {
+        transform: rotate(4deg) translateY(0);
+    }
+
+    75% {
+        transform: rotate(-3deg) translateY(1px);
+    }
+
+    100% {
+        transform: rotate(0deg) translateY(0);
+    }
 }
 
 @keyframes nav-rgb-glow {
@@ -260,16 +330,19 @@ body {
             0 0 0 2px rgba(239, 68, 68, 0.9),
             0 0 16px rgba(239, 68, 68, 0.7);
     }
+
     33% {
         box-shadow: 0 12px 22px rgba(15, 23, 42, 0.32),
             0 0 0 2px rgba(34, 197, 94, 0.9),
             0 0 16px rgba(34, 197, 94, 0.7);
     }
+
     66% {
         box-shadow: 0 12px 22px rgba(15, 23, 42, 0.32),
             0 0 0 2px rgba(59, 130, 246, 0.9),
             0 0 16px rgba(59, 130, 246, 0.7);
     }
+
     100% {
         box-shadow: 0 12px 22px rgba(15, 23, 42, 0.32),
             0 0 0 2px rgba(239, 68, 68, 0.9),
@@ -284,9 +357,17 @@ body {
 }
 
 @keyframes navGlow {
-    0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5); }
-    50% { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.15); }
-    100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.0); }
+    0% {
+        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5);
+    }
+
+    50% {
+        box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.15);
+    }
+
+    100% {
+        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.0);
+    }
 }
 
 .sidebar-footer {
@@ -453,16 +534,55 @@ body {
     color: #fff;
 }
 
-.mobile-nav-item[data-page="dashboard"] { --nav-icon-bg: rgba(63, 99, 168, 0.2); --nav-icon-active-bg: #3f63a8; }
-.mobile-nav-item[data-page="staff-directory"] { --nav-icon-bg: rgba(16, 185, 129, 0.18); --nav-icon-active-bg: #10b981; }
-.mobile-nav-item[data-page="policies"] { --nav-icon-bg: rgba(245, 158, 11, 0.18); --nav-icon-active-bg: #f59e0b; }
-.mobile-nav-item[data-page="annual-plan"] { --nav-icon-bg: rgba(99, 102, 241, 0.18); --nav-icon-active-bg: #6366f1; }
-.mobile-nav-item[data-page="timesheet"] { --nav-icon-bg: rgba(14, 165, 233, 0.18); --nav-icon-active-bg: #0ea5e9; }
-.mobile-nav-item[data-page="profile"] { --nav-icon-bg: rgba(236, 72, 153, 0.18); --nav-icon-active-bg: #ec4899; }
-.mobile-nav-item[data-page="minutes"] { --nav-icon-bg: rgba(139, 92, 246, 0.18); --nav-icon-active-bg: #8b5cf6; }
-.mobile-nav-item[data-page="admin"] { --nav-icon-bg: rgba(249, 115, 22, 0.18); --nav-icon-active-bg: #f97316; }
-.mobile-nav-item[data-page="master-sheet"] { --nav-icon-bg: rgba(20, 184, 166, 0.18); --nav-icon-active-bg: #14b8a6; }
-.mobile-nav-item[data-page="salary"] { --nav-icon-bg: rgba(34, 197, 94, 0.18); --nav-icon-active-bg: #22c55e; }
+.mobile-nav-item[data-page="dashboard"] {
+    --nav-icon-bg: rgba(63, 99, 168, 0.2);
+    --nav-icon-active-bg: #3f63a8;
+}
+
+.mobile-nav-item[data-page="staff-directory"] {
+    --nav-icon-bg: rgba(16, 185, 129, 0.18);
+    --nav-icon-active-bg: #10b981;
+}
+
+.mobile-nav-item[data-page="policies"] {
+    --nav-icon-bg: rgba(245, 158, 11, 0.18);
+    --nav-icon-active-bg: #f59e0b;
+}
+
+.mobile-nav-item[data-page="annual-plan"] {
+    --nav-icon-bg: rgba(99, 102, 241, 0.18);
+    --nav-icon-active-bg: #6366f1;
+}
+
+.mobile-nav-item[data-page="timesheet"] {
+    --nav-icon-bg: rgba(14, 165, 233, 0.18);
+    --nav-icon-active-bg: #0ea5e9;
+}
+
+.mobile-nav-item[data-page="profile"] {
+    --nav-icon-bg: rgba(236, 72, 153, 0.18);
+    --nav-icon-active-bg: #ec4899;
+}
+
+.mobile-nav-item[data-page="minutes"] {
+    --nav-icon-bg: rgba(139, 92, 246, 0.18);
+    --nav-icon-active-bg: #8b5cf6;
+}
+
+.mobile-nav-item[data-page="admin"] {
+    --nav-icon-bg: rgba(249, 115, 22, 0.18);
+    --nav-icon-active-bg: #f97316;
+}
+
+.mobile-nav-item[data-page="master-sheet"] {
+    --nav-icon-bg: rgba(20, 184, 166, 0.18);
+    --nav-icon-active-bg: #14b8a6;
+}
+
+.mobile-nav-item[data-page="salary"] {
+    --nav-icon-bg: rgba(34, 197, 94, 0.18);
+    --nav-icon-active-bg: #22c55e;
+}
 
 /* Responsive Logic */
 @media (max-width: 768px) {
@@ -1123,10 +1243,12 @@ td {
         min-width: 0;
         order: -1;
     }
+
     .timesheet-month-label {
         min-width: 104px;
         font-size: 0.74rem;
     }
+
     .timesheet-cal-day {
         min-height: 112px;
         padding: 0.32rem;
@@ -1660,10 +1782,24 @@ body {
     text-transform: uppercase;
 }
 
-.notification-history-badge.pending { background: #fffbeb; color: #92400e; border-color: #fde68a; }
+.notification-history-badge.pending {
+    background: #fffbeb;
+    color: #92400e;
+    border-color: #fde68a;
+}
+
 .notification-history-badge.accepted,
-.notification-history-badge.approved { background: #ecfdf5; color: #166534; border-color: #bbf7d0; }
-.notification-history-badge.rejected { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+.notification-history-badge.approved {
+    background: #ecfdf5;
+    color: #166534;
+    border-color: #bbf7d0;
+}
+
+.notification-history-badge.rejected {
+    background: #fef2f2;
+    color: #991b1b;
+    border-color: #fecaca;
+}
 
 .notification-history-actions {
     margin-top: 0.55rem;
@@ -1680,16 +1816,40 @@ body {
     cursor: pointer;
 }
 
-.notification-history-btn.approve { background: #10b981; color: #fff; }
-.notification-history-btn.reject { background: #ef4444; color: #fff; }
+.notification-history-btn.approve {
+    background: #10b981;
+    color: #fff;
+}
+
+.notification-history-btn.reject {
+    background: #ef4444;
+    color: #fff;
+}
 
 @keyframes top-bell-shake {
-    0% { transform: translateX(0) rotate(0deg); }
-    20% { transform: translateX(-1px) rotate(-9deg); }
-    40% { transform: translateX(1px) rotate(8deg); }
-    60% { transform: translateX(-1px) rotate(-6deg); }
-    80% { transform: translateX(1px) rotate(4deg); }
-    100% { transform: translateX(0) rotate(0deg); }
+    0% {
+        transform: translateX(0) rotate(0deg);
+    }
+
+    20% {
+        transform: translateX(-1px) rotate(-9deg);
+    }
+
+    40% {
+        transform: translateX(1px) rotate(8deg);
+    }
+
+    60% {
+        transform: translateX(-1px) rotate(-6deg);
+    }
+
+    80% {
+        transform: translateX(1px) rotate(4deg);
+    }
+
+    100% {
+        transform: translateX(0) rotate(0deg);
+    }
 }
 
 @media (max-width: 768px) {
@@ -2046,14 +2206,31 @@ textarea:focus {
 }
 
 @keyframes dashboardUpdateBlink {
-    0%, 100% { opacity: 1; transform: translateY(0); }
-    50% { opacity: 0.72; transform: translateY(-1px); }
+
+    0%,
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+    50% {
+        opacity: 0.72;
+        transform: translateY(-1px);
+    }
 }
 
 @keyframes dashboardUpdateDot {
-    0% { box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.55); }
-    70% { box-shadow: 0 0 0 6px rgba(249, 115, 22, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(249, 115, 22, 0); }
+    0% {
+        box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.55);
+    }
+
+    70% {
+        box-shadow: 0 0 0 6px rgba(249, 115, 22, 0);
+    }
+
+    100% {
+        box-shadow: 0 0 0 0 rgba(249, 115, 22, 0);
+    }
 }
 
 @media (max-width: 640px) {
@@ -2644,9 +2821,17 @@ textarea:focus {
 }
 
 @keyframes staffGlow {
-    0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.45); }
-    50% { box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.15); }
-    100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.0); }
+    0% {
+        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.45);
+    }
+
+    50% {
+        box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.15);
+    }
+
+    100% {
+        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.0);
+    }
 }
 
 .dashboard-tagged-card {
@@ -2721,9 +2906,20 @@ textarea:focus {
     color: #475569;
 }
 
-.dashboard-tagged-pill.pending { background: #fffbeb; color: #92400e; }
-.dashboard-tagged-pill.accepted { background: #ecfdf5; color: #166534; }
-.dashboard-tagged-pill.rejected { background: #fef2f2; color: #991b1b; }
+.dashboard-tagged-pill.pending {
+    background: #fffbeb;
+    color: #92400e;
+}
+
+.dashboard-tagged-pill.accepted {
+    background: #ecfdf5;
+    color: #166534;
+}
+
+.dashboard-tagged-pill.rejected {
+    background: #fef2f2;
+    color: #991b1b;
+}
 
 .dashboard-tagged-actions {
     display: flex;
@@ -2740,8 +2936,17 @@ textarea:focus {
     cursor: pointer;
 }
 
-.dashboard-tagged-btn.accept { background: #ecfdf5; border-color: #bbf7d0; color: #166534; }
-.dashboard-tagged-btn.reject { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+.dashboard-tagged-btn.accept {
+    background: #ecfdf5;
+    border-color: #bbf7d0;
+    color: #166534;
+}
+
+.dashboard-tagged-btn.reject {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: #991b1b;
+}
 
 .dashboard-notifications-card {
     padding: 0.85rem;
@@ -2765,13 +2970,22 @@ textarea:focus {
     grid-template-columns: 1fr 1fr;
     gap: 0.75rem;
     padding-bottom: 0.4rem;
-    border-bottom: 1px solid rgba(0,0,0,0.06);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
     animation: dashboard-notif-blink 1s ease-in-out infinite !important;
 }
 
 @keyframes dashboard-notif-blink {
-    0%, 100% { opacity: 1; background: transparent; }
-    50% { opacity: 0.2; background: rgba(251, 191, 36, 0.12); }
+
+    0%,
+    100% {
+        opacity: 1;
+        background: transparent;
+    }
+
+    50% {
+        opacity: 0.2;
+        background: rgba(251, 191, 36, 0.12);
+    }
 }
 
 .dashboard-notif-col {
@@ -3027,9 +3241,11 @@ textarea:focus {
     .notify-columns {
         grid-template-columns: 1fr;
     }
+
     .dashboard-notif-row {
         grid-template-columns: 1fr;
     }
+
     .dashboard-notif-col.right {
         align-items: flex-start;
         text-align: left;
@@ -4117,6 +4333,7 @@ textarea:focus {
 }
 
 @media (max-width: 1100px) {
+
     .dashboard-staff-view .dashboard-summary-row,
     .dashboard-admin-view .dashboard-summary-row {
         flex-direction: column;
@@ -4774,738 +4991,7 @@ textarea:focus {
     transition: all 0.2s;
 }
 
-#day-plan-modal .day-plan-add-step-btn:hover {
-    background: #faf5ff;
-    border-color: #8b5cf6;
-    border-style: solid;
-}
-
-#day-plan-modal .day-plan-quick-add-step-btn {
-    background: none;
-    border: none;
-    padding: 4px 0;
-    font-size: 0.75rem;
-    color: var(--primary);
-    cursor: pointer;
-    margin-top: 0.4rem;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-weight: 600;
-}
-
-#day-plan-modal .day-plan-status-help-btn {
-    background: #e0e7ff;
-    border: none;
-    color: #4338ca;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    cursor: pointer;
-    font-size: 0.65rem;
-    font-weight: 700;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-
-#day-plan-modal .day-plan-step-dot {
-    width: 8px;
-    height: 8px;
-    background: #a78bfa;
-    border-radius: 50%;
-    flex-shrink: 0;
-}
-
-#day-plan-modal .day-plan-sub-input {
-    flex: 1;
-    padding: 0.5rem;
-    border: 1px solid #e2e8f0;
-    border-radius: 6px;
-    font-size: 0.85rem;
-    background: #fafafa;
-    outline: none;
-    transition: all 0.2s;
-}
-
-#day-plan-modal .day-plan-sub-input:focus {
-    border-color: #8b5cf6;
-    background: #ffffff;
-}
-
-#day-plan-modal .day-plan-remove-step-btn {
-    background: none;
-    border: none;
-    color: #cbd5e1;
-    cursor: pointer;
-    padding: 4px;
-    transition: color 0.2s;
-}
-
-#day-plan-modal .day-plan-remove-step-btn:hover {
-    color: #ef4444;
-}
-
-#day-plan-modal .day-plan-block-shell {
-    background: #fff;
-    border: 1px solid #dbe3ee;
-    border-radius: 12px;
-    padding: 0;
-    margin-bottom: 0.9rem;
-    position: relative;
-    overflow: hidden;
-    display: flex;
-    min-height: 180px;
-    flex-direction: column;
-    transition: all 0.2s;
-}
-
-#day-plan-modal .day-plan-block-body {
-    display: flex;
-    flex: 1;
-    min-height: 180px;
-}
-
-#day-plan-modal .day-plan-left-panel {
-    flex: 1.5;
-    padding: 1.25rem;
-    border-right: 2px solid #f1f5f9;
-}
-
-#day-plan-modal .day-plan-right-panel {
-    flex: 1;
-    padding: 1.25rem;
-    background: linear-gradient(135deg, #faf5ff 0%, #f5f3ff 100%);
-    display: flex;
-    flex-direction: column;
-}
-
-#day-plan-modal .day-plan-section-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.75rem;
-}
-
-#day-plan-modal .day-plan-head-inline {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-#day-plan-modal .day-plan-index-badge {
-    background: #6366f1;
-    color: #fff;
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 700;
-    font-size: 0.7rem;
-}
-
-#day-plan-modal .day-plan-index-badge-step {
-    background: #8b5cf6;
-    width: 18px;
-    height: 18px;
-    font-size: 0.65rem;
-}
-
-#day-plan-modal .day-plan-index-badge-collab {
-    background: #a78bfa;
-}
-
-#day-plan-modal .day-plan-label {
-    font-size: 0.85rem;
-    font-weight: 700;
-    color: #334155;
-    margin: 0;
-}
-
-#day-plan-modal .day-plan-help-text {
-    font-size: 0.75rem;
-    color: #64748b;
-    margin: 0 0 0.75rem 0;
-    font-style: italic;
-    line-height: 1.4;
-}
-
-#day-plan-modal .day-plan-task-input {
-    width: 100%;
-    height: 80px;
-    padding: 0.85rem;
-    border: 2px solid #e2e8f0;
-    border-radius: 10px;
-    font-family: inherit;
-    resize: none;
-    margin-bottom: 0.85rem;
-    font-size: 0.95rem;
-    line-height: 1.5;
-    background: #fcfdfe;
-    transition: border-color 0.2s, background 0.2s;
-}
-
-#day-plan-modal .day-plan-task-input:focus {
-    border-color: #6366f1;
-    background: #fff;
-}
-
-#day-plan-modal .day-plan-at-hint {
-    background: #fef9f3;
-    padding: 0.6rem;
-    border-radius: 8px;
-    border: 1px solid #fed7aa;
-    margin-bottom: 0.75rem;
-}
-
-#day-plan-modal .day-plan-at-hint-text {
-    font-size: 0.75rem;
-    color: #9a3412;
-    margin: 0;
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-}
-
-#day-plan-modal .day-plan-at-hint-text i {
-    font-size: 0.85rem;
-}
-
-#day-plan-modal .day-plan-sub-section {
-    border-top: 1px dashed #e2e8f0;
-    padding-top: 0.75rem;
-}
-
-#day-plan-modal .day-plan-sub-head {
-    margin-bottom: 0.5rem;
-}
-
-#day-plan-modal .day-plan-sub-label {
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: #334155;
-    margin: 0;
-}
-
-#day-plan-modal .day-plan-sub-optional {
-    font-size: 0.7rem;
-    color: #94a3b8;
-    font-weight: 400;
-}
-
-#day-plan-modal .day-plan-sub-help {
-    font-size: 0.7rem;
-    color: #64748b;
-    margin: 0 0 0.5rem 0;
-    font-style: italic;
-}
-
-#day-plan-modal .day-plan-sub-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-}
-
-#day-plan-modal .day-plan-sub-row {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-}
-
-#day-plan-modal .day-plan-collab-head {
-    margin-bottom: 0.75rem;
-}
-
-#day-plan-modal .day-plan-collab-hint {
-    font-size: 0.7rem;
-    color: #6b21a8;
-    margin: 0 0 0.75rem 0;
-    background: #faf5ff;
-    padding: 0.5rem;
-    border-radius: 6px;
-    border: 1px solid #e9d5ff;
-    line-height: 1.4;
-}
-
-#day-plan-modal .day-plan-collab-hint-bold {
-    font-weight: 600;
-}
-
-#day-plan-modal .day-plan-at-badge {
-    background: #8b5cf6;
-    color: #fff;
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-weight: 700;
-    font-size: 0.65rem;
-}
-
-#day-plan-modal .day-plan-tags-container {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    flex: 1;
-}
-
-#day-plan-modal .day-plan-tag-chip {
-    background: #fff;
-    color: #334155;
-    padding: 8px 12px;
-    border-radius: 10px;
-    font-size: 0.8rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    font-weight: 600;
-    border: 1px solid #c4b5fd;
-    box-shadow: 0 2px 4px rgba(139, 92, 246, 0.1);
-    animation: slideInRight 0.2s ease;
-}
-
-#day-plan-modal .day-plan-tag-main {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-#day-plan-modal .day-plan-tag-icon {
-    color: #8b5cf6;
-    font-size: 0.75rem;
-}
-
-#day-plan-modal .day-plan-status-pill {
-    font-size: 0.65rem;
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-weight: 700;
-}
-
-#day-plan-modal .day-plan-tag-pending {
-    font-size: 0.6rem;
-    color: #f59e0b;
-}
-
-#day-plan-modal .day-plan-remove-collab-btn {
-    cursor: pointer;
-    font-size: 0.75rem;
-    color: #94a3b8;
-    transition: color 0.2s;
-}
-
-#day-plan-modal .day-plan-remove-collab-btn:hover {
-    color: #ef4444;
-}
-
-#day-plan-modal .day-plan-no-tags-placeholder {
-    font-size: 0.75rem;
-    color: #a78bfa;
-    text-align: center;
-    padding: 1.5rem 1rem;
-    border: 2px dashed #ddd6fe;
-    border-radius: 10px;
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    background: #fff;
-}
-
-#day-plan-modal .day-plan-no-tags-placeholder-compact {
-    font-size: 0.7rem;
-    color: #cbd5e1;
-    padding-top: 1rem;
-    border: 1px dashed #e2e8f0;
-}
-
-#day-plan-modal .day-plan-no-tags-icon-wrap {
-    background: #f5f3ff;
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 0.25rem;
-}
-
-#day-plan-modal .day-plan-no-tags-icon {
-    font-size: 1.2rem;
-    color: #8b5cf6;
-}
-
-#day-plan-modal .day-plan-no-tags-title {
-    margin: 0;
-    font-weight: 600;
-    color: #6b21a8;
-}
-
-#day-plan-modal .day-plan-no-tags-text {
-    margin: 0;
-    font-size: 0.7rem;
-    color: #9333ea;
-    line-height: 1.3;
-}
-
-#day-plan-modal .day-plan-bottom-controls {
-    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-    padding: 0.85rem 1.25rem;
-    border-top: 2px solid #e2e8f0;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 1.5rem;
-    flex-wrap: wrap;
-}
-
-#day-plan-modal .day-plan-bottom-controls-compact {
-    background: #f1f5f9;
-    padding: 0.5rem 1rem;
-    border-top: 1px solid #e2e8f0;
-    gap: 1rem;
-}
-
-#day-plan-modal .day-plan-control-group {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-}
-
-#day-plan-modal .day-plan-control-label {
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: #334155;
-}
-
-#day-plan-modal .day-plan-control-label-compact {
-    font-size: 0.7rem;
-    color: #64748b;
-}
-
-#day-plan-modal .day-plan-select {
-    padding: 6px 10px;
-    border-radius: 8px;
-    border: 2px solid #d1d5db;
-    font-size: 0.8rem;
-    background: #fff;
-    color: #374151;
-    font-weight: 600;
-    cursor: pointer;
-}
-
-#day-plan-modal .day-plan-select:focus {
-    border-color: #6366f1;
-}
-
-#day-plan-modal .day-plan-select-compact {
-    padding: 4px 8px;
-    border-width: 1px;
-    font-size: 0.75rem;
-}
-
-#day-plan-modal .day-plan-status-tooltip {
-    position: absolute;
-    bottom: 60px;
-    left: 1.25rem;
-    background: #1e293b;
-    color: #fff;
-    padding: 0.85rem;
-    border-radius: 10px;
-    font-size: 0.75rem;
-    max-width: 280px;
-    z-index: 10;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
-    line-height: 1.5;
-}
-
-#day-plan-modal .day-plan-status-tooltip-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.5rem;
-}
-
-#day-plan-modal .day-plan-status-tooltip-title {
-    font-size: 0.8rem;
-}
-
-#day-plan-modal .day-plan-status-tooltip-close {
-    background: transparent;
-    border: none;
-    color: #fff;
-    cursor: pointer;
-    font-size: 1rem;
-}
-
-#day-plan-modal .day-plan-status-tooltip-text {
-    margin: 0.4rem 0;
-    color: #cbd5e1;
-}
-
-#day-plan-modal .day-plan-status-tooltip-list {
-    margin: 0;
-    padding-left: 1.2rem;
-    color: #cbd5e1;
-}
-
-#day-plan-modal .day-plan-status-tooltip-list li {
-    margin: 0.25rem 0;
-}
-
-#day-plan-modal .day-plan-status-tooltip-arrow {
-    position: absolute;
-    bottom: -6px;
-    left: 20px;
-    width: 12px;
-    height: 12px;
-    background: #1e293b;
-    transform: rotate(45deg);
-}
-
-#day-plan-modal .day-plan-mini-label {
-    display: block;
-    font-size: 0.65rem;
-    font-weight: 800;
-    color: #94a3b8;
-    margin-bottom: 0.5rem;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-#day-plan-modal .day-plan-mention-item {
-    padding: 8px 12px;
-    font-size: 0.85rem;
-    cursor: pointer;
-    border-bottom: 1px solid #f1f5f9;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-#day-plan-modal .day-plan-mention-avatar {
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-}
-
-@media (max-width: 980px) {
-    #day-plan-modal .day-plan-context {
-        grid-template-columns: 1fr !important;
-    }
-
-    #day-plan-modal .plan-block>div {
-        flex-direction: column !important;
-    }
-
-    #day-plan-modal .plan-block>div>div {
-        border-right: none !important;
-        border-bottom: 1px solid #edf2f7 !important;
-    }
-
-    #day-plan-modal .plan-block>div>div:last-child {
-        border-bottom: none !important;
-    }
-}
-
-
-/* Day Plan Lean Theme */
-#day-plan-modal {
-    z-index: 1100 !important;
-}
-
-#day-plan-modal .day-plan-content {
-    max-width: 900px !important;
-    width: min(94vw, 900px) !important;
-    border-radius: 12px !important;
-    padding: 0.8rem !important;
-    box-shadow: 0 20px 45px rgba(15, 23, 42, 0.2) !important;
-}
-
-#day-plan-modal .day-plan-head {
-    margin-bottom: 0.7rem !important;
-    padding-bottom: 0.55rem;
-    border-bottom: 1px solid #edf2f7;
-}
-
-#day-plan-modal .day-plan-head h3 {
-    font-size: 1.1rem !important;
-    line-height: 1.25;
-    margin-bottom: 0.05rem;
-}
-
-#day-plan-modal .day-plan-head p {
-    font-size: 0.8rem !important;
-    color: #64748b !important;
-}
-
-#day-plan-modal .day-plan-head button {
-    width: 32px !important;
-    height: 32px !important;
-    border-radius: 8px !important;
-}
-
-#day-plan-modal .day-plan-intro {
-    padding: 0.6rem !important;
-    margin-bottom: 0.7rem !important;
-    border-radius: 10px !important;
-}
-
-#day-plan-modal .day-plan-intro h4 {
-    font-size: 0.85rem !important;
-}
-
-#day-plan-modal .day-plan-intro p {
-    font-size: 0.72rem !important;
-    line-height: 1.25 !important;
-}
-
-#day-plan-modal .day-plan-context {
-    gap: 0.45rem !important;
-    margin-bottom: 0.7rem !important;
-}
-
-#day-plan-modal .day-plan-context > div {
-    padding: 0.55rem !important;
-    border-radius: 8px !important;
-}
-
-#day-plan-modal #plans-container {
-    max-height: 52vh !important;
-    padding-right: 2px !important;
-}
-
-#day-plan-modal .day-plan-block-shell {
-    border: 1px solid #e6edf5 !important;
-    border-radius: 10px !important;
-    box-shadow: 0 3px 12px rgba(15, 23, 42, 0.06) !important;
-    margin-bottom: 0.65rem !important;
-    min-height: 148px !important;
-}
-
-#day-plan-modal .day-plan-block-body {
-    min-height: 148px !important;
-}
-
-#day-plan-modal .day-plan-left-panel,
-#day-plan-modal .day-plan-right-panel {
-    padding: 0.8rem !important;
-}
-
-#day-plan-modal .day-plan-right-panel {
-    background: linear-gradient(180deg, #fcfbff 0%, #f7f5ff 100%) !important;
-}
-
-#day-plan-modal .day-plan-label {
-    font-size: 0.8rem !important;
-}
-
-#day-plan-modal .day-plan-help-text {
-    font-size: 0.72rem !important;
-    margin-bottom: 0.5rem !important;
-}
-
-#day-plan-modal .day-plan-task-input {
-    height: 62px !important;
-    padding: 0.62rem 0.7rem !important;
-    font-size: 0.88rem !important;
-    line-height: 1.35 !important;
-    border-width: 1px !important;
-    border-radius: 8px !important;
-    margin-bottom: 0.55rem !important;
-}
-
-#day-plan-modal .day-plan-at-hint {
-    padding: 0.45rem !important;
-    margin-bottom: 0.55rem !important;
-    border-radius: 7px !important;
-}
-
-#day-plan-modal .day-plan-sub-section {
-    padding-top: 0.5rem !important;
-}
-
-#day-plan-modal .day-plan-sub-help {
-    font-size: 0.68rem !important;
-    margin-bottom: 0.35rem !important;
-}
-
-#day-plan-modal .day-plan-sub-row {
-    gap: 0.35rem !important;
-}
-
-#day-plan-modal .day-plan-sub-input {
-    padding: 0.42rem !important;
-    font-size: 0.78rem !important;
-    border-radius: 6px !important;
-}
-
-#day-plan-modal .day-plan-add-step-btn {
-    margin-top: 0.35rem !important;
-    padding: 5px 8px !important;
-    font-size: 0.76rem !important;
-}
-
-#day-plan-modal .day-plan-collab-hint {
-    padding: 0.45rem !important;
-    font-size: 0.68rem !important;
-    margin-bottom: 0.55rem !important;
-}
-
-#day-plan-modal .day-plan-tag-chip {
-    padding: 6px 8px !important;
-    border-radius: 8px !important;
-    font-size: 0.76rem !important;
-    box-shadow: none !important;
-}
-
-#day-plan-modal .day-plan-status-pill {
-    font-size: 0.6rem !important;
-}
-
-#day-plan-modal .day-plan-no-tags-placeholder {
-    padding: 0.55rem !important;
-    min-height: 78px !important;
-}
-
-#day-plan-modal .day-plan-footer {
-    margin-top: 0.65rem !important;
-    gap: 0.5rem !important;
-    padding-top: 0.5rem !important;
-    border-top: 1px solid #edf2f7;
-}
-
-#day-plan-modal .day-plan-add-task-btn {
-    min-width: 170px !important;
-    padding: 0.62rem !important;
-    font-size: 0.82rem !important;
-    border-radius: 9px !important;
-}
-
-#day-plan-modal .day-plan-discard-btn,
-#day-plan-modal .day-plan-save-btn {
-    padding: 0.68rem !important;
-    font-size: 0.88rem !important;
-    border-radius: 9px !important;
-}
-
-@media (max-width: 980px) {
-    #day-plan-modal .day-plan-content {
-        width: 96vw !important;
-        max-width: 96vw !important;
-        padding: 0.65rem !important;
-    }
-
-    #day-plan-modal #plans-container {
-        max-height: 58vh !important;
-    }
-
-#day-plan-modal .day-plan-footer > div {
-        min-width: 100% !important;
-    }
-}
+/* [Legacy Day Plan Styles Block 1 Removed] */
 
 /* Policies Modern */
 .policies-modern {
@@ -5696,7 +5182,7 @@ textarea:focus {
     overflow: hidden;
 }
 
-.policies-leave-bar > div {
+.policies-leave-bar>div {
     height: 100%;
 }
 
@@ -5732,7 +5218,7 @@ textarea:focus {
     font-weight: 700;
 }
 
-.policies-hours-box > div {
+.policies-hours-box>div {
     margin-top: 0.28rem;
     color: var(--text-main);
     font-size: 1rem;
@@ -6598,6 +6084,36 @@ textarea:focus {
     height: 100%;
 }
 
+/* toolbar styles for minutes modal */
+.minutes-detail-modal .minutes-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
+.minutes-detail-modal .minutes-toolbar .minutes-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+}
+
+.minutes-detail-modal .minutes-toolbar .minutes-toolbar-actions {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+
+.minutes-detail-modal .minutes-toolbar .minutes-toolbar-actions .action-btn {
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+}
+
+
 @media (max-width: 900px) {
     .minutes-detail-modal .modal-body-grid {
         grid-template-columns: 1fr;
@@ -6609,16 +6125,20 @@ textarea:focus {
         grid-template-columns: 1fr;
         max-height: 180px;
     }
+
     .minutes-detail-modal .modal-body-grid {
         grid-template-columns: 1fr !important;
     }
-    .minutes-detail-modal .modal-body-grid > div {
+
+    .minutes-detail-modal .modal-body-grid>div {
         padding: 1rem !important;
     }
+
     .minutes-detail-modal .action-item-row {
         grid-template-columns: 1fr !important;
         gap: 0.6rem !important;
     }
+
     .minutes-detail-modal .action-item-row input,
     .minutes-detail-modal .action-item-row select {
         width: 100% !important;
@@ -6690,7 +6210,7 @@ textarea:focus {
     padding: 0.75rem;
 }
 
-.minutes-actions-box > label {
+.minutes-actions-box>label {
     margin-bottom: 0.55rem !important;
 }
 
@@ -6871,430 +6391,7 @@ textarea:focus {
     }
 }
 
-/* Day Plan Premium Minimal Palette + Typography */
-#day-plan-modal {
-    --dp-text-strong: var(--text-main);
-    --dp-text-main: var(--text-main);
-    --dp-text-soft: var(--text-muted);
-    --dp-line: #dbe4f0;
-    --dp-line-soft: #edf2f7;
-    --dp-surface: var(--bg-card);
-    --dp-surface-muted: #f6f9fc;
-    --dp-surface-accent: #eef3f9;
-    --dp-brand: var(--primary);
-    --dp-brand-soft: #e8eef8;
-}
-
-#day-plan-modal .day-plan-content {
-    background: var(--dp-surface) !important;
-}
-
-#day-plan-modal .day-plan-head {
-    border-bottom-color: var(--dp-line-soft) !important;
-}
-
-#day-plan-modal .day-plan-head h3 {
-    color: var(--dp-text-strong) !important;
-    font-weight: 650 !important;
-    letter-spacing: -0.01em;
-}
-
-#day-plan-modal .day-plan-head p {
-    color: var(--dp-text-soft) !important;
-    font-weight: 500;
-    letter-spacing: 0.01em;
-}
-
-#day-plan-modal .day-plan-intro {
-    background: linear-gradient(180deg, #fbfdff 0%, #f6f9fc 100%) !important;
-    border-color: #d7e4f2 !important;
-}
-
-#day-plan-modal .day-plan-intro h4,
-#day-plan-modal .day-plan-intro p {
-    color: #334155 !important;
-}
-
-#day-plan-modal .day-plan-context > div {
-    background: var(--dp-surface-muted) !important;
-    border-color: var(--dp-line) !important;
-}
-
-#day-plan-modal .day-plan-block-shell {
-    background: var(--dp-surface) !important;
-    border-color: #e8eef5 !important;
-}
-
-#day-plan-modal .day-plan-right-panel {
-    background: linear-gradient(180deg, #fbfbff 0%, var(--dp-surface-accent) 100%) !important;
-}
-
-#day-plan-modal .day-plan-label {
-    color: var(--dp-text-main) !important;
-    font-weight: 650 !important;
-}
-
-#day-plan-modal .day-plan-help-text,
-#day-plan-modal .day-plan-sub-help {
-    color: var(--dp-text-soft) !important;
-    font-style: normal !important;
-    letter-spacing: 0.005em;
-}
-
-#day-plan-modal .day-plan-task-input,
-#day-plan-modal .day-plan-sub-input,
-#day-plan-modal .day-plan-select {
-    color: var(--dp-text-main) !important;
-    background: #fff !important;
-    border-color: var(--dp-line) !important;
-}
-
-#day-plan-modal .day-plan-task-input::placeholder,
-#day-plan-modal .day-plan-sub-input::placeholder {
-    color: #94a3b8 !important;
-}
-
-#day-plan-modal .day-plan-task-input:focus,
-#day-plan-modal .day-plan-sub-input:focus,
-#day-plan-modal .day-plan-select:focus {
-    border-color: #94a3b8 !important;
-    box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.16) !important;
-}
-
-#day-plan-modal .day-plan-at-hint {
-    background: #fffaf2 !important;
-    border-color: #f9d9ad !important;
-}
-
-#day-plan-modal .day-plan-at-hint-text {
-    color: #9a4a15 !important;
-}
-
-#day-plan-modal .day-plan-collab-hint {
-    background: #f8f7ff !important;
-    border-color: #ddd6fe !important;
-    color: #5b21b6 !important;
-}
-
-#day-plan-modal .day-plan-tag-chip {
-    border-color: #d8d4fe !important;
-    background: #fff !important;
-    color: var(--dp-text-main) !important;
-}
-
-#day-plan-modal .day-plan-tag-icon {
-    color: #6366f1 !important;
-}
-
-#day-plan-modal .day-plan-no-tags-title {
-    color: var(--dp-text-main) !important;
-    font-weight: 650 !important;
-}
-
-#day-plan-modal .day-plan-no-tags-text,
-#day-plan-modal .day-plan-mini-label {
-    color: var(--dp-text-soft) !important;
-}
-
-#day-plan-modal .day-plan-footer {
-    border-top-color: var(--dp-line-soft) !important;
-}
-
-#day-plan-modal .day-plan-add-task-btn {
-    background: #f6fdf8 !important;
-    border-color: #86efac !important;
-    color: #166534 !important;
-}
-
-#day-plan-modal .day-plan-discard-btn {
-    color: #475569 !important;
-    border-color: var(--dp-line) !important;
-    background: #fff !important;
-}
-
-#day-plan-modal .day-plan-save-btn {
-    background: linear-gradient(90deg, var(--primary) 0%, var(--primary-dark) 100%) !important;
-    color: #fff !important;
-    border: none !important;
-}
-
-/* Day Plan Premium Minimal Micro-Pass */
-#day-plan-modal .day-plan-head h3 {
-    font-size: clamp(1.18rem, 1.7vw, 1.35rem) !important;
-    line-height: 1.2 !important;
-}
-
-#day-plan-modal .day-plan-head p {
-    font-size: 0.9rem !important;
-}
-
-#day-plan-modal .day-plan-label {
-    letter-spacing: 0.01em !important;
-}
-
-#day-plan-modal .day-plan-mini-label {
-    font-weight: 560 !important;
-}
-
-#day-plan-modal .day-plan-save-btn i,
-#day-plan-modal .day-plan-add-task-btn i,
-#day-plan-modal .day-plan-add-step-btn i {
-    font-size: 0.86em !important;
-    opacity: 0.92;
-}
-
-#day-plan-modal .day-plan-task-input,
-#day-plan-modal .day-plan-sub-input,
-#day-plan-modal .day-plan-select,
-#day-plan-modal .day-plan-tag-chip,
-#day-plan-modal .day-plan-add-task-btn,
-#day-plan-modal .day-plan-discard-btn,
-#day-plan-modal .day-plan-save-btn {
-    transition: background-color 170ms ease, border-color 170ms ease, color 170ms ease, box-shadow 170ms ease, transform 170ms ease;
-}
-
-#day-plan-modal .day-plan-tag-chip:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08) !important;
-}
-
-#day-plan-modal .day-plan-add-task-btn:hover,
-#day-plan-modal .day-plan-discard-btn:hover,
-#day-plan-modal .day-plan-save-btn:hover {
-    transform: translateY(-1px);
-}
-
-#day-plan-modal .day-plan-add-task-btn:active,
-#day-plan-modal .day-plan-discard-btn:active,
-#day-plan-modal .day-plan-save-btn:active {
-    transform: translateY(0);
-}
-
-#day-plan-modal .day-plan-add-task-btn:focus-visible,
-#day-plan-modal .day-plan-discard-btn:focus-visible,
-#day-plan-modal .day-plan-save-btn:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.24) !important;
-}
-
-/* Day Plan Footer/Scroll Fix */
-#day-plan-modal #plans-container {
-    overflow-y: auto !important;
-    max-height: 56vh !important;
-    padding-bottom: 0.35rem !important;
-}
-
-#day-plan-modal .day-plan-footer {
-    position: static !important;
-    bottom: auto !important;
-    z-index: 1 !important;
-    background: transparent !important;
-}
-
-/* Day Plan Auto-Fit Window (Desktop + Mobile) */
-#day-plan-modal .day-plan-content {
-    width: min(92vw, 760px) !important;
-    max-height: min(88vh, 760px) !important;
-    padding: 0.65rem !important;
-    overflow: hidden !important;
-    display: flex !important;
-    flex-direction: column !important;
-}
-
-#day-plan-modal .day-plan-head {
-    margin-bottom: 0.5rem !important;
-    padding-bottom: 0.45rem !important;
-    flex-shrink: 0;
-}
-
-#day-plan-modal .day-plan-content form {
-    display: flex !important;
-    flex-direction: column !important;
-    min-height: 0 !important;
-    flex: 1 1 auto !important;
-}
-
-#day-plan-modal #plans-container {
-    flex: 1 1 auto !important;
-    min-height: 0 !important;
-    max-height: none !important;
-    overflow-y: auto !important;
-    padding-right: 2px !important;
-}
-
-#day-plan-modal .plan-block {
-    margin-bottom: 0.55rem !important;
-}
-
-#day-plan-modal .day-plan-block-body {
-    min-height: 120px !important;
-}
-
-#day-plan-modal .day-plan-left-panel,
-#day-plan-modal .day-plan-right-panel {
-    padding: 0.62rem !important;
-}
-
-#day-plan-modal .day-plan-task-input {
-    height: 54px !important;
-    margin-bottom: 0.45rem !important;
-}
-
-#day-plan-modal .day-plan-sub-section {
-    padding-top: 0.4rem !important;
-}
-
-#day-plan-modal .day-plan-collab-hint {
-    margin-bottom: 0.45rem !important;
-    padding: 0.38rem !important;
-}
-
-#day-plan-modal .day-plan-footer {
-    margin-top: 0.4rem !important;
-    padding-top: 0.4rem !important;
-    flex-shrink: 0 !important;
-    background: #fff !important;
-    border-top: 1px solid #edf2f7 !important;
-}
-
-#day-plan-modal .day-plan-add-task-btn,
-#day-plan-modal .day-plan-discard-btn,
-#day-plan-modal .day-plan-save-btn {
-    padding: 0.58rem !important;
-    font-size: 0.84rem !important;
-}
-
-@media (max-width: 768px) {
-    #day-plan-modal .day-plan-content {
-        width: 96vw !important;
-        max-height: 90vh !important;
-        padding: 0.5rem !important;
-        border-radius: 10px !important;
-    }
-
-    #day-plan-modal .day-plan-head h3 {
-        font-size: 1rem !important;
-    }
-
-    #day-plan-modal .day-plan-head p {
-        font-size: 0.74rem !important;
-    }
-
-    #day-plan-modal .day-plan-block-body {
-        grid-template-columns: 1fr !important;
-        min-height: auto !important;
-    }
-
-    #day-plan-modal .day-plan-left-panel,
-    #day-plan-modal .day-plan-right-panel {
-        padding: 0.52rem !important;
-    }
-
-    #day-plan-modal .day-plan-label {
-        font-size: 0.76rem !important;
-    }
-
-    #day-plan-modal .day-plan-help-text,
-    #day-plan-modal .day-plan-sub-help,
-    #day-plan-modal .day-plan-collab-hint {
-        font-size: 0.66rem !important;
-    }
-
-    #day-plan-modal .day-plan-task-input {
-        height: 48px !important;
-        font-size: 0.82rem !important;
-    }
-
-    #day-plan-modal .day-plan-footer {
-        gap: 0.4rem !important;
-    }
-
-    #day-plan-modal .day-plan-footer > div {
-        min-width: 100% !important;
-    }
-}
-
-/* Day Plan compact single-column layout */
-#day-plan-modal .day-plan-block-body {
-    flex-direction: column !important;
-    min-height: 0 !important;
-}
-
-#day-plan-modal .day-plan-block-shell {
-    min-height: 0 !important;
-}
-
-#day-plan-modal .day-plan-left-panel {
-    border-right: none !important;
-    width: 100%;
-    padding: 0.9rem !important;
-}
-
-#day-plan-modal .day-plan-task-input {
-    height: 64px !important;
-}
-
-#day-plan-modal .day-plan-collab-inline {
-    margin: 0 0 0.5rem 0;
-    padding: 0.4rem 0.5rem;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    background: #f8fafc;
-}
-
-#day-plan-modal .day-plan-collab-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.6rem;
-    margin-bottom: 0.3rem;
-}
-
-#day-plan-modal .day-plan-collab-hint {
-    font-size: 0.64rem !important;
-    color: #64748b;
-}
-
-#day-plan-modal .day-plan-tags-inline {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.3rem;
-    min-height: 26px;
-}
-
-#day-plan-modal .day-plan-no-tags-placeholder {
-    width: 100%;
-    padding: 0.3rem 0.4rem !important;
-    border-radius: 8px !important;
-    border: 1px dashed #cbd5e1 !important;
-    background: #ffffff !important;
-}
-
-#day-plan-modal .day-plan-no-tags-icon-wrap {
-    width: 20px !important;
-    height: 20px !important;
-    margin-bottom: 0.2rem !important;
-}
-
-#day-plan-modal .day-plan-no-tags-title {
-    font-size: 0.7rem !important;
-    margin-bottom: 0.1rem !important;
-}
-
-#day-plan-modal .day-plan-no-tags-text {
-    font-size: 0.64rem !important;
-}
-
-@media (max-width: 700px) {
-    #day-plan-modal .day-plan-collab-head {
-        flex-direction: column;
-        align-items: flex-start;
-    }
-
-    #day-plan-modal .day-plan-content {
-        padding: 0.7rem !important;
-    }
-}
+/* [Legacy Day Plan Styles Removed - Consolidated in day-plan.css] */
 
 /* Global Modal Refresh: warm, fresh, professional */
 .annual-detail-modal,
@@ -7310,24 +6407,20 @@ textarea:focus {
     box-shadow: 0 24px 44px rgba(15, 23, 42, 0.22), 0 4px 12px rgba(120, 53, 15, 0.12) !important;
 }
 
-.annual-detail-modal .annual-detail-item,
-#day-plan-modal .plan-block,
-#day-plan-modal .day-plan-block-shell {
+.annual-detail-modal .annual-detail-item {
     background: rgba(255, 255, 255, 0.84) !important;
     border-color: #f6d8b9 !important;
 }
 
 .modal-content button:not(.action-btn),
-.annual-detail-modal button:not(.action-btn),
-#day-plan-modal button:not(.action-btn):not(.day-plan-save-btn):not(.day-plan-discard-btn):not(.day-plan-add-task-btn) {
+.annual-detail-modal button:not(.action-btn) {
     border-color: #f4d2ae !important;
     background: #fff8f0 !important;
     color: #7c2d12 !important;
 }
 
 .modal-content button:not(.action-btn):hover,
-.annual-detail-modal button:not(.action-btn):hover,
-#day-plan-modal button:not(.action-btn):not(.day-plan-save-btn):not(.day-plan-discard-btn):not(.day-plan-add-task-btn):hover {
+.annual-detail-modal button:not(.action-btn):hover {
     background: #ffedd5 !important;
 }
 
@@ -7502,7 +6595,7 @@ textarea:focus {
 }
 
 @media print {
-    body.salary-slip-print-mode .app-container > * {
+    body.salary-slip-print-mode .app-container>* {
         visibility: hidden !important;
     }
 
@@ -7647,164 +6740,7 @@ textarea:focus {
     box-shadow: 1px 0 0 #e2e8f0;
 }
 
-/* Day Plan: declutter, per-task scope, collapsible cards, and inline collaborators */
-#day-plan-modal .day-plan-content {
-    max-height: min(90vh, 920px);
-    overflow: auto;
-}
-
-#day-plan-modal .day-plan-block-shell {
-    border: 1px solid #dbe7ff;
-    border-radius: 14px;
-    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
-    margin-bottom: 0.85rem;
-    overflow: hidden;
-}
-
-#day-plan-modal .day-plan-block-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.7rem;
-    padding: 0.55rem 0.75rem;
-    border-bottom: 1px solid #e2e8f0;
-    background: #f1f5ff;
-}
-
-#day-plan-modal .day-plan-block-head-main {
-    display: flex;
-    align-items: center;
-    gap: 0.55rem;
-    min-width: 0;
-}
-
-#day-plan-modal .day-plan-task-summary {
-    font-size: 0.8rem;
-    font-weight: 700;
-    color: #1e3a8a;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 48ch;
-}
-
-#day-plan-modal .day-plan-scope-pill {
-    font-size: 0.67rem;
-    font-weight: 700;
-    border-radius: 999px;
-    padding: 0.2rem 0.5rem;
-    color: #155e75;
-    background: #cffafe;
-    border: 1px solid #99f6e4;
-}
-
-#day-plan-modal .day-plan-block-head-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.45rem;
-}
-
-#day-plan-modal .day-plan-collapse-btn {
-    border: 1px solid #cbd5e1;
-    background: #ffffff;
-    color: #334155;
-    border-radius: 8px;
-    padding: 0.34rem 0.52rem;
-    font-size: 0.74rem;
-    font-weight: 700;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    cursor: pointer;
-}
-
-#day-plan-modal .day-plan-inline-work-controls {
-    border: 1px solid #dbeafe;
-    border-radius: 12px;
-    background: #f8fbff;
-    padding: 0.55rem;
-    margin-top: 0.5rem;
-}
-
-#day-plan-modal .day-plan-scope-select {
-    max-width: 190px;
-}
-
-#day-plan-modal .day-plan-collab-inline {
-    margin: 0.45rem 0 0.35rem 0;
-}
-
-#day-plan-modal .day-plan-collab-picker {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-}
-
-#day-plan-modal .day-plan-collab-option {
-    border: 1px solid #bfdbfe;
-    background: #eff6ff;
-    color: #1e40af;
-    border-radius: 999px;
-    padding: 0.24rem 0.56rem;
-    font-size: 0.72rem;
-    font-weight: 700;
-    cursor: pointer;
-}
-
-#day-plan-modal .day-plan-collab-option.selected {
-    border-color: #16a34a;
-    background: #dcfce7;
-    color: #166534;
-}
-
-#day-plan-modal .day-plan-collab-empty {
-    font-size: 0.72rem;
-    color: #64748b;
-}
-
-#day-plan-modal .day-plan-tags-inline {
-    margin-top: 0.35rem;
-}
-
-#day-plan-modal .is-collapsed .day-plan-block-body,
-#day-plan-modal .is-collapsed .day-plan-bottom-controls {
-    display: none;
-}
-
-@media (max-width: 768px) {
-    #day-plan-modal .day-plan-content {
-        width: 96%;
-        max-height: 94vh;
-        padding: 0.72rem !important;
-    }
-
-    #day-plan-modal .day-plan-task-summary {
-        max-width: 24ch;
-    }
-
-    #day-plan-modal .day-plan-block-head {
-        align-items: flex-start;
-        flex-direction: column;
-    }
-
-    #day-plan-modal .day-plan-block-head-actions {
-        width: 100%;
-        justify-content: flex-end;
-    }
-
-    #day-plan-modal .day-plan-collab-picker {
-        max-height: 108px;
-        overflow: auto;
-        padding-right: 0.1rem;
-    }
-
-    #day-plan-modal .day-plan-footer {
-        position: sticky;
-        bottom: 0;
-        background: #ffffff;
-        padding-top: 0.65rem;
-    }
-}
+/* [Legacy Day Plan Styles Block 2 Removed] */
 
 /* Stitch-inspired skin layer for existing Plan Your Day modal */
 /* Annual Plan V2 */
@@ -7826,15 +6762,18 @@ textarea:focus {
 .annual-v2-header .annual-toggle-btn {
     color: rgba(15, 23, 42, 0.75);
 }
+
 .annual-v2-header .annual-toggle-btn.active {
     background: #1e40af;
     color: #fff;
 }
+
 .annual-v2-header .annual-today-btn {
     background: #eff6ff;
     color: #1d4ed8;
     border-color: #bfdbfe;
 }
+
 .annual-v2-header .annual-today-btn:hover {
     background: #dbeafe;
 }
@@ -7925,7 +6864,7 @@ textarea:focus {
     background: linear-gradient(100deg, #ffffff 0%, #f0f6ff 62%, #e8f1ff 100%);
 }
 
-.annual-v2-modal .annual-v2-modal-list > div,
+.annual-v2-modal .annual-v2-modal-list>div,
 .annual-v2-modal .annual-v2-detail-item {
     border-color: #dce8ff !important;
     background: #ffffff;

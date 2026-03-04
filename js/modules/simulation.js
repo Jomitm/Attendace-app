@@ -1,104 +1,108 @@
+import { AppDB } from './db.js';
+import { AppConfig } from '../config.js';
+
 /**
  * Simulation Module
  * Injects optional demo events and performs one-time legacy dummy cleanup.
  */
-(function () {
-    class Simulation {
-        constructor() {
-            this.db = window.AppDB;
-            this.cleanupFlag = 'legacy_dummy_cleanup_v1';
-            this.simulationFlag = 'simulation_run_v2';
+export class Simulation {
+    constructor() {
+        this.db = AppDB;
+        this.cleanupFlag = 'legacy_dummy_cleanup_v1';
+        this.simulationFlag = 'simulation_run_v2';
+    }
+
+    async run() {
+        const flags = (AppConfig && AppConfig.READ_OPT_FLAGS) || {};
+        const host = (typeof window !== 'undefined' && window.location && window.location.hostname) ? window.location.hostname : '';
+        const isLocalHost = host === 'localhost' || host === '127.0.0.1';
+        if (!flags.ENABLE_SIMULATION_MODULE && !isLocalHost) {
+            return;
         }
 
-        async run() {
-            const flags = (window.AppConfig && window.AppConfig.READ_OPT_FLAGS) || {};
-            const host = (typeof window !== 'undefined' && window.location && window.location.hostname) ? window.location.hostname : '';
-            const isLocalHost = host === 'localhost' || host === '127.0.0.1';
-            if (!flags.ENABLE_SIMULATION_MODULE && !isLocalHost) {
-                return;
-            }
-
-            if (!localStorage.getItem(this.cleanupFlag)) {
-                await this.cleanupLegacyDummyData();
-                localStorage.setItem(this.cleanupFlag, 'true');
-            }
-
-            if (localStorage.getItem(this.simulationFlag)) {
-                console.log('Simulation already ran. Use window.AppSimulation.forceRun() to force.');
-                return;
-            }
-
-            await this.forceRun();
-            localStorage.setItem(this.simulationFlag, 'true');
+        if (!localStorage.getItem(this.cleanupFlag)) {
+            await this.cleanupLegacyDummyData();
+            localStorage.setItem(this.cleanupFlag, 'true');
         }
 
-        async cleanupLegacyDummyData() {
-            const legacyIds = new Set(['sim_punctual', 'sim_admin_new']);
-            const legacyUsernames = new Set(['jomit_p', 'maria']);
-
-            try {
-                const users = await this.db.getAll('users');
-                const matchedUsers = users.filter((u) =>
-                    legacyIds.has(u.id) || legacyUsernames.has((u.username || '').trim().toLowerCase())
-                );
-                const targetIds = new Set(matchedUsers.map((u) => u.id));
-
-                if (targetIds.size === 0) return;
-
-                const attendance = await this.db.getAll('attendance');
-                for (const log of attendance) {
-                    const uid = log.user_id || log.userId;
-                    if (targetIds.has(uid)) {
-                        await this.db.delete('attendance', log.id);
-                    }
-                }
-
-                const leaves = await this.db.getAll('leaves');
-                for (const leave of leaves) {
-                    const uid = leave.userId || leave.user_id;
-                    if (targetIds.has(uid)) {
-                        await this.db.delete('leaves', leave.id);
-                    }
-                }
-
-                const plans = await this.db.getAll('work_plans');
-                for (const plan of plans) {
-                    const uid = plan.userId || plan.user_id;
-                    if (targetIds.has(uid)) {
-                        await this.db.delete('work_plans', plan.id);
-                    }
-                }
-
-                for (const user of matchedUsers) {
-                    await this.db.delete('users', user.id);
-                }
-
-                console.log('Legacy dummy users and linked records removed.');
-            } catch (error) {
-                console.warn('Legacy dummy cleanup failed:', error);
-            }
+        if (localStorage.getItem(this.simulationFlag)) {
+            console.log('Simulation already ran. Use window.AppSimulation.forceRun() to force.');
+            return;
         }
 
-        async forceRun() {
-            console.log('Starting Office Scenario Simulation (V2)...');
+        await this.forceRun();
+        localStorage.setItem(this.simulationFlag, 'true');
+    }
 
-            // Simulation now only handles shared event setup.
-            const today = new Date();
+    async cleanupLegacyDummyData() {
+        const legacyIds = new Set(['sim_punctual', 'sim_admin_new']);
+        const legacyUsernames = new Set(['jomit_p', 'maria']);
 
-            if (window.AppCalendar) {
-                const holidayDate = new Date(today);
-                holidayDate.setDate(holidayDate.getDate() + 1);
-                await window.AppCalendar.addEvent({
-                    title: 'Office Picnic/Holiday',
-                    date: holidayDate.toISOString().split('T')[0],
-                    type: 'holiday'
-                });
+        try {
+            const users = await this.db.getAll('users');
+            const matchedUsers = users.filter((u) =>
+                legacyIds.has(u.id) || legacyUsernames.has((u.username || '').trim().toLowerCase())
+            );
+            const targetIds = new Set(matchedUsers.map((u) => u.id));
+
+            if (targetIds.size === 0) return;
+
+            const attendance = await this.db.getAll('attendance');
+            for (const log of attendance) {
+                const uid = log.user_id || log.userId;
+                if (targetIds.has(uid)) {
+                    await this.db.delete('attendance', log.id);
+                }
             }
 
-            console.log('Simulation Complete.');
+            const leaves = await this.db.getAll('leaves');
+            for (const leave of leaves) {
+                const uid = leave.userId || leave.user_id;
+                if (targetIds.has(uid)) {
+                    await this.db.delete('leaves', leave.id);
+                }
+            }
+
+            const plans = await this.db.getAll('work_plans');
+            for (const plan of plans) {
+                const uid = plan.userId || plan.user_id;
+                if (targetIds.has(uid)) {
+                    await this.db.delete('work_plans', plan.id);
+                }
+            }
+
+            for (const user of matchedUsers) {
+                await this.db.delete('users', user.id);
+            }
+
+            console.log('Legacy dummy users and linked records removed.');
+        } catch (error) {
+            console.warn('Legacy dummy cleanup failed:', error);
         }
     }
 
-    window.AppSimulation = new Simulation();
-    setTimeout(() => window.AppSimulation.run(), 2000);
-})();
+    async forceRun() {
+        console.log('Starting Office Scenario Simulation (V2)...');
+
+        // Simulation now only handles shared event setup.
+        const today = new Date();
+
+        if (window.AppCalendar) {
+            const holidayDate = new Date(today);
+            holidayDate.setDate(holidayDate.getDate() + 1);
+            await window.AppCalendar.addEvent({
+                title: 'Office Picnic/Holiday',
+                date: holidayDate.toISOString().split('T')[0],
+                type: 'holiday'
+            });
+        }
+
+        console.log('Simulation Complete.');
+    }
+}
+
+export const AppSimulation = new Simulation();
+if (typeof window !== 'undefined') {
+    window.AppSimulation = AppSimulation;
+    setTimeout(() => AppSimulation.run(), 2000);
+}

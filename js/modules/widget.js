@@ -3,7 +3,7 @@
  * Handles the "Widget Mode" UI state and persistence.
  */
 
-const Widget = {
+export const Widget = {
     isWidgetMode: false,
     syncInterval: null,
 
@@ -255,5 +255,7 @@ const Widget = {
     }
 };
 
-window.Widget = Widget;
-Widget.init();
+if (typeof window !== 'undefined') {
+    window.Widget = Widget;
+    Widget.init();
+}
