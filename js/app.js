@@ -2428,12 +2428,41 @@ window.app_handleTagResponse = async (planId, taskIndex, response, notifIdx) => 
     const user = window.AppAuth.getUser();
     try {
         // 1. Fetch the original work plan
-        const plan = await window.AppDB.get('work_plans', planId);
-        if (!plan || !plan.plans || !plan.plans[taskIndex]) {
-            throw new Error("Plan or task not found.");
-        }
+        const plan = planId ? await window.AppDB.get('work_plans', planId).catch(() => null) : null;
 
-        // 2. Update the tag status for the current user
+        // ── Graceful fallback ──────────────────────────────────────────────────
+        // If the plan document doesn't exist anymore, or the taskIndex is invalid
+        // (e.g. notification created for a direct tag without a work_plan backing it),
+        // fall back to updating only the notification record via app_handleTagDecision.
+        if (!plan || !plan.plans || !plan.plans[taskIndex]) {
+            console.warn(`app_handleTagResponse: plan/task not found for planId=${planId}, taskIdx=${taskIndex}. Falling back to notification-only update.`);
+            // Find the notification ID from notifIdx
+            const freshUser = await window.AppDB.get('users', user.id).catch(() => null);
+            const notifId = freshUser?.notifications?.[notifIdx]?.id || null;
+            if (notifId || notifIdx >= 0) {
+                await window.app_handleTagDecision(notifId || String(notifIdx), response);
+            } else {
+                // Minimal update: just mark the notification as read/dismissed
+                if (freshUser?.notifications?.[notifIdx]) {
+                    const nowIso = new Date().toISOString();
+                    freshUser.notifications[notifIdx].status = response;
+                    freshUser.notifications[notifIdx].respondedAt = nowIso;
+                    freshUser.notifications[notifIdx].read = true;
+                    freshUser.notifications[notifIdx].dismissedAt = nowIso;
+                    await window.AppDB.put('users', freshUser);
+                }
+                const contentArea = document.getElementById('page-content');
+                if (contentArea) {
+                    contentArea.innerHTML = await window.AppUI.renderDashboard();
+                    if (window.setupDashboardEvents) window.setupDashboardEvents();
+                }
+                alert(`You have ${response} the request.`);
+            }
+            return;
+        }
+        // ──────────────────────────────────────────────────────────────────────
+
+        // 2. Update the tag status for the current user in the work plan
         const task = plan.plans[taskIndex];
         if (task.tags) {
             const myTag = task.tags.find(t => t.id === user.id);
@@ -2496,17 +2525,21 @@ window.app_handleTagResponse = async (planId, taskIndex, response, notifIdx) => 
 
         // 5. Refresh UI
         if (window.AppStore && window.AppStore.invalidatePlans) {
-            window.AppStore.invalidatePlans(); // CACHE INVALIDATION
+            window.AppStore.invalidatePlans();
         }
         const contentArea = document.getElementById('page-content');
-        contentArea.innerHTML = await window.AppUI.renderDashboard();
-        if (window.setupDashboardEvents) window.setupDashboardEvents();
+        if (contentArea) {
+            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            if (window.setupDashboardEvents) window.setupDashboardEvents();
+        }
 
         alert(`You have ${response} the collaboration request.`);
     } catch (err) {
-        alert("Error: " + err.message);
+        console.error('app_handleTagResponse error:', err);
+        alert('Error processing your response. Please try again.');
     }
 };
+
 
 window.app_changeCalMonth = (delta) => {
     let newMonth = window.app_calMonth + delta;
