@@ -573,7 +573,11 @@ window.app_refreshNotificationBell = async () => {
 };
 
 window.app_closeNotificationHistory = () => {
-    document.getElementById('notification-history-modal')?.remove();
+    const drawer = document.getElementById('notification-history-modal');
+    const backdrop = document.getElementById('notif-drawer-backdrop');
+    if (drawer) drawer.classList.remove('notif-drawer-open');
+    if (backdrop) backdrop.classList.remove('notif-drawer-backdrop-visible');
+    setTimeout(() => document.getElementById('notif-drawer-root')?.remove(), 320);
 };
 
 window.app_respondNotificationFromHistory = async (notifIndex, notifId, action) => {
@@ -635,6 +639,7 @@ window.app_openNotificationHistory = async () => {
     const freshUser = await window.AppDB.get('users', currentUser.id).catch(() => currentUser);
     const notifications = Array.isArray(freshUser?.notifications) ? freshUser.notifications : [];
     const tagHistory = Array.isArray(freshUser?.tagHistory) ? freshUser.tagHistory : [];
+    const isAdmin = currentUser.isAdmin || currentUser.role === 'Administrator';
 
     const rows = [
         ...notifications.map((n, index) => ({ ...n, _source: 'live', _index: index })),
@@ -645,53 +650,197 @@ window.app_openNotificationHistory = async () => {
         return tb - ta;
     });
 
-    const listHtml = rows.length
-        ? rows.map((row) => {
-            const status = toSafeNotifStatus(row);
-            const pending = status === 'pending' && row._source === 'live';
-            const source = getNotifSource(row);
-            const sender = row.taggedByName || 'System';
-            const title = row.title || `${source} from ${sender}`;
-            const summary = getNotifPreview(row);
-            const notifIdArg = JSON.stringify(String(row.id || ''));
-            return `
-                    <div class="notification-history-item ${pending ? 'is-pending' : ''}">
-                        <div class="notification-history-item-head">
-                            <div>
-                                <div class="notification-history-title">${escapeDialogHtml(title)}</div>
-                                <div class="notification-history-meta">${escapeDialogHtml(source)} • ${escapeDialogHtml(sender)} • ${escapeDialogHtml(getNotifTimeLabel(row))}</div>
-                            </div>
-                            <span class="notification-history-badge ${escapeDialogHtml(status)}">${escapeDialogHtml(status)}</span>
+    const renderRow = (row) => {
+        const status = toSafeNotifStatus(row);
+        const isPending = status === 'pending' && row._source === 'live';
+        const source = getNotifSource(row);
+        const sender = row.taggedByName || 'System';
+        const title = row.title || `${source} from ${sender}`;
+        const summary = getNotifPreview(row);
+        const notifIdArg = JSON.stringify(String(row.id || ''));
+        const statusColors = {
+            pending: { bg: '#fff7ed', border: '#fdba74', badge: '#f97316' },
+            accepted: { bg: '#f0fdf4', border: '#86efac', badge: '#16a34a' },
+            rejected: { bg: '#fef2f2', border: '#fca5a5', badge: '#dc2626' },
+            default: { bg: '#f8fafc', border: '#e2e8f0', badge: '#6b7280' }
+        };
+        const colors = statusColors[status] || statusColors.default;
+
+        const dismissBtn = row._source === 'history'
+            ? `<button class="notif-drawer-dismiss" title="Remove" onclick="window.app_dismissNotifDrawerItem(null, ${notifIdArg}, 'history')"><i class="fa-solid fa-xmark"></i></button>`
+            : `<button class="notif-drawer-dismiss" title="Remove" onclick="window.app_dismissNotifDrawerItem(${Number(row._index)}, ${notifIdArg}, 'live')"><i class="fa-solid fa-xmark"></i></button>`;
+
+        const approveRejectBtns = (isPending || (isAdmin && row.type === 'minute-access-request')) ? `
+            <div class="notif-drawer-actions">
+                <button type="button" class="notif-drawer-btn approve" onclick="window.app_respondNotificationFromHistory(${Number(row._index)}, ${notifIdArg}, 'approve')">
+                    <i class="fa-solid fa-check"></i> Approve
+                </button>
+                <button type="button" class="notif-drawer-btn reject" onclick="window.app_respondNotificationFromHistory(${Number(row._index)}, ${notifIdArg}, 'reject')">
+                    <i class="fa-solid fa-xmark"></i> Reject
+                </button>
+            </div>` : '';
+
+        return `
+            <div class="notif-drawer-item ${isPending ? 'is-pending' : ''}" style="border-color:${colors.border}; background:${colors.bg};" data-notif-id="${escapeDialogHtml(String(row.id || ''))}">
+                <div class="notif-drawer-item-head">
+                    <div class="notif-drawer-item-left">
+                        <div class="notif-drawer-source-icon">
+                            <i class="fa-solid ${row.type === 'tag' || row.type === 'mention' ? 'fa-at' : row.type === 'task' ? 'fa-list-check' : row.type === 'minute-access-request' ? 'fa-file-lines' : 'fa-bell'}"></i>
                         </div>
-                        ${summary ? `<div class="notification-history-text">${escapeDialogHtml(summary)}</div>` : ''}
-                        ${pending ? `
-                            <div class="notification-history-actions">
-                                <button type="button" class="notification-history-btn approve" onclick="window.app_respondNotificationFromHistory(${Number(row._index)}, ${notifIdArg}, 'approve')">Approve</button>
-                                <button type="button" class="notification-history-btn reject" onclick="window.app_respondNotificationFromHistory(${Number(row._index)}, ${notifIdArg}, 'reject')">Reject</button>
-                            </div>
-                        ` : ''}
+                        <div>
+                            <div class="notif-drawer-title">${escapeDialogHtml(title)}</div>
+                            <div class="notif-drawer-meta">${escapeDialogHtml(source)} • ${escapeDialogHtml(sender)} • ${escapeDialogHtml(getNotifTimeLabel(row))}</div>
+                        </div>
                     </div>
-                `;
-        }).join('')
-        : '<div class="notification-history-item">No notification history found.</div>';
+                    <div class="notif-drawer-item-right">
+                        <span class="notif-drawer-badge" style="background:${colors.badge}">${escapeDialogHtml(status)}</span>
+                        ${dismissBtn}
+                    </div>
+                </div>
+                ${summary ? `<div class="notif-drawer-text">${escapeDialogHtml(summary)}</div>` : ''}
+                ${approveRejectBtns}
+            </div>`;
+    };
+
+    const listHtml = rows.length
+        ? rows.map(renderRow).join('')
+        : `<div class="notif-drawer-empty"><i class="fa-regular fa-bell-slash"></i><p>You're all caught up!</p></div>`;
+
+    const unreadCount = notifications.filter(isPendingNotif).length;
 
     const html = `
-            <div class="modal-overlay" id="notification-history-modal" style="display:flex;">
-                <div class="modal-content notification-history-modal">
-                    <div class="notification-history-head">
-                        <div>
-                            <h3 style="font-size:1rem; margin:0;">Notification History</h3>
-                            <p style="margin:2px 0 0; font-size:0.76rem; color:#6b7280;">Pending items stay here until approved/rejected.</p>
-                        </div>
-                        <button type="button" class="notification-history-btn" style="background:#e2e8f0; color:#1f2937;" onclick="window.app_closeNotificationHistory()">Close</button>
+        <div class="notif-drawer-backdrop" id="notif-drawer-backdrop" onclick="window.app_closeNotificationHistory()"></div>
+        <div class="notif-drawer" id="notification-history-modal">
+            <div class="notif-drawer-header">
+                <div class="notif-drawer-header-left">
+                    <i class="fa-solid fa-bell notif-drawer-header-icon"></i>
+                    <div>
+                        <div class="notif-drawer-header-title">Notifications</div>
+                        <div class="notif-drawer-header-sub">${unreadCount > 0 ? `${unreadCount} pending action${unreadCount > 1 ? 's' : ''}` : 'All caught up'}</div>
                     </div>
-                    <div class="notification-history-list">${listHtml}</div>
+                </div>
+                <div style="display:flex; gap:0.5rem; align-items:center;">
+                    ${rows.length > 0 ? `<button type="button" class="notif-drawer-clear-btn" onclick="window.app_dismissAllReadNotifications()">Clear Read</button>` : ''}
+                    <button type="button" class="notif-drawer-close-btn" onclick="window.app_closeNotificationHistory()"><i class="fa-solid fa-xmark"></i></button>
                 </div>
             </div>
-        `;
-    window.app_showModal(html, 'notification-history-modal');
+            <div class="notif-drawer-list" id="notif-drawer-list">${listHtml}</div>
+        </div>`;
+
+    // Inject into body (not modal-container) so it can slide in from the right
+    const wrapper = document.createElement('div');
+    wrapper.id = 'notif-drawer-root';
+    wrapper.innerHTML = html;
+    document.body.appendChild(wrapper);
+    // Trigger slide-in animation
+    requestAnimationFrame(() => {
+        const drawer = document.getElementById('notification-history-modal');
+        if (drawer) drawer.classList.add('notif-drawer-open');
+        const backdrop = document.getElementById('notif-drawer-backdrop');
+        if (backdrop) backdrop.classList.add('notif-drawer-backdrop-visible');
+    });
+
     await window.app_refreshNotificationBell();
 };
+
+// Dismiss a single notification item from the drawer
+window.app_dismissNotifDrawerItem = async (notifIndex, notifId, source) => {
+    const currentUser = window.AppAuth.getUser();
+    if (!currentUser) return;
+    try {
+        const freshUser = await window.AppDB.get('users', currentUser.id);
+        if (!freshUser) return;
+        if (source === 'live') {
+            const notifs = Array.isArray(freshUser.notifications) ? [...freshUser.notifications] : [];
+            // Find by ID first, fall back to index
+            const idx = notifs.findIndex(n => String(n.id) === String(notifId));
+            const removeIdx = idx >= 0 ? idx : (Number.isInteger(notifIndex) && notifIndex >= 0 ? notifIndex : -1);
+            if (removeIdx >= 0) {
+                notifs.splice(removeIdx, 1);
+                await window.AppDB.update('users', currentUser.id, { notifications: notifs });
+                if (window.AppAuth?.getUser) Object.assign(window.AppAuth.getUser(), { notifications: notifs });
+            }
+        } else {
+            // history
+            const hist = Array.isArray(freshUser.tagHistory) ? [...freshUser.tagHistory] : [];
+            const idx = hist.findIndex(h => String(h.id) === String(notifId));
+            if (idx >= 0) {
+                hist.splice(idx, 1);
+                await window.AppDB.update('users', currentUser.id, { tagHistory: hist });
+            }
+        }
+        // Remove item from DOM instantly
+        const item = document.querySelector(`[data-notif-id="${CSS.escape(String(notifId))}"]`);
+        if (item) {
+            item.style.transition = 'opacity 0.2s, transform 0.2s';
+            item.style.opacity = '0';
+            item.style.transform = 'translateX(30px)';
+            setTimeout(() => item.remove(), 220);
+        }
+        await window.app_refreshNotificationBell();
+        // Update header sub-text
+        const sub = document.querySelector('.notif-drawer-header-sub');
+        if (sub) {
+            const user = window.AppAuth.getUser();
+            const cnt = (user?.notifications || []).filter(isPendingNotif).length;
+            sub.textContent = cnt > 0 ? `${cnt} pending action${cnt > 1 ? 's' : ''}` : 'All caught up';
+        }
+    } catch (err) {
+        console.warn('Failed to dismiss notification', err);
+    }
+};
+
+// Bulk-remove all non-pending (read/dismissed) notifications
+window.app_dismissAllReadNotifications = async () => {
+    const currentUser = window.AppAuth.getUser();
+    if (!currentUser) return;
+    try {
+        const freshUser = await window.AppDB.get('users', currentUser.id);
+        if (!freshUser) return;
+        const notifs = (freshUser.notifications || []).filter(isPendingNotif);
+        const hist = []; // clear all tag history
+        await window.AppDB.update('users', currentUser.id, { notifications: notifs, tagHistory: hist });
+        if (window.AppAuth?.getUser) Object.assign(window.AppAuth.getUser(), { notifications: notifs, tagHistory: hist });
+        await window.app_refreshNotificationBell();
+        // Re-render the list
+        const list = document.getElementById('notif-drawer-list');
+        if (list) {
+            const remaining = notifs.map((n, i) => ({ ...n, _source: 'live', _index: i }));
+            list.innerHTML = remaining.length
+                ? remaining.map(r => {
+                    const status = toSafeNotifStatus(r);
+                    const source = getNotifSource(r);
+                    const sender = r.taggedByName || 'System';
+                    const title = r.title || `${source} from ${sender}`;
+                    const notifIdArg = JSON.stringify(String(r.id || ''));
+                    return `
+                        <div class="notif-drawer-item is-pending" data-notif-id="${escapeDialogHtml(String(r.id || ''))}">
+                            <div class="notif-drawer-item-head">
+                                <div class="notif-drawer-item-left">
+                                    <div class="notif-drawer-source-icon"><i class="fa-solid fa-at"></i></div>
+                                    <div>
+                                        <div class="notif-drawer-title">${escapeDialogHtml(title)}</div>
+                                        <div class="notif-drawer-meta">${escapeDialogHtml(source)} • ${escapeDialogHtml(sender)} • ${escapeDialogHtml(getNotifTimeLabel(r))}</div>
+                                    </div>
+                                </div>
+                                <div class="notif-drawer-item-right">
+                                    <span class="notif-drawer-badge" style="background:#f97316">${escapeDialogHtml(status)}</span>
+                                    <button class="notif-drawer-dismiss" onclick="window.app_dismissNotifDrawerItem(${r._index}, ${notifIdArg}, 'live')"><i class="fa-solid fa-xmark"></i></button>
+                                </div>
+                            </div>
+                            <div class="notif-drawer-actions">
+                                <button class="notif-drawer-btn approve" onclick="window.app_respondNotificationFromHistory(${r._index}, ${notifIdArg}, 'approve')"><i class="fa-solid fa-check"></i> Approve</button>
+                                <button class="notif-drawer-btn reject" onclick="window.app_respondNotificationFromHistory(${r._index}, ${notifIdArg}, 'reject')"><i class="fa-solid fa-xmark"></i> Reject</button>
+                            </div>
+                        </div>`;
+                }).join('')
+                : `<div class="notif-drawer-empty"><i class="fa-regular fa-bell-slash"></i><p>You're all caught up!</p></div>`;
+        }
+    } catch (err) {
+        console.warn('Failed to clear notifications', err);
+    }
+};
+
 
 window.app_systemDialog = function ({
     title = 'Notice',

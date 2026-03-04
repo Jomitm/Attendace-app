@@ -400,70 +400,11 @@ export function renderLeaveHistory(leaves, options = {}) {
         </div>`;
 }
 
-export function renderNotificationPanel(notifications, history) {
-    const currentUser = window.AppAuth.getUser();
-    const isAdmin = currentUser && (currentUser.isAdmin || currentUser.role === 'Administrator');
-    const liveNotifications = (notifications || []).filter(n => !n.dismissedAt && !n.read);
-    const items = [
-        ...liveNotifications.map((n, notifIndex) => ({
-            id: n.id,
-            notifIndex,
-            source: 'live',
-            type: n.type,
-            minuteId: n.minuteId || '',
-            requesterId: n.taggedById || n.requesterId || '',
-            name: n.taggedByName || 'System',
-            summary: n.message || (n.type === 'task' ? 'sent you a task' : 'sent you a reminder'),
-            snippet: n.title || n.description || '',
-            time: n.taggedAt || n.date,
-            status: n.status
-        })),
-        ...(history || []).map(h => ({
-            id: h.id,
-            notifIndex: null,
-            source: 'history',
-            name: h.taggedByName || 'System',
-            summary: `Tag ${h.status}`,
-            snippet: h.title || '',
-            time: h.date,
-            status: h.status
-        }))
-    ].sort((a, b) => new Date(b.time) - new Date(a.time));
-    if (items.length === 0) return '';
-    return `
-        <div class="card full-width dashboard-notifications-card">
-            <h4><i class="fa-solid fa-bell"></i> Notifications</h4>
-            <div class="dashboard-notifications-grid">
-                ${items.map((n) => `
-                    <div class="dashboard-notif-row">
-                        <div class="dashboard-notif-col">
-                            <div class="dashboard-notif-name">${safeHtml(n.name)}</div>
-                            <div class="dashboard-notif-summary">${safeHtml(n.summary)}</div>
-                        </div>
-                        <div class="dashboard-notif-col right">
-                            ${n.source === 'history' ? `
-                                <button class="dashboard-notif-close" title="Dismiss" onclick="document.dispatchEvent(new CustomEvent('dismiss-tag-history', { detail: '${n.id || ''}' }))">
-                                    <i class="fa-solid fa-xmark"></i>
-                                </button>
-                            ` : `
-                                <button class="dashboard-notif-close" title="Dismiss" onclick="document.dispatchEvent(new CustomEvent('dismiss-notification', { detail: { notifIndex: ${Number.isInteger(n.notifIndex) ? n.notifIndex : -1}, notifId: '${n.id || ''}' } }))">
-                                    <i class="fa-solid fa-xmark"></i>
-                                </button>
-                            `}
-                            ${isAdmin && n.source === 'live' && n.type === 'minute-access-request' ? `
-                                <div style="display:flex; gap:0.4rem; justify-content:flex-end; margin-bottom:0.3rem;">
-                                    <button type="button" onclick="window.app_reviewMinuteAccessFromNotification(${n.notifIndex}, '${n.id}', 'approved')" style="background:#10b981; color:#fff; border:none; border-radius:6px; padding:0.28rem 0.55rem; font-size:0.72rem; cursor:pointer;">Approve</button>
-                                    <button type="button" onclick="window.app_reviewMinuteAccessFromNotification(${n.notifIndex}, '${n.id}', 'rejected')" style="background:#ef4444; color:#fff; border:none; border-radius:6px; padding:0.28rem 0.55rem; font-size:0.72rem; cursor:pointer;">Reject</button>
-                                </div>
-                            ` : ''}
-                            <div class="dashboard-notif-snippet">${safeHtml(n.snippet || '--')}</div>
-                            <div class="dashboard-notif-time">${timeAgo(n.time)}</div>
-                        </div>
-                    </div>
-                `).join('')}
-            </div>
-        </div>
-    `;
+// Notifications are now exclusively inside the bell icon panel.
+// This function intentionally returns '' to keep the dashboard clean.
+// Only @mention / tag items (renderTaggedItems) are shown on the dashboard as they require action.
+export function renderNotificationPanel(_notifications, _history) {
+    return '';
 }
 
 export function renderTaggedItems(notifications) {
