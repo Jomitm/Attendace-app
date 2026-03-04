@@ -1,6 +1,6 @@
 /**
- * Profile Component
- * Handles rendering of user profiles, statistics, and employment details.
+ * Profile Component — Premium Redesign
+ * Hero banner + stats + real leave data + sign-out
  */
 
 import { safeHtml } from './helpers.js';
@@ -24,8 +24,7 @@ export async function renderProfile() {
         };
 
         const profileJoinDate = (typeof profileUser.joinDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(profileUser.joinDate))
-            ? profileUser.joinDate
-            : '';
+            ? profileUser.joinDate : '';
         const profileEmployeeId = profileJoinDate
             ? (profileUser.employeeId || deriveEmployeeId(profileJoinDate, profileUser.id))
             : 'NA';
@@ -36,159 +35,229 @@ export async function renderProfile() {
             window.AppLeaves ? window.AppLeaves.getUserLeaves(profileUser.id) : []
         ]);
 
-        // Handlers
         window.app_changeProfileStaff = async (staffId) => {
             window.app_profileTargetUserId = staffId || user.id;
             const contentArea = document.getElementById('page-content');
             if (contentArea) contentArea.innerHTML = await renderProfile();
         };
 
-        window.app_saveProfileEmployment = async () => {
-            alert('Staff employment and payroll details are view-only on this profile page.');
+        window.app_confirmSignOut = () => {
+            if (confirm('Are you sure you want to sign out?')) {
+                window.AppAuth.logout();
+            }
         };
 
+        const isViewingSelf = profileUser.id === user.id;
+        const attendanceRate = monthlyStats?.attendanceRate ?? '—';
+        const punctualityRate = monthlyStats?.punctualityRate ?? '—';
+        const totalHours = monthlyStats?.totalHours ?? '—';
+        const yearlyDays = yearlyStats?.totalDays ?? '—';
+
+        const statusColor = (s) => {
+            if (s === 'Approved') return '#16a34a';
+            if (s === 'Rejected') return '#dc2626';
+            return '#d97706';
+        };
+
+        const initials = (profileUser.name || 'U').split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
+
         return `
-            <div class="profile-container">
-                <header class="profile-header card">
-                    <div class="profile-cover"></div>
-                    <div class="profile-header-content">
-                        <div class="profile-avatar-wrap">
-                            <img src="${profileUser.avatar || 'https://via.placeholder.com/150'}" alt="${safeHtml(profileUser.name)}" class="profile-avatar">
-                            ${isAdmin ? `<button class="avatar-edit-btn" onclick="alert('Avatar editing disabled for security.')"><i class="fa-solid fa-camera"></i></button>` : ''}
+            <div class="pro-profile-root">
+
+                <!-- ── Hero Banner ── -->
+                <div class="pro-profile-hero">
+                    <div class="pro-profile-hero-bg"></div>
+                    <div class="pro-profile-hero-inner">
+                        <!-- Avatar -->
+                        <div class="pro-profile-avatar-ring">
+                            ${profileUser.avatar
+                ? `<img src="${safeHtml(profileUser.avatar)}" alt="${safeHtml(profileUser.name)}" class="pro-profile-avatar-img">`
+                : `<div class="pro-profile-avatar-initials">${initials}</div>`}
+                            <span class="pro-profile-status-dot ${profileUser.status === 'in' ? 'online' : 'offline'}"
+                                  title="${profileUser.status === 'in' ? 'Currently checked in' : 'Not checked in'}"></span>
                         </div>
-                        <div class="profile-info-main">
-                            <div class="profile-name-row">
-                                <h1>${safeHtml(profileUser.name)}</h1>
-                                <span class="profile-badge">${safeHtml(profileUser.role || 'Staff')}</span>
+
+                        <!-- Identity -->
+                        <div class="pro-profile-identity">
+                            <div class="pro-profile-name-row">
+                                <h1 class="pro-profile-name">${safeHtml(profileUser.name)}</h1>
+                                <span class="pro-profile-role-badge">${safeHtml(profileUser.role || 'Staff')}</span>
                             </div>
-                            <p class="profile-email"><i class="fa-solid fa-envelope"></i> ${safeHtml(profileUser.email)}</p>
-                            <div class="profile-meta-tags">
-                                <span><i class="fa-solid fa-id-card"></i> ${profileEmployeeId}</span>
-                                <span><i class="fa-solid fa-calendar-check"></i> Joined ${profileJoinDate || 'N/A'}</span>
-                                ${profileUser.location ? `<span><i class="fa-solid fa-location-dot"></i> ${safeHtml(profileUser.location)}</span>` : ''}
+                            <div class="pro-profile-email">
+                                <i class="fa-solid fa-envelope"></i>
+                                ${safeHtml(profileUser.email || '—')}
+                            </div>
+                            <div class="pro-profile-meta-row">
+                                <span class="pro-profile-chip">
+                                    <i class="fa-solid fa-id-card"></i>${safeHtml(profileEmployeeId)}
+                                </span>
+                                ${profileJoinDate ? `<span class="pro-profile-chip">
+                                    <i class="fa-solid fa-calendar-check"></i>Joined ${profileJoinDate}
+                                </span>` : ''}
+                                ${profileUser.department ? `<span class="pro-profile-chip">
+                                    <i class="fa-solid fa-building"></i>${safeHtml(profileUser.department)}
+                                </span>` : ''}
                             </div>
                         </div>
-                        ${isAdmin ? `
-                        <div class="profile-actions">
-                            <select class="staff-picker-select" onchange="window.app_changeProfileStaff(this.value)">
-                                <option value="">View Own Profile</option>
+
+                        <!-- Header Actions -->
+                        <div class="pro-profile-header-actions">
+                            ${isAdmin ? `
+                            <select class="pro-profile-staff-picker" onchange="window.app_changeProfileStaff(this.value)">
+                                <option value="">My Profile</option>
                                 ${allUsers.map(u => `<option value="${u.id}" ${u.id === targetProfileId ? 'selected' : ''}>${safeHtml(u.name)}</option>`).join('')}
-                            </select>
+                            </select>` : ''}
+                            ${isViewingSelf ? `
+                            <button class="pro-profile-signout-btn" onclick="window.app_confirmSignOut()" title="Sign Out">
+                                <i class="fa-solid fa-right-from-bracket"></i>
+                                Sign Out
+                            </button>` : ''}
                         </div>
-                        ` : ''}
                     </div>
-                </header>
+                </div>
 
-                <div class="profile-grid">
-                    <div class="profile-main-col">
-                        <section class="card profile-section">
-                            <div class="section-head">
-                                <h3>Performance Highlights</h3>
-                                <div class="section-actions">
-                                    <button class="icon-btn" title="Refresh Stats"><i class="fa-solid fa-rotate"></i></button>
-                                </div>
-                            </div>
-                            <div class="performance-grid">
-                                <div class="perf-card">
-                                    <div class="perf-label">Consistency</div>
-                                    <div class="perf-value">${monthlyStats?.attendanceRate || '0'}%</div>
-                                    <div class="perf-delta positive"><i class="fa-solid fa-arrow-up"></i> 2.4% vs last month</div>
-                                </div>
-                                <div class="perf-card">
-                                    <div class="perf-label">Punctuality</div>
-                                    <div class="perf-value">${monthlyStats?.punctualityRate || '0'}%</div>
-                                    <div class="perf-delta negative"><i class="fa-solid fa-arrow-down"></i> 0.5% vs last month</div>
-                                </div>
-                                <div class="perf-card">
-                                    <div class="perf-label">Total Hours (MTD)</div>
-                                    <div class="perf-value">${monthlyStats?.totalHours || '0'}h</div>
-                                    <div class="perf-delta"><i class="fa-solid fa-minus"></i> Stable</div>
-                                </div>
-                            </div>
-                        </section>
+                <!-- ── Stats Strip ── -->
+                <div class="pro-profile-stats-strip">
+                    <div class="pro-stat-tile">
+                        <i class="fa-solid fa-circle-check pro-stat-icon" style="color:#6366f1;"></i>
+                        <div class="pro-stat-value">${attendanceRate}${typeof attendanceRate === 'number' ? '%' : ''}</div>
+                        <div class="pro-stat-label">Attendance</div>
+                    </div>
+                    <div class="pro-stat-tile">
+                        <i class="fa-solid fa-clock pro-stat-icon" style="color:#f59e0b;"></i>
+                        <div class="pro-stat-value">${punctualityRate}${typeof punctualityRate === 'number' ? '%' : ''}</div>
+                        <div class="pro-stat-label">Punctuality</div>
+                    </div>
+                    <div class="pro-stat-tile">
+                        <i class="fa-solid fa-hourglass-half pro-stat-icon" style="color:#10b981;"></i>
+                        <div class="pro-stat-value">${totalHours}${typeof totalHours === 'number' ? 'h' : ''}</div>
+                        <div class="pro-stat-label">Hours (MTD)</div>
+                    </div>
+                    <div class="pro-stat-tile">
+                        <i class="fa-solid fa-calendar-days pro-stat-icon" style="color:#8b5cf6;"></i>
+                        <div class="pro-stat-value">${yearlyDays}</div>
+                        <div class="pro-stat-label">Days (YTD)</div>
+                    </div>
+                </div>
 
-                        <section class="card profile-section">
-                            <div class="section-head">
-                                <h3>Leave Balance & History</h3>
+                <!-- ── Body Grid ── -->
+                <div class="pro-profile-body">
+
+                    <!-- Left: Leave History -->
+                    <div class="pro-profile-main">
+                        <div class="pro-card">
+                            <div class="pro-card-head">
+                                <span class="pro-card-title"><i class="fa-solid fa-umbrella-beach"></i> Leave History</span>
+                                <span class="pro-card-sub">${leaves.length} record${leaves.length !== 1 ? 's' : ''}</span>
                             </div>
-                            <div class="leave-brief-grid">
-                                <div class="leave-stat">
-                                    <div class="label">Annual Leaves</div>
-                                    <div class="bar-wrap"><div class="bar" style="width: 65%;"></div></div>
-                                    <div class="text">12 / 18 days used</div>
-                                </div>
-                                <div class="leave-stat">
-                                    <div class="label">Sick Leaves</div>
-                                    <div class="bar-wrap"><div class="bar warning" style="width: 20%;"></div></div>
-                                    <div class="text">2 / 10 days used</div>
-                                </div>
+                            ${leaves.length ? `
+                            <table class="pro-leave-table">
+                                <thead>
+                                    <tr>
+                                        <th>From</th>
+                                        <th>To</th>
+                                        <th>Type</th>
+                                        <th>Days</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${leaves.slice(0, 8).map(l => `
+                                    <tr>
+                                        <td>${safeHtml(l.startDate || '—')}</td>
+                                        <td>${safeHtml(l.endDate || '—')}</td>
+                                        <td>${safeHtml(l.type || '—')}</td>
+                                        <td>${l.daysCount ?? '—'}</td>
+                                        <td>
+                                            <span class="pro-status-pill" style="background:${statusColor(l.status)}18;color:${statusColor(l.status)};">
+                                                ${safeHtml(l.status || 'Pending')}
+                                            </span>
+                                        </td>
+                                    </tr>`).join('')}
+                                </tbody>
+                            </table>
+                            ${leaves.length > 8 ? `<div class="pro-table-footer">Showing 8 of ${leaves.length} records</div>` : ''}
+                            ` : `<div class="pro-empty-state"><i class="fa-regular fa-folder-open"></i><p>No leave records found.</p></div>`}
+                        </div>
+
+                        <!-- Yearly Breakdown -->
+                        ${yearlyStats?.breakdown ? `
+                        <div class="pro-card" style="margin-top:1rem;">
+                            <div class="pro-card-head">
+                                <span class="pro-card-title"><i class="fa-solid fa-chart-bar"></i> Yearly Breakdown</span>
+                                <span class="pro-card-sub">${yearlyStats.label || ''}</span>
                             </div>
-                            <div class="table-container mini-table">
-                                <table class="compact-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Date</th>
-                                            <th>Type</th>
-                                            <th>Status</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        ${leaves.length ? leaves.slice(0, 5).map(l => `
-                                            <tr>
-                                                <td>${l.startDate}</td>
-                                                <td>${safeHtml(l.type)}</td>
-                                                <td><span class="status-pill ${l.status?.toLowerCase()}">${l.status}</span></td>
-                                            </tr>
-                                        `).join('') : '<tr><td colspan="3" class="text-center">No leave history</td></tr>'}
-                                    </tbody>
-                                </table>
+                            <div class="pro-breakdown-grid">
+                                ${Object.entries(yearlyStats.breakdown || {}).filter(([, v]) => v > 0).map(([k, v]) => `
+                                <div class="pro-breakdown-chip">
+                                    <span class="pro-breakdown-count">${v}</span>
+                                    <span class="pro-breakdown-key">${safeHtml(k)}</span>
+                                </div>`).join('')}
                             </div>
-                        </section>
+                        </div>` : ''}
                     </div>
 
-                    <aside class="profile-side-col">
-                        <section class="card profile-section">
-                            <div class="section-head">
-                                <h3>Employment Detail</h3>
-                                ${isAdmin ? `<button class="edit-btn-link" onclick="window.app_saveProfileEmployment()">Edit</button>` : ''}
-                            </div>
-                            <div class="employment-details-list">
-                                <div class="detail-item">
-                                    <div class="label">Department</div>
-                                    <div class="value">${safeHtml(profileUser.department || 'Operations')}</div>
-                                </div>
-                                <div class="detail-item">
-                                    <div class="label">Current Level</div>
-                                    <div class="value">${safeHtml(profileUser.level || 'L2 - Senior')}</div>
-                                </div>
-                                <div class="detail-item">
-                                    <div class="label">Reporting To</div>
-                                    <div class="value">${safeHtml(profileUser.reportsTo || 'Admin')}</div>
-                                </div>
-                                <div class="detail-item">
-                                    <div class="label">Payroll Cycle</div>
-                                    <div class="value">Monthly (25th)</div>
-                                </div>
-                            </div>
-                        </section>
+                    <!-- Right Sidebar -->
+                    <aside class="pro-profile-side">
 
-                        <section class="card profile-section">
-                            <div class="section-head">
-                                <h3>Quick Actions</h3>
+                        <!-- Employment -->
+                        <div class="pro-card">
+                            <div class="pro-card-head">
+                                <span class="pro-card-title"><i class="fa-solid fa-briefcase"></i> Employment</span>
                             </div>
-                            <div class="quick-actions-grid">
-                                <button class="quick-action-btn"><i class="fa-solid fa-file-invoice-dollar"></i> Payslips</button>
-                                <button class="quick-action-btn"><i class="fa-solid fa-id-badge"></i> Update ID</button>
-                                <button class="quick-action-btn"><i class="fa-solid fa-shield-halved"></i> Security</button>
-                                <button class="quick-action-btn"><i class="fa-solid fa-gear"></i> Preferences</button>
+                            <div class="pro-detail-list">
+                                ${[
+                ['Department', profileUser.department || 'Operations'],
+                ['Role', profileUser.role || 'Staff'],
+                ['Level', profileUser.level || '—'],
+                ['Reports To', profileUser.reportsTo || 'Admin'],
+                ['Employee ID', profileEmployeeId],
+                ['Join Date', profileJoinDate || 'N/A'],
+                ['Payroll Cycle', 'Monthly (25th)'],
+            ].map(([label, value]) => `
+                                <div class="pro-detail-row">
+                                    <div class="pro-detail-label">${label}</div>
+                                    <div class="pro-detail-value">${safeHtml(String(value))}</div>
+                                </div>`).join('')}
                             </div>
-                        </section>
+                        </div>
+
+                        <!-- Quick Actions -->
+                        <div class="pro-card" style="margin-top:1rem;">
+                            <div class="pro-card-head">
+                                <span class="pro-card-title"><i class="fa-solid fa-bolt"></i> Quick Actions</span>
+                            </div>
+                            <div class="pro-quick-list">
+                                <button class="pro-quick-item" onclick="window.location.hash='timesheet'">
+                                    <span class="pro-quick-icon" style="background:#eef2ff;color:#4f46e5;"><i class="fa-solid fa-table-list"></i></span>
+                                    <span>My Timesheet</span>
+                                    <i class="fa-solid fa-chevron-right pro-quick-arrow"></i>
+                                </button>
+                                <button class="pro-quick-item" onclick="window.location.hash='leaves'">
+                                    <span class="pro-quick-icon" style="background:#fef3c7;color:#d97706;"><i class="fa-solid fa-umbrella-beach"></i></span>
+                                    <span>Apply Leave</span>
+                                    <i class="fa-solid fa-chevron-right pro-quick-arrow"></i>
+                                </button>
+                                <button class="pro-quick-item" onclick="window.location.hash='analytics'">
+                                    <span class="pro-quick-icon" style="background:#f0fdf4;color:#16a34a;"><i class="fa-solid fa-chart-line"></i></span>
+                                    <span>My Analytics</span>
+                                    <i class="fa-solid fa-chevron-right pro-quick-arrow"></i>
+                                </button>
+                                ${isViewingSelf ? `
+                                <button class="pro-quick-item pro-quick-item-danger" onclick="window.app_confirmSignOut()">
+                                    <span class="pro-quick-icon" style="background:#fef2f2;color:#dc2626;"><i class="fa-solid fa-right-from-bracket"></i></span>
+                                    <span>Sign Out</span>
+                                    <i class="fa-solid fa-chevron-right pro-quick-arrow"></i>
+                                </button>` : ''}
+                            </div>
+                        </div>
+
                     </aside>
                 </div>
             </div>
         `;
     } catch (err) {
-        console.error("Profile Render Error:", err);
+        console.error('Profile Render Error:', err);
         return `<div class="card error-card">Failed to load profile: ${safeHtml(err.message)}</div>`;
     }
 }
