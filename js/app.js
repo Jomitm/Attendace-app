@@ -237,12 +237,36 @@ const stopReleaseSignalListener = () => {
 };
 
 window.app_isAdminUser = (user = window.AppAuth?.getUser()) => {
-    return !!(user && (user.role === 'Administrator' || user.isAdmin));
+    if (!user) return false;
+    // ONLY the boolean flag determines global admin status
+    return user.isAdmin === true;
+};
+
+window.app_canSeeAdminPanel = (user = window.AppAuth?.getUser()) => {
+    if (!user) return false;
+    if (window.app_isAdminUser(user)) return true;
+    // If they have ANY specific admin level permission, they can enter the admin panel
+    if (user.permissions) {
+        return Object.values(user.permissions).some(p => p === 'admin');
+    }
+    return false;
+};
+
+window.app_hasPerm = (module, level = 'view', user = window.AppAuth?.getUser()) => {
+    if (!user) return false;
+    // Global admin has all permissions
+    if (user.isAdmin === true) return true;
+    if (!user.permissions || !user.permissions[module]) return false;
+
+    const perm = user.permissions[module];
+    if (level === 'view') return perm === 'view' || perm === 'admin';
+    if (level === 'admin') return perm === 'admin';
+    return false;
 };
 
 window.app_canManageAttendanceSheet = (user = window.AppAuth?.getUser()) => {
     if (!user) return false;
-    return window.app_isAdminUser(user) || !!user.canManageAttendanceSheet;
+    return window.app_hasPerm('attendance', 'admin', user) || !!user.canManageAttendanceSheet;
 };
 
 window.app_getReadTelemetry = () => {
@@ -613,23 +637,28 @@ window.app_respondNotificationFromHistory = async (notifIndex, notifId, action) 
 
     window.app_closeNotificationHistory();
 
-    if (notif.type === 'minute-access-request' && window.app_isAdminUser(currentUser)) {
-        await window.app_reviewMinuteAccessFromNotification(resolvedIndex, notif.id, decision === 'approve' ? 'approved' : 'rejected');
-        return;
-    }
+    try {
+        if (notif.type === 'minute-access-request' && window.app_hasPerm('minutes', 'admin', currentUser)) {
+            await window.app_reviewMinuteAccessFromNotification(resolvedIndex, notif.id, decision === 'approve' ? 'approved' : 'rejected');
+            return;
+        }
 
-    const taskIndex = Number(notif.taskIndex);
-    if (notif.planId && Number.isInteger(taskIndex) && taskIndex >= 0) {
-        await window.app_handleTagResponse(notif.planId, taskIndex, decision === 'approve' ? 'accepted' : 'rejected', resolvedIndex);
-        return;
-    }
+        const taskIndex = Number(notif.taskIndex);
+        if (notif.planId && Number.isInteger(taskIndex) && taskIndex >= 0) {
+            await window.app_handleTagResponse(notif.planId, taskIndex, decision === 'approve' ? 'accepted' : 'rejected', resolvedIndex);
+            return;
+        }
 
-    if (notif.id) {
-        await window.app_handleTagDecision(notif.id, decision === 'approve' ? 'accepted' : 'rejected');
-        return;
-    }
+        if (notif.id) {
+            await window.app_handleTagDecision(notif.id, decision === 'approve' ? 'accepted' : 'rejected');
+            return;
+        }
 
-    alert('This notification cannot be approved or rejected from history.');
+        alert('This notification cannot be approved or rejected from history.');
+    } catch (err) {
+        console.error('Notification response error:', err);
+        alert('Failed to process notification: ' + err.message);
+    }
 };
 
 window.app_openNotificationHistory = async () => {
@@ -1084,24 +1113,31 @@ async function router() {
             `;
     }
 
-    // Admin Link logic
-    const isAdminUser = window.app_isAdminUser(user);
-    const canManageAttendanceSheet = window.app_canManageAttendanceSheet(user);
-    const strictAdminLinks = document.querySelectorAll('a[data-page="admin"], a[data-page="salary"], a[data-page="policy-test"]');
-    strictAdminLinks.forEach(link => {
-        if (isAdminUser) {
-            link.style.display = 'flex';
-        } else {
-            link.style.setProperty('display', 'none', 'important');
-        }
+    // Admin Link logic (Granular)
+    const canSeeUsers = window.app_hasPerm('users', 'view', user);
+    const canSeeAttendance = window.app_hasPerm('attendance', 'view', user);
+    const canSeeReports = window.app_hasPerm('reports', 'view', user);
+    const canSeePoliciesAdmin = window.app_hasPerm('policies', 'view', user);
+    const canSeeAdmin = window.app_canSeeAdminPanel(user);
+
+    document.querySelectorAll('a[data-page="admin"]').forEach(link => {
+        link.style.display = canSeeAdmin ? 'flex' : 'none';
+        if (!canSeeAdmin) link.style.setProperty('display', 'none', 'important');
     });
-    const attendanceSheetLinks = document.querySelectorAll('a[data-page="master-sheet"]');
-    attendanceSheetLinks.forEach(link => {
-        if (isAdminUser || canManageAttendanceSheet) {
-            link.style.display = 'flex';
-        } else {
-            link.style.setProperty('display', 'none', 'important');
-        }
+
+    document.querySelectorAll('a[data-page="master-sheet"]').forEach(link => {
+        link.style.display = canSeeAttendance ? 'flex' : 'none';
+        if (!canSeeAttendance) link.style.setProperty('display', 'none', 'important');
+    });
+
+    document.querySelectorAll('a[data-page="salary"]').forEach(link => {
+        link.style.display = canSeeReports ? 'flex' : 'none';
+        if (!canSeeReports) link.style.setProperty('display', 'none', 'important');
+    });
+
+    document.querySelectorAll('a[data-page="policy-test"]').forEach(link => {
+        link.style.display = canSeePoliciesAdmin ? 'flex' : 'none';
+        if (!canSeePoliciesAdmin) link.style.setProperty('display', 'none', 'important');
     });
 
     // Active Nav
@@ -1143,13 +1179,13 @@ async function router() {
         } else if (hash === 'profile') {
             contentArea.innerHTML = await window.AppUI.renderProfile();
         } else if (hash === 'salary') {
-            if (!window.app_isAdminUser(user)) {
+            if (!window.app_hasPerm('reports', 'view', user)) {
                 window.location.hash = 'dashboard';
                 return;
             }
             contentArea.innerHTML = await window.AppUI.renderSalaryProcessing ? await window.AppUI.renderSalaryProcessing() : await window.AppUI.renderSalary();
         } else if (hash === 'policy-test') {
-            if (!window.app_isAdminUser(user)) {
+            if (!window.app_hasPerm('policies', 'view', user)) {
                 window.location.hash = 'dashboard';
                 return;
             }
@@ -1164,7 +1200,7 @@ async function router() {
             contentArea.innerHTML = await window.AppUI.renderMinutes();
             startMinutesRealtimeListener();
         } else if (hash === 'admin') {
-            if (!window.app_isAdminUser(user)) {
+            if (!window.app_canSeeAdminPanel(user)) {
                 window.location.hash = 'dashboard';
                 return;
             }
@@ -3064,8 +3100,10 @@ async function handleAttendance() {
             if (checkInResult && checkInResult.resolvedMissedCheckout && checkInResult.noticeMessage) {
                 window.app_showAttendanceNotice(checkInResult.noticeMessage);
             }
-            // Check if a reminder popup is needed
-            await window.AppUI.checkDailyPlanReminder();
+            // Prompt to add plan if missing
+            if (window.AppDayPlan && typeof window.AppDayPlan.openDayPlan === 'function') {
+                await window.AppDayPlan.openDayPlan(getLocalISO());
+            }
         } else {
             // Pre-fill Checkout Description from Work Plan
             const user = window.AppAuth.getUser();
@@ -3485,28 +3523,47 @@ async function handleAddUser(e) {
         joinDate: formData.get('joinDate'),
         isAdmin: isAdmin,
         canManageAttendanceSheet: canManageAttendanceSheet,
+        permissions: window.app_getPermissionsFromUI('add'),
         avatar: `https://ui-avatars.com/api/?name=${formData.get('name')}&background=random&color=fff`,
         status: 'out',
         lastCheckIn: null
     };
 
     try {
-        // isAdmin/role sync is handled by auth.updateUser but handleAddUser adds directly to DB.
-        // Let's ensure sync here too or use a common create function.
-        if (userData.isAdmin || userData.role === 'Administrator') {
-            userData.isAdmin = true;
+        if (userData.isAdmin) {
             userData.role = 'Administrator';
             userData.canManageAttendanceSheet = true;
+        } else {
+            userData.isAdmin = false;
         }
 
         await window.AppDB.add('users', userData);
         alert('Success! Account created.');
         document.getElementById('add-user-modal').style.display = 'none';
-        contentArea.innerHTML = await window.AppUI.renderAdmin();
+
+        const contentArea = document.getElementById('page-content');
+        if (contentArea) contentArea.innerHTML = await window.AppUI.renderAdmin();
     } catch (err) {
         alert('Error creating user: ' + err.message);
     }
 }
+
+window.app_getPermissionsFromUI = (prefix) => {
+    const permissions = {};
+    const modules = ['dashboard', 'leaves', 'users', 'attendance', 'reports', 'minutes', 'policies'];
+    modules.forEach(m => {
+        const viewCheck = document.getElementById(`${prefix}-perm-${m}-view`);
+        const adminCheck = document.getElementById(`${prefix}-perm-${m}-admin`);
+        if (adminCheck && adminCheck.checked) {
+            permissions[m] = 'admin';
+        } else if (viewCheck && viewCheck.checked) {
+            permissions[m] = 'view';
+        } else {
+            permissions[m] = null;
+        }
+    });
+    return permissions;
+};
 
 window.app_submitEditUser = async (e) => {
     if (e) e.preventDefault();
@@ -3597,12 +3654,14 @@ window.app_submitEditUser = async (e) => {
         bankAccount: (formData.get('bankAccount') || '').trim(),
         bankIfsc: bankIfsc,
         pan: pan,
-        uan: (formData.get('uan') || '').trim()
+        uan: (formData.get('uan') || '').trim(),
+        permissions: window.app_getPermissionsFromUI('edit')
     };
 
     console.log("Executing Update for User:", userData);
-    if (userData.isAdmin || userData.role === 'Administrator') {
+    if (userData.isAdmin) {
         userData.canManageAttendanceSheet = true;
+        userData.role = 'Administrator';
     }
 
     try {
@@ -4328,33 +4387,65 @@ window.app_editUser = async (userId) => {
         return `EMP-${compact}-${suffix}`;
     };
     const form = document.getElementById('edit-user-form');
-    form.querySelector('#edit-user-id').value = user.id;
-    form.querySelector('#edit-user-name').value = user.name;
-    form.querySelector('#edit-user-username').value = user.username;
-    form.querySelector('#edit-user-password').value = user.password;
-    form.querySelector('#edit-user-role').value = user.role;
-    form.querySelector('#edit-user-dept').value = user.dept;
-    form.querySelector('#edit-user-email').value = user.email;
-    form.querySelector('#edit-user-phone').value = user.phone;
-    form.querySelector('#edit-user-isAdmin').checked = !!(user.isAdmin || user.role === 'Administrator');
-    form.querySelector('#edit-user-can-manage-attendance-sheet').checked = !!(user.canManageAttendanceSheet || user.isAdmin || user.role === 'Administrator');
+    if (!form) return;
+
+    const setVal = (selector, val) => {
+        const el = form.querySelector(selector);
+        if (el) el.value = val !== undefined ? val : '';
+    };
+    const setChecked = (selector, val) => {
+        const el = form.querySelector(selector);
+        if (el) el.checked = !!val;
+    };
+
+    setVal('#edit-user-id', user.id);
+    setVal('#edit-user-name', user.name);
+    setVal('#edit-user-username', user.username);
+    setVal('#edit-user-password', user.password);
+    setVal('#edit-user-role', user.role);
+    setVal('#edit-user-dept', user.dept);
+    setVal('#edit-user-email', user.email);
+    setVal('#edit-user-phone', user.phone);
+    setChecked('#edit-user-isAdmin', !!(user.isAdmin || user.role === 'Administrator'));
+    setChecked('#edit-user-can-manage-attendance-sheet', !!(user.canManageAttendanceSheet || user.isAdmin || user.role === 'Administrator'));
+
     const normalizedJoinDate = normalizeIsoDate(user.joinDate);
-    form.querySelector('#edit-user-join-date').value = normalizedJoinDate;
-    form.querySelector('#edit-user-employee-id').value = normalizedJoinDate
+    setVal('#edit-user-join-date', normalizedJoinDate);
+    setVal('#edit-user-employee-id', normalizedJoinDate
         ? (user.employeeId || deriveEmployeeId(normalizedJoinDate, user.id))
-        : 'NA';
-    form.querySelector('#edit-user-base-salary').value = Number(user.baseSalary || 0);
-    form.querySelector('#edit-user-other-allowances').value = Number(user.otherAllowances || 0);
-    form.querySelector('#edit-user-pf').value = Number(user.providentFund || 0);
-    form.querySelector('#edit-user-professional-tax').value = Number(user.professionalTax || 0);
-    form.querySelector('#edit-user-loan-advance').value = Number(user.loanAdvance || 0);
-    form.querySelector('#edit-user-tds-percent').value = Number(user.tdsPercent || 0);
-    form.querySelector('#edit-user-bank-name').value = user.bankName || '';
-    form.querySelector('#edit-user-bank-account').value = user.bankAccount || user.accountNumber || '';
-    form.querySelector('#edit-user-bank-ifsc').value = user.bankIfsc || user.ifsc || '';
-    form.querySelector('#edit-user-pan').value = user.pan || user.PAN || '';
-    form.querySelector('#edit-user-uan').value = user.uan || user.UAN || '';
-    document.getElementById('edit-user-modal').style.display = 'flex';
+        : 'NA');
+    setVal('#edit-user-base-salary', Number(user.baseSalary || 0));
+    setVal('#edit-user-other-allowances', Number(user.otherAllowances || 0));
+    setVal('#edit-user-pf', Number(user.providentFund || 0));
+    setVal('#edit-user-professional-tax', Number(user.professionalTax || 0));
+    setVal('#edit-user-loan-advance', Number(user.loanAdvance || 0));
+    setVal('#edit-user-tds-percent', Number(user.tdsPercent || 0));
+    setVal('#edit-user-bank-name', user.bankName || '');
+    setVal('#edit-user-bank-account', user.bankAccount || user.accountNumber || '');
+    setVal('#edit-user-bank-ifsc', user.bankIfsc || user.ifsc || '');
+    setVal('#edit-user-pan', user.pan || user.PAN || '');
+    setVal('#edit-user-uan', user.uan || user.UAN || '');
+
+    // Populate permissions
+    const modules = ['dashboard', 'leaves', 'users', 'attendance', 'reports', 'minutes', 'policies'];
+    const permissions = user.permissions || {};
+    modules.forEach(m => {
+        const val = permissions[m];
+        const viewEl = document.getElementById(`edit-perm-${m}-view`);
+        const adminEl = document.getElementById(`edit-perm-${m}-admin`);
+        if (viewEl) viewEl.checked = (val === 'view' || val === 'admin');
+        if (adminEl) adminEl.checked = (val === 'admin');
+    });
+
+    const modal = document.getElementById('edit-user-modal');
+    if (modal) {
+        modal.style.display = 'flex';
+        const pnl = document.getElementById('edit-user-permissions-panel');
+        if (pnl) {
+            // ALWAYS SHOW the permissions panel so admins can assign rights to any staff
+            pnl.style.display = 'block';
+        }
+    }
 };
 
 window.app_notifyUser = (userId) => {

@@ -89,19 +89,13 @@ export class Auth {
 
         const updated = { ...existing, ...userData };
 
-        // Sync Role & isAdmin Status (Robust Logic)
+        // Sync Admin Status
         if (userData.isAdmin === true || userData.isAdmin === 'true') {
             updated.isAdmin = true;
-            updated.role = 'Administrator';
-        } else if (userData.role === 'Administrator') {
-            // If role selected as Admin but checkbox unchecked, treat as Admin
-            updated.isAdmin = true;
-            updated.role = 'Administrator';
         } else {
-            // Not an admin
             updated.isAdmin = false;
-            updated.role = userData.role || existing.role || 'Employee';
         }
+        updated.role = userData.role || existing.role || 'Employee';
 
         console.log(`Auth: User ${updated.id} update - Role: ${updated.role}, Admin: ${updated.isAdmin}`);
 

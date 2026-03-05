@@ -145,7 +145,7 @@ export function renderActivityList(allLogs, startStr, endStr, targetStaffId, col
     let html = '';
     let lastDate = '';
     const currentUser = window.AppAuth.getUser();
-    const isAdminUser = currentUser && (currentUser.role === 'Administrator' || currentUser.isAdmin);
+    const isAdminUser = window.app_hasPerm('dashboard', 'admin', currentUser);
 
     merged.forEach(log => {
         const showDate = log.date !== lastDate;
@@ -229,7 +229,7 @@ export function renderStaffActivityListSplit(allLogs, sortKey) {
 
 export function renderStaffActivityColumn(title, logs, emptyMsg) {
     const currentUser = window.AppAuth.getUser();
-    const isAdminUser = currentUser && (currentUser.role === 'Administrator' || currentUser.isAdmin);
+    const isAdminUser = window.app_hasPerm('dashboard', 'admin', currentUser);
     const body = logs.length === 0
         ? `<div class="dashboard-activity-empty">${emptyMsg}</div>`
         : logs.map(log => {
@@ -499,7 +499,8 @@ export function renderStaffDirectory(allUsers, notifications, currentUser) {
 
 export async function renderDashboard() {
     const user = window.AppAuth.getUser();
-    const isAdmin = user.role === 'Administrator' || user.isAdmin;
+    const isAdmin = window.app_hasPerm('dashboard', 'view', user);
+    const isFullAdmin = window.app_hasPerm('dashboard', 'admin', user);
     const staffActivityState = getStaffActivityState();
     const selectedMonth = staffActivityState.selectedMonth;
     const dateKeys = window.AppDB?.getISTDateKeys ? window.AppDB.getISTDateKeys() : {
@@ -578,12 +579,12 @@ export async function renderDashboard() {
         heroPromise,
         window.AppCalendar ? window.AppCalendar.getPlans() : { leaves: [], events: [] },
         staffActivityPromise,
-        isAdmin ? window.AppLeaves.getPendingLeaves() : Promise.resolve([]),
+        window.app_hasPerm('leaves', 'view') ? window.AppLeaves.getPendingLeaves() : Promise.resolve([]),
         window.AppDB.getCached
             ? window.AppDB.getCached(window.AppDB.getCacheKey('dashboardUsers', 'users', {}), (window.AppConfig?.READ_CACHE_TTLS?.users || 60000), () => window.AppDB.getAll('users'))
             : window.AppDB.getAll('users'),
         window.AppCalendar ? window.AppCalendar.getCollaborations(targetStaffId) : Promise.resolve([]),
-        isAdmin
+        window.app_hasPerm('leaves', 'view')
             ? (window.AppDB.queryMany
                 ? window.AppDB.queryMany('leaves', [{ field: 'status', operator: '==', value: 'Pending' }]).catch(() => window.AppDB.getAll('leaves'))
                 : window.AppDB.getAll('leaves'))
@@ -630,7 +631,7 @@ export async function renderDashboard() {
     const targetStaff = (allUsers || []).find(u => u.id === targetStaffId);
     const isViewingSelf = targetStaffId === user.id;
     const displayUser = (!isViewingSelf && targetStaff) ? targetStaff : user;
-    const isReadOnlyView = isAdmin && !isViewingSelf;
+    const isReadOnlyView = isAdmin && !isViewingSelf && !isFullAdmin;
 
     const statusData = isReadOnlyView ? { status: displayUser.status || 'out', lastCheckIn: displayUser.lastCheckIn || null } : status;
     const isCheckedIn = statusData.status === 'in';

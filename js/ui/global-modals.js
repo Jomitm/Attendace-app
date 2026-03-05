@@ -22,6 +22,26 @@ export function renderModals() {
                         </div>
                         <div id="checkout-plan-text" style="font-size:0.85rem; color:#0c4a6e; line-height:1.4;"></div>
                     </div>
+
+                    <!-- Work Plan Checklist (New for Checkout Flow) -->
+                    <div id="checkout-task-checklist" style="margin-bottom: 1.5rem;">
+                        <label style="display: block; font-size: 0.85rem; font-weight: 700; color: #4b5563; margin-bottom: 0.75rem;">Today's Task Status</label>
+                        <div id="checkout-task-list" style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 200px; overflow-y: auto; padding-right: 5px;">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+
+                    <!-- Delegate Selection Panel (Initially Hidden) -->
+                    <div id="delegate-panel" style="display:none; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:1rem; margin-bottom:1.5rem;">
+                        <h4 id="delegate-selected-task" style="font-size:0.8rem; color:#1e293b; margin-top:0; margin-bottom:0.75rem; line-height:1.4;"></h4>
+                        <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:0.5rem;">Choose staff member:</label>
+                        <div id="delegate-list" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:0.5rem; max-height:180px; overflow-y:auto; padding:2px;">
+                            <!-- Populated by JS -->
+                        </div>
+                        <div style="margin-top:1rem; display:flex; justify-content:flex-end;">
+                            <button type="button" onclick="window.app_handleChecklistAction(null, null, null)" class="action-btn secondary" style="font-size:0.75rem; padding:0.4rem 0.8rem;">Cancel Delegation</button>
+                        </div>
+                    </div>
                     
                     <div id="checkout-location-loading" style="display:none; font-size:0.75rem; color:#6b7280; margin-bottom:1rem; text-align:center;">
                          <i class="fa-solid fa-spinner fa-spin"></i> Verifying location...
@@ -179,9 +199,55 @@ export function renderModals() {
                     </label>
                     
                     <label style="display: flex; align-items: center; gap: 0.5rem; background: #f0f7ff; padding: 0.75rem; border-radius: 0.5rem; cursor: pointer;">
-                        <input type="checkbox" name="isAdmin" id="edit-user-isAdmin" style="width: 1.2rem; height: 1.2rem;" onchange="const sel = document.getElementById('edit-user-role'); if(this.checked) sel.value = 'Administrator'; else if(sel.value === 'Administrator') sel.value = 'Employee';">
-                        <div style="font-weight: 600; color: #1e40af;">Grant Administrative Privileges</div>
+                        <input type="checkbox" name="isAdmin" id="edit-user-isAdmin" style="width: 1.2rem; height: 1.2rem;" onchange="const sel = document.getElementById('edit-user-role'); if(this.checked) { sel.value = 'Administrator'; } else { if(sel.value === 'Administrator') sel.value = 'Employee'; }">
+                        <div style="font-weight: 600; color: #1e40af;">Grant Full Administrator Rights</div>
                     </label>
+
+                    <div id="edit-user-permissions-panel" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0.5rem; padding: 1rem; margin-top: 0.5rem;">
+                        <div style="font-weight: 700; font-size: 0.85rem; color: #475569; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fa-solid fa-shield-halved"></i> Section-Specific Permissions
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr auto auto; gap: 0.75rem; align-items: center;">
+                            <div style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Section</div>
+                            <div style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; text-align: center;">View Only</div>
+                            <div style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; text-align: center;">Full Admin</div>
+                            
+                            <!-- Dashboard -->
+                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Dashboard</div>
+                            <input type="checkbox" class="perm-check" data-module="dashboard" data-level="view" id="edit-perm-dashboard-view">
+                            <input type="checkbox" class="perm-check" data-module="dashboard" data-level="admin" id="edit-perm-dashboard-admin">
+
+                            <!-- Leaves -->
+                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Leaves</div>
+                            <input type="checkbox" class="perm-check" data-module="leaves" data-level="view" id="edit-perm-leaves-view">
+                            <input type="checkbox" class="perm-check" data-module="leaves" data-level="admin" id="edit-perm-leaves-admin">
+
+                            <!-- Users -->
+                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">User Management</div>
+                            <input type="checkbox" class="perm-check" data-module="users" data-level="view" id="edit-perm-users-view">
+                            <input type="checkbox" class="perm-check" data-module="users" data-level="admin" id="edit-perm-users-admin">
+
+                            <!-- Attendance -->
+                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Attendance Sheet</div>
+                            <input type="checkbox" class="perm-check" data-module="attendance" data-level="view" id="edit-perm-attendance-view">
+                            <input type="checkbox" class="perm-check" data-module="attendance" data-level="admin" id="edit-perm-attendance-admin">
+
+                            <!-- Reports -->
+                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Reports</div>
+                            <input type="checkbox" class="perm-check" data-module="reports" data-level="view" id="edit-perm-reports-view">
+                            <input type="checkbox" class="perm-check" data-module="reports" data-level="admin" id="edit-perm-reports-admin">
+
+                            <!-- Minutes -->
+                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Meeting Minutes</div>
+                            <input type="checkbox" class="perm-check" data-module="minutes" data-level="view" id="edit-perm-minutes-view">
+                            <input type="checkbox" class="perm-check" data-module="minutes" data-level="admin" id="edit-perm-minutes-admin">
+
+                            <!-- Policies -->
+                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Company Policies</div>
+                            <input type="checkbox" class="perm-check" data-module="policies" data-level="view" id="edit-perm-policies-view">
+                            <input type="checkbox" class="perm-check" data-module="policies" data-level="admin" id="edit-perm-policies-admin">
+                        </div>
+                    </div>
                      <div style="display: flex; gap: 1rem;">
                         <label style="flex:1">
                             Email
@@ -276,9 +342,55 @@ export function renderModals() {
                     </label>
 
                     <label style="display: flex; align-items: center; gap: 0.5rem; background: #f0f7ff; padding: 0.75rem; border-radius: 0.5rem; cursor: pointer; margin-top: 0.5rem;">
-                        <input type="checkbox" name="isAdmin" id="add-user-isAdmin" style="width: 1.2rem; height: 1.2rem;" onchange="const sel = document.getElementById('add-user-role'); if(this.checked) sel.value = 'Administrator'; else if(sel.value === 'Administrator') sel.value = 'Employee';">
-                        <div style="font-weight: 600; color: #1e40af;">Grant Administrative Privileges</div>
+                        <input type="checkbox" name="isAdmin" id="add-user-isAdmin" style="width: 1.2rem; height: 1.2rem;" onchange="const sel = document.getElementById('add-user-role'); if(this.checked) { sel.value = 'Administrator'; } else { if(sel.value === 'Administrator') sel.value = 'Employee'; }">
+                        <div style="font-weight: 600; color: #1e40af;">Grant Full Administrator Rights</div>
                     </label>
+
+                    <div id="add-user-permissions-panel" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0.5rem; padding: 1rem; margin-top: 0.5rem;">
+                        <div style="font-weight: 700; font-size: 0.85rem; color: #475569; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fa-solid fa-shield-halved"></i> Section-Specific Permissions
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr auto auto; gap: 0.75rem; align-items: center;">
+                            <div style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Section</div>
+                            <div style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; text-align: center;">View Only</div>
+                            <div style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; text-align: center;">Full Admin</div>
+                            
+                            <!-- Dashboard -->
+                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Dashboard</div>
+                            <input type="checkbox" class="perm-check" data-module="dashboard" data-level="view" id="add-perm-dashboard-view">
+                            <input type="checkbox" class="perm-check" data-module="dashboard" data-level="admin" id="add-perm-dashboard-admin">
+
+                            <!-- Leaves -->
+                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Leaves</div>
+                            <input type="checkbox" class="perm-check" data-module="leaves" data-level="view" id="add-perm-leaves-view">
+                            <input type="checkbox" class="perm-check" data-module="leaves" data-level="admin" id="add-perm-leaves-admin">
+
+                            <!-- Users -->
+                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">User Management</div>
+                            <input type="checkbox" class="perm-check" data-module="users" data-level="view" id="add-perm-users-view">
+                            <input type="checkbox" class="perm-check" data-module="users" data-level="admin" id="add-perm-users-admin">
+
+                            <!-- Attendance -->
+                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Attendance Sheet</div>
+                            <input type="checkbox" class="perm-check" data-module="attendance" data-level="view" id="add-perm-attendance-view">
+                            <input type="checkbox" class="perm-check" data-module="attendance" data-level="admin" id="add-perm-attendance-admin">
+
+                            <!-- Reports -->
+                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Reports</div>
+                            <input type="checkbox" class="perm-check" data-module="reports" data-level="view" id="add-perm-reports-view">
+                            <input type="checkbox" class="perm-check" data-module="reports" data-level="admin" id="add-perm-reports-admin">
+
+                            <!-- Minutes -->
+                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Meeting Minutes</div>
+                            <input type="checkbox" class="perm-check" data-module="minutes" data-level="view" id="add-perm-minutes-view">
+                            <input type="checkbox" class="perm-check" data-module="minutes" data-level="admin" id="add-perm-minutes-admin">
+
+                            <!-- Policies -->
+                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Company Policies</div>
+                            <input type="checkbox" class="perm-check" data-module="policies" data-level="view" id="add-perm-policies-view">
+                            <input type="checkbox" class="perm-check" data-module="policies" data-level="admin" id="add-perm-policies-admin">
+                        </div>
+                    </div>
                      <div style="display: flex; gap: 1rem;">
                         <label style="flex:1">
                             Email

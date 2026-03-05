@@ -6,6 +6,8 @@
 import { safeHtml } from './helpers.js';
 
 export async function renderMasterSheet(month = null, year = null) {
+    const currentUser = window.AppAuth.getUser();
+    const canAdminAttendance = window.app_hasPerm('attendance', 'admin', currentUser);
     const users = await window.AppDB.getAll('users');
 
     const now = new Date();
@@ -119,9 +121,11 @@ export async function renderMasterSheet(month = null, year = null) {
                             <option value="${currentYear}" selected>${currentYear}</option>
                             <option value="${currentYear - 1}">${currentYear - 1}</option>
                         </select>
+                        ${canAdminAttendance ? `
                         <button onclick="window.app_exportMasterSheet()" class="action-btn secondary" style="padding:0.4rem 0.75rem; font-size:0.8rem;">
                             <i class="fa-solid fa-file-excel"></i> Export Excel
                         </button>
+                        ` : ''}
                     </div>
                 </div>
 
@@ -188,7 +192,7 @@ export async function renderMasterSheet(month = null, year = null) {
                 }
             }
 
-            return `<td style="text-align:center; cursor:pointer; border-right: 1px solid #eee; padding:2px; font-size:0.75rem; ${cellStyle}" title="${tooltip}" onclick="window.app_openCellOverride('${u.id}', '${dateStr}')">${cellContent}</td>`;
+            return `<td style="text-align:center; ${canAdminAttendance ? 'cursor:pointer;' : ''} border-right: 1px solid #eee; padding:2px; font-size:0.75rem; ${cellStyle}" title="${tooltip}" ${canAdminAttendance ? `onclick="window.app_openCellOverride('${u.id}', '${dateStr}')"` : ''}>${cellContent}</td>`;
         }).join('')}
                                 </tr>`;
     }).join('')}

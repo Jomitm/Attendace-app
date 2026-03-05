@@ -28,7 +28,8 @@ export const AppPolicies = {
         const policy = await AppLeaves.getPolicy();
         const user = AppAuth.getUser();
         const fy = await AppLeaves.getFinancialYear();
-        const isAdmin = !!(user && (user.role === 'Administrator' || user.isAdmin));
+        const isAdmin = window.app_hasPerm('policies', 'view', user);
+        const isFullAdmin = window.app_hasPerm('policies', 'admin', user);
 
         let lateCount = 0;
         try {
@@ -62,7 +63,7 @@ export const AppPolicies = {
             };
         });
         const balances = await Promise.all(balancePromises);
-        const holidaysTable = await this.renderHolidayTable(this.currentYear, isAdmin);
+        const holidaysTable = await this.renderHolidayTable(this.currentYear, isFullAdmin);
 
         return `
             <div class="content-container slide-in policies-modern">
@@ -135,7 +136,7 @@ export const AppPolicies = {
                                 <button onclick="window.AppPolicies.changeYear(1)"><i class="fa-solid fa-chevron-right"></i></button>
                             </div>
                         </div>
-                        ${isAdmin ? `
+                        ${isFullAdmin ? `
                             <div style="display:flex; justify-content:flex-end; margin-bottom:0.5rem;">
                                 <button class="action-btn" onclick="window.AppPolicies.openHolidayEditor()">
                                     <i class="fa-solid fa-plus"></i> Add Holiday
@@ -194,7 +195,7 @@ export const AppPolicies = {
                     </section>
                 </div>
 
-                ${(isAdmin) ? await AdminPolicies.renderPolicyEditor() : ''}
+                ${(isFullAdmin) ? await AdminPolicies.renderPolicyEditor() : ''}
             </div>
             `;
     },
@@ -284,7 +285,7 @@ export const AppPolicies = {
         const yearLabel = document.getElementById('policy-year-label');
         const container = document.getElementById('holidays-container');
         const user = AppAuth.getUser();
-        const isAdmin = !!(user && (user.role === 'Administrator' || user.isAdmin));
+        const isAdmin = window.app_hasPerm('policies', 'admin', user);
         if (yearLabel && container) {
             yearLabel.textContent = this.currentYear;
             container.innerHTML = await this.renderHolidayTable(this.currentYear, isAdmin);
@@ -293,7 +294,7 @@ export const AppPolicies = {
 
     async openHolidayEditor(index = null) {
         const user = AppAuth.getUser();
-        if (!user || !(user.role === 'Administrator' || user.isAdmin)) return;
+        if (!user || !window.app_hasPerm('policies', 'admin', user)) return;
         const year = this.currentYear;
         const holidays = await this.getHolidaysForYear(year);
         const existing = Number.isInteger(index) ? holidays[index] : null;
@@ -365,7 +366,7 @@ export const AppPolicies = {
 
     async deleteHoliday(index) {
         const user = AppAuth.getUser();
-        if (!user || !(user.role === 'Administrator' || user.isAdmin)) return;
+        if (!user || !window.app_hasPerm('policies', 'admin', user)) return;
         const ok = await window.appConfirm('Delete this holiday from current year?');
         if (!ok) return;
 

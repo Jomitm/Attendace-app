@@ -13,7 +13,7 @@ export async function renderMinutes() {
     // Helper functions
     const hasMinuteDetailAccess = (m, user = currentUser) => {
         if (!m || !user) return false;
-        if (user.isAdmin || user.role === 'Administrator') return true;
+        if (window.app_hasPerm('minutes', 'view', user)) return true;
         if (m.createdBy === user.id) return true;
         if ((m.attendeeIds || []).includes(user.id)) return true;
         if ((m.allowedViewers || []).includes(user.id)) return true;
@@ -162,7 +162,7 @@ export async function renderMinutes() {
         const isAttendee = (m.attendeeIds || []).includes(currentUser.id);
         const hasApproved = m.approvals && m.approvals[currentUser.id];
         const isOwner = m.createdBy === currentUser.id;
-        const isAdmin = currentUser.isAdmin || currentUser.role === 'Administrator';
+        const isAdmin = window.app_hasPerm('minutes', 'admin', currentUser);
 
         const attendeeApprovals = (m.attendeeIds || []).map(uid => {
             const user = allUsers.find(u => u.id === uid);
@@ -314,7 +314,7 @@ export async function renderMinutes() {
                     <h3>Meeting Minutes</h3>
                     <p>Track decisions and action items from team meetings.</p>
                 </div>
-                <button class="action-btn" onclick="window.app_toggleNewMinuteForm()"><i class="fa-solid fa-plus"></i> New Minutes</button>
+                ${window.app_hasPerm('minutes', 'admin') ? `<button class="action-btn" onclick="window.app_toggleNewMinuteForm()"><i class="fa-solid fa-plus"></i> New Minutes</button>` : ''}
             </div>
 
             <div id="new-minute-form" style="display:none; margin-bottom:2rem; padding:1.5rem; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:12px;">

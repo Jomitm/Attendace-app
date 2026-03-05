@@ -36,7 +36,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
     }
 
     const activeCount = allUsers.filter(u => u.status === 'in').length;
-    const adminCount = allUsers.filter(u => u.role === 'Administrator' || u.isAdmin).length;
+    const adminCount = allUsers.filter(u => u.role === 'Administrator' || u.isAdmin === true).length;
     const perfStatus = performance.avgScore > 70 ? 'Optimal' : (performance.avgScore > 40 ? 'Good' : 'Low');
     const perfColor = performance.avgScore > 70 ? '#166534' : (performance.avgScore > 40 ? '#854d0e' : '#991b1b');
     const perfBg = performance.avgScore > 70 ? '#f0fdf4' : (performance.avgScore > 40 ? '#fefce8' : '#fef2f2');
@@ -66,6 +66,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                 </div>
             </div>
 
+            ${window.app_hasPerm('leaves', 'view') ? `
             <div class="card full-width admin-section-card">
                  <h3 class="admin-section-title">Pending Leave Requests (${pendingLeaves.length})</h3>
                  ${pendingLeaves.length === 0 ? '<p class="text-muted">No pending requests.</p>' : `
@@ -83,8 +84,10 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                                         <td>${l.daysCount}</td>
                                         <td>
                                             <div class="admin-leave-actions">
-                                                <button onclick="window.AppLeaves.updateLeaveStatus('${l.id}', 'Approved').then(() => window.app_refreshCurrentPage())" class="admin-btn admin-btn-success">Approve</button>
-                                                <button onclick="window.AppLeaves.updateLeaveStatus('${l.id}', 'Rejected').then(() => window.app_refreshCurrentPage())" class="admin-btn admin-btn-danger">Reject</button>
+                                                ${window.app_hasPerm('leaves', 'admin') ? `
+                                                    <button onclick="window.AppLeaves.updateLeaveStatus('${l.id}', 'Approved').then(() => window.app_refreshCurrentPage())" class="admin-btn admin-btn-success">Approve</button>
+                                                    <button onclick="window.AppLeaves.updateLeaveStatus('${l.id}', 'Rejected').then(() => window.app_refreshCurrentPage())" class="admin-btn admin-btn-danger">Reject</button>
+                                                ` : '<span class="text-muted" style="font-size:0.7rem;">View Only</span>'}
                                             </div>
                                         </td>
                                     </tr>
@@ -94,6 +97,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                     </div>
                  `}
             </div>
+            ` : ''}
 
             <div class="card admin-performance-card">
                 <div class="admin-performance-head">
@@ -108,11 +112,12 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                 </div>
             </div>
 
+            ${window.app_hasPerm('users', 'view') ? `
             <div class="card full-width">
                 <div class="admin-staff-head">
                     <h3 class="admin-staff-title">Staff Management</h3>
                     <div class="admin-staff-head-actions">
-                        <button class="action-btn" onclick="document.getElementById('add-user-modal').style.display='flex'"><i class="fa-solid fa-user-plus"></i> Add Staff</button>
+                        ${window.app_hasPerm('users', 'admin') ? `<button class="action-btn" onclick="document.getElementById('add-user-modal').style.display='flex'"><i class="fa-solid fa-user-plus"></i> Add Staff</button>` : ''}
                     </div>
                 </div>
                  <div class="table-container mobile-table-card">
@@ -140,7 +145,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                                     <td>
                                         <div class="admin-row-actions">
                                             <button onclick="window.app_viewLogs('${u.id}')" class="admin-icon-btn"><i class="fa-solid fa-list-check"></i></button>
-                                            <button onclick="window.app_editUser('${u.id}')" class="admin-icon-btn"><i class="fa-solid fa-pen"></i></button>
+                                            ${window.app_hasPerm('users', 'admin') ? `<button onclick="window.app_editUser('${u.id}')" class="admin-icon-btn"><i class="fa-solid fa-pen"></i></button>` : ''}
                                         </div>
                                     </td>
                                 </tr>`;
@@ -149,6 +154,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                     </table>
                 </div>
             </div>
+            ` : ''}
 
             <div class="card full-width">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">

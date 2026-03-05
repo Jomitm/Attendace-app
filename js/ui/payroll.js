@@ -8,6 +8,8 @@ import { safeHtml } from './helpers.js';
 export async function renderSalaryProcessing() {
     const summary = await window.AppAnalytics.getSystemMonthlySummary();
     const today = new Date();
+    const currentUser = window.AppAuth.getUser();
+    const isFullAdmin = window.app_hasPerm('reports', 'admin', currentUser);
     const monthLabel = today.toLocaleDateString('default', { month: 'long', year: 'numeric' });
     const payPeriodValue = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
     const payDateValue = today.toISOString().split('T')[0];
@@ -47,7 +49,7 @@ export async function renderSalaryProcessing() {
                         <input type="number" id="global-tds-percent" value="0" min="0" max="100" style="width: 60px; padding: 4px; border: 1px solid #cbd5e1; border-radius: 4px;" onchange="window.app_recalculateAllSalaries()">
                         <span style="font-weight: 600; color: #64748b;">%</span>
                     </div>
-                    <button class="action-btn" onclick="window.app_saveAllSalaries()" style="padding: 0.6rem 1.2rem;">Save All & Lock</button>
+                    ${isFullAdmin ? `<button class="action-btn" onclick="window.app_saveAllSalaries()" style="padding: 0.6rem 1.2rem;">Save All & Lock</button>` : ''}
                 </div>
             </div>
 
