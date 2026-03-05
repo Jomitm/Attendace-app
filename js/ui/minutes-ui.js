@@ -9,6 +9,7 @@ export async function renderMinutes() {
     const minutes = await window.AppMinutes.getMinutes();
     const allUsers = window.AppDB?.getAll ? await window.AppDB.getAll('users') : [];
     const currentUser = window.AppAuth.getUser();
+    const calendarPlans = window.AppCalendar ? await window.AppCalendar.getPlans() : { leaves: [], events: [], work: [] };
 
     // Helper functions
     const hasMinuteDetailAccess = (m, user = currentUser) => {
@@ -38,6 +39,8 @@ export async function renderMinutes() {
             if (form.style.display === 'block') {
                 selectedAttendeeIds = new Set();
                 window.app_refreshAttendeeChips();
+                // Uncheck all attendees in grid
+                document.querySelectorAll('.attendee-grid input[type="checkbox"]').forEach(cb => cb.checked = false);
                 const container = document.getElementById('action-items-container');
                 if (container) { container.innerHTML = ''; window.app_addActionItemRow(); }
             }
@@ -51,9 +54,18 @@ export async function renderMinutes() {
 
     window.app_filterAttendees = (query) => {
         const q = query.toLowerCase();
-        document.querySelectorAll('.minutes-attendee-item').forEach(item => {
-            const name = item.dataset.name.toLowerCase();
+        document.querySelectorAll('.attendee-item-modern').forEach(item => {
+            const name = (item.dataset.name || '').toLowerCase();
             item.style.display = name.includes(q) ? 'flex' : 'none';
+        });
+    };
+
+    window.app_filterMinutes = (query) => {
+        const q = query.toLowerCase();
+        document.querySelectorAll('.minute-card-modern').forEach(card => {
+            const title = card.querySelector('.card-title-modern')?.textContent.toLowerCase() || '';
+            const date = card.querySelector('.card-date-badge')?.textContent.toLowerCase() || '';
+            card.style.display = (title.includes(q) || date.includes(q)) ? 'flex' : 'none';
         });
     };
 
@@ -79,7 +91,7 @@ export async function renderMinutes() {
 
     window.app_removeAttendee = (id) => {
         selectedAttendeeIds.delete(id);
-        const checkbox = document.querySelector(`.minutes-attendee-item input[value="${id}"]`);
+        const checkbox = document.querySelector(`.attendee-item-modern input[value="${id}"]`);
         if (checkbox) checkbox.checked = false;
         window.app_refreshAttendeeChips();
     };
@@ -114,7 +126,7 @@ export async function renderMinutes() {
         const date = document.getElementById('new-minute-date').value;
         const content = document.getElementById('new-minute-content').value.trim();
         const attendeeIds = Array.from(selectedAttendeeIds);
-        const actionItems = Array.from(document.querySelectorAll('.action-item-row')).map(row => ({
+        const actionItems = Array.from(document.querySelectorAll('.action-item-row-card')).map(row => ({
             task: row.querySelector('.action-task').value.trim(),
             assignedTo: row.querySelector('.action-assignee').value,
             dueDate: row.querySelector('.action-due').value,
@@ -128,6 +140,7 @@ export async function renderMinutes() {
             window.app_refreshMinutesView();
         } catch (error) { alert("Error saving: " + error.message); }
     };
+
 
     window.app_requestMinuteAccess = async (id) => {
         try {
@@ -217,6 +230,7 @@ export async function renderMinutes() {
                 </div>
             </div>
         `).join('');
+
 
         const modalHtml = `
             <div class="modal-overlay" id="minute-detail-modal" style="display:flex;">
@@ -593,13 +607,6 @@ export async function renderMinutes() {
                     color: var(--minutes-text);
                 }
 
-                /* List View */
-                .minutes-list-container {
-                    display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-                    gap: 2rem;
-                }
-
                 .minute-card-modern {
                     background: var(--minutes-card-bg);
                     border-radius: 20px;
@@ -768,9 +775,27 @@ export async function renderMinutes() {
                     </button>
                 </div>
 
+                <div class="ngo-plans-section">
+                    <div class="form-section-header">
+                        <i class="fa-solid fa-calendar-star" style="color:#db2777; font-size:1.5rem;"></i>
+                        <h3>Schedule NGO Activities</h3>
+                    </div>
+                    <div class="minutes-calendar-widget-wrapper">
+                        ${window.AppUI?.renderYearlyPlan ? window.AppUI.renderYearlyPlan(calendarPlans) : '<div class="card">Team Schedule (Loading...)</div>'}
+                    </div>
+                </div>
+
                 <div class="form-footer-modern">
                     <button class="btn-secondary-modern" onclick="window.app_toggleNewMinuteForm()">Dismiss</button>
                     <button class="btn-record-meeting" onclick="window.app_submitNewMinutes()">Create Meeting Record</button>
+                </div>
+            </div>
+
+            <div class="minutes-list-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; margin-top: 2rem;">
+                <h3 style="margin:0; font-family:'Sora'; font-weight:800; color:#0f172a;">Recent Meetings</h3>
+                <div style="position: relative; width: 300px;">
+                    <i class="fa-solid fa-search" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--minutes-muted);"></i>
+                    <input type="text" placeholder="Search meetings..." oninput="window.app_filterMinutes(this.value)" class="input-premium" style="padding-left: 2.75rem; width: 100%; padding-top: 0.6rem; padding-bottom: 0.6rem; font-size: 0.9rem;">
                 </div>
             </div>
 

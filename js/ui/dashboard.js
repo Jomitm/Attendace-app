@@ -75,7 +75,7 @@ export function renderHeroCard(heroData, heroMeta = {}) {
         </div>`;
 }
 
-export function renderWorkLog(logs, collabs = [], targetStaff = null) {
+export function renderWorkLog(logs, collabs = [], targetStaff = null, minutes = []) {
     const today = new Date();
     const startDate = new Date(today);
     startDate.setDate(startDate.getDate() - 180);
@@ -97,13 +97,13 @@ export function renderWorkLog(logs, collabs = [], targetStaff = null) {
                 <button onclick="window.app_filterActivity()" class="dashboard-worklog-go-btn">Go</button>
             </div>
             <div id="activity-list" class="dashboard-worklog-list">
-                ${renderActivityList(logs, startDefault, endDefault, targetUserId, collabs)}
+                ${renderActivityList(logs, startDefault, endDefault, targetUserId, collabs, minutes)}
             </div>
         </div>
     `;
 }
 
-export function renderActivityList(allLogs, startStr, endStr, targetStaffId, collabs = []) {
+export function renderActivityList(allLogs, startStr, endStr, targetStaffId, collabs = [], minutes = []) {
     const start = new Date(startStr);
     const end = new Date(endStr);
     end.setHours(23, 59, 59, 999);
@@ -134,7 +134,29 @@ export function renderActivityList(allLogs, startStr, endStr, targetStaffId, col
         });
     });
 
-    const merged = [...logEntries, ...collabEntries].sort((a, b) => {
+    const minuteEntries = [];
+    minutes.forEach(m => {
+        (m.actionItems || []).forEach(ai => {
+            if (ai.assignedTo !== targetStaffId) return;
+            const aiDate = ai.dueDate || m.date; // Use due date if available, else meeting date
+            const d = new Date(aiDate);
+            if (d < start || d > end) return;
+
+            minuteEntries.push({
+                date: aiDate,
+                workDescription: `📋 Meeting Task: ${ai.task} (from ${m.title})`,
+                status: ai.status || 'pending',
+                checkOut: 'Action Item',
+                _displayDesc: `📋 Meeting Task: ${ai.task} (from ${m.title})`,
+                _isCollab: false,
+                _isMinute: true,
+                _meetingId: m.id,
+                _sortTime: '09:00' // Show at start of day
+            });
+        });
+    });
+
+    const merged = [...logEntries, ...collabEntries, ...minuteEntries].sort((a, b) => {
         const dateDiff = new Date(b.date) - new Date(a.date);
         if (dateDiff !== 0) return dateDiff;
         return b._sortTime.localeCompare(a._sortTime);
@@ -153,15 +175,15 @@ export function renderActivityList(allLogs, startStr, endStr, targetStaffId, col
             html += `<div class="dashboard-activity-date">${log.date}</div>`;
             lastDate = log.date;
         }
-        const borderColor = log._isCollab ? '#10b981' : '#e5e7eb';
-        const collabClass = log._isCollab ? 'dashboard-activity-item-collab' : '';
+        const borderColor = log._isCollab ? '#10b981' : (log._isMinute ? '#6366f1' : '#e5e7eb');
+        const collabClass = log._isCollab ? 'dashboard-activity-item-collab' : (log._isMinute ? 'dashboard-activity-item-minute' : '');
         let statusBadge = '';
-        if (log._isCollab || log.status) {
+        if (log._isCollab || log.status || log._isMinute) {
             const status = window.AppCalendar ? window.AppCalendar.getSmartTaskStatus(log.date, log.status) : (log.status || 'to-be-started');
             statusBadge = `
                 <div class="dashboard-activity-status-row">
                     ${renderTaskStatusBadge(status)}
-                    ${isAdminUser ? `<div class="dashboard-activity-edit-wrap"><button onclick="window.app_openDayPlan('${log.date}', '${targetStaffId}')" class="dashboard-activity-edit-btn" title="Edit/Reassign"><i class="fa-solid fa-pen-to-square"></i></button></div>` : ''}
+                    ${isAdminUser || log._isMinute ? `<div class="dashboard-activity-edit-wrap"><button onclick="${log._isMinute ? `window.app_openMinuteDetails('${log._meetingId}')` : `window.app_openDayPlan('${log.date}', '${targetStaffId}')`}" class="dashboard-activity-edit-btn" title="View/Edit"><i class="fa-solid fa-${log._isMinute ? 'eye' : 'pen-to-square'}"></i></button></div>` : ''}
                 </div>`;
         }
         html += `<div class="dashboard-activity-item ${collabClass}" style="border-left-color:${borderColor};"><div class="dashboard-activity-desc">${safeHtml(log._displayDesc)}</div>${statusBadge}<div class="dashboard-activity-meta">${safeHtml(log.checkOut || (log.status === 'completed' ? 'Completed' : 'Planned Activity'))}</div></div>`;
@@ -571,7 +593,7 @@ export async function renderDashboard() {
     }
 
     // Parallel Fetch
-    const [status, logs, monthlyStats, yearlyStats, heroDataRaw, calendarPlans, staffActivitiesRaw, pendingLeaves, allUsers, collaborations, allLeaves, dailySummary] = await Promise.all([
+    const [status, logs, monthlyStats, yearlyStats, heroDataRaw, calendarPlans, staffActivitiesRaw, pendingLeaves, allUsers, collaborations, allLeaves, dailySummary, minutesData] = await Promise.all([
         window.AppAttendance.getStatus(),
         window.AppAttendance.getLogs(targetStaffId),
         window.AppAnalytics.getUserMonthlyStats(targetStaffId),
@@ -589,7 +611,8 @@ export async function renderDashboard() {
                 ? window.AppDB.queryMany('leaves', [{ field: 'status', operator: '==', value: 'Pending' }]).catch(() => window.AppDB.getAll('leaves'))
                 : window.AppDB.getAll('leaves'))
             : Promise.resolve([]),
-        dailySummaryPromise
+        dailySummaryPromise,
+        window.AppMinutes ? window.AppMinutes.getMinutes() : Promise.resolve([])
     ]);
     console.timeEnd('DashboardFetch');
 
@@ -756,7 +779,7 @@ export async function renderDashboard() {
                     <button class="${btnClass}" id="attendance-btn" ${isReadOnlyView ? 'disabled' : ''} title="${isReadOnlyView ? 'View only' : ''}" style="width: 100%; padding: 0.75rem; font-size: 0.9rem; border-radius: 10px; margin-top: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; transition: all 0.3s ease; ${isReadOnlyView ? 'opacity:0.6; cursor:not-allowed;' : ''}">${btnText} <i class="fa-solid fa-fingerprint"></i></button>
                     <div class="location-text" id="location-text" style="font-size: 0.65rem; color: #94a3b8; text-align: center; margin-top: 0.5rem;"><i class="fa-solid fa-location-dot"></i><span>${isCheckedIn && displayUser.currentLocation ? `Lat: ${Number(displayUser.currentLocation.lat).toFixed(4)}, Lng: ${Number(displayUser.currentLocation.lng).toFixed(4)}` : 'Waiting for location...'}</span></div>
                 </div>
-                <div style="flex: 1.1; min-width: 230px; display: flex; flex-direction: column; ${!isViewingSelf ? 'border: 2px solid #fb923c; border-radius: 12px;' : ''}">${renderWorkLog(logs, collaborations, targetStaff)}</div>
+                <div style="flex: 1.1; min-width: 230px; display: flex; flex-direction: column; ${!isViewingSelf ? 'border: 2px solid #fb923c; border-radius: 12px;' : ''}">${renderWorkLog(logs, collaborations, targetStaff, minutesData)}</div>
                 <div style="flex: 1.8; min-width: 280px; display: flex; flex-direction: column;">${renderActivityLog(staffActivities)}</div>
                 ${isAdmin ? `<div style="flex: 1.2; min-width: 210px; display: flex; flex-direction: column;">${renderStaffDirectory(allUsers, notifications, user)}</div>` : ''}
             </div>

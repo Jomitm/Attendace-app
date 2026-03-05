@@ -4125,6 +4125,10 @@ textarea:focus {
     background: #f0fdf4;
 }
 
+.dashboard-activity-item-minute {
+    background: #f5f3ff;
+}
+
 .dashboard-activity-desc {
     white-space: pre-wrap;
     color: #4b5563;
