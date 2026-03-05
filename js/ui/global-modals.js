@@ -43,6 +43,12 @@ export function renderModals() {
                         </div>
                     </div>
                     
+                    <!-- Plan for Tomorrow -->
+                    <div style="margin-bottom:1.5rem;">
+                        <label style="display:block; font-size:0.85rem; font-weight:700; color:#4b5563; margin-bottom:0.5rem;">🗓️ What's your top goal for tomorrow? (Optional)</label>
+                        <textarea name="tomorrowGoal" placeholder="e.g., Finalize the project report..." style="width:100%; height:60px; padding:0.75rem; border:1px solid #d1d5db; border-radius:0.5rem; resize:none; font-family:inherit;"></textarea>
+                    </div>
+
                     <div id="checkout-location-loading" style="display:none; font-size:0.75rem; color:#6b7280; margin-bottom:1rem; text-align:center;">
                          <i class="fa-solid fa-spinner fa-spin"></i> Verifying location...
                     </div>
