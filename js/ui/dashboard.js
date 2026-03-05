@@ -909,4 +909,75 @@ if (typeof window !== 'undefined') {
     window.AppUI.renderNotificationPanel = renderNotificationPanel;
     window.AppUI.renderTaggedItems = renderTaggedItems;
     window.AppUI.renderStaffDirectory = renderStaffDirectory;
+
+    window.app_expandTeamActivity = function () {
+        const state = getStaffActivityState();
+        const monthOptions = buildStaffActivityMonthOptions(8);
+        const selectedMonthLabel = formatMonthLabel(state.selectedMonth);
+
+        const modalOverlay = document.createElement('div');
+        modalOverlay.id = 'team-activity-modal-overlay';
+        modalOverlay.className = 'team-activity-modal-overlay';
+
+        modalOverlay.innerHTML = `
+            <div class="team-activity-modal-content">
+                <div class="team-activity-modal-header">
+                    <div class="team-activity-modal-title-wrap">
+                        <h2>Team Activity - Full View</h2>
+                        <span id="staff-activity-range-label-modal">${safeHtml(selectedMonthLabel)}</span>
+                    </div>
+                    <div class="team-activity-modal-actions">
+                        <div class="dashboard-team-activity-filters">
+                            <select class="dashboard-team-select" onchange="window.app_setStaffActivityMonth(this.value); window.app_expandTeamActivityRefresh();">
+                                ${monthOptions.map(opt => `<option value="${opt.key}" ${opt.key === state.selectedMonth ? 'selected' : ''}>${safeHtml(opt.label)}</option>`).join('')}
+                            </select>
+                            <select class="dashboard-team-select" onchange="window.app_setStaffActivitySort(this.value); window.app_expandTeamActivityRefresh();">
+                                <option value="date-desc" ${state.sortKey === 'date-desc' ? 'selected' : ''}>Date (Newest)</option>
+                                <option value="date-asc" ${state.sortKey === 'date-asc' ? 'selected' : ''}>Date (Oldest)</option>
+                                <option value="completed-first" ${state.sortKey === 'completed-first' ? 'selected' : ''}>Completed First</option>
+                                <option value="incomplete-first" ${state.sortKey === 'incomplete-first' ? 'selected' : ''}>Incomplete First</option>
+                                <option value="status-priority" ${state.sortKey === 'status-priority' ? 'selected' : ''}>Status Priority</option>
+                                <option value="staff-asc" ${state.sortKey === 'staff-asc' ? 'selected' : ''}>Staff (A-Z)</option>
+                                <option value="staff-desc" ${state.sortKey === 'staff-desc' ? 'selected' : ''}>Staff (Z-A)</option>
+                            </select>
+                        </div>
+                        <button class="team-activity-modal-close" onclick="window.app_closeTeamActivityExpanded()"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                </div>
+                <div id="staff-activity-list-modal" class="team-activity-modal-body">
+                    ${renderStaffActivityListSplit(state.logs, state.sortKey)}
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modalOverlay);
+        document.body.style.overflow = 'hidden'; // Prevent background scrolling
+
+        // Add Escape key listener
+        window._teamActivityEscHandler = (e) => {
+            if (e.key === 'Escape') window.app_closeTeamActivityExpanded();
+        };
+        window.addEventListener('keydown', window._teamActivityEscHandler);
+    };
+
+    window.app_expandTeamActivityRefresh = function () {
+        const state = getStaffActivityState();
+        const modalBody = document.getElementById('staff-activity-list-modal');
+        const modalLabel = document.getElementById('staff-activity-range-label-modal');
+        if (modalBody) {
+            modalBody.innerHTML = renderStaffActivityListSplit(state.logs, state.sortKey);
+        }
+        if (modalLabel) {
+            modalLabel.textContent = formatMonthLabel(state.selectedMonth);
+        }
+    };
+
+    window.app_closeTeamActivityExpanded = function () {
+        const modal = document.getElementById('team-activity-modal-overlay');
+        if (modal) {
+            modal.remove();
+            document.body.style.overflow = '';
+            window.removeEventListener('keydown', window._teamActivityEscHandler);
+        }
+    };
 }

@@ -7698,4 +7698,145 @@ textarea:focus {
     border-color: #dce8ff !important;
     background: #ffffff;
     box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+
+    /* --- Team Activity Full-Page View --- */
+    .team-activity-modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: #f8fafc;
+        /* Solid background for a full-page feel */
+        z-index: 9999;
+        /* Cover all UI (sidebars, etc.) */
+        display: flex;
+        flex-direction: column;
+        animation: fadeIn var(--motion-med) var(--easing-standard);
+    }
+
+    .team-activity-modal-content {
+        background: var(--bg-card);
+        width: 100vw;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        animation: fadeIn var(--motion-med) var(--easing-standard);
+    }
+
+    .team-activity-modal-header {
+        padding: 1.5rem 3rem;
+        /* Extra padding for premium feel */
+        background: #fff;
+        border-bottom: 2px solid #eef2ff;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-shrink: 0;
+    }
+
+    .team-activity-modal-title-wrap h2 {
+        font-family: var(--font-display);
+        font-size: 1.8rem;
+        font-weight: 800;
+        color: var(--primary);
+        margin-bottom: 0.25rem;
+    }
+
+    .team-activity-modal-title-wrap span {
+        font-size: 1rem;
+        color: var(--text-muted);
+        font-weight: 600;
+    }
+
+    .team-activity-modal-actions {
+        display: flex;
+        align-items: center;
+        gap: 2rem;
+    }
+
+    .team-activity-modal-actions .dashboard-team-activity-filters {
+        background: #f8fafc;
+        padding: 0.5rem;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+    }
+
+    .team-activity-modal-close {
+        background: #fee2e2;
+        border: none;
+        width: 44px;
+        height: 44px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        color: #ef4444;
+        font-size: 1.25rem;
+        transition: all 0.2s;
+    }
+
+    .team-activity-modal-close:hover {
+        background: #fecaca;
+        transform: scale(1.1) rotate(90deg);
+    }
+
+    .team-activity-modal-body {
+        flex: 1;
+        /* Stretch to fill all available vertical space */
+        display: flex;
+        flex-direction: column;
+        padding: 2rem 3rem;
+        background: #f8fafc;
+    }
+
+    /* Ensure grid stretches to the very bottom */
+    .team-activity-modal-body .dashboard-team-activity-split-grid {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 3rem !important;
+        /* Wider gap for full page */
+        flex: 1;
+        /* Stretch grid to the bottom */
+        min-height: 0;
+        /* Important for flex child scrolling */
+    }
+
+    .team-activity-modal-body .dashboard-team-activity-col {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        /* Column stretches to bottom */
+    }
+
+    .team-activity-modal-body .dashboard-team-activity-col-head {
+        margin-bottom: 1rem;
+        font-size: 1.1rem;
+        padding: 0.5rem 0;
+    }
+
+    .team-activity-modal-body .dashboard-team-activity-col-list {
+        flex: 1;
+        /* List stretches to bottom of column */
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
+        overflow-y: auto !important;
+        /* Internal scrolling within the column */
+        padding-right: 1.5rem;
+        /* Space for scrollbar */
+    }
+
+    .team-activity-modal-body .dashboard-staff-activity-item {
+        background: white;
+        border-radius: 20px;
+        padding: 1.5rem;
+        box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -1px rgb(0 0 0 / 0.06);
+        border: 1px solid #e2e8f0;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .team-activity-modal-body .dashboard-staff-activity-item:hover {
+        transform: translateY(-4px) scale(1.01);
+        box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 10px 10px -5px rgb(0 0 0 / 0.04);
+    }
 }
