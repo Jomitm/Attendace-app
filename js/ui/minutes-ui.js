@@ -314,7 +314,7 @@ export async function renderMinutes() {
                     <h3>Meeting Minutes</h3>
                     <p>Track decisions and action items from team meetings.</p>
                 </div>
-                ${window.app_hasPerm('minutes', 'admin') ? `<button class="action-btn" onclick="window.app_toggleNewMinuteForm()"><i class="fa-solid fa-plus"></i> New Minutes</button>` : ''}
+                <button class="action-btn" onclick="window.app_toggleNewMinuteForm()"><i class="fa-solid fa-plus-circle"></i> Record Meeting</button>
             </div>
 
             <div id="new-minute-form" style="display:none; margin-bottom:2rem; padding:1.5rem; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:12px;">
