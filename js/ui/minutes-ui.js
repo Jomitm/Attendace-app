@@ -68,7 +68,12 @@ export async function renderMinutes() {
         if (!container) return;
         container.innerHTML = Array.from(selectedAttendeeIds).map(id => {
             const user = allUsers.find(u => u.id === id);
-            return `<div class="attendee-chip"><span>${safeHtml(user?.name || user?.username || 'Unknown')}</span><i class="fa-solid fa-circle-xmark" onclick="window.app_removeAttendee('${id}')"></i></div>`;
+            return `
+                <div class="chip-modern">
+                    <span>${safeHtml(user?.name || user?.username || 'Unknown')}</span>
+                    <i class="fa-solid fa-circle-xmark" onclick="window.app_removeAttendee('${id}')"></i>
+                </div>
+            `;
         }).join('');
     };
 
@@ -83,15 +88,23 @@ export async function renderMinutes() {
         const container = document.getElementById('action-items-container');
         if (!container) return;
         const row = document.createElement('div');
-        row.className = 'action-item-row';
+        row.className = 'action-item-row-card';
         row.innerHTML = `
-            <input type="text" placeholder="Task description..." class="action-task">
-            <select class="action-assignee">
-                <option value="">Assign to...</option>
-                ${allUsers.map(u => `<option value="${u.id}">${safeHtml(u.name || u.username)}</option>`).join('')}
-            </select>
-            <input type="date" class="action-due" value="${new Date().toISOString().split('T')[0]}">
-            <button type="button" onclick="this.parentElement.remove()" class="remove-action-btn"><i class="fa-solid fa-trash"></i></button>
+            <div class="field-group">
+                <input type="text" placeholder="What needs to be done?" class="input-premium action-task">
+            </div>
+            <div class="field-group">
+                <select class="input-premium action-assignee">
+                    <option value="">Assignee...</option>
+                    ${allUsers.map(u => `<option value="${u.id}">${safeHtml(u.name || u.username)}</option>`).join('')}
+                </select>
+            </div>
+            <div class="field-group">
+                <input type="date" class="input-premium action-due" value="${new Date().toISOString().split('T')[0]}">
+            </div>
+            <button type="button" onclick="this.parentElement.remove()" class="icon-btn-danger" style="background:#fee2e2; color:#ef4444; border:none; width:40px; height:40px; border-radius:10px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s;">
+                <i class="fa-solid fa-trash-can"></i>
+            </button>
         `;
         container.appendChild(row);
     };
@@ -270,109 +283,543 @@ export async function renderMinutes() {
     };
 
     return `
-        <div class="card full-width minutes-modern">
+        <div class="minutes-container">
             <style>
-                .minutes-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2rem; }
-                .minutes-list-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; }
-                .minute-item { padding: 1.5rem; border: 1px solid #e2e8f0; border-radius: 12px; transition: all 0.2s; position: relative; display: flex; flex-direction: column; }
-                .minute-item.clickable { cursor: pointer; }
-                .minute-item.clickable:hover { border-color: #6366f1; transform: translateY(-2px); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
-                .minute-item.restricted { opacity: 0.8; background: #f8fafc; cursor: default; }
-                .minute-item-date { font-size: 0.8rem; color: #64748b; margin-bottom: 0.5rem; }
-                .minute-item-title { font-size: 1.1rem; color: #1e293b; margin-bottom: 0.8rem; font-weight: 700; }
-                .minute-item-meta { display: flex; flex-wrap: wrap; gap: 0.8rem; font-size: 0.8rem; color: #64748b; margin-bottom: 1rem; }
-                .minute-item-meta span { display: flex; align-items: center; gap: 4px; }
-                
-                .restricted-overlay { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.8rem; padding: 1rem; background: #fff; border-radius: 8px; border: 1px dashed #cbd5e1; }
-                .status-badge { font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; }
-                
-                .minutes-attendee-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
-                .attendee-chip { background: #e0f2fe; color: #0369a1; padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; display: flex; align-items: center; gap: 4px; }
-                .attendee-chip i { cursor: pointer; opacity: 0.7; }
-                
-                .action-item-row { display: grid; grid-template-columns: 1fr 120px 120px 32px; gap: 0.5rem; margin-bottom: 0.5rem; }
-                .minutes-detail-wide { max-width: 800px !important; }
-                .detail-grid { display: grid; grid-template-columns: 1fr 300px; gap: 2rem; }
-                .side-column { border-left: 1px solid #f1f5f9; padding-left: 1.5rem; }
-                .side-column section { margin-bottom: 2rem; }
-                .approvals-stack { display: flex; flex-direction: column; gap: 0.6rem; }
-                .approval-chip { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; border-radius: 8px; font-size: 0.85rem; }
-                .approval-chip.approved { background: #ecfdf5; color: #065f46; border: 1px solid #bbf7d0; }
-                .approval-chip.pending { background: #fefce8; color: #854d0e; border: 1px solid #fef08a; }
-                
-                .mini-btn { padding: 4px 10px; border-radius: 6px; border: 1px solid #cbd5e1; background: #fff; cursor: pointer; font-size: 0.75rem; }
-                .mini-btn.success { background: #10b981; color: #fff; border-color: #10b981; }
-                .mini-btn.danger { background: #ef4444; color: #fff; border-color: #ef4444; }
-                
-                .status-locked-msg { color: #059669; font-weight: 700; font-size: 0.9rem; }
-                .access-request-row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; background: #f8fafc; border-radius: 8px; margin-bottom: 0.5rem; }
-                .req-btns { display: flex; gap: 4px; }
+                :root {
+                    --minutes-primary: #4f46e5;
+                    --minutes-secondary: #6366f1;
+                    --minutes-bg: #f8fafc;
+                    --minutes-card-bg: #ffffff;
+                    --minutes-text: #1e293b;
+                    --minutes-muted: #64748b;
+                    --minutes-border: #e2e8f0;
+                    --minutes-success: #10b981;
+                    --minutes-danger: #ef4444;
+                    --minutes-warning: #f59e0b;
+                    --minutes-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02);
+                }
+
+                .minutes-container {
+                    padding: 0.5rem;
+                    color: var(--minutes-text);
+                    font-family: 'Manrope', sans-serif;
+                }
+
+                .minutes-header-section {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: flex-end;
+                    margin-bottom: 2.5rem;
+                    border-bottom: 1px solid var(--minutes-border);
+                    padding-bottom: 1.5rem;
+                }
+
+                .minutes-header-info h2 {
+                    font-family: 'Sora', sans-serif;
+                    font-size: 1.875rem;
+                    font-weight: 700;
+                    color: #0f172a;
+                    margin-bottom: 0.5rem;
+                }
+
+                .minutes-header-info p {
+                    color: var(--minutes-muted);
+                    font-size: 0.95rem;
+                }
+
+                .btn-record-meeting {
+                    background: var(--minutes-primary);
+                    color: white;
+                    border: none;
+                    padding: 0.75rem 1.5rem;
+                    border-radius: 12px;
+                    font-weight: 700;
+                    display: flex;
+                    align-items: center;
+                    gap: 0.75rem;
+                    cursor: pointer;
+                    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+                    box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.2);
+                }
+
+                .btn-record-meeting:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.3);
+                    background: var(--minutes-secondary);
+                }
+
+                /* Form Styling */
+                .form-glass-card {
+                    background: rgba(255, 255, 255, 0.8);
+                    backdrop-filter: blur(12px);
+                    border: 1px solid rgba(226, 232, 240, 0.8);
+                    border-radius: 20px;
+                    padding: 2.5rem;
+                    margin-bottom: 3rem;
+                    box-shadow: var(--minutes-shadow);
+                    animation: slideDown 0.4s ease-out;
+                }
+
+                @keyframes slideDown {
+                    from { opacity: 0; transform: translateY(-20px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+
+                .form-section-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 1rem;
+                    margin-bottom: 2rem;
+                }
+
+                .form-section-header h3 {
+                    font-size: 1.25rem;
+                    font-weight: 800;
+                    color: #0f172a;
+                }
+
+                .form-row {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 2rem;
+                    margin-bottom: 2rem;
+                }
+
+                .field-group {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 0.5rem;
+                }
+
+                .field-label {
+                    font-size: 0.875rem;
+                    font-weight: 700;
+                    color: var(--minutes-muted);
+                    text-transform: uppercase;
+                    letter-spacing: 0.05em;
+                }
+
+                .input-premium {
+                    background: white;
+                    border: 2px solid var(--minutes-border);
+                    border-radius: 12px;
+                    padding: 0.875rem 1rem;
+                    font-size: 1rem;
+                    transition: border-color 0.2s;
+                    outline: none;
+                }
+
+                .input-premium:focus {
+                    border-color: var(--minutes-primary);
+                }
+
+                /* Attendee Picker */
+                .attendee-picker-container {
+                    background: #f1f5f9;
+                    border-radius: 16px;
+                    padding: 1.5rem;
+                    margin-bottom: 2rem;
+                }
+
+                .attendee-chips-wrapper {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 0.5rem;
+                    margin-bottom: 1rem;
+                    min-height: 40px;
+                }
+
+                .chip-modern {
+                    background: var(--minutes-primary);
+                    color: white;
+                    padding: 0.4rem 0.9rem;
+                    border-radius: 999px;
+                    font-size: 0.875rem;
+                    font-weight: 600;
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                    box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.2);
+                    animation: fadeIn 0.2s ease-out;
+                }
+
+                .chip-modern i {
+                    cursor: pointer;
+                    opacity: 0.8;
+                    transition: opacity 0.2s;
+                }
+
+                .chip-modern i:hover {
+                    opacity: 1;
+                }
+
+                .search-staff-input {
+                    width: 100%;
+                    background: white;
+                    border: 1px solid var(--minutes-border);
+                    border-radius: 10px;
+                    padding: 0.6rem 1rem;
+                    margin-bottom: 1rem;
+                    font-size: 0.9rem;
+                }
+
+                .attendee-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                    gap: 0.75rem;
+                    max-height: 200px;
+                    overflow-y: auto;
+                    padding-right: 0.5rem;
+                }
+
+                .attendee-item-modern {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.75rem;
+                    background: white;
+                    padding: 0.75rem 1rem;
+                    border-radius: 10px;
+                    border: 1px solid var(--minutes-border);
+                    cursor: pointer;
+                    transition: all 0.2s;
+                    user-select: none;
+                }
+
+                .attendee-item-modern:hover {
+                    border-color: var(--minutes-secondary);
+                    background: #f8fafc;
+                }
+
+                .attendee-item-modern input {
+                    width: 18px;
+                    height: 18px;
+                    cursor: pointer;
+                }
+
+                .attendee-item-modern span {
+                    font-size: 0.9rem;
+                    font-weight: 500;
+                    color: var(--minutes-text);
+                }
+
+                /* Discussion Area */
+                .discussion-area {
+                    margin-bottom: 2rem;
+                }
+
+                .textarea-premium {
+                    width: 100%;
+                    min-height: 180px;
+                    background: white;
+                    border: 2px solid var(--minutes-border);
+                    border-radius: 12px;
+                    padding: 1.25rem;
+                    font-size: 1rem;
+                    line-height: 1.6;
+                    outline: none;
+                    resize: vertical;
+                    transition: border-color 0.2s;
+                }
+
+                .textarea-premium:focus {
+                    border-color: var(--minutes-primary);
+                }
+
+                /* Action Items */
+                .action-items-section {
+                    margin-bottom: 2.5rem;
+                }
+
+                .action-item-row-card {
+                    display: grid;
+                    grid-template-columns: 1fr 200px 160px auto;
+                    gap: 1rem;
+                    background: white;
+                    padding: 1rem;
+                    border-radius: 12px;
+                    border: 1px solid var(--minutes-border);
+                    margin-bottom: 0.75rem;
+                    align-items: center;
+                    animation: slideRight 0.3s ease-out;
+                }
+
+                @keyframes slideRight {
+                    from { opacity: 0; transform: translateX(-10px); }
+                    to { opacity: 1; transform: translateX(0); }
+                }
+
+                .btn-add-task {
+                    background: #f1f5f9;
+                    color: var(--minutes-primary);
+                    border: 2px dashed var(--minutes-primary);
+                    padding: 0.75rem;
+                    border-radius: 12px;
+                    width: 100%;
+                    font-weight: 700;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 0.5rem;
+                }
+
+                .btn-add-task:hover {
+                    background: #eef2ff;
+                    border-style: solid;
+                }
+
+                .form-footer-modern {
+                    display: flex;
+                    justify-content: flex-end;
+                    gap: 1rem;
+                    border-top: 1px solid var(--minutes-border);
+                    padding-top: 2rem;
+                }
+
+                .btn-secondary-modern {
+                    background: #f1f5f9;
+                    color: var(--minutes-muted);
+                    border: none;
+                    padding: 0.75rem 2rem;
+                    border-radius: 12px;
+                    font-weight: 700;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                }
+
+                .btn-secondary-modern:hover {
+                    background: #e2e8f0;
+                    color: var(--minutes-text);
+                }
+
+                /* List View */
+                .minutes-list-container {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+                    gap: 2rem;
+                }
+
+                .minute-card-modern {
+                    background: var(--minutes-card-bg);
+                    border-radius: 20px;
+                    border: 1px solid var(--minutes-border);
+                    padding: 1.75rem;
+                    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                    display: flex;
+                    flex-direction: column;
+                    position: relative;
+                    overflow: hidden;
+                    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+                }
+
+                .minute-card-modern:hover {
+                    transform: translateY(-5px);
+                    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+                    border-color: var(--minutes-primary);
+                }
+
+                .minute-card-status {
+                    position: absolute;
+                    top: 1.5rem;
+                    right: 1.5rem;
+                }
+
+                .card-date-badge {
+                    display: inline-block;
+                    background: #f1f5f9;
+                    color: var(--minutes-muted);
+                    padding: 0.35rem 0.75rem;
+                    border-radius: 8px;
+                    font-size: 0.8rem;
+                    font-weight: 700;
+                    margin-bottom: 1rem;
+                }
+
+                .card-title-modern {
+                    font-size: 1.25rem;
+                    font-weight: 800;
+                    color: #0f172a;
+                    margin-bottom: 1rem;
+                    line-height: 1.4;
+                }
+
+                .card-metrics {
+                    display: flex;
+                    gap: 1.25rem;
+                    margin-top: auto;
+                    padding-top: 1.5rem;
+                    border-top: 1px solid #f1f5f9;
+                }
+
+                .metric-item {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.5rem;
+                    font-size: 0.85rem;
+                    color: var(--minutes-muted);
+                    font-weight: 600;
+                }
+
+                .metric-item i {
+                    color: var(--minutes-primary);
+                }
+
+                .restricted-tag {
+                    background: #fef2f2;
+                    color: #991b1b;
+                    padding: 1rem;
+                    border-radius: 12px;
+                    font-size: 0.875rem;
+                    text-align: center;
+                    margin-top: 1.5rem;
+                    font-weight: 600;
+                }
+
+                .empty-state-modern {
+                    grid-column: 1 / -1;
+                    padding: 5rem;
+                    text-align: center;
+                    background: white;
+                    border-radius: 20px;
+                    border: 2px dashed var(--minutes-border);
+                }
+
+                .empty-state-modern i {
+                    font-size: 4rem;
+                    color: var(--minutes-border);
+                    margin-bottom: 1.5rem;
+                }
+
+                .empty-state-modern h4 {
+                    font-size: 1.5rem;
+                    color: var(--minutes-muted);
+                    font-weight: 700;
+                }
+
+                @media (max-width: 768px) {
+                    .form-row { grid-template-columns: 1fr; gap: 1rem; }
+                    .action-item-row-card { grid-template-columns: 1fr; padding: 1.5rem; }
+                    .minutes-header-section { flex-direction: column; align-items: flex-start; gap: 1rem; }
+                    .btn-record-meeting { width: 100%; justify-content: center; }
+                }
             </style>
 
-            <div class="minutes-header">
-                <div>
-                    <h3>Meeting Minutes</h3>
-                    <p>Track decisions and action items from team meetings.</p>
+            <div class="minutes-header-section">
+                <div class="minutes-header-info">
+                    <h2>Meeting Minutes</h2>
+                    <p>Document decisions and track team accountability.</p>
                 </div>
-                <button class="action-btn" onclick="window.app_toggleNewMinuteForm()"><i class="fa-solid fa-plus-circle"></i> Record Meeting</button>
+                <button class="btn-record-meeting" onclick="window.app_toggleNewMinuteForm()">
+                    <i class="fa-solid fa-plus-circle"></i>
+                    Record Meeting
+                </button>
             </div>
 
-            <div id="new-minute-form" style="display:none; margin-bottom:2rem; padding:1.5rem; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:12px;">
-                <!-- Copy of previous form with better attendee picker -->
-                <h4 style="margin-bottom:1rem; color:#1e1b4b;">Record New Meeting</h4>
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1rem;">
-                    <div><label class="form-label">Title</label><input type="text" id="new-minute-title" class="form-input" placeholder="e.g. Sales Sync"></div>
-                    <div><label class="form-label">Date</label><input type="date" id="new-minute-date" class="form-input" value="${new Date().toISOString().split('T')[0]}"></div>
+            <div id="new-minute-form" class="form-glass-card" style="display:none;">
+                <div class="form-section-header">
+                    <div style="background: var(--minutes-primary); color: white; width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center;">
+                        <i class="fa-solid fa-microphone-lines"></i>
+                    </div>
+                    <h3>Record New Meeting Details</h3>
                 </div>
-                <div style="margin-bottom:1rem;">
-                    <label class="form-label">Attendees (Required Approvers)</label>
-                    <div class="attendee-picker-wrap">
-                        <div id="minutes-attendee-chips" class="minutes-attendee-chips"></div>
-                        <input type="text" placeholder="Search staff..." oninput="window.app_filterAttendees(this.value)" class="form-input-minimal">
-                        <div class="minutes-attendee-list">
-                            ${allUsers.map(u => `<label class="minutes-attendee-item" data-name="${safeAttr(u.name || u.username)}"><input type="checkbox" value="${u.id}" onchange="window.app_toggleAttendeePick(this)"><span>${safeHtml(u.name || u.username)}</span></label>`).join('')}
+
+                <div class="form-row">
+                    <div class="field-group">
+                        <label class="field-label">Meeting Title</label>
+                        <input type="text" id="new-minute-title" class="input-premium" placeholder="e.g. Monthly Strategy Review">
+                    </div>
+                    <div class="field-group">
+                        <label class="field-label">Date</label>
+                        <input type="date" id="new-minute-date" class="input-premium" value="${new Date().toISOString().split('T')[0]}">
+                    </div>
+                </div>
+
+                <div class="field-group" style="margin-bottom: 2rem;">
+                    <label class="field-label">Required Approvers & Attendees</label>
+                    <div class="attendee-picker-container">
+                        <div id="minutes-attendee-chips" class="attendee-chips-wrapper"></div>
+                        <div style="position: relative;">
+                            <i class="fa-solid fa-search" style="position: absolute; left: 1rem; top: 0.75rem; color: var(--minutes-muted);"></i>
+                            <input type="text" placeholder="Search staff members..." oninput="window.app_filterAttendees(this.value)" class="search-staff-input" style="padding-left: 2.75rem;">
+                        </div>
+                        <div class="attendee-grid">
+                            ${allUsers.map(u => `
+                                <label class="attendee-item-modern" data-name="${safeAttr(u.name || u.username)}">
+                                    <input type="checkbox" value="${u.id}" onchange="window.app_toggleAttendeePick(this)">
+                                    <span>${safeHtml(u.name || u.username)}</span>
+                                </label>
+                            `).join('')}
                         </div>
                     </div>
                 </div>
-                <div style="margin-bottom:1rem;">
-                    <label class="form-label">Discussion & Decisions</label>
-                    <textarea id="new-minute-content" class="form-input" style="min-height:120px;" placeholder="Document what was decided..."></textarea>
+
+                <div class="discussion-area">
+                    <label class="field-label" style="margin-bottom: 0.75rem; display: block;">Discussion & Key Decisions</label>
+                    <textarea id="new-minute-content" class="textarea-premium" placeholder="Summarize what was discussed and the final decisions made..."></textarea>
                 </div>
-                <div style="margin-bottom:1.5rem;">
-                    <label class="form-label">Action Items</label>
+
+                <div class="action-items-section">
+                    <label class="field-label" style="margin-bottom: 1rem; display: block;">Action Items & Accountability</label>
                     <div id="action-items-container"></div>
-                    <button type="button" onclick="window.app_addActionItemRow()" class="minutes-add-task-btn"><i class="fa-solid fa-plus-circle"></i> Add Task</button>
+                    <button type="button" onclick="window.app_addActionItemRow()" class="btn-add-task">
+                        <i class="fa-solid fa-plus-circle"></i>
+                        Add New Action Item
+                    </button>
                 </div>
-                <div style="display:flex; justify-content:flex-end; gap:0.5rem; border-top:1px solid #cbd5e1; padding-top:1rem;">
-                    <button class="action-btn secondary" onclick="window.app_toggleNewMinuteForm()">Cancel</button>
-                    <button class="action-btn" onclick="window.app_submitNewMinutes()">Create Record</button>
+
+                <div class="form-footer-modern">
+                    <button class="btn-secondary-modern" onclick="window.app_toggleNewMinuteForm()">Dismiss</button>
+                    <button class="btn-record-meeting" onclick="window.app_submitNewMinutes()">Create Meeting Record</button>
                 </div>
             </div>
 
-            <div class="minutes-list-grid">
+            <div class="minutes-list-container">
                 ${minutes.length ? minutes.sort((a, b) => new Date(b.date) - new Date(a.date)).map(m => {
         const hasAccess = hasMinuteDetailAccess(m);
         const reqStatus = getMinuteRequestStatus(m);
         return `
-                        <div class="minute-item ${hasAccess ? 'clickable' : 'restricted'}" ${hasAccess ? `onclick="window.app_openMinuteDetails('${m.id}')"` : ''}>
-                            <div class="minute-item-date">${new Date(m.date).toLocaleDateString()}</div>
-                            <h4 class="minute-item-title">${safeHtml(m.title)}</h4>
-                            <div class="minute-item-meta">
-                                <span><i class="fa-solid fa-users"></i> ${m.attendeeIds?.length || 0} attendees</span>
-                                ${hasAccess ? `<span><i class="fa-solid fa-list-check"></i> ${m.actionItems?.length || 0} tasks</span>` : ''}
-                                ${m.locked ? '<span style="color:#059669"><i class="fa-solid fa-lock"></i> Locked</span>' : ''}
+                        <div class="minute-card-modern ${hasAccess ? 'clickable' : ''}" ${hasAccess ? `onclick="window.app_openMinuteDetails('${m.id}')"` : ''}>
+                            <div class="card-date-badge">${new Date(m.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                            
+                            <div class="minute-card-status">
+                                ${m.locked ?
+                '<span style="background:#dcfce7; color:#166534; padding:0.25rem 0.75rem; border-radius:999px; font-size:0.75rem; font-weight:700;"><i class="fa-solid fa-lock" style="margin-right:0.35rem;"></i>Locked</span>' :
+                '<span style="background:#fff7ed; color:#9a3412; padding:0.25rem 0.75rem; border-radius:999px; font-size:0.75rem; font-weight:700;">Open</span>'
+            }
                             </div>
+
+                            <h4 class="card-title-modern">${safeHtml(m.title)}</h4>
+                            
+                            <div class="card-metrics">
+                                <div class="metric-item">
+                                    <i class="fa-solid fa-users"></i>
+                                    ${m.attendeeIds?.length || 0} Attendees
+                                </div>
+                                <div class="metric-item">
+                                    <i class="fa-solid fa-check-circle"></i>
+                                    ${m.actionItems?.length || 0} Tasks
+                                </div>
+                            </div>
+
                             ${!hasAccess ? `
-                                <div class="restricted-overlay">
-                                    <span style="font-size:0.75rem; color:#64748b; text-align:center;">You were not an attendee.</span>
-                                    ${reqStatus === 'pending' ? '<span class="status-badge pending">Request Pending</span>' :
-                    reqStatus === 'rejected' ? '<span class="status-badge danger">Access Denied</span>' :
-                        `<button class="mini-btn" onclick="window.app_requestMinuteAccess('${m.id}')">Request Access</button>`}
+                                <div class="restricted-tag">
+                                    <i class="fa-solid fa-shield-halved" style="margin-right: 0.5rem;"></i>
+                                    Access Restricted
+                                    ${reqStatus === 'pending' ? '<div style="margin-top:0.5rem; font-size:0.7rem; color:#f59e0b;">Request Pending Review</div>' :
+                    reqStatus === 'rejected' ? '<div style="margin-top:0.5rem; font-size:0.7rem; color:#ef4444;">Access Denied</div>' :
+                        `<button class="mini-btn" style="margin-top:0.75rem; width:100%; border-color:#991b1b; color:#991b1b;" onclick="window.app_requestMinuteAccess('${m.id}')">Request View Access</button>`}
                                 </div>
                             ` : ''}
                         </div>
                     `;
-    }).join('') : '<div class="empty-state">No meeting minutes recorded yet.</div>'}
+    }).join('') : `
+                    <div class="empty-state-modern">
+                        <i class="fa-solid fa-file-invoice"></i>
+                        <h4>No Meeting Minutes Recorded Yet</h4>
+                        <p style="color:var(--minutes-muted); margin-top:0.5rem;">Click "Record Meeting" to document your first session.</p>
+                    </div>
+                `}
             </div>
         </div>
     `;
