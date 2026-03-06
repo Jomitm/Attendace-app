@@ -409,11 +409,11 @@ export class Attendance {
         const checkInMins = (checkInDateObj.getHours() * 60) + checkInDateObj.getMinutes();
         const netHours = Math.max(0, durationMs) / (1000 * 60 * 60);
 
-        const graceEnd = AppConfig.LATE_CUTOFF_MINUTES || 555;
-        const minorLateEnd = AppConfig.MINOR_LATE_END_MINUTES || 615;
-        const lateEnd = AppConfig.LATE_END_MINUTES || 720;
-        const postNoonEnd = AppConfig.POST_NOON_END_MINUTES || 810;
-        const afternoonStart = AppConfig.AFTERNOON_START_MINUTES || 720;
+        const graceEnd = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_CUTOFF_MINUTES : 555) || 555;
+        const minorLateEnd = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.MINOR_LATE_END_MINUTES : 615) || 615;
+        const lateEnd = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_END_MINUTES : 720) || 720;
+        const postNoonEnd = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.POST_NOON_END_MINUTES : 810) || 810;
+        const afternoonStart = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.AFTERNOON_START_MINUTES : 720) || 720;
 
         let status = 'Present';
         let lateCountable = false;

@@ -3747,8 +3747,14 @@ document.addEventListener('submit', (e) => {
                     await window.AppDB.put('users', currentUser);
                 }
                 window.location.reload();
-            } catch (locErr) {
-                alert(`Login blocked: ${String(locErr)}\n\nPlease enable location and try again.`);
+            } catch (err) {
+                const errStr = String(err);
+                if (errStr.includes('permission-denied') || errStr.includes('FirebaseError')) {
+                    alert(`Database Error: ${errStr}\n\nAccess to the database was blocked. Please check your Firebase Firestore Security Rules.`);
+                } else {
+                    // Only assume it's a location error if it's not a Firebase error
+                    alert(`Login blocked: ${errStr}\n\nPlease enable location and try again.`);
+                }
             }
         })();
     }

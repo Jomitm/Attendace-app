@@ -371,7 +371,7 @@ export class Analytics {
 
                 if (!isManual) {
                     // EARLY ARRIVAL check retained for compatibility with legacy data shape.
-                    const lateCutoff = AppConfig.LATE_CUTOFF_MINUTES || 555;
+                    const lateCutoff = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_CUTOFF_MINUTES : 555) || 555;
 
                     // LATE Check: prefer stored policy decision, fallback to old logs
                     const isLateCountable = log.lateCountable === true || (!Object.prototype.hasOwnProperty.call(log, 'lateCountable') && inMinutes !== null && inMinutes > lateCutoff);
@@ -382,7 +382,7 @@ export class Analytics {
                     }
 
                     // EARLY DEPARTURE Check
-                    const earlyDeparture = AppConfig.EARLY_DEPARTURE_MINUTES || 1020;
+                    const earlyDeparture = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.EARLY_DEPARTURE_MINUTES : 1020) || 1020;
                     if (outMinutes !== null && outMinutes < earlyDeparture && !String(type).includes('Leave') && type !== 'Absent') {
                         stats.earlyDepartures++;
                         breakdown['Early Departure']++;
@@ -404,8 +404,8 @@ export class Analytics {
                 }
 
                 // EXTRA HOURS Check (for duration display)
-                const lateCutoff = AppConfig.LATE_CUTOFF_MINUTES || 555;
-                const earlyDeparture = AppConfig.EARLY_DEPARTURE_MINUTES || 1020;
+                const lateCutoff = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_CUTOFF_MINUTES : 555) || 555;
+                const earlyDeparture = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.EARLY_DEPARTURE_MINUTES : 1020) || 1020;
 
                 const storedExtraMinutes = typeof log.extraWorkedMs === 'number'
                     ? Math.max(0, Math.round(log.extraWorkedMs / (1000 * 60)))
@@ -448,9 +448,9 @@ export class Analytics {
         // Actually, let's simplify to match the request exactly.
 
         stats.extraWorkedHours = Number((totalExtraMinutes / 60).toFixed(2));
-        stats.penalty = Math.floor((stats.late || 0) / (AppConfig.LATE_GRACE_COUNT || 3)) * (AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
-        const offsetStepHours = AppConfig.EXTRA_HOURS_FOR_HALF_DAY_OFFSET || 4;
-        const penaltyStepDays = AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5;
+        stats.penalty = Math.floor((stats.late || 0) / ((typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_GRACE_COUNT : 3) || 3)) * ((typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_DEDUCTION_PER_BLOCK : 0.5) || 0.5);
+        const offsetStepHours = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.EXTRA_HOURS_FOR_HALF_DAY_OFFSET : 4) || 4;
+        const penaltyStepDays = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_DEDUCTION_PER_BLOCK : 0.5) || 0.5;
         stats.penaltyOffset = Math.floor((stats.extraWorkedHours || 0) / offsetStepHours) * penaltyStepDays;
         stats.effectivePenalty = Math.max(0, stats.penalty - stats.penaltyOffset);
         stats.totalLateDuration = this.formatDuration(totalLateMinutes);
@@ -517,7 +517,7 @@ export class Analytics {
                 const outMinutes = this.parseTimeToMinutes(log.checkOut);
 
                 // LATE Check
-                const lateCutoff = AppConfig.LATE_CUTOFF_MINUTES || 555;
+                const lateCutoff = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_CUTOFF_MINUTES : 555) || 555;
                 const isLateCountable = log.lateCountable === true || (!Object.prototype.hasOwnProperty.call(log, 'lateCountable') && inMinutes !== null && inMinutes > lateCutoff);
                 if (isLateCountable) {
                     breakdown['Late']++;
@@ -525,7 +525,7 @@ export class Analytics {
                 }
 
                 // EARLY DEPARTURE Check
-                const earlyDeparture = AppConfig.EARLY_DEPARTURE_MINUTES || 1020;
+                const earlyDeparture = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.EARLY_DEPARTURE_MINUTES : 1020) || 1020;
                 if (outMinutes !== null && outMinutes < earlyDeparture && !String(type).includes('Leave') && type !== 'Absent') {
                     stats.earlyDepartures++;
                     breakdown['Early Departure']++;
@@ -570,9 +570,9 @@ export class Analytics {
         stats.totalLateDuration = this.formatDuration(totalLateMinutes);
         stats.totalExtraDuration = this.formatDuration(totalExtraMinutes);
 
-        stats.penaltyLeaves = Math.floor((breakdown['Late'] || 0) / (AppConfig.LATE_GRACE_COUNT || 3)) * (AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
-        const offsetStepHours = AppConfig.EXTRA_HOURS_FOR_HALF_DAY_OFFSET || 4;
-        const penaltyStepDays = AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5;
+        stats.penaltyLeaves = Math.floor((breakdown['Late'] || 0) / ((typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_GRACE_COUNT : 3) || 3)) * ((typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_DEDUCTION_PER_BLOCK : 0.5) || 0.5);
+        const offsetStepHours = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.EXTRA_HOURS_FOR_HALF_DAY_OFFSET : 4) || 4;
+        const penaltyStepDays = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_DEDUCTION_PER_BLOCK : 0.5) || 0.5;
         stats.penaltyOffset = Math.floor((stats.extraWorkedHours || 0) / offsetStepHours) * penaltyStepDays;
         stats.effectivePenalty = Math.max(0, stats.penaltyLeaves - stats.penaltyOffset);
 
@@ -583,7 +583,7 @@ export class Analytics {
         const today = new Date();
         const year = today.getFullYear();
         const month = today.getMonth(); // 0-11
-        const startMonth = AppConfig.FY_START_MONTH || 3; // Default April
+        const startMonth = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.FY_START_MONTH : 3) || 3; // Default April
 
         let startYear = year;
         if (month < startMonth) {
@@ -607,7 +607,7 @@ export class Analytics {
         if (day === 0) return 'Holiday'; // Sunday
 
         if (day === 6) { // Saturday Rules
-            if (AppConfig.IS_SATURDAY_OFF && AppConfig.IS_SATURDAY_OFF(date)) {
+            if (typeof AppConfig !== 'undefined' && AppConfig && AppConfig.IS_SATURDAY_OFF && AppConfig.IS_SATURDAY_OFF(date)) {
                 return 'Holiday';
             }
             return 'Work Day';

@@ -155,7 +155,7 @@
                     <i class="fa-solid fa-vial-circle-check"></i>
                     <span>Policy Test</span>
                 </a>
-                <a href="javascript:void(0)" class="nav-item" data-page="widget" onclick="window.Widget.toggle()">
+                <a href="javascript:void(0)" class="nav-item" data-page="widget" onclick="window.Widget && window.Widget.toggle()">
                     <i class="fa-solid fa-window-maximize"></i>
                     <span>Widget Mode</span>
                 </a>
@@ -193,7 +193,7 @@
                     </div>
                 </div>
                 <div style="display: flex; gap: 0.5rem;">
-                    <button class="icon-btn" onclick="window.Widget.toggle()" title="Widget Mode">
+                    <button class="icon-btn" onclick="window.Widget && window.Widget.toggle()" title="Widget Mode">
                         <i class="fa-solid fa-window-restore"></i>
                     </button>
                     <button class="icon-btn top-notification-btn" onclick="window.app_openNotificationHistory()"
