@@ -12,28 +12,6 @@ export async function renderSalaryProcessing() {
     const isFullAdmin = window.app_hasPerm('reports', 'admin', currentUser);
     const monthLabel = today.toLocaleDateString('default', { month: 'long', year: 'numeric' });
 
-    // Recalculation logic
-    window.app_recalculateRow = (row) => {
-        const base = parseFloat(row.querySelector('.base-salary-input').value) || 0;
-        const tdsPercentInput = row.querySelector('.tds-input');
-        const globalTds = parseFloat(document.getElementById('global-tds-percent')?.value) || 0;
-        const tdsPercent = tdsPercentInput.value !== '' ? parseFloat(tdsPercentInput.value) : globalTds;
-
-        const unpaidDays = parseFloat(row.querySelector('.unpaid-leaves-count').textContent) || 0;
-        const netSalary = Math.max(0, base - (base / 22 * unpaidDays));
-        const tdsAmount = Math.round(netSalary * (tdsPercent / 100));
-        const finalNet = Math.max(0, netSalary - tdsAmount);
-
-        row.querySelector('.tds-amount').textContent = `Rs ${tdsAmount.toLocaleString()}`;
-        row.querySelector('.final-net-salary').textContent = `Rs ${finalNet.toLocaleString()}`;
-        row.querySelector('.salary-input').value = Math.round(netSalary);
-    };
-
-    window.app_recalculateAllSalaries = () => {
-        const rows = document.querySelectorAll('.salary-processing-table tbody tr');
-        rows.forEach(row => window.app_recalculateRow(row));
-    };
-
     return `
         <div class="card full-width">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
@@ -58,8 +36,14 @@ export async function renderSalaryProcessing() {
                             <th>Staff Member</th>
                             <th>Base Salary</th>
                             <th>Present</th>
+                            <th>Late</th>
                             <th>Unpaid</th>
-                            <th>Deductions</th>
+                            <th>Extra Hrs</th>
+                            <th>Late Raw</th>
+                            <th>Offset</th>
+                            <th>Late Ded</th>
+                            <th>Ded Days</th>
+                            <th>Attendance Ded</th>
                             <th>Calculated</th>
                             <th>TDS %</th>
                             <th>Final Net</th>
@@ -69,9 +53,37 @@ export async function renderSalaryProcessing() {
                     <tbody>
                         ${summary.map(item => {
         const { user, stats } = item;
-        const base = user.baseSalary || 0;
-        const unpaid = stats.unpaidLeaves || 0;
-        const net = Math.round(Math.max(0, base - (base / 22 * unpaid)));
+        const base = Number(user.baseSalary || 0);
+        const unpaid = Number(stats.unpaidLeaves || 0);
+        const late = Number(stats.late || 0);
+        const extraWorkedHours = Number(stats.extraWorkedHours || 0);
+
+        const lateGraceCount = window.AppConfig?.LATE_GRACE_COUNT || 3;
+        const lateDeductionPerBlock = window.AppConfig?.LATE_DEDUCTION_PER_BLOCK || 0.5;
+        const offsetHours = window.AppConfig?.EXTRA_HOURS_FOR_HALF_DAY_OFFSET || 4;
+
+        const rawLateDeductionDays = Math.floor(late / lateGraceCount) * lateDeductionPerBlock;
+        const potentialOffsetDays = Math.floor(extraWorkedHours / offsetHours) * lateDeductionPerBlock;
+        const penaltyOffsetDays = Math.min(rawLateDeductionDays, potentialOffsetDays);
+        const lateDeductionDays = Math.max(0, rawLateDeductionDays - penaltyOffsetDays);
+        const deductionDays = unpaid + lateDeductionDays;
+
+        const attendanceDeduction = Math.round((base / 22) * deductionDays);
+        const net = Math.round(Math.max(0, base - attendanceDeduction));
+
+        const employeeId = user.employeeId || '';
+        const designation = user.designation || user.role || '';
+        const department = user.dept || user.department || '';
+        const joinDate = user.joinDate || '';
+        const bankName = user.bankName || '';
+        const bankAccount = user.bankAccount || user.accountNumber || '';
+        const pan = user.pan || user.PAN || '';
+        const uan = user.uan || user.UAN || '';
+        const otherAllowances = Number(user.otherAllowances || 0);
+        const providentFund = Number(user.providentFund || 0);
+        const professionalTax = Number(user.professionalTax || 0);
+        const loanAdvance = Number(user.loanAdvance || 0);
+
         return `
                                 <tr data-user-id="${user.id}">
                                     <td>
@@ -82,12 +94,34 @@ export async function renderSalaryProcessing() {
                                     </td>
                                     <td><input type="number" class="base-salary-input" value="${base}" style="width: 80px;" onchange="window.app_recalculateRow(this.closest('tr'))"></td>
                                     <td><span class="present-count">${stats.present}</span></td>
+                                    <td><span class="late-count">${late}</span></td>
                                     <td><span class="unpaid-leaves-count">${unpaid}</span></td>
-                                    <td class="deduction-amount" style="color:#ef4444;">-Rs ${Math.round(base / 22 * unpaid).toLocaleString()}</td>
+                                    <td><span class="extra-work-hours">${extraWorkedHours.toFixed(2)}</span></td>
+                                    <td><span class="late-deduction-raw">${rawLateDeductionDays.toFixed(1)}</span></td>
+                                    <td><span class="penalty-offset-days">${penaltyOffsetDays.toFixed(1)}</span></td>
+                                    <td><span class="late-deduction-days">${lateDeductionDays.toFixed(1)}</span></td>
+                                    <td><span class="deduction-days">${deductionDays.toFixed(1)}</span></td>
+                                    <td class="attendance-deduction-amount" style="color:#ef4444;">-Rs ${attendanceDeduction.toLocaleString()}</td>
+                                    <td class="deduction-amount" style="display:none;">-Rs ${attendanceDeduction.toLocaleString()}</td>
                                     <td><input type="number" class="salary-input" value="${net}" style="width: 90px;"></td>
                                     <td><input type="number" class="tds-input" value="" placeholder="Global" style="width: 60px;" onchange="window.app_recalculateRow(this.closest('tr'))"></td>
-                                    <td class="final-net-salary" style="font-weight:700; color:#1e40af;">Rs ${net.toLocaleString()}</td>
-                                    <td class="tds-amount" style="display:none;">0</td>
+                                    <td class="final-net-salary" data-value="${net}" style="font-weight:700; color:#1e40af;">Rs ${net.toLocaleString()}</td>
+                                    <td class="tds-amount" data-value="0" style="display:none;">Rs 0</td>
+
+                                    <td style="display:none;"><input class="employee-id-input" type="text" value="${safeHtml(employeeId)}"></td>
+                                    <td style="display:none;"><input class="designation-input" type="text" value="${safeHtml(designation)}"></td>
+                                    <td style="display:none;"><input class="department-input" type="text" value="${safeHtml(department)}"></td>
+                                    <td style="display:none;"><input class="join-date-input" type="date" value="${safeHtml(joinDate)}"></td>
+                                    <td style="display:none;"><input class="bank-name-input" type="text" value="${safeHtml(bankName)}"></td>
+                                    <td style="display:none;"><input class="bank-account-input" type="text" value="${safeHtml(bankAccount)}"></td>
+                                    <td style="display:none;"><input class="pan-input" type="text" value="${safeHtml(pan)}"></td>
+                                    <td style="display:none;"><input class="uan-input" type="text" value="${safeHtml(uan)}"></td>
+                                    <td style="display:none;"><input class="other-allowances-input" type="number" value="${otherAllowances}"></td>
+                                    <td style="display:none;"><input class="pf-input" type="number" value="${providentFund}"></td>
+                                    <td style="display:none;"><input class="professional-tax-input" type="number" value="${professionalTax}"></td>
+                                    <td style="display:none;"><input class="loan-advance-input" type="number" value="${loanAdvance}"></td>
+                                    <td style="display:none;"><input class="comment-input" type="text" value=""></td>
+
                                     <td><button class="action-btn secondary" onclick="window.app_generateSalarySlip('${user.id}')">Slip</button></td>
                                 </tr>
                             `;

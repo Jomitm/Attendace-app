@@ -323,10 +323,10 @@ export function renderStaffActivityColumn(title, logs, emptyMsg) {
 }
 
 export function renderStatsCard(title, subtitle, statsObj) {
-    const penaltyBadge = statsObj.penalty > 0
+    const penaltyDays = Number(statsObj.penalty ?? statsObj.penaltyLeaves ?? 0);
+    const penaltyBadge = penaltyDays > 0
         ? `<span class="dashboard-penalty-badge">Penalty Applies</span>`
         : '';
-
     return `
         <div class="card dashboard-stats-card">
             <div class="dashboard-stats-card-head">
