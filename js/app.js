@@ -1,12 +1,12 @@
 import { AppConfig } from './config.js';
-import { AppAuth } from './modules/auth.js';
-import { AppDB } from './modules/db.js';
-import { AppAttendance } from './modules/attendance.js';
-import { AppUI } from './ui.js';
-import { AppCalendar } from './modules/calendar.js';
-import { AppActivity } from './modules/activity.js';
-import { AppTour } from './modules/tour.js';
-import { AppAnalytics } from './modules/analytics.js';
+import './modules/auth.js';
+import './modules/db.js';
+import './modules/attendance.js';
+import AppUI from './ui.js';
+import './modules/calendar.js';
+import './modules/activity.js';
+import './modules/tour.js';
+import './modules/analytics.js';
 
 // Load secondary modules
 import './modules/reports.js';
@@ -442,7 +442,7 @@ const handleUserSyncEvent = (ev) => {
         try {
             const page = document.getElementById('page-content');
             if (page) {
-                page.innerHTML = await window.AppUI.renderDashboard();
+                page.innerHTML = await AppUI.renderDashboard();
                 if (window.setupDashboardEvents) window.setupDashboardEvents();
             }
             if (shouldShowCrossDeviceToast()) window.app_showSyncToast('Status updated from another device.');
@@ -1012,13 +1012,61 @@ window.app_submitEvent = async (e) => {
         document.getElementById('event-modal')?.remove();
         // Refresh Dashboard
         const contentArea = document.getElementById('page-content');
-        contentArea.innerHTML = await window.AppUI.renderDashboard();
+        contentArea.innerHTML = await AppUI.renderDashboard();
         setupDashboardEvents();
     } catch (err) {
         alert("Error: " + err.message);
     }
 };
 
+const APP_WORK_PLAN_SCHEMA_MIGRATION_FLAG = 'work_plan_schema_v2_migrated';
+
+const app_migrateLegacyWorkPlanSchema = async () => {
+    try {
+        if (!window.AppDB || typeof window.AppDB.getAll !== 'function' || typeof window.AppDB.put !== 'function') return;
+        if (localStorage.getItem(APP_WORK_PLAN_SCHEMA_MIGRATION_FLAG) === 'true') return;
+
+        const plans = await window.AppDB.getAll('work_plans');
+        let updated = 0;
+
+        for (const plan of plans) {
+            if (!plan || Array.isArray(plan.plans)) continue;
+            const legacyTask = typeof plan.plan === 'string' ? plan.plan.trim() : '';
+            if (!legacyTask) continue;
+
+            const migrated = {
+                ...plan,
+                plans: [{
+                    task: legacyTask,
+                    subPlans: Array.isArray(plan.subPlans) ? plan.subPlans : [],
+                    tags: Array.isArray(plan.tags) ? plan.tags : [],
+                    status: plan.status || null,
+                    completedDate: plan.completedDate || null,
+                    startDate: plan.startDate || plan.date,
+                    endDate: plan.endDate || plan.startDate || plan.date
+                }]
+            };
+
+            delete migrated.plan;
+            delete migrated.subPlans;
+            delete migrated.tags;
+            delete migrated.status;
+            delete migrated.completedDate;
+            delete migrated.startDate;
+            delete migrated.endDate;
+
+            await window.AppDB.put('work_plans', migrated);
+            updated += 1;
+        }
+
+        localStorage.setItem(APP_WORK_PLAN_SCHEMA_MIGRATION_FLAG, 'true');
+        if (updated > 0) {
+            console.log(`Work plan schema migration complete. Updated: ${updated}`);
+        }
+    } catch (error) {
+        console.warn('Work plan schema migration failed:', error);
+    }
+};
 // --- Original Login/Auth Logic ---
 async function init() {
     window.app_initTheme();
@@ -1034,6 +1082,8 @@ async function init() {
             startReleaseSignalListener();
         }
         registerSW();
+
+        await app_migrateLegacyWorkPlanSchema();
 
         // Ensure Activity Command Listener starts even if not checked in
         if (window.AppActivity) window.AppActivity.initCommandListener();
@@ -1085,7 +1135,7 @@ async function router() {
         if (mobileHeader) mobileHeader.style.display = 'none';
         if (mobileNav) mobileNav.style.display = 'none';
         document.body.style.background = '#f3f4f6';
-        if (contentArea) contentArea.innerHTML = window.AppUI.renderLogin();
+        if (contentArea) contentArea.innerHTML = AppUI.renderLogin();
         if (window.app_refreshNotificationBell) {
             await window.app_refreshNotificationBell();
         }
@@ -1114,7 +1164,6 @@ async function router() {
     }
 
     // Admin Link logic (Granular)
-    const canSeeUsers = window.app_hasPerm('users', 'view', user);
     const canSeeAttendance = window.app_hasPerm('attendance', 'view', user);
     const canSeeReports = window.app_hasPerm('reports', 'view', user);
     const canSeePoliciesAdmin = window.app_hasPerm('policies', 'view', user);
@@ -1155,17 +1204,17 @@ async function router() {
         // Render Modals into the central container if not already present
         const modalContainer = document.getElementById('modal-container');
         if (modalContainer && !document.getElementById('checkout-modal')) {
-            modalContainer.insertAdjacentHTML('beforeend', window.AppUI.renderModals());
+            modalContainer.insertAdjacentHTML('beforeend', AppUI.renderModals());
         }
 
         // Show Loading State immediately
         if (contentArea) contentArea.innerHTML = '<div class="loading-spinner"></div>';
 
         if (hash === 'dashboard') {
-            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            contentArea.innerHTML = await AppUI.renderDashboard();
             setupDashboardEvents();
         } else if (hash === 'staff-directory') {
-            contentArea.innerHTML = await window.AppUI.renderStaffDirectoryPage();
+            contentArea.innerHTML = await AppUI.renderStaffDirectoryPage();
         } else if (hash === 'policies') {
             if (window.AppPolicies && typeof window.AppPolicies.render === 'function') {
                 contentArea.innerHTML = await window.AppPolicies.render();
@@ -1173,38 +1222,38 @@ async function router() {
                 contentArea.innerHTML = `<div style="padding:1rem; color:#b91c1c;">Policies module failed to load.</div>`;
             }
         } else if (hash === 'annual-plan') {
-            contentArea.innerHTML = await window.AppUI.renderAnnualPlan();
+            contentArea.innerHTML = await AppUI.renderAnnualPlan();
         } else if (hash === 'timesheet') {
-            contentArea.innerHTML = await window.AppUI.renderTimesheet();
+            contentArea.innerHTML = await AppUI.renderTimesheet();
         } else if (hash === 'profile') {
-            contentArea.innerHTML = await window.AppUI.renderProfile();
+            contentArea.innerHTML = await AppUI.renderProfile();
         } else if (hash === 'salary') {
             if (!window.app_hasPerm('reports', 'view', user)) {
                 window.location.hash = 'dashboard';
                 return;
             }
-            contentArea.innerHTML = await window.AppUI.renderSalaryProcessing ? await window.AppUI.renderSalaryProcessing() : await window.AppUI.renderSalary();
+            contentArea.innerHTML = await AppUI.renderSalaryProcessing ? await AppUI.renderSalaryProcessing() : await AppUI.renderSalary();
         } else if (hash === 'policy-test') {
             if (!window.app_hasPerm('policies', 'view', user)) {
                 window.location.hash = 'dashboard';
                 return;
             }
-            contentArea.innerHTML = await window.AppUI.renderPolicyTest();
+            contentArea.innerHTML = await AppUI.renderPolicyTest();
         } else if (hash === 'master-sheet') {
             if (!window.app_canManageAttendanceSheet(user)) {
                 window.location.hash = 'dashboard';
                 return;
             }
-            contentArea.innerHTML = await window.AppUI.renderMasterSheet();
+            contentArea.innerHTML = await AppUI.renderMasterSheet();
         } else if (hash === 'minutes') {
-            contentArea.innerHTML = await window.AppUI.renderMinutes();
+            contentArea.innerHTML = await AppUI.renderMinutes();
             startMinutesRealtimeListener();
         } else if (hash === 'admin') {
             if (!window.app_canSeeAdminPanel(user)) {
                 window.location.hash = 'dashboard';
                 return;
             }
-            contentArea.innerHTML = await window.AppUI.renderAdmin();
+            contentArea.innerHTML = await AppUI.renderAdmin();
             window.AppAnalytics.initAdminCharts();
             startAdminRealtimeListener();
         }
@@ -1250,7 +1299,7 @@ function startAdminRealtimeListener() {
                 const startDate = document.getElementById('audit-start')?.value;
                 const endDate = document.getElementById('audit-end')?.value;
 
-                contentArea.innerHTML = await window.AppUI.renderAdmin(startDate, endDate);
+                contentArea.innerHTML = await AppUI.renderAdmin(startDate, endDate);
                 if (window.AppAnalytics) window.AppAnalytics.initAdminCharts();
             }
         } else {
@@ -1258,7 +1307,7 @@ function startAdminRealtimeListener() {
         }
     };
 
-    const flags = (window.AppConfig && window.AppConfig.READ_OPT_FLAGS) || {};
+    const flags = (AppConfig && AppConfig.READ_OPT_FLAGS) || {};
     if (flags.FF_READ_OPT_TARGETED_REALTIME && window.AppDB.listenQuery) {
         // Users listener kept for status/login/logout changes; heartbeat writes are disabled by config.
         adminListenerUnsubscribe.push(window.AppDB.listenQuery('users', [
@@ -1291,10 +1340,10 @@ function startMinutesRealtimeListener() {
 
         const page = document.getElementById('page-content');
         if (!page) return;
-        page.innerHTML = await window.AppUI.renderMinutes();
+        page.innerHTML = await AppUI.renderMinutes();
     };
 
-    const flags = (window.AppConfig && window.AppConfig.READ_OPT_FLAGS) || {};
+    const flags = (AppConfig && AppConfig.READ_OPT_FLAGS) || {};
     if (flags.FF_READ_OPT_TARGETED_REALTIME && window.AppDB.listenQuery) {
         minutesListenerUnsubscribe = window.AppDB.listenQuery(
             'minutes',
@@ -1633,21 +1682,15 @@ window.app_getDayEvents = (dateStr, plans, opts = {}) => {
         if (e.date === dateStr) evs.push({ title: e.title, type: e.type || 'event', date: dateStr });
     });
     (plans.workPlans || []).forEach(p => {
-        if (p.date <= dateStr) {
-            const isAnnualPlan = (p.planScope || 'personal') === 'annual';
-            const titlePrefix = isAnnualPlan ? 'All Staff (Annual)' : (p.userName || 'Staff');
-            let title = '';
-            if (p.plans && p.plans.length > 0) {
-                const activeTasks = p.plans.filter(task => app_taskAppliesOnDate(task, p.date, dateStr, plans));
-                if (!activeTasks.length) return;
-                title = `${titlePrefix}: ${activeTasks.map(pl => pl.task).join('; ')}`;
-                evs.push({ title: title, type: 'work', userId: p.userId, plans: activeTasks, date: dateStr, planScope: p.planScope || 'personal' });
-            } else {
-                if (p.date !== dateStr) return;
-                title = `${titlePrefix}: ${p.plan || 'Work Plan'}`;
-                evs.push({ title: title, type: 'work', userId: p.userId, plans: p.plans, date: dateStr, planScope: p.planScope || 'personal' });
-            }
-        }
+        if (p.date > dateStr) return;
+        const tasks = Array.isArray(p.plans) ? p.plans : [];
+        const activeTasks = tasks.filter(task => app_taskAppliesOnDate(task, p.date, dateStr, plans));
+        if (!activeTasks.length) return;
+
+        const isAnnualPlan = (p.planScope || 'personal') === 'annual';
+        const titlePrefix = isAnnualPlan ? 'All Staff (Annual)' : (p.userName || 'Staff');
+        const title = `${titlePrefix}: ${activeTasks.map(pl => pl.task).join('; ')}`;
+        evs.push({ title, type: 'work', userId: p.userId, plans: activeTasks, date: dateStr, planScope: p.planScope || 'personal' });
     });
 
     // filter personal work entries if a userId filter is provided
@@ -1709,6 +1752,39 @@ const app_escapeHtml = (value) => String(value ?? '')
     .replace(/'/g, '&#39;');
 
 const app_escapeJsSingleQuote = (value) => String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+const app_normalizeIsoDate = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return '';
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const app_deriveEmployeeId = (joinDateRaw, userIdRaw) => {
+    const joinDate = app_normalizeIsoDate(joinDateRaw);
+    if (!joinDate) return 'NA';
+    const compact = joinDate.replace(/-/g, '');
+    const suffix = String(userIdRaw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-3) || 'USR';
+    return `EMP-${compact}-${suffix}`;
+};
+const app_formatDateGb = (value, fallback = 'NA') => {
+    if (value === null || value === undefined || value === '') return fallback;
+    const d = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(d.getTime())) return fallback;
+    return d.toLocaleDateString('en-GB');
+};
+
+const app_formatDateTimeGb = (value, fallback = 'NA') => {
+    if (value === null || value === undefined || value === '') return fallback;
+    const d = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(d.getTime())) return fallback;
+    return d.toLocaleString('en-GB');
+};
+
+const app_formatMoneyInr = (value) => `Rs ${Number(value || 0).toLocaleString('en-IN')}`;
+
 
 const app_getTaskSummary = (taskText = '') => {
     const clean = String(taskText || '').replace(/\s+/g, ' ').trim();
@@ -1810,31 +1886,25 @@ window.app_getAnnualDayStaffPlans = (dateStr) => {
                 ownerTaskMap.set(norm, candidate);
             }
         };
-        const tasks = (p.plans && p.plans.length)
-            ? p.plans
-                .filter(t => app_taskAppliesOnDate(t, p.date, dateStr, plans))
-                .map(t => {
-                    const { startDate, endDate } = app_getTaskRangeBounds(t, p.date, plans);
-                    const isMultiDay = !!(startDate && endDate && startDate !== endDate);
-                    const isEndDate = endDate === dateStr;
-                    const isStartDate = startDate === dateStr;
-                    const endedEarly = t.completedDate && t.completedDate < endDate;
-                    const suffix = endedEarly && t.completedDate === dateStr
-                        ? ` (Completed Early)`
-                        : (isMultiDay && isEndDate)
-                            ? ` (Ends Today)`
-                            : (isMultiDay && isStartDate)
-                                ? ` (Starts Today)`
-                                : '';
-                    upsertOwnerTask(t.task || 'Planned task', suffix);
-                    return '';
-                })
-                .filter(Boolean)
-            : (() => {
-                if (p.date !== dateStr) return [];
-                upsertOwnerTask(p.plan || 'Planned task', '');
-                return [];
-            })();
+        const tasks = (Array.isArray(p.plans) ? p.plans : [])
+            .filter(t => app_taskAppliesOnDate(t, p.date, dateStr, plans))
+            .map(t => {
+                const { startDate, endDate } = app_getTaskRangeBounds(t, p.date, plans);
+                const isMultiDay = !!(startDate && endDate && startDate !== endDate);
+                const isEndDate = endDate === dateStr;
+                const isStartDate = startDate === dateStr;
+                const endedEarly = t.completedDate && t.completedDate < endDate;
+                const suffix = endedEarly && t.completedDate === dateStr
+                    ? ` (Completed Early)`
+                    : (isMultiDay && isEndDate)
+                        ? ` (Ends Today)`
+                        : (isMultiDay && isStartDate)
+                            ? ` (Starts Today)`
+                            : '';
+                upsertOwnerTask(t.task || 'Planned task', suffix);
+                return '';
+            })
+            .filter(Boolean);
 
         const dedupedTasks = Array.from(ownerTaskMap.values());
         if (!dedupedTasks.length && tasks.length) return { name: ownerName, tasks };
@@ -2250,7 +2320,7 @@ window.app_deleteDayPlan = async (date, targetUserId = null, planScope = null) =
         document.getElementById('day-plan-modal')?.remove();
 
         // Re-render Dashboard
-        const html = await window.AppUI.renderDashboard();
+        const html = await AppUI.renderDashboard();
         const contentArea = document.getElementById('page-content');
         if (contentArea) {
             contentArea.innerHTML = html;
@@ -2449,7 +2519,7 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
         document.getElementById('day-plan-modal')?.remove();
 
         // Refresh
-        const html = await window.AppUI.renderDashboard();
+        const html = await AppUI.renderDashboard();
         const contentArea = document.getElementById('page-content');
         if (contentArea) {
             contentArea.innerHTML = html;
@@ -2489,7 +2559,7 @@ window.app_handleTagResponse = async (planId, taskIndex, response, notifIdx) => 
                 }
                 const contentArea = document.getElementById('page-content');
                 if (contentArea) {
-                    contentArea.innerHTML = await window.AppUI.renderDashboard();
+                    contentArea.innerHTML = await AppUI.renderDashboard();
                     if (window.setupDashboardEvents) window.setupDashboardEvents();
                 }
                 alert(`You have ${response} the request.`);
@@ -2565,7 +2635,7 @@ window.app_handleTagResponse = async (planId, taskIndex, response, notifIdx) => 
         }
         const contentArea = document.getElementById('page-content');
         if (contentArea) {
-            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            contentArea.innerHTML = await AppUI.renderDashboard();
             if (window.setupDashboardEvents) window.setupDashboardEvents();
         }
 
@@ -2583,7 +2653,7 @@ window.app_changeCalMonth = (delta) => {
     if (newMonth > 11) { window.app_calYear++; newMonth = 0; }
     window.app_calMonth = newMonth;
     // Refresh Dashboard
-    window.AppUI.renderDashboard().then(async html => {
+    AppUI.renderDashboard().then(async html => {
         const contentArea = document.getElementById('page-content');
         contentArea.innerHTML = html;
         // Re-setup dashboard specific events (like attendance button)
@@ -2624,13 +2694,13 @@ window.app_newMeeting = async () => {
     window._selectedMeetingId = newMeeting.id;
 
     const contentArea = document.getElementById('page-content');
-    contentArea.innerHTML = await window.AppUI.renderMinutes();
+    contentArea.innerHTML = await AppUI.renderMinutes();
 };
 
 window.app_selectMeeting = async (id) => {
     window._selectedMeetingId = id;
     const contentArea = document.getElementById('page-content');
-    contentArea.innerHTML = await window.AppUI.renderMinutes();
+    contentArea.innerHTML = await AppUI.renderMinutes();
 };
 
 window.app_saveMeeting = async () => {
@@ -2657,7 +2727,7 @@ window.app_saveMeeting = async () => {
     await window.AppDB.put('meetings', meeting);
 
     const contentArea = document.getElementById('page-content');
-    contentArea.innerHTML = await window.AppUI.renderMinutes();
+    contentArea.innerHTML = await AppUI.renderMinutes();
 
     alert('Meeting minutes saved successfully!');
 };
@@ -2669,7 +2739,7 @@ window.app_deleteMeeting = async (id) => {
     window._selectedMeetingId = null;
 
     const contentArea = document.getElementById('page-content');
-    contentArea.innerHTML = await window.AppUI.renderMinutes();
+    contentArea.innerHTML = await AppUI.renderMinutes();
 };
 
 
@@ -3122,7 +3192,7 @@ async function handleAttendance() {
             // Ensure persistent modals are present
             const modalContainer = document.getElementById('modal-container');
             if (modalContainer && !document.getElementById('checkout-modal')) {
-                modalContainer.insertAdjacentHTML('beforeend', window.AppUI.renderModals());
+                modalContainer.insertAdjacentHTML('beforeend', AppUI.renderModals());
             }
 
             // Show Check-Out Modal
@@ -3303,7 +3373,7 @@ async function handleAttendance() {
                     window.app_showSyncToast(result.message || 'Status updated from another device.');
                 }
                 const contentArea = document.getElementById('page-content');
-                contentArea.innerHTML = await window.AppUI.renderDashboard();
+                contentArea.innerHTML = await AppUI.renderDashboard();
                 setupDashboardEvents();
             }
         }
@@ -3422,7 +3492,7 @@ window.app_submitCheckOut = async function (event) {
             window.app_showSyncToast(checkOutResult.message || 'Status updated from another device.');
             const contentArea = document.getElementById('page-content');
             if (contentArea) {
-                contentArea.innerHTML = await window.AppUI.renderDashboard();
+                contentArea.innerHTML = await AppUI.renderDashboard();
                 setupDashboardEvents();
             }
             return;
@@ -3437,7 +3507,7 @@ window.app_submitCheckOut = async function (event) {
         // Refresh
         const contentArea = document.getElementById('page-content');
         if (contentArea) {
-            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            contentArea.innerHTML = await AppUI.renderDashboard();
             setupDashboardEvents();
         }
     } catch (err) {
@@ -3495,7 +3565,7 @@ async function handleManualLog(e) {
     await window.AppAttendance.addManualLog(logData);
     alert('Log added successfully!');
     document.getElementById('log-modal').style.display = 'none';
-    contentArea.innerHTML = await window.AppUI.renderTimesheet();
+    contentArea.innerHTML = await AppUI.renderTimesheet();
 }
 
 async function handleAddUser(e) {
@@ -3542,7 +3612,7 @@ async function handleAddUser(e) {
         document.getElementById('add-user-modal').style.display = 'none';
 
         const contentArea = document.getElementById('page-content');
-        if (contentArea) contentArea.innerHTML = await window.AppUI.renderAdmin();
+        if (contentArea) contentArea.innerHTML = await AppUI.renderAdmin();
     } catch (err) {
         alert('Error creating user: ' + err.message);
     }
@@ -3594,13 +3664,6 @@ window.app_submitEditUser = async (e) => {
     const isAdmin = !!(isAdminEl && isAdminEl.checked);
     const canManageAttendanceSheetEl = form.querySelector('[name="canManageAttendanceSheet"]');
     const canManageAttendanceSheet = !!(canManageAttendanceSheetEl && canManageAttendanceSheetEl.checked);
-    const deriveEmployeeId = (joinDateRaw, userIdRaw) => {
-        const joinDate = String(joinDateRaw || '').trim();
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(joinDate)) return 'NA';
-        const compact = joinDate.replace(/-/g, '');
-        const suffix = String(userIdRaw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-3) || 'USR';
-        return `EMP-${compact}-${suffix}`;
-    };
     const pan = String(formData.get('pan') || '').trim().toUpperCase();
     const bankIfsc = String(formData.get('bankIfsc') || '').trim().toUpperCase();
     const joinDate = String(formData.get('joinDate') || '').trim();
@@ -3628,7 +3691,7 @@ window.app_submitEditUser = async (e) => {
     }
 
     const employeeId = joinDate
-        ? (inputEmployeeId || deriveEmployeeId(joinDate, id))
+        ? (inputEmployeeId || app_deriveEmployeeId(joinDate, id))
         : 'NA';
 
     const userData = {
@@ -3676,7 +3739,7 @@ window.app_submitEditUser = async (e) => {
             if (contentArea) {
                 // Small delay to let DB settle
                 setTimeout(async () => {
-                    contentArea.innerHTML = await window.AppUI.renderAdmin();
+                    contentArea.innerHTML = await AppUI.renderAdmin();
                     if (window.AppAnalytics) await window.AppAnalytics.initAdminCharts();
                 }, 50);
             }
@@ -3893,7 +3956,7 @@ window.app_openStaffThread = async (userId) => {
     }
     const contentArea = document.getElementById('page-content');
     if (contentArea) {
-        contentArea.innerHTML = await window.AppUI.renderStaffDirectoryPage();
+        contentArea.innerHTML = await AppUI.renderStaffDirectoryPage();
     }
     if (window.app_updateStaffNavIndicator) {
         await window.app_updateStaffNavIndicator();
@@ -3933,7 +3996,7 @@ window.app_sendStaffText = async (e) => {
     if (messageModal) messageModal.remove();
     const contentArea = document.getElementById('page-content');
     if (contentArea) {
-        contentArea.innerHTML = await window.AppUI.renderStaffDirectoryPage();
+        contentArea.innerHTML = await AppUI.renderStaffDirectoryPage();
     }
     if (window.app_updateStaffNavIndicator) {
         await window.app_updateStaffNavIndicator();
@@ -3977,7 +4040,7 @@ window.app_sendStaffTask = async (e) => {
     if (taskModal) taskModal.remove();
     const contentArea = document.getElementById('page-content');
     if (contentArea) {
-        contentArea.innerHTML = await window.AppUI.renderStaffDirectoryPage();
+        contentArea.innerHTML = await AppUI.renderStaffDirectoryPage();
     }
     if (window.app_updateStaffNavIndicator) {
         await window.app_updateStaffNavIndicator();
@@ -4106,7 +4169,7 @@ window.app_respondStaffTask = async (messageId, response) => {
     }
     const contentArea = document.getElementById('page-content');
     if (contentArea) {
-        contentArea.innerHTML = await window.AppUI.renderStaffDirectoryPage();
+        contentArea.innerHTML = await AppUI.renderStaffDirectoryPage();
     }
     if (window.app_updateStaffNavIndicator) {
         await window.app_updateStaffNavIndicator();
@@ -4174,7 +4237,7 @@ window.app_handleTagDecision = async (notifId, response) => {
 
         const contentArea = document.getElementById('page-content');
         if (contentArea) {
-            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            contentArea.innerHTML = await AppUI.renderDashboard();
             if (window.setupDashboardEvents) window.setupDashboardEvents();
         }
     } catch (err) {
@@ -4284,7 +4347,7 @@ window.app_reviewMinuteAccessFromNotification = async (notifIndex, notifId, deci
             await window.AppAuth.updateUser(adminUser);
         }
 
-        contentArea.innerHTML = await window.AppUI.renderDashboard();
+        contentArea.innerHTML = await AppUI.renderDashboard();
         if (window.setupDashboardEvents) window.setupDashboardEvents();
         if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
     } catch (err) {
@@ -4308,7 +4371,7 @@ document.addEventListener('dismiss-notification', async (e) => {
         await window.AppAuth.updateUser(user);
         const hash = window.location.hash.slice(1) || 'dashboard';
         if (hash === 'dashboard') {
-            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            contentArea.innerHTML = await AppUI.renderDashboard();
             if (window.setupDashboardEvents) window.setupDashboardEvents();
         }
         if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
@@ -4320,7 +4383,7 @@ document.addEventListener('dismiss-notification', async (e) => {
         await window.AppAuth.updateUser(user);
         const hash = window.location.hash.slice(1) || 'dashboard';
         if (hash === 'dashboard') {
-            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            contentArea.innerHTML = await AppUI.renderDashboard();
             if (window.setupDashboardEvents) window.setupDashboardEvents();
         }
         if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
@@ -4336,7 +4399,7 @@ document.addEventListener('dismiss-tag-history', async (e) => {
     if (removeIndex < 0) return;
     user.tagHistory.splice(removeIndex, 1);
     await window.AppAuth.updateUser(user);
-    contentArea.innerHTML = await window.AppUI.renderDashboard();
+    contentArea.innerHTML = await AppUI.renderDashboard();
     if (window.setupDashboardEvents) window.setupDashboardEvents();
 });
 
@@ -4375,23 +4438,6 @@ window.app_editUser = async (userId) => {
     const user = await window.AppDB.get('users', userId);
     console.log("User Data Found:", user);
     if (!user) return;
-    const normalizeIsoDate = (value) => {
-        const raw = String(value || '').trim();
-        if (!raw) return '';
-        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-        const d = new Date(raw);
-        if (!Number.isNaN(d.getTime())) {
-            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        }
-        return '';
-    };
-    const deriveEmployeeId = (joinDateRaw, idRaw) => {
-        const joinDate = normalizeIsoDate(joinDateRaw);
-        if (!joinDate) return 'NA';
-        const compact = joinDate.replace(/-/g, '');
-        const suffix = String(idRaw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-3) || 'USR';
-        return `EMP-${compact}-${suffix}`;
-    };
     const form = document.getElementById('edit-user-form');
     if (!form) return;
 
@@ -4415,10 +4461,10 @@ window.app_editUser = async (userId) => {
     setChecked('#edit-user-isAdmin', !!(user.isAdmin || user.role === 'Administrator'));
     setChecked('#edit-user-can-manage-attendance-sheet', !!(user.canManageAttendanceSheet || user.isAdmin || user.role === 'Administrator'));
 
-    const normalizedJoinDate = normalizeIsoDate(user.joinDate);
+    const normalizedJoinDate = app_normalizeIsoDate(user.joinDate);
     setVal('#edit-user-join-date', normalizedJoinDate);
     setVal('#edit-user-employee-id', normalizedJoinDate
-        ? (user.employeeId || deriveEmployeeId(normalizedJoinDate, user.id))
+        ? (user.employeeId || app_deriveEmployeeId(normalizedJoinDate, user.id))
         : 'NA');
     setVal('#edit-user-base-salary', Number(user.baseSalary || 0));
     setVal('#edit-user-other-allowances', Number(user.otherAllowances || 0));
@@ -4494,7 +4540,7 @@ window.app_quickAddTask = async (userId) => {
         alert('Task added successfully.');
         const contentArea = document.getElementById('page-content');
         if (contentArea) {
-            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            contentArea.innerHTML = await AppUI.renderDashboard();
             if (window.setupDashboardEvents) window.setupDashboardEvents();
         }
         if (window.app_updateStaffNavIndicator) {
@@ -4718,7 +4764,7 @@ window.app_approveLeave = async (leaveId) => {
         // Refresh Dashboard
         const contentArea = document.getElementById('page-content');
         if (contentArea) {
-            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            contentArea.innerHTML = await AppUI.renderDashboard();
             setupDashboardEvents();
         }
     } catch (err) {
@@ -4738,7 +4784,7 @@ window.app_rejectLeave = async (leaveId) => {
         // Refresh Dashboard
         const contentArea = document.getElementById('page-content');
         if (contentArea) {
-            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            contentArea.innerHTML = await AppUI.renderDashboard();
             setupDashboardEvents();
         }
     } catch (err) {
@@ -4759,7 +4805,7 @@ window.app_addLeaveComment = async (leaveId) => {
         // Refresh Dashboard
         const contentArea = document.getElementById('page-content');
         if (contentArea) {
-            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            contentArea.innerHTML = await AppUI.renderDashboard();
             setupDashboardEvents();
         }
     } catch (err) {
@@ -4786,7 +4832,7 @@ window.app_refreshMasterSheet = async () => {
     if (contentArea) {
         const m = document.getElementById('sheet-month')?.value;
         const y = document.getElementById('sheet-year')?.value;
-        contentArea.innerHTML = await window.AppUI.renderMasterSheet(m, y);
+        contentArea.innerHTML = await AppUI.renderMasterSheet(m, y);
     }
 };
 
@@ -5260,17 +5306,17 @@ window.app_runAttendancePolicyMigration = async () => {
         const contentArea = document.getElementById('page-content');
         if (!contentArea) return;
         if (hash === 'policy-test') {
-            contentArea.innerHTML = await window.AppUI.renderPolicyTest();
+            contentArea.innerHTML = await AppUI.renderPolicyTest();
         } else if (hash === 'dashboard') {
-            contentArea.innerHTML = await window.AppUI.renderDashboard();
+            contentArea.innerHTML = await AppUI.renderDashboard();
             if (window.setupDashboardEvents) window.setupDashboardEvents();
         } else if (hash === 'salary') {
-            contentArea.innerHTML = await window.AppUI.renderSalaryProcessing();
+            contentArea.innerHTML = await AppUI.renderSalaryProcessing();
             if (window.app_recalculateAllSalaries) {
                 window.app_recalculateAllSalaries();
             }
         } else if (hash === 'timesheet') {
-            contentArea.innerHTML = await window.AppUI.renderTimesheet();
+            contentArea.innerHTML = await AppUI.renderTimesheet();
         }
     } catch (err) {
         console.error("Attendance migration failed:", err);
@@ -5287,7 +5333,7 @@ window.app_deleteUser = async (userId) => {
             // Refresh Admin View
             const contentArea = document.getElementById('page-content');
             if (contentArea) {
-                contentArea.innerHTML = await window.AppUI.renderAdmin();
+                contentArea.innerHTML = await AppUI.renderAdmin();
             }
         } catch (err) {
             alert('Failed to delete user: ' + err.message);
@@ -5302,9 +5348,9 @@ window.app_recalculateRow = (row) => {
     const dailyRate = base / 22;
     const unpaid = parseFloat(row.querySelector('.unpaid-leaves-count').innerText) || 0;
     const lateCount = parseFloat(row.querySelector('.late-count')?.innerText || '0') || 0;
-    const rawLateDeductionDays = Math.floor(lateCount / (window.AppConfig.LATE_GRACE_COUNT || 3)) * (window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
+    const rawLateDeductionDays = Math.floor(lateCount / (AppConfig.LATE_GRACE_COUNT || 3)) * (AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
     const extraWorkedHours = parseFloat(row.querySelector('.extra-work-hours')?.innerText || '0') || 0;
-    const lateOffsetDays = Math.floor(extraWorkedHours / (window.AppConfig.EXTRA_HOURS_FOR_HALF_DAY_OFFSET || 4)) * (window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
+    const lateOffsetDays = Math.floor(extraWorkedHours / (AppConfig.EXTRA_HOURS_FOR_HALF_DAY_OFFSET || 4)) * (AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
     const lateDeductionDays = Math.max(0, rawLateDeductionDays - lateOffsetDays);
     const totalDeductionDays = unpaid + lateDeductionDays;
     const globalTds = parseFloat(document.getElementById('global-tds-percent').value) || 0;
@@ -5346,8 +5392,8 @@ const app_getLateDeductionMetricsFromRow = (row) => {
     const unpaidLeaves = parseFloat(row.querySelector('.unpaid-leaves-count')?.innerText || '0') || 0;
     const lateCount = parseFloat(row.querySelector('.late-count')?.innerText || '0') || 0;
     const extraWorkedHours = parseFloat(row.querySelector('.extra-work-hours')?.innerText || '0') || 0;
-    const rawLateDeductionDays = Math.floor(lateCount / (window.AppConfig.LATE_GRACE_COUNT || 3)) * (window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
-    const penaltyOffsetDays = Math.floor(extraWorkedHours / (window.AppConfig.EXTRA_HOURS_FOR_HALF_DAY_OFFSET || 4)) * (window.AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
+    const rawLateDeductionDays = Math.floor(lateCount / (AppConfig.LATE_GRACE_COUNT || 3)) * (AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
+    const penaltyOffsetDays = Math.floor(extraWorkedHours / (AppConfig.EXTRA_HOURS_FOR_HALF_DAY_OFFSET || 4)) * (AppConfig.LATE_DEDUCTION_PER_BLOCK || 0.5);
     const lateDeductionDays = Math.max(0, rawLateDeductionDays - penaltyOffsetDays);
     const deductionDays = unpaidLeaves + lateDeductionDays;
     return { unpaidLeaves, lateCount, extraWorkedHours, rawLateDeductionDays, penaltyOffsetDays, lateDeductionDays, deductionDays };
@@ -5451,18 +5497,11 @@ window.app_saveAllSalaries = async () => {
         const lateDeductionDays = lateMetrics.lateDeductionDays;
         const deductionDays = lateMetrics.deductionDays;
         const attendanceDeduction = Number(String(row.querySelector('.attendance-deduction-amount')?.innerText || '0').replace(/[^0-9.-]+/g, ""));
-        const deriveEmployeeId = (joinDateRaw, userIdRaw) => {
-            const d = String(joinDateRaw || '').trim();
-            if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return 'NA';
-            const compact = d.replace(/-/g, '');
-            const suffix = String(userIdRaw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-3) || 'USR';
-            return `EMP-${compact}-${suffix}`;
-        };
         const rawEmployeeId = String(row.querySelector('.employee-id-input')?.value || '').trim();
         const designation = String(row.querySelector('.designation-input')?.value || '').trim();
         const department = String(row.querySelector('.department-input')?.value || '').trim();
         const joinDate = String(row.querySelector('.join-date-input')?.value || '').trim();
-        const employeeId = joinDate ? (rawEmployeeId || deriveEmployeeId(joinDate, userId)) : 'NA';
+        const employeeId = joinDate ? (rawEmployeeId || app_deriveEmployeeId(joinDate, userId)) : 'NA';
         const bankName = String(row.querySelector('.bank-name-input')?.value || '').trim();
         const bankAccount = String(row.querySelector('.bank-account-input')?.value || '').trim();
         const pan = String(row.querySelector('.pan-input')?.value || '').trim();
@@ -5556,7 +5595,7 @@ window.app_saveAllSalaries = async () => {
         alert('All records and TDS details saved successfully!');
         // Refresh view to ensure calculations sync with any base salary changes
         const contentArea = document.getElementById('page-content');
-        contentArea.innerHTML = await window.AppUI.renderSalaryProcessing();
+        contentArea.innerHTML = await AppUI.renderSalaryProcessing();
     } catch (err) {
         console.error("Salary Save Error:", err);
         alert('Failed to save records: ' + err.message);
@@ -5684,11 +5723,11 @@ window.app_generateSalarySlip = async function (userId) {
         const now = new Date();
         const payPeriodInfo = window.app_getSalaryPayPeriodInfo();
         const payPeriodLabel = payPeriodInfo.label;
-        const payPeriodStart = payPeriodInfo.startDate.toLocaleDateString('en-GB');
-        const payPeriodEnd = payPeriodInfo.endDate.toLocaleDateString('en-GB');
+        const payPeriodStart = app_formatDateGb(payPeriodInfo.startDate);
+        const payPeriodEnd = app_formatDateGb(payPeriodInfo.endDate);
         const payDateInput = document.getElementById('salary-pay-date')?.value || '';
-        const payDate = payDateInput ? new Date(payDateInput).toLocaleDateString('en-GB') : now.toLocaleDateString('en-GB');
-        const generatedAt = now.toLocaleString('en-GB');
+        const payDate = payDateInput ? app_formatDateGb(payDateInput) : app_formatDateGb(now);
+        const generatedAt = app_formatDateTimeGb(now);
         const payrollRef = `CRWI-${payPeriodInfo.key.replace(/[^a-zA-Z0-9]/g, '')}-${userId}-${String(now.getTime()).slice(-5)}`;
 
         const baseSalary = Number(row.querySelector('.base-salary-input')?.value || 0);
@@ -5713,7 +5752,7 @@ window.app_generateSalarySlip = async function (userId) {
         const joinDateCandidate = String(row.querySelector('.join-date-input')?.value || user.joinDate || '').trim();
         const enteredEmployeeId = String(row.querySelector('.employee-id-input')?.value || user.employeeId || '').trim();
         const employeeId = joinDateCandidate
-            ? (enteredEmployeeId || deriveEmployeeId(joinDateCandidate, user.id))
+            ? (enteredEmployeeId || app_deriveEmployeeId(joinDateCandidate, user.id))
             : 'NA';
         const designation = String(row.querySelector('.designation-input')?.value || user.designation || user.role || '').trim();
         const department = String(row.querySelector('.department-input')?.value || user.dept || user.department || '').trim();
@@ -5733,7 +5772,7 @@ window.app_generateSalarySlip = async function (userId) {
             { label: 'Loan / Advance', amount: loanAdvance, remarks: loanAdvance ? 'Recovered in this cycle' : 'Nil' }
         ];
 
-        const money = (v) => `Rs ${Number(v || 0).toLocaleString('en-IN')}`;
+        const money = (v) => app_formatMoneyInr(v);
 
         const html = `
                 <div class="modal-overlay" id="salary-slip-modal" style="display:flex;">
@@ -5765,7 +5804,7 @@ window.app_generateSalarySlip = async function (userId) {
                                     <div><b>Employee ID:</b> ${employeeId || 'NA'}</div>
                                     <div><b>Designation:</b> ${designation || 'NA'}</div>
                                     <div><b>Department:</b> ${department || 'NA'}</div>
-                                    <div><b>Date of Joining:</b> ${joinDateValue ? new Date(joinDateValue).toLocaleDateString('en-GB') : 'NA'}</div>
+                                    <div><b>Date of Joining:</b> ${app_formatDateGb(joinDateValue)}</div>
                                     <div><b>Bank Name:</b> ${bankName || 'NA'}</div>
                                     <div><b>UAN:</b> ${maskSensitiveValue(uan)}</div>
                                     <div><b>PAN:</b> ${maskSensitiveValue(pan)}</div>
@@ -5830,7 +5869,7 @@ window.app_editTaskStatus = async function (planId, taskIndex, newStatus) {
 
         // Refresh dashboard
         const contentArea = document.getElementById('page-content');
-        contentArea.innerHTML = await window.AppUI.renderDashboard();
+        contentArea.innerHTML = await AppUI.renderDashboard();
         alert(`Task status updated to: ${newStatus}`);
     } catch (err) {
         console.error('Failed to update task status:', err);
@@ -5853,7 +5892,7 @@ window.app_reassignTask = async function (planId, taskIndex, newUserId) {
 
         // Refresh dashboard
         const contentArea = document.getElementById('page-content');
-        contentArea.innerHTML = await window.AppUI.renderDashboard();
+        contentArea.innerHTML = await AppUI.renderDashboard();
         alert('Task reassigned successfully!');
     } catch (err) {
         console.error('Failed to reassign task:', err);
@@ -5967,7 +6006,7 @@ window.app_recalculateRatings = async function () {
 
         // Refresh dashboard
         const contentArea = document.getElementById('page-content');
-        contentArea.innerHTML = await window.AppUI.renderDashboard();
+        contentArea.innerHTML = await AppUI.renderDashboard();
     } catch (err) {
         console.error('Failed to recalculate ratings:', err);
         alert('Failed to recalculate ratings. Please try again.');
@@ -6001,7 +6040,7 @@ window.app_applyAuditFilter = async () => {
     const end = document.getElementById('audit-end')?.value;
     const contentArea = document.getElementById('page-content');
     if (contentArea) {
-        contentArea.innerHTML = await window.AppUI.renderAdmin(start, end);
+        contentArea.innerHTML = await AppUI.renderAdmin(start, end);
         if (window.AppAnalytics) window.AppAnalytics.initAdminCharts();
     }
 };
@@ -6152,7 +6191,7 @@ window.app_jumpToAnnualToday = () => {
 window.app_renderAnnualPlanPage = async () => {
     const contentArea = document.getElementById('page-content');
     if (!contentArea) return;
-    contentArea.innerHTML = await window.AppUI.renderAnnualPlan();
+    contentArea.innerHTML = await AppUI.renderAnnualPlan();
 };
 
 window.app_setAnnualStaffFilter = (value) => {
@@ -6173,7 +6212,7 @@ window.app_setAnnualListSort = (value) => {
 window.app_renderTimesheetPage = async () => {
     const contentArea = document.getElementById('page-content');
     if (!contentArea) return;
-    contentArea.innerHTML = await window.AppUI.renderTimesheet();
+    contentArea.innerHTML = await AppUI.renderTimesheet();
 };
 
 window.app_setTimesheetView = (mode) => {
@@ -6300,10 +6339,6 @@ window.app_forceRefresh = async () => {
 init();
 
 console.log("App.js Loaded & Globals Ready");
-
-
-
-
 
 
 

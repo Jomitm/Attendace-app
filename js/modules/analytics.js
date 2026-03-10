@@ -816,10 +816,7 @@ export class Analytics {
 
     async getAllStaffActivities(options = {}) {
         try {
-            const isLegacyDaysArg = typeof options === 'number';
-            const normalized = isLegacyDaysArg
-                ? { mode: 'days', daysBack: options, scope: 'all' }
-                : (options || {});
+            const normalized = options || {};
             const mode = normalized.mode || 'month';
             const scope = normalized.scope || 'all';
 
@@ -948,3 +945,4 @@ export class Analytics {
 
 export const AppAnalytics = new Analytics();
 if (typeof window !== 'undefined') window.AppAnalytics = AppAnalytics;
+

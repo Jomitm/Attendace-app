@@ -3,7 +3,6 @@
  * Reusable UI patterns across different pages.
  */
 
-import { safeHtml } from './helpers.js';
 
 /**
  * Render star rating display (1-5 stars)
@@ -72,9 +71,3 @@ export function renderTaskStatusBadge(status, showIcon = true) {
     `;
 }
 
-// For backward compatibility
-if (typeof window !== 'undefined') {
-    if (!window.AppUI) window.AppUI = {};
-    window.AppUI.renderStarRating = renderStarRating;
-    window.AppUI.renderTaskStatusBadge = renderTaskStatusBadge;
-}

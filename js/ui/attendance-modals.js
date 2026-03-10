@@ -105,10 +105,6 @@ export function initCheckoutObserver() {
     }
 }
 
-// Global Exports
 if (typeof window !== 'undefined') {
-    if (!window.AppUI) window.AppUI = {};
-    window.AppUI.renderCheckInModal = renderCheckInModal;
-    // Auto-init observer if this module is loaded
     initCheckoutObserver();
 }

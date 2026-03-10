@@ -5,6 +5,48 @@
 
 import { safeHtml } from './helpers.js';
 
+let annualPlanDelegatesBound = false;
+
+function ensureAnnualPlanDelegates() {
+    if (annualPlanDelegatesBound || typeof document === 'undefined') return;
+    annualPlanDelegatesBound = true;
+    document.addEventListener('click', (event) => {
+        const openDay = event.target.closest('[data-annual-open-day]');
+        if (openDay) { window.app_openAnnualDayPlan?.(openDay.dataset.annualOpenDay); return; }
+        const toggleView = event.target.closest('[data-annual-view]');
+        if (toggleView) { window.app_toggleAnnualView?.(toggleView.dataset.annualView); return; }
+        const jumpToday = event.target.closest('[data-annual-jump-today]');
+        if (jumpToday) { window.app_jumpToAnnualToday?.(); return; }
+        const yearDelta = event.target.closest('[data-annual-year-delta]');
+        if (yearDelta) { window.app_changeAnnualYear?.(Number(yearDelta.dataset.annualYearDelta || 0)); return; }
+        const legend = event.target.closest('[data-annual-legend]');
+        if (legend) { window.app_toggleAnnualLegendFilter?.(legend.dataset.annualLegend); return; }
+        const exportBtn = event.target.closest('[data-annual-export]');
+        if (exportBtn) window.AppReports?.exportAnnualListViewCSV?.(window._annualListItems || []);
+    });
+    document.addEventListener('input', (event) => {
+        const input = event.target.closest('[data-annual-staff-filter]');
+        if (input) window.app_setAnnualStaffFilter?.(input.value);
+    });
+    document.addEventListener('change', (event) => {
+        const select = event.target.closest('[data-annual-list-sort]');
+        if (select) window.app_setAnnualListSort?.(select.value);
+    });
+    document.addEventListener('keydown', (event) => {
+        const input = event.target.closest('[data-annual-list-search]');
+        if (input && event.key === 'Enter') window.app_setAnnualListSearch?.(input.value);
+    });
+    document.addEventListener('mouseover', (event) => {
+        const day = event.target.closest('[data-annual-preview-date]');
+        if (!day || day.contains(event.relatedTarget)) return;
+        window.app_showAnnualHoverPreview?.(event, day.dataset.annualPreviewDate);
+    });
+    document.addEventListener('mouseout', (event) => {
+        const day = event.target.closest('[data-annual-preview-date]');
+        if (!day || day.contains(event.relatedTarget)) return;
+        window.app_hideAnnualHoverPreview?.();
+    });
+}
 export async function renderAnnualPlan() {
     // Initialize global filters if not present
     if (typeof window.app_setAnnualStaffFilter !== 'function') {
@@ -210,7 +252,7 @@ export async function renderAnnualPlan() {
             const mutedClass = hasAnyVisible ? '' : 'annual-day-muted';
 
             daysHTML += `
-                <div class="annual-day ${isToday ? 'today' : ''} ${bgClass} ${selectedClass} ${mutedClass}" onclick="window.app_openAnnualDayPlan('${dateStr}')" onmouseenter="window.app_showAnnualHoverPreview(event, '${dateStr}')" onmouseleave="window.app_hideAnnualHoverPreview()">
+                <div class="annual-day ${isToday ? 'today' : ''} ${bgClass} ${selectedClass} ${mutedClass}" data-annual-open-day="${dateStr}" data-annual-preview-date="${dateStr}">
                     ${d}
                     <div class="dot-container">
                         ${showLeave ? '<span class="status-dot dot-leave"></span>' : ''}
@@ -347,13 +389,6 @@ export async function renderAnnualPlan() {
                             comments, tags, scope: scopeLabel
                         });
                     });
-                } else {
-                    const status = normalizeStatus(planDate, null);
-                    items.push({
-                        date: planDate, type: 'work', title: p.plan || 'Work Plan', staffName: planOwner,
-                        assignedBy: planOwner, assignedTo: planOwner, selfAssigned: true,
-                        dueDate: planDate, status, comments: '', tags: [], scope: scopeLabel
-                    });
                 }
             }
         });
@@ -402,6 +437,7 @@ export async function renderAnnualPlan() {
 
     window._annualListItems = listItems;
 
+    setTimeout(() => ensureAnnualPlanDelegates(), 0);
     return `
         <div class="annual-plan-shell annual-v2-shell">
             <div class="card annual-plan-header annual-v2-header">
@@ -412,35 +448,35 @@ export async function renderAnnualPlan() {
                 <div class="annual-plan-controls annual-v2-controls">
                     <div class="annual-staff-filter annual-v2-staff-filter">
                         <i class="fa-solid fa-user"></i>
-                        <input type="text" list="annual-staff-names" value="${safeHtml(annualStaffFilter)}" placeholder="Filter by staff name" oninput="window.app_setAnnualStaffFilter(this.value)">
+                        <input type="text" list="annual-staff-names" value="${safeHtml(annualStaffFilter)}" placeholder="Filter by staff name" data-annual-staff-filter="1">
                         <datalist id="annual-staff-names">${staffOptions}</datalist>
                     </div>
                     <div class="annual-view-toggle annual-v2-view-toggle">
-                        <button onclick="window.app_toggleAnnualView('grid')" class="annual-toggle-btn annual-v2-toggle-btn ${viewMode === 'grid' ? 'active' : ''}">
+                        <button data-annual-view="grid" class="annual-toggle-btn annual-v2-toggle-btn ${viewMode === 'grid' ? 'active' : ''}">
                             <i class="fa-solid fa-calendar-days"></i> Grid
                         </button>
-                        <button onclick="window.app_toggleAnnualView('list')" class="annual-toggle-btn annual-v2-toggle-btn ${viewMode === 'list' ? 'active' : ''}">
+                        <button data-annual-view="list" class="annual-toggle-btn annual-v2-toggle-btn ${viewMode === 'list' ? 'active' : ''}">
                             <i class="fa-solid fa-list"></i> List
                         </button>
                     </div>
-                    <button onclick="window.app_jumpToAnnualToday()" class="annual-today-btn annual-v2-today-btn" title="Jump to today">
+                    <button data-annual-jump-today="1" class="annual-today-btn annual-v2-today-btn" title="Jump to today">
                         <i class="fa-solid fa-bullseye"></i> Today
                     </button>
                     <div class="annual-year-switch annual-v2-year-switch">
-                        <button onclick="window.app_changeAnnualYear(-1)"><i class="fa-solid fa-chevron-left"></i></button>
+                        <button data-annual-year-delta="-1"><i class="fa-solid fa-chevron-left"></i></button>
                         <div class="annual-year-label">${year}</div>
-                        <button onclick="window.app_changeAnnualYear(1)"><i class="fa-solid fa-chevron-right"></i></button>
+                        <button data-annual-year-delta="1"><i class="fa-solid fa-chevron-right"></i></button>
                     </div>
                 </div>
             </div>
 
             <div id="annual-grid-view" style="display:${viewMode === 'grid' ? 'block' : 'none'};">
                 <div class="card annual-legend-bar annual-v2-legend-bar">
-                    <button class="annual-legend-chip ${filters.leave ? 'active' : ''}" onclick="window.app_toggleAnnualLegendFilter('leave')"><span class="annual-dot leave"></span> Staff Leave</button>
-                    <button class="annual-legend-chip ${filters.event ? 'active' : ''}" onclick="window.app_toggleAnnualLegendFilter('event')"><span class="annual-dot event"></span> Company Event</button>
-                    <button class="annual-legend-chip ${filters.work ? 'active' : ''}" onclick="window.app_toggleAnnualLegendFilter('work')"><span class="annual-dot work"></span> Work Plan</button>
-                    <button class="annual-legend-chip ${filters.overdue ? 'active' : ''}" onclick="window.app_toggleAnnualLegendFilter('overdue')">Overdue Border</button>
-                    <button class="annual-legend-chip ${filters.completed ? 'active' : ''}" onclick="window.app_toggleAnnualLegendFilter('completed')">Completed Border</button>
+                    <button class="annual-legend-chip ${filters.leave ? 'active' : ''}" data-annual-legend="leave"><span class="annual-dot leave"></span> Staff Leave</button>
+                    <button class="annual-legend-chip ${filters.event ? 'active' : ''}" data-annual-legend="event"><span class="annual-dot event"></span> Company Event</button>
+                    <button class="annual-legend-chip ${filters.work ? 'active' : ''}" data-annual-legend="work"><span class="annual-dot work"></span> Work Plan</button>
+                    <button class="annual-legend-chip ${filters.overdue ? 'active' : ''}" data-annual-legend="overdue">Overdue Border</button>
+                    <button class="annual-legend-chip ${filters.completed ? 'active' : ''}" data-annual-legend="completed">Completed Border</button>
                 </div>
                 <div class="annual-grid-layout annual-v2-grid-layout">
                     <div class="annual-plan-grid annual-v2-plan-grid">
@@ -456,15 +492,15 @@ export async function renderAnnualPlan() {
                         <div class="annual-list-actions annual-v2-list-actions">
                             <div class="annual-list-search-wrap annual-v2-search-wrap">
                                 <i class="fa-solid fa-magnifying-glass"></i>
-                                <input type="text" value="${safeHtml(annualListSearch)}" placeholder="Search list..." onkeydown="if(event.key==='Enter'){window.app_setAnnualListSearch(this.value);}">
+                                <input type="text" value="${safeHtml(annualListSearch)}" placeholder="Search list..." data-annual-list-search="1">
                             </div>
-                            <select class="annual-v2-sort-select" onchange="window.app_setAnnualListSort(this.value)">
+                            <select class="annual-v2-sort-select" data-annual-list-sort="1">
                                 <option value="date-asc" ${annualListSort === 'date-asc' ? 'selected' : ''}>Date: Oldest First</option>
                                 <option value="date-desc" ${annualListSort === 'date-desc' ? 'selected' : ''}>Date: Newest First</option>
                                 <option value="staff-asc" ${annualListSort === 'staff-asc' ? 'selected' : ''}>Staff: A-Z</option>
                                 <option value="staff-desc" ${annualListSort === 'staff-desc' ? 'selected' : ''}>Staff: Z-A</option>
                             </select>
-                            <button class="annual-v2-export-btn" onclick="window.AppReports?.exportAnnualListViewCSV(window._annualListItems || [])">
+                            <button class="annual-v2-export-btn" data-annual-export="1">
                                 <i class="fa-solid fa-file-export"></i> Export Excel
                             </button>
                         </div>
@@ -494,8 +530,3 @@ export async function renderAnnualPlan() {
         </div>`;
 }
 
-// Global Exports
-if (typeof window !== 'undefined') {
-    if (!window.AppUI) window.AppUI = {};
-    window.AppUI.renderAnnualPlan = renderAnnualPlan;
-}

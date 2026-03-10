@@ -3,11 +3,12 @@
  * Handles rendering of the main dashboard and its sub-widgets.
  */
 
-import { safeHtml, safeAttr, safeJsStr, safeUrl, timeAgo } from './helpers.js';
+import { safeHtml, safeUrl, timeAgo } from './helpers.js';
 import { renderStarRating, renderTaskStatusBadge } from './common.js';
+import { renderYearlyPlan } from './team-schedule.js';
+import { AppConfig } from '../config.js';
 
 // --- Local State for Dashboard ---
-let dailyPlanReminderResolve = null;
 
 const teamActivityAutoScroll = {
     controllers: new WeakMap(),
@@ -23,6 +24,43 @@ function getStaffActivityState() {
         };
     }
     return window.app_staffActivityState;
+}
+
+let dashboardActionDelegatesBound = false;
+
+function ensureDashboardActionDelegates() {
+    if (dashboardActionDelegatesBound || typeof document === 'undefined') return;
+    dashboardActionDelegatesBound = true;
+
+    document.addEventListener('click', async (event) => {
+        const btn = event.target && event.target.closest
+            ? event.target.closest('.dashboard-leave-btn[data-action][data-leave-id]')
+            : null;
+        if (!btn) return;
+
+        event.preventDefault();
+        const action = String(btn.dataset.action || '');
+        const leaveId = String(btn.dataset.leaveId || '');
+        if (!leaveId) return;
+
+        try {
+            if (action === 'export') {
+                if (window.AppLeaves?.exportLeave) await window.AppLeaves.exportLeave(leaveId);
+                return;
+            }
+            if (action === 'comment') {
+                if (window.AppLeaves?.commentLeave) await window.AppLeaves.commentLeave(leaveId);
+                return;
+            }
+            if (action === 'approve' || action === 'reject') {
+                const status = action === 'approve' ? 'Approved' : 'Rejected';
+                if (window.AppLeaves?.updateLeaveStatus) await window.AppLeaves.updateLeaveStatus(leaveId, status);
+                if (window.app_refreshCurrentPage) await window.app_refreshCurrentPage();
+            }
+        } catch (err) {
+            console.error('Dashboard leave action failed:', err);
+        }
+    });
 }
 
 // --- Dashboard Components ---
@@ -41,6 +79,9 @@ export function renderHeroCard(heroData, heroMeta = {}) {
     }
 
     const { user, stats } = heroData;
+    const daysPresent = Number(stats?.daysPresent ?? stats?.days ?? 0);
+    const totalHours = Number(stats?.totalHours ?? stats?.hours ?? 0);
+    const lateCount = Number(stats?.lateCount ?? stats?.late ?? 0);
     const isNew = heroMeta.source === 'generated';
 
     return `
@@ -59,15 +100,15 @@ export function renderHeroCard(heroData, heroMeta = {}) {
                 </div>
                 <div class="hero-metrics">
                     <div class="hero-metric">
-                        <div class="hero-metric-value">${stats.daysPresent}</div>
+                        <div class="hero-metric-value">${daysPresent}</div>
                         <div class="hero-metric-label">Days</div>
                     </div>
                     <div class="hero-metric">
-                        <div class="hero-metric-value">${stats.totalHours}h</div>
+                        <div class="hero-metric-value">${totalHours}h</div>
                         <div class="hero-metric-label">Hours</div>
                     </div>
                     <div class="hero-metric">
-                        <div class="hero-metric-value">${stats.lateCount}</div>
+                        <div class="hero-metric-value">${lateCount}</div>
                         <div class="hero-metric-label">Lates</div>
                     </div>
                 </div>
@@ -369,10 +410,10 @@ export function renderLeaveRequests(leaves) {
                             <div class="dashboard-leave-date">${l.startDate} to ${l.endDate}</div>
                         </div>
                         <div class="dashboard-leave-actions">
-                            <button class="dashboard-leave-btn export" onclick="window.AppUI.exportLeave('${l.id}')" title="Export PDF"><i class="fa-solid fa-file-pdf"></i></button>
-                            <button class="dashboard-leave-btn comment" onclick="window.AppUI.commentLeave('${l.id}')" title="Add Comment"><i class="fa-solid fa-comment-dots"></i></button>
-                            <button class="dashboard-leave-btn approve" onclick="window.AppUI.updateLeaveStatus('${l.id}', 'Approved')" title="Approve"><i class="fa-solid fa-check"></i></button>
-                            <button class="dashboard-leave-btn reject" onclick="window.AppUI.updateLeaveStatus('${l.id}', 'Rejected')" title="Reject"><i class="fa-solid fa-xmark"></i></button>
+                            <button class="dashboard-leave-btn export" data-action="export" data-leave-id="${l.id}" title="Export PDF"><i class="fa-solid fa-file-pdf"></i></button>
+                            <button class="dashboard-leave-btn comment" data-action="comment" data-leave-id="${l.id}" title="Add Comment"><i class="fa-solid fa-comment-dots"></i></button>
+                            <button class="dashboard-leave-btn approve" data-action="approve" data-leave-id="${l.id}" title="Approve"><i class="fa-solid fa-check"></i></button>
+                            <button class="dashboard-leave-btn reject" data-action="reject" data-leave-id="${l.id}" title="Reject"><i class="fa-solid fa-xmark"></i></button>
                         </div>
                     </div>
                 `).join('')}
@@ -531,7 +572,7 @@ export async function renderDashboard() {
     };
     const todayStr = dateKeys.todayKey;
     const yesterdayStr = dateKeys.yesterdayKey;
-    const sharedSummaryEnabled = !!window.AppConfig?.READ_OPT_FLAGS?.FF_SHARED_DAILY_SUMMARY;
+    const sharedSummaryEnabled = !!AppConfig?.READ_OPT_FLAGS?.FF_SHARED_DAILY_SUMMARY;
 
     const targetStaffId = (isAdmin && window.app_selectedSummaryStaffId) ? window.app_selectedSummaryStaffId : user.id;
 
@@ -555,8 +596,8 @@ export async function renderDashboard() {
         ? window.AppDB.getOrCreateDailySummary({
             dateKey: todayStr,
             yesterdayKey: yesterdayStr,
-            staleAfterMs: window.AppConfig?.SUMMARY_POLICY?.STALENESS_MS,
-            lockTtlMs: window.AppConfig?.SUMMARY_POLICY?.LOCK_TTL_MS,
+            staleAfterMs: AppConfig?.SUMMARY_POLICY?.STALENESS_MS,
+            lockTtlMs: AppConfig?.SUMMARY_POLICY?.LOCK_TTL_MS,
             generatorFn: () => window.AppAnalytics.buildDailyDashboardSummary({ dateKey: todayStr, selectedMonth })
         }).catch(err => {
             console.warn('Daily summary fetch/generation failed:', err);
@@ -603,7 +644,7 @@ export async function renderDashboard() {
         staffActivityPromise,
         window.app_hasPerm('leaves', 'view') ? window.AppLeaves.getPendingLeaves() : Promise.resolve([]),
         window.AppDB.getCached
-            ? window.AppDB.getCached(window.AppDB.getCacheKey('dashboardUsers', 'users', {}), (window.AppConfig?.READ_CACHE_TTLS?.users || 60000), () => window.AppDB.getAll('users'))
+            ? window.AppDB.getCached(window.AppDB.getCacheKey('dashboardUsers', 'users', {}), (AppConfig?.READ_CACHE_TTLS?.users || 60000), () => window.AppDB.getAll('users'))
             : window.AppDB.getAll('users'),
         window.AppCalendar ? window.AppCalendar.getCollaborations(targetStaffId) : Promise.resolve([]),
         window.app_hasPerm('leaves', 'view')
@@ -712,7 +753,7 @@ export async function renderDashboard() {
     }
 
     let summaryHTML = '';
-    const renderYearlyPlanHTML = window.AppUI.renderYearlyPlan ? window.AppUI.renderYearlyPlan(calendarPlans) : '<div class="card">Yearly Plan (Loading...)</div>';
+    const renderYearlyPlanHTML = renderYearlyPlan(calendarPlans);
 
     if (isAdmin) {
         const hasExplicitSelection = !!window.app_selectedSummaryStaffId && window.app_selectedSummaryStaffId !== user.id;
@@ -746,6 +787,7 @@ export async function renderDashboard() {
     }
 
     const updateState = (window.app_getReleaseUpdateState && window.app_getReleaseUpdateState()) || { active: false, countdownLabel: '00:00' };
+    setTimeout(() => ensureDashboardActionDelegates(), 0);
 
     return `
         <div class="dashboard-grid dashboard-modern dashboard-staff-view">
@@ -917,22 +959,6 @@ const refreshStaffActivityWidget = async (fetchLogs = true) => {
 
 // --- Export to Window (Global) ---
 if (typeof window !== 'undefined') {
-    if (!window.AppUI) window.AppUI = {};
-    window.AppUI.renderDashboard = renderDashboard;
-    window.AppUI.renderHeroCard = renderHeroCard;
-    window.AppUI.renderWorkLog = renderWorkLog;
-    window.AppUI.renderActivityList = renderActivityList;
-    window.AppUI.renderActivityLog = renderActivityLog;
-    window.AppUI.renderStaffActivityListSplit = renderStaffActivityListSplit;
-    window.AppUI.renderStaffActivityColumn = renderStaffActivityColumn;
-    window.AppUI.renderStatsCard = renderStatsCard;
-    window.AppUI.renderBreakdown = renderBreakdown;
-    window.AppUI.renderLeaveRequests = renderLeaveRequests;
-    window.AppUI.renderLeaveHistory = renderLeaveHistory;
-    window.AppUI.renderNotificationPanel = renderNotificationPanel;
-    window.AppUI.renderTaggedItems = renderTaggedItems;
-    window.AppUI.renderStaffDirectory = renderStaffDirectory;
-
     window.app_expandTeamActivity = function () {
         const state = getStaffActivityState();
         const monthOptions = buildStaffActivityMonthOptions(8);
@@ -1004,3 +1030,4 @@ if (typeof window !== 'undefined') {
         }
     };
 }
+

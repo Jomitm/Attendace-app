@@ -203,8 +203,3 @@ export async function renderMasterSheet(month = null, year = null) {
         </div>`;
 }
 
-// Global Exports
-if (typeof window !== 'undefined') {
-    if (!window.AppUI) window.AppUI = {};
-    window.AppUI.renderMasterSheet = renderMasterSheet;
-}

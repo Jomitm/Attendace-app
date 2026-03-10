@@ -63,11 +63,14 @@ export const AppConfig = {
         SCHEMA_VERSION: 1,
         RECOMPUTE_CUTOFF_HOUR_IST: 17,
         FALLBACK_TO_PREVIOUS_DAY: true
+    },
+    SIMULATION_POLICY: {
+        LEGACY_DUMMY_CLEANUP: {
+            ENABLED: true,
+            FLAG_KEY: 'legacy_dummy_cleanup_v1',
+            TARGET_USER_IDS: ['sim_punctual', 'sim_admin_new'],
+            TARGET_USERNAMES: ['jomit_p', 'maria'],
+            AUDIT_COLLECTION: 'system_audit_logs'
+        }
     }
 };
-
-// For backward compatibility
-if (typeof window !== 'undefined') {
-    window.AppConfig = AppConfig;
-    console.log("App Config Loaded (ES Module)");
-}

@@ -265,12 +265,15 @@ export class Reports {
                 // 3. Check Work Plans
                 plans.workPlans.forEach(p => {
                     if (p.date === dateStr) {
-                        const taskDetails = p.plans ? p.plans.map((task, idx) => {
-                            let tStr = `${idx + 1}. ${task.task}`;
-                            if (task.subPlans && task.subPlans.length > 0) tStr += ` (Steps: ${task.subPlans.join(', ')})`;
-                            if (task.tags && task.tags.length > 0) tStr += ` [With: ${task.tags.map(t => `@${t.name} (${t.status || 'pending'})`).join(', ')}]`;
-                            return tStr;
-                        }).join(' | ') : (p.plan || 'Work Plan');
+                        const tasks = Array.isArray(p.plans) ? p.plans : [];
+                        const taskDetails = tasks.length > 0
+                            ? tasks.map((task, idx) => {
+                                let tStr = `${idx + 1}. ${task.task}`;
+                                if (task.subPlans && task.subPlans.length > 0) tStr += ` (Steps: ${task.subPlans.join(', ')})`;
+                                if (task.tags && task.tags.length > 0) tStr += ` [With: ${task.tags.map(t => `@${t.name} (${t.status || 'pending'})`).join(', ')}]`;
+                                return tStr;
+                            }).join(' | ')
+                            : 'Work Plan';
 
                         flattenedData.push({
                             date: dateStr,
@@ -331,3 +334,5 @@ export class Reports {
 
 export const AppReports = new Reports();
 if (typeof window !== 'undefined') window.AppReports = AppReports;
+
+

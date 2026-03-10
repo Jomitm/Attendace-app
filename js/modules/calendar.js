@@ -69,10 +69,15 @@ export class Calendar {
                 return Array.from(unique.values());
             })();
 
+            const normalizedWorkPlans = (workPlans || []).map((plan) => ({
+                ...plan,
+                plans: Array.isArray(plan.plans) ? plan.plans : []
+            }));
+
             return {
                 leaves: enrichedLeaves,
                 events: dedupedEvents,
-                workPlans: workPlans || []
+                workPlans: normalizedWorkPlans
             };
         } catch (err) {
             console.error("Failed to fetch calendar plans:", err);
@@ -415,35 +420,24 @@ export class Calendar {
 
         // Format work plans
         const workEvents = plans.workPlans.map(p => {
-            let titleParts = [];
-            if (p.plans && p.plans.length > 0) {
-                p.plans.forEach(plan => {
-                    let text = plan.task;
-                    if (plan.subPlans && plan.subPlans.length > 0) {
-                        text += ' (' + plan.subPlans.join(', ') + ')';
-                    }
-                    if (plan.tags && plan.tags.length > 0) {
-                        text += ' with ' + plan.tags.map(t => t.name).join(', ');
-                    }
-                    titleParts.push(text);
-                });
-            } else if (p.plan) {
-                // Legacy support
-                let text = p.plan;
-                if (p.subPlans && p.subPlans.length > 0) {
-                    text += ' (' + p.subPlans.join(', ') + ')';
+            const titleParts = [];
+            p.plans.forEach(plan => {
+                let text = plan.task;
+                if (plan.subPlans && plan.subPlans.length > 0) {
+                    text += ' (' + plan.subPlans.join(', ') + ')';
+                }
+                if (plan.tags && plan.tags.length > 0) {
+                    text += ' with ' + plan.tags.map(t => t.name).join(', ');
                 }
                 titleParts.push(text);
-            }
+            });
 
             return {
                 date: p.date,
                 title: `${p.userName}: ${titleParts.join('; ')}`,
                 type: 'work',
                 userId: p.userId,
-                plans: p.plans || [],
-                plan: p.plan || '',
-                subPlans: p.subPlans || []
+                plans: p.plans
             };
         });
 
@@ -460,3 +454,5 @@ export class Calendar {
 
 export const AppCalendar = new Calendar();
 if (typeof window !== 'undefined') window.AppCalendar = AppCalendar;
+
+

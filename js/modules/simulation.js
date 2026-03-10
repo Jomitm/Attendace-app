@@ -8,8 +8,34 @@ import { AppConfig } from '../config.js';
 export class Simulation {
     constructor() {
         this.db = AppDB;
-        this.cleanupFlag = 'legacy_dummy_cleanup_v1';
+        this.cleanupFlag = AppConfig?.SIMULATION_POLICY?.LEGACY_DUMMY_CLEANUP?.FLAG_KEY || 'legacy_dummy_cleanup_v1';
         this.simulationFlag = 'simulation_run_v2';
+    }
+
+    getCleanupPolicy() {
+        const policy = AppConfig?.SIMULATION_POLICY?.LEGACY_DUMMY_CLEANUP || {};
+        const targetIds = new Set((policy.TARGET_USER_IDS || []).map((v) => String(v || '').trim()).filter(Boolean));
+        const targetUsernames = new Set((policy.TARGET_USERNAMES || []).map((v) => String(v || '').trim().toLowerCase()).filter(Boolean));
+        return {
+            enabled: policy.ENABLED !== false,
+            targetIds,
+            targetUsernames,
+            auditCollection: String(policy.AUDIT_COLLECTION || 'system_audit_logs')
+        };
+    }
+
+    async writeCleanupAudit(eventType, payload = {}) {
+        const policy = this.getCleanupPolicy();
+        try {
+            await this.db.add(policy.auditCollection, {
+                type: eventType,
+                module: 'simulation',
+                payload,
+                createdAt: Date.now()
+            });
+        } catch (error) {
+            console.warn('Simulation audit log write failed:', error);
+        }
     }
 
     async run() {
@@ -35,23 +61,43 @@ export class Simulation {
     }
 
     async cleanupLegacyDummyData() {
-        const legacyIds = new Set(['sim_punctual', 'sim_admin_new']);
-        const legacyUsernames = new Set(['jomit_p', 'maria']);
+        const policy = this.getCleanupPolicy();
+        if (!policy.enabled) return;
+
+        if (policy.targetIds.size === 0 && policy.targetUsernames.size === 0) {
+            await this.writeCleanupAudit('legacy_dummy_cleanup_skipped', { reason: 'no_targets' });
+            return;
+        }
 
         try {
             const users = await this.db.getAll('users');
             const matchedUsers = users.filter((u) =>
-                legacyIds.has(u.id) || legacyUsernames.has((u.username || '').trim().toLowerCase())
+                policy.targetIds.has(u.id) || policy.targetUsernames.has((u.username || '').trim().toLowerCase())
             );
             const targetIds = new Set(matchedUsers.map((u) => u.id));
 
-            if (targetIds.size === 0) return;
+            if (targetIds.size === 0) {
+                await this.writeCleanupAudit('legacy_dummy_cleanup_skipped', {
+                    reason: 'no_matches',
+                    configuredTargets: {
+                        ids: Array.from(policy.targetIds),
+                        usernames: Array.from(policy.targetUsernames)
+                    }
+                });
+                return;
+            }
+
+            let attendanceDeleted = 0;
+            let leavesDeleted = 0;
+            let plansDeleted = 0;
+            let usersDeleted = 0;
 
             const attendance = await this.db.getAll('attendance');
             for (const log of attendance) {
                 const uid = log.user_id || log.userId;
                 if (targetIds.has(uid)) {
                     await this.db.delete('attendance', log.id);
+                    attendanceDeleted += 1;
                 }
             }
 
@@ -60,6 +106,7 @@ export class Simulation {
                 const uid = leave.userId || leave.user_id;
                 if (targetIds.has(uid)) {
                     await this.db.delete('leaves', leave.id);
+                    leavesDeleted += 1;
                 }
             }
 
@@ -68,15 +115,35 @@ export class Simulation {
                 const uid = plan.userId || plan.user_id;
                 if (targetIds.has(uid)) {
                     await this.db.delete('work_plans', plan.id);
+                    plansDeleted += 1;
                 }
             }
 
             for (const user of matchedUsers) {
                 await this.db.delete('users', user.id);
+                usersDeleted += 1;
             }
 
-            console.log('Legacy dummy users and linked records removed.');
+            await this.writeCleanupAudit('legacy_dummy_cleanup_completed', {
+                matchedUserIds: Array.from(targetIds),
+                deleted: {
+                    attendance: attendanceDeleted,
+                    leaves: leavesDeleted,
+                    workPlans: plansDeleted,
+                    users: usersDeleted
+                }
+            });
+
+            console.log('Legacy dummy users and linked records removed.', {
+                users: usersDeleted,
+                attendance: attendanceDeleted,
+                leaves: leavesDeleted,
+                workPlans: plansDeleted
+            });
         } catch (error) {
+            await this.writeCleanupAudit('legacy_dummy_cleanup_failed', {
+                message: error?.message || String(error)
+            });
             console.warn('Legacy dummy cleanup failed:', error);
         }
     }

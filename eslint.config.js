@@ -1,4 +1,4 @@
-﻿const js = require("@eslint/js");
+const js = require("@eslint/js");
 const globals = require("globals");
 
 module.exports = [
@@ -15,7 +15,7 @@ module.exports = [
     files: ["js/**/*.js"],
     languageOptions: {
       ecmaVersion: "latest",
-      sourceType: "script",
+      sourceType: "module",
       globals: {
         ...globals.browser,
         ...globals.es2021,
@@ -39,7 +39,8 @@ module.exports = [
       sourceType: "commonjs",
       globals: {
         ...globals.node,
-        ...globals.commonjs
+        ...globals.commonjs,
+        ...globals.browser
       }
     },
     rules: {

@@ -28,7 +28,6 @@ export const AppPolicies = {
         const policy = await AppLeaves.getPolicy();
         const user = AppAuth.getUser();
         const fy = await AppLeaves.getFinancialYear();
-        const isAdmin = window.app_hasPerm('policies', 'view', user);
         const isFullAdmin = window.app_hasPerm('policies', 'admin', user);
 
         let lateCount = 0;
@@ -427,3 +426,4 @@ export const AppPolicies = {
 };
 
 if (typeof window !== 'undefined') window.AppPolicies = AppPolicies;
+

@@ -262,8 +262,3 @@ export async function renderProfile() {
     }
 }
 
-// Global Exports
-if (typeof window !== 'undefined') {
-    if (!window.AppUI) window.AppUI = {};
-    window.AppUI.renderProfile = renderProfile;
-}

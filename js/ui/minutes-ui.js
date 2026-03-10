@@ -3,7 +3,8 @@
  * Handles rendering of meeting minutes, action items, and approval workflows.
  */
 
-import { safeHtml, safeJsStr, safeAttr } from './helpers.js';
+import { safeHtml, safeAttr } from './helpers.js';
+import { renderYearlyPlan } from './team-schedule.js';
 
 export async function renderMinutes() {
     const minutes = await window.AppMinutes.getMinutes();
@@ -781,7 +782,7 @@ export async function renderMinutes() {
                         <h3>Schedule NGO Activities</h3>
                     </div>
                     <div class="minutes-calendar-widget-wrapper">
-                        ${window.AppUI?.renderYearlyPlan ? window.AppUI.renderYearlyPlan(calendarPlans) : '<div class="card">Team Schedule (Loading...)</div>'}
+                        ${renderYearlyPlan(calendarPlans)}
                     </div>
                 </div>
 
@@ -850,9 +851,6 @@ export async function renderMinutes() {
     `;
 }
 
-// Global Exports
-if (typeof window !== 'undefined') {
-    if (!window.AppUI) window.AppUI = {};
-    window.AppUI.renderMinutes = renderMinutes;
-}
+
 export default renderMinutes;
+

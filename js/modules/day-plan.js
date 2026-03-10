@@ -44,7 +44,6 @@ const esc = (v) => String(v ?? '')
 // --- @mention Autocomplete Helpers ---
 
 function getCaretCoordinates(element, position) {
-    const { offsetLeft, offsetTop } = element;
     const div = document.createElement('div');
     const style = window.getComputedStyle(element);
     for (const prop of style) {
@@ -625,20 +624,6 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null)
                 isReference: !!userName
             }));
         }
-        if (workPlan.plan) {
-            return [{
-                task: workPlan.plan,
-                subPlans: workPlan.subPlans || [],
-                tags: [],
-                status: null,
-                assignedTo: workPlan.userId === 'annual_shared' ? null : workPlan.userId,
-                startDate: date,
-                endDate: date,
-                planScope: scope,
-                userName: userName || workPlan.userName,
-                isReference: !!userName
-            }];
-        }
         return [];
     };
 
@@ -703,8 +688,7 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null)
 }
 
 export async function addPlanBlockUI(scopeOverride = null) {
-    // This is kept for legacy calls, but now redirets to openPlanEditor if needed
-    // or just opens a basic editor
+    // Adds a new plan block by opening the plan editor for the requested scope.
     const modal = document.getElementById('day-plan-modal');
     if (!modal) return;
     const scope = scopeOverride || 'personal';
@@ -740,3 +724,5 @@ window.app_addPlanBlockUI = addPlanBlockUI;
 window.app_extractBlockData = app_extractBlockData;
 
 export { AppDayPlan };
+
+

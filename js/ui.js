@@ -65,7 +65,6 @@ export {
     renderYearlyPlan
 };
 
-// Global Exposure for Backward Compatibility
 export const AppUI = {
     renderDashboard,
     renderHeroCard,
@@ -95,6 +94,7 @@ export const AppUI = {
     renderModals,
     renderYearlyPlan
 };
+
 
 if (typeof window !== 'undefined') {
     window.AppUI = AppUI;

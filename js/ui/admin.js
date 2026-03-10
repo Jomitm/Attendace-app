@@ -4,35 +4,45 @@
  */
 
 import { safeHtml } from './helpers.js';
+import { AppConfig } from '../config.js';
 
 export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
     let allUsers = [];
     let pendingLeaves = [];
     let performance = { avgScore: 0, trendData: [0, 0, 0, 0, 0, 0, 0], labels: [] };
     let audits = [];
+    let simulationCleanupAudits = [];
 
     try {
         const today = new Date().toISOString().split('T')[0];
         auditStartDate = auditStartDate || today;
         auditEndDate = auditEndDate || today;
 
-        [allUsers, performance, audits, pendingLeaves] = await Promise.all([
+        [allUsers, performance, audits, pendingLeaves, simulationCleanupAudits] = await Promise.all([
             window.AppDB.getCached
-                ? window.AppDB.getCached(window.AppDB.getCacheKey('adminUsers', 'users', {}), (window.AppConfig?.READ_CACHE_TTLS?.users || 60000), () => window.AppDB.getAll('users'))
+                ? window.AppDB.getCached(window.AppDB.getCacheKey('adminUsers', 'users', {}), (AppConfig?.READ_CACHE_TTLS?.users || 60000), () => window.AppDB.getAll('users'))
                 : window.AppDB.getAll('users'),
             window.AppAnalytics.getSystemPerformance(),
             window.AppDB.queryMany
                 ? window.AppDB.queryMany('location_audits', [], { orderBy: [{ field: 'timestamp', direction: 'desc' }], limit: 300 }).catch(() => window.AppDB.getAll('location_audits'))
                 : window.AppDB.getAll('location_audits'),
-            window.AppLeaves.getPendingLeaves()
+            window.AppLeaves.getPendingLeaves(),
+            window.AppDB.queryMany
+                ? window.AppDB.queryMany('system_audit_logs', [], { orderBy: [{ field: 'createdAt', direction: 'desc' }], limit: 80 }).catch(() => window.AppDB.getAll('system_audit_logs'))
+                : window.AppDB.getAll('system_audit_logs')
         ]);
 
         audits = audits.filter(a => {
             const d = new Date(a.timestamp).toISOString().split('T')[0];
             return d >= auditStartDate && d <= auditEndDate;
         }).sort((a, b) => b.timestamp - a.timestamp);
+
+        simulationCleanupAudits = (simulationCleanupAudits || [])
+            .filter((row) => row && row.module === 'simulation' && String(row.type || '').startsWith('legacy_dummy_cleanup_'))
+            .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
+            .slice(0, 25);
     } catch (e) {
-        console.error("Failed to fetch admin data", e);
+        console.error('Failed to fetch admin data', e);
     }
 
     const activeCount = allUsers.filter(u => u.status === 'in').length;
@@ -40,6 +50,34 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
     const perfStatus = performance.avgScore > 70 ? 'Optimal' : (performance.avgScore > 40 ? 'Good' : 'Low');
     const perfColor = performance.avgScore > 70 ? '#166534' : (performance.avgScore > 40 ? '#854d0e' : '#991b1b');
     const perfBg = performance.avgScore > 70 ? '#f0fdf4' : (performance.avgScore > 40 ? '#fefce8' : '#fef2f2');
+
+    const formatCleanupSummary = (row) => {
+        const payload = row && row.payload ? row.payload : {};
+        const deleted = payload.deleted || {};
+        const configuredTargets = payload.configuredTargets || {};
+
+        if (row.type === 'legacy_dummy_cleanup_completed') {
+            return [
+                `users=${Number(deleted.users || 0)}`,
+                `attendance=${Number(deleted.attendance || 0)}`,
+                `leaves=${Number(deleted.leaves || 0)}`,
+                `workPlans=${Number(deleted.workPlans || 0)}`
+            ].join(', ');
+        }
+
+        if (row.type === 'legacy_dummy_cleanup_skipped') {
+            const reason = payload.reason || 'unknown';
+            const ids = Array.isArray(configuredTargets.ids) ? configuredTargets.ids.length : 0;
+            const usernames = Array.isArray(configuredTargets.usernames) ? configuredTargets.usernames.length : 0;
+            return `reason=${reason}, targetIds=${ids}, targetUsernames=${usernames}`;
+        }
+
+        if (row.type === 'legacy_dummy_cleanup_failed') {
+            return String(payload.message || 'Unknown error');
+        }
+
+        return '-';
+    };
 
     // UI Handlers
     window.app_applyAuditFilter = async () => {
@@ -181,11 +219,27 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                     </table>
                 </div>
             </div>
+
+            <div class="card full-width">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+                    <h3>Simulation Cleanup Audit (Debug)</h3>
+                    <span class="text-muted" style="font-size:0.75rem;">Last ${simulationCleanupAudits.length} entries</span>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead><tr><th>Time</th><th>Event</th><th>Summary</th></tr></thead>
+                        <tbody>
+                            ${simulationCleanupAudits.length ? simulationCleanupAudits.map(row => `
+                                <tr>
+                                    <td>${new Date(Number(row.createdAt || 0)).toLocaleString()}</td>
+                                    <td>${safeHtml(row.type || '-')}</td>
+                                    <td>${safeHtml(formatCleanupSummary(row))}</td>
+                                </tr>
+                            `).join('') : '<tr><td colspan="3" class="text-center">No simulation cleanup audit entries found</td></tr>'}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>`;
 }
 
-// Global Exports
-if (typeof window !== 'undefined') {
-    if (!window.AppUI) window.AppUI = {};
-    window.AppUI.renderAdmin = renderAdmin;
-}

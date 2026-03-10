@@ -11,8 +11,6 @@ export async function renderSalaryProcessing() {
     const currentUser = window.AppAuth.getUser();
     const isFullAdmin = window.app_hasPerm('reports', 'admin', currentUser);
     const monthLabel = today.toLocaleDateString('default', { month: 'long', year: 'numeric' });
-    const payPeriodValue = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-    const payDateValue = today.toISOString().split('T')[0];
 
     // Recalculation logic
     window.app_recalculateRow = (row) => {
@@ -141,9 +139,3 @@ export async function renderPolicyTest() {
     `;
 }
 
-// Global Exports
-if (typeof window !== 'undefined') {
-    if (!window.AppUI) window.AppUI = {};
-    window.AppUI.renderSalaryProcessing = renderSalaryProcessing;
-    window.AppUI.renderPolicyTest = renderPolicyTest;
-}

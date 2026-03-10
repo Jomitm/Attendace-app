@@ -5,6 +5,10 @@ export class RatingSystem {
         this.db = AppDB;
     }
 
+    normalizePlanTasks(workPlan) {
+        if (Array.isArray(workPlan?.plans)) return workPlan.plans;
+        return [];
+    }
     /**
      * Get smart task status based on date comparison
      * @param {string} taskDate - Planned date for the task (YYYY-MM-DD)
@@ -98,22 +102,10 @@ export class RatingSystem {
         let totalTasks = 0;
 
         workPlans.forEach(plan => {
-            if (plan.plans && Array.isArray(plan.plans)) {
-                plan.plans.forEach(task => {
-                    totalTasks++;
-                    const status = this.getSmartTaskStatus(plan.date, task.status);
-                    switch (status) {
-                        case 'completed': completed++; break;
-                        case 'in-process': inProcess++; break;
-                        case 'not-completed': notCompleted++; break;
-                        case 'overdue': overdue++; break;
-                        case 'to-be-started': toBeStarted++; break;
-                    }
-                });
-            } else if (plan.plan) {
-                // Legacy single plan format
+            const tasks = this.normalizePlanTasks(plan);
+            tasks.forEach(task => {
                 totalTasks++;
-                const status = this.getSmartTaskStatus(plan.date, plan.status);
+                const status = this.getSmartTaskStatus(plan.date, task.status);
                 switch (status) {
                     case 'completed': completed++; break;
                     case 'in-process': inProcess++; break;
@@ -121,7 +113,7 @@ export class RatingSystem {
                     case 'overdue': overdue++; break;
                     case 'to-be-started': toBeStarted++; break;
                 }
-            }
+            });
         });
 
         const completionRate = totalTasks > 0 ? completed / totalTasks : 0;
@@ -178,14 +170,10 @@ export class RatingSystem {
             // Calculate total points
             let totalPoints = 0;
             userPlans.forEach(plan => {
-                if (plan.plans && Array.isArray(plan.plans)) {
-                    plan.plans.forEach(task => {
-                        totalPoints += this.calculateTaskPoints(task, plan.date);
-                    });
-                } else if (plan.plan) {
-                    // Legacy format
-                    totalPoints += this.calculateTaskPoints(plan, plan.date);
-                }
+                const tasks = this.normalizePlanTasks(plan);
+                tasks.forEach(task => {
+                    totalPoints += this.calculateTaskPoints(task, plan.date);
+                });
             });
 
             // Get completion stats
@@ -363,3 +351,5 @@ export class RatingSystem {
 // Export to Window (Global)
 export const AppRating = new RatingSystem();
 if (typeof window !== 'undefined') window.AppRating = AppRating;
+
+

@@ -4,6 +4,7 @@
  */
 
 import { safeHtml } from './helpers.js';
+import { AppConfig } from '../config.js';
 
 /**
  * Render the Staff Directory Page
@@ -13,7 +14,7 @@ export async function renderStaffDirectoryPage() {
 
     // Fetch data (using cache where possible)
     const allUsers = window.AppDB.getCached
-        ? await window.AppDB.getCached(window.AppDB.getCacheKey('staffUsers', 'users', {}), (window.AppConfig?.READ_CACHE_TTLS?.users || 60000), () => window.AppDB.getAll('users'))
+        ? await window.AppDB.getCached(window.AppDB.getCacheKey('staffUsers', 'users', {}), (AppConfig?.READ_CACHE_TTLS?.users || 60000), () => window.AppDB.getAll('users'))
         : await window.AppDB.getAll('users');
 
     const messages = window.app_getMyMessages
@@ -140,8 +141,3 @@ export async function renderStaffDirectoryPage() {
     `;
 }
 
-// Export to window for global access
-if (typeof window !== 'undefined') {
-    if (!window.AppUI) window.AppUI = {};
-    window.AppUI.renderStaffDirectoryPage = renderStaffDirectoryPage;
-}

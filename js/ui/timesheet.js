@@ -4,8 +4,40 @@
  */
 
 import { safeHtml } from './helpers.js';
+import { AppConfig } from '../config.js';
 
+let timesheetDelegatesBound = false;
+
+function ensureTimesheetDelegates() {
+    if (timesheetDelegatesBound || typeof document === 'undefined') return;
+    timesheetDelegatesBound = true;
+    document.addEventListener('click', (event) => {
+        const openDay = event.target.closest('[data-timesheet-open-day]');
+        if (openDay) { window.app_openTimesheetDayDetail?.(openDay.dataset.timesheetOpenDay); return; }
+        const requestLeave = event.target.closest('[data-timesheet-request-leave]');
+        if (requestLeave) { const modal = document.getElementById('leave-modal'); if (modal) modal.style.display = 'flex'; return; }
+        const manualLog = event.target.closest('[data-timesheet-manual-log]');
+        if (manualLog) { document.dispatchEvent(new CustomEvent('open-log-modal')); return; }
+        const monthDelta = event.target.closest('[data-timesheet-month-delta]');
+        if (monthDelta) { window.app_changeTimesheetMonth?.(Number(monthDelta.dataset.timesheetMonthDelta || 0)); return; }
+        const jumpToday = event.target.closest('[data-timesheet-today]');
+        if (jumpToday) { window.app_jumpTimesheetToday?.(); return; }
+        const exportBtn = event.target.closest('[data-timesheet-export]');
+        if (exportBtn) { window.AppReports?.exportUserLogs?.(exportBtn.dataset.timesheetExportUser || ''); return; }
+        const editLog = event.target.closest('[data-timesheet-edit-log]');
+        if (editLog) { window.app_editWorkSummary?.(editLog.dataset.timesheetEditLog); return; }
+        const detailLog = event.target.closest('[data-timesheet-detail-log]');
+        if (detailLog) { const logId = detailLog.dataset.timesheetDetailLog; alert('Detailed analysis for log ' + logId + ' coming soon!'); return; }
+        const closeModal = event.target.closest('[data-timesheet-close-modal]');
+        if (closeModal) closeModal.closest('.modal-overlay')?.remove();
+    });
+    document.addEventListener('change', (event) => {
+        const select = event.target.closest('[data-timesheet-view-select]');
+        if (select) window.app_toggleTimesheetViewSelect?.(select.value);
+    });
+}
 export async function renderTimesheet() {
+    setTimeout(() => ensureTimesheetDelegates(), 0);
     // Initialize global helpers if not present
     if (typeof window.app_setTimesheetView !== 'function') {
         window.app_setTimesheetView = async (mode) => {
@@ -63,13 +95,10 @@ export async function renderTimesheet() {
     const plansByDate = {};
     userMonthPlans.forEach(plan => {
         if (!plansByDate[plan.date]) plansByDate[plan.date] = [];
-        if (Array.isArray(plan.plans) && plan.plans.length) {
-            plan.plans.forEach(task => {
-                plansByDate[plan.date].push(task.task || 'Planned task');
-            });
-        } else if (plan.plan) {
-            plansByDate[plan.date].push(plan.plan);
-        }
+        const tasks = Array.isArray(plan.plans) ? plan.plans : [];
+        tasks.forEach(task => {
+            plansByDate[plan.date].push(task.task || 'Planned task');
+        });
     });
 
     window._timesheetLogsByDate = logsByDate;
@@ -86,7 +115,7 @@ export async function renderTimesheet() {
     });
 
     const totalHoursFormatted = `${Math.floor(totalMins / 60)}h ${Math.round(totalMins % 60)}m`;
-    const lateDeductionDays = Math.floor(lateCount / (window.AppConfig?.LATE_GRACE_COUNT || 3)) * (window.AppConfig?.LATE_DEDUCTION_PER_BLOCK || 0.5);
+    const lateDeductionDays = Math.floor(lateCount / (AppConfig?.LATE_GRACE_COUNT || 3)) * (AppConfig?.LATE_DEDUCTION_PER_BLOCK || 0.5);
 
     const displayLogType = (rawType) => {
         return (window.AppAttendance && window.AppAttendance.normalizeType) ? window.AppAttendance.normalizeType(rawType) : rawType;
@@ -131,7 +160,7 @@ export async function renderTimesheet() {
                         <span class="timesheet-day-status-chip">${safeHtml(displayLogType(l.type))}</span>
                     </div>
                     <div class="timesheet-day-detail-text">${safeHtml(l.workDescription || l.location || 'No summary')}</div>
-                    ${l.id && l.id !== 'active_now' ? `<button type="button" class="action-btn secondary" onclick="window.app_editWorkSummary('${l.id}')">Edit</button>` : ''}
+                    ${l.id && l.id !== 'active_now' ? `<button type="button" class="action-btn secondary" data-timesheet-edit-log="${l.id}">Edit</button>` : ''}
                 </div>
             `).join('')
             : `<div class="timesheet-day-detail-empty">No attendance logs for this date.</div>`;
@@ -144,7 +173,7 @@ export async function renderTimesheet() {
                 <div class="modal-content" style="max-width:560px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
                         <h3 style="margin:0;">${safeHtml(dateStr)} Details</h3>
-                        <button type="button" class="app-system-dialog-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+                        <button type="button" class="app-system-dialog-close" data-timesheet-close-modal="1">&times;</button>
                     </div>
                     <div style="display:grid; gap:0.9rem;">
                         <div>
@@ -201,7 +230,7 @@ export async function renderTimesheet() {
                     : `<div class="timesheet-cal-empty">No plans</div>`;
 
             grid += `
-                <div class="timesheet-cal-day ${isToday ? 'today' : ''}" onclick="window.app_openTimesheetDayDetail('${dateStr}')" style="cursor:pointer;">
+                <div class="timesheet-cal-day ${isToday ? 'today' : ''}" data-timesheet-open-day="${dateStr}" style="cursor:pointer;">
                     <div class="timesheet-cal-day-head">
                         <span class="timesheet-cal-date">${day}</span>
                         <span class="timesheet-cal-attendance ${attendanceClass}">${attendanceText}</span>
@@ -226,10 +255,10 @@ export async function renderTimesheet() {
                     <p>View and manage your attendance logs</p>
                 </div>
                 <div class="timesheet-modern-actions">
-                    <button class="action-btn secondary timesheet-modern-btn-secondary" onclick="document.getElementById('leave-modal').style.display = 'flex'">
+                    <button class="action-btn secondary timesheet-modern-btn-secondary" data-timesheet-request-leave="1">
                         <i class="fa-solid fa-calendar-xmark"></i> Request Leave
                     </button>
-                    <button class="action-btn timesheet-modern-btn-primary" onclick="document.dispatchEvent(new CustomEvent('open-log-modal'))">
+                    <button class="action-btn timesheet-modern-btn-primary" data-timesheet-manual-log="1">
                         <i class="fa-solid fa-plus"></i> Manual Log
                     </button>
                 </div>
@@ -257,18 +286,18 @@ export async function renderTimesheet() {
             <div class="timesheet-modern-toolbar">
                 <div class="timesheet-view-mode-wrap">
                     <label for="timesheet-view-select" class="timesheet-view-label">View</label>
-                    <select id="timesheet-view-select" class="timesheet-view-select" onchange="window.app_toggleTimesheetViewSelect(this.value)">
+                    <select id="timesheet-view-select" class="timesheet-view-select" data-timesheet-view-select="1">
                         <option value="list" ${viewMode === 'list' ? 'selected' : ''}>List View</option>
                         <option value="calendar" ${viewMode === 'calendar' ? 'selected' : ''}>Calendar View</option>
                     </select>
                 </div>
                 <div class="timesheet-month-switch">
-                    <button type="button" onclick="window.app_changeTimesheetMonth(-1)"><i class="fa-solid fa-chevron-left"></i></button>
+                    <button type="button" data-timesheet-month-delta="-1"><i class="fa-solid fa-chevron-left"></i></button>
                     <div class="timesheet-month-label">${monthLabel}</div>
-                    <button type="button" onclick="window.app_changeTimesheetMonth(1)"><i class="fa-solid fa-chevron-right"></i></button>
-                    <button type="button" class="timesheet-today-btn" onclick="window.app_jumpTimesheetToday()">Today</button>
+                    <button type="button" data-timesheet-month-delta="1"><i class="fa-solid fa-chevron-right"></i></button>
+                    <button type="button" class="timesheet-today-btn" data-timesheet-today="1">Today</button>
                 </div>
-                <button class="timesheet-export-btn" onclick="window.AppReports?.exportUserLogs('${user.id}')">
+                <button class="timesheet-export-btn" data-timesheet-export-user="${user.id}" data-timesheet-export="1">
                     <i class="fa-solid fa-download"></i> Export CSV
                 </button>
             </div>
@@ -309,12 +338,12 @@ export async function renderTimesheet() {
                                             <div class="timesheet-summary-text">${safeHtml(log.workDescription) || '<span class="timesheet-empty-summary">No summary provided</span>'}</div>
                                             ${log.location ? `<div class="timesheet-location"><i class="fa-solid fa-location-dot"></i> ${safeHtml(log.location)}</div>` : ''}
                                         </div>
-                                        ${log.id !== 'active_now' ? `<button onclick="window.app_editWorkSummary('${log.id}')" class="timesheet-edit-btn"><i class="fa-solid fa-pen-to-square"></i></button>` : ''}
+                                        ${log.id !== 'active_now' ? `<button data-timesheet-edit-log="${log.id}" class="timesheet-edit-btn"><i class="fa-solid fa-pen-to-square"></i></button>` : ''}
                                     </div>
                                 </td>
                                 <td data-label="Detail" class="text-right">
                                     ${log.id !== 'active_now'
-            ? `<button class="icon-btn timesheet-detail-btn" title="View Detailed Log" onclick="alert('Detailed analysis for log ${log.id} coming soon!')"><i class="fa-solid fa-circle-info"></i></button>`
+            ? `<button class="icon-btn timesheet-detail-btn" title="View Detailed Log" data-timesheet-detail-log="${log.id}"><i class="fa-solid fa-circle-info"></i></button>`
             : '<span class="timesheet-live">SESSION LIVE</span>'}
                                 </td>
                             </tr>
@@ -330,8 +359,3 @@ export async function renderTimesheet() {
     `;
 }
 
-// Global Exports
-if (typeof window !== 'undefined') {
-    if (!window.AppUI) window.AppUI = {};
-    window.AppUI.renderTimesheet = renderTimesheet;
-}
