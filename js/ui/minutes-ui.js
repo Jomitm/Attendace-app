@@ -604,25 +604,25 @@ export async function renderMinutes() {
                 /* Attendee Picker */
                 .attendee-picker-container {
                     background: #f1f5f9;
-                    border-radius: 16px;
-                    padding: 1.5rem;
+                    border-radius: 12px;
+                    padding: 0.9rem;
                     margin-bottom: 2rem;
                 }
 
                 .attendee-chips-wrapper {
                     display: flex;
                     flex-wrap: wrap;
-                    gap: 0.5rem;
+                    gap: 0.35rem;
                     margin-bottom: 1rem;
-                    min-height: 40px;
+                    min-height: 28px;
                 }
 
                 .chip-modern {
                     background: var(--minutes-primary);
                     color: white;
-                    padding: 0.4rem 0.9rem;
+                    padding: 0.2rem 0.55rem;
                     border-radius: 999px;
-                    font-size: 0.875rem;
+                    font-size: 0.78rem;
                     font-weight: 600;
                     display: flex;
                     align-items: center;
@@ -646,16 +646,16 @@ export async function renderMinutes() {
                     background: white;
                     border: 1px solid var(--minutes-border);
                     border-radius: 10px;
-                    padding: 0.6rem 1rem;
+                    padding: 0.45rem 0.7rem;
                     margin-bottom: 1rem;
-                    font-size: 0.9rem;
+                    font-size: 0.82rem;
                 }
 
                 .attendee-grid {
                     display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-                    gap: 0.75rem;
-                    max-height: 200px;
+                    grid-template-columns: repeat(auto-fill, minmax(165px, 1fr));
+                    gap: 0.5rem;
+                    max-height: 150px;
                     overflow-y: auto;
                     padding-right: 0.5rem;
                 }
@@ -663,9 +663,9 @@ export async function renderMinutes() {
                 .attendee-item-modern {
                     display: flex;
                     align-items: center;
-                    gap: 0.75rem;
+                    gap: 0.5rem;
                     background: white;
-                    padding: 0.75rem 1rem;
+                    padding: 0.48rem 0.6rem;
                     border-radius: 10px;
                     border: 1px solid var(--minutes-border);
                     cursor: pointer;
@@ -679,13 +679,13 @@ export async function renderMinutes() {
                 }
 
                 .attendee-item-modern input {
-                    width: 18px;
-                    height: 18px;
+                    width: 15px;
+                    height: 15px;
                     cursor: pointer;
                 }
 
                 .attendee-item-modern span {
-                    font-size: 0.9rem;
+                    font-size: 0.82rem;
                     font-weight: 500;
                     color: var(--minutes-text);
                 }
@@ -957,6 +957,8 @@ export async function renderMinutes() {
                     .rich-editor-toolbar { gap: 0.25rem; padding: 0.45rem; }
                     .rich-editor-btn { min-width: 30px; height: 30px; font-size: 0.78rem; }
                     .rich-editor-area { font-size: 0.88rem; min-height: 140px; }
+                    .attendee-picker-container { padding: 0.7rem; }
+                    .attendee-grid { grid-template-columns: 1fr; max-height: 170px; }
                 }
             </style>
 
@@ -995,8 +997,8 @@ export async function renderMinutes() {
                     <div class="attendee-picker-container">
                         <div id="minutes-attendee-chips" class="attendee-chips-wrapper"></div>
                         <div style="position: relative;">
-                            <i class="fa-solid fa-search" style="position: absolute; left: 1rem; top: 0.75rem; color: var(--minutes-muted);"></i>
-                            <input type="text" placeholder="Search staff members..." oninput="window.app_filterAttendees(this.value)" class="search-staff-input" style="padding-left: 2.75rem;">
+                            <i class="fa-solid fa-search" style="position: absolute; left: 0.75rem; top: 0.55rem; color: var(--minutes-muted);"></i>
+                            <input type="text" placeholder="Search staff members..." oninput="window.app_filterAttendees(this.value)" class="search-staff-input" style="padding-left: 2.2rem;">
                         </div>
                         <div class="attendee-grid">
                             ${allUsers.map(u => `
