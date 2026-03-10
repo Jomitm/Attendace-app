@@ -258,6 +258,65 @@ export class Analytics {
         return parseInt(hours, 10) * 60 + parseInt(minutes, 10);
     }
 
+    isAttendanceEligibleLog(log) {
+        if (Object.prototype.hasOwnProperty.call(log || {}, 'attendanceEligible')) {
+            return log.attendanceEligible === true;
+        }
+        const src = String(log?.entrySource || '');
+        if (src === 'staff_manual_work') return false;
+        if (src === 'admin_override' || src === 'checkin_checkout') return true;
+        if (log?.isManualOverride) return true;
+        if (log?.location === 'Office (Manual)' || log?.location === 'Office (Override)') return true;
+        const hasSystemSignals =
+            typeof log?.activityScore !== 'undefined' ||
+            typeof log?.locationMismatched !== 'undefined' ||
+            typeof log?.autoCheckout !== 'undefined' ||
+            !!log?.checkOutLocation ||
+            typeof log?.outLat !== 'undefined' ||
+            typeof log?.outLng !== 'undefined';
+        if (hasSystemSignals) return true;
+        const type = String(log?.type || '');
+        return type.includes('Leave') || log?.location === 'On Leave';
+    }
+
+    getAttendanceLogPriority(log) {
+        const type = String(log?.type || '');
+        const isLeaveLog = type.includes('Leave') || log?.location === 'On Leave';
+        const isActualCheckoutLog = (
+            !!log?.checkOut &&
+            log.checkOut !== 'Active Now' &&
+            (
+                typeof log?.activityScore !== 'undefined' ||
+                typeof log?.locationMismatched !== 'undefined' ||
+                !!log?.checkOutLocation ||
+                typeof log?.outLat !== 'undefined' ||
+                typeof log?.outLng !== 'undefined'
+            )
+        );
+
+        let score = 1;
+        if (isActualCheckoutLog) score = 2;
+        if (isLeaveLog) score = 3;
+        if (log?.isManualOverride) score = 4;
+        return score;
+    }
+
+    pickBestAttendanceLogPerDay(logs, startDate, endDate) {
+        const bestByDate = new Map();
+        const toLocalIso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+        logs.forEach((log) => {
+            const logDate = new Date(log?.date);
+            if (Number.isNaN(logDate.getTime()) || logDate < startDate || logDate > endDate) return;
+            const dateKey = /^\d{4}-\d{2}-\d{2}$/.test(String(log?.date || '')) ? String(log.date) : toLocalIso(logDate);
+            const existing = bestByDate.get(dateKey);
+            if (!existing || this.getAttendanceLogPriority(log) > this.getAttendanceLogPriority(existing)) {
+                bestByDate.set(dateKey, log);
+            }
+        });
+
+        return Array.from(bestByDate.values());
+    }
     // Helper to format minutes to "Xh Ym"
     formatDuration(totalMinutes) {
         const h = Math.floor(totalMinutes / 60);
@@ -339,29 +398,9 @@ export class Analytics {
         let totalLateMinutes = 0;
         let totalExtraMinutes = 0;
 
-        userLogs.forEach(log => {
-            const logDate = new Date(log.date);
-            if (!isNaN(logDate) && logDate >= startOfMonth && logDate <= endOfMonth) {
-                const isAttendanceEligible = Object.prototype.hasOwnProperty.call(log, 'attendanceEligible')
-                    ? (log.attendanceEligible === true)
-                    : (() => {
-                        const src = String(log.entrySource || '');
-                        if (src === 'staff_manual_work') return false;
-                        if (src === 'admin_override' || src === 'checkin_checkout') return true;
-                        if (log.isManualOverride) return true;
-                        if (log.location === 'Office (Manual)' || log.location === 'Office (Override)') return true;
-                        const hasSystemSignals =
-                            typeof log.activityScore !== 'undefined' ||
-                            typeof log.locationMismatched !== 'undefined' ||
-                            typeof log.autoCheckout !== 'undefined' ||
-                            !!log.checkOutLocation ||
-                            typeof log.outLat !== 'undefined' ||
-                            typeof log.outLng !== 'undefined';
-                        if (hasSystemSignals) return true;
-                        const type = String(log.type || '');
-                        return type.includes('Leave') || log.location === 'On Leave';
-                    })();
-                if (!isAttendanceEligible) return;
+        const canonicalLogs = this.pickBestAttendanceLogPerDay(userLogs, startOfMonth, endOfMonth);
+        canonicalLogs.forEach(log => {
+                if (!this.isAttendanceEligibleLog(log)) return;
                 let type = log.type || '';
                 const inMinutes = this.parseTimeToMinutes(log.checkIn);
                 const outMinutes = this.parseTimeToMinutes(log.checkOut);
@@ -394,8 +433,9 @@ export class Analytics {
                         stats.late++;
                         breakdown['Late']++;
                         // We don't have a reliable late duration for manual logs unless we calculate it
-                        if (inMinutes !== null && inMinutes > 540) {
-                            totalLateMinutes += (inMinutes - 540);
+                        const manualLateCutoff = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_CUTOFF_MINUTES : 555) || 555;
+                        if (inMinutes !== null && inMinutes > manualLateCutoff) {
+                            totalLateMinutes += (inMinutes - manualLateCutoff);
                         }
                     } else if (type === 'Early Departure') {
                         stats.earlyDepartures++;
@@ -435,7 +475,6 @@ export class Analytics {
                 else if (log.checkIn) {
                     breakdown['Present']++;
                 }
-            }
         });
 
         stats.present = breakdown['Present'] + breakdown['Work - Home'] + breakdown['Training'];
@@ -489,46 +528,40 @@ export class Analytics {
         let totalLateMinutes = 0;
         let totalExtraMinutes = 0;
 
-        userLogs.forEach(log => {
-            const logDate = new Date(log.date);
-            if (!isNaN(logDate) && logDate >= start && logDate <= end) {
-                const isAttendanceEligible = Object.prototype.hasOwnProperty.call(log, 'attendanceEligible')
-                    ? (log.attendanceEligible === true)
-                    : (() => {
-                        const src = String(log.entrySource || '');
-                        if (src === 'staff_manual_work') return false;
-                        if (src === 'admin_override' || src === 'checkin_checkout') return true;
-                        if (log.isManualOverride) return true;
-                        if (log.location === 'Office (Manual)' || log.location === 'Office (Override)') return true;
-                        const hasSystemSignals =
-                            typeof log.activityScore !== 'undefined' ||
-                            typeof log.locationMismatched !== 'undefined' ||
-                            typeof log.autoCheckout !== 'undefined' ||
-                            !!log.checkOutLocation ||
-                            typeof log.outLat !== 'undefined' ||
-                            typeof log.outLng !== 'undefined';
-                        if (hasSystemSignals) return true;
-                        const type = String(log.type || '');
-                        return type.includes('Leave') || log.location === 'On Leave';
-                    })();
-                if (!isAttendanceEligible) return;
+        const canonicalLogs = this.pickBestAttendanceLogPerDay(userLogs, start, end);
+        canonicalLogs.forEach(log => {
+                if (!this.isAttendanceEligibleLog(log)) return;
                 let type = log.type || '';
                 const inMinutes = this.parseTimeToMinutes(log.checkIn);
                 const outMinutes = this.parseTimeToMinutes(log.checkOut);
 
-                // LATE Check
                 const lateCutoff = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_CUTOFF_MINUTES : 555) || 555;
-                const isLateCountable = log.lateCountable === true || (!Object.prototype.hasOwnProperty.call(log, 'lateCountable') && inMinutes !== null && inMinutes > lateCutoff);
-                if (isLateCountable) {
-                    breakdown['Late']++;
-                    if (inMinutes !== null) totalLateMinutes += Math.max(0, (inMinutes - lateCutoff));
-                }
-
-                // EARLY DEPARTURE Check
                 const earlyDeparture = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.EARLY_DEPARTURE_MINUTES : 1020) || 1020;
-                if (outMinutes !== null && outMinutes < earlyDeparture && !String(type).includes('Leave') && type !== 'Absent') {
-                    stats.earlyDepartures++;
-                    breakdown['Early Departure']++;
+                const isManual = log.isManualOverride === true;
+
+                if (!isManual) {
+                    // LATE Check
+                    const isLateCountable = log.lateCountable === true || (!Object.prototype.hasOwnProperty.call(log, 'lateCountable') && inMinutes !== null && inMinutes > lateCutoff);
+                    if (isLateCountable) {
+                        breakdown['Late']++;
+                        if (inMinutes !== null) totalLateMinutes += Math.max(0, (inMinutes - lateCutoff));
+                    }
+
+                    // EARLY DEPARTURE Check
+                    if (outMinutes !== null && outMinutes < earlyDeparture && !String(type).includes('Leave') && type !== 'Absent') {
+                        stats.earlyDepartures++;
+                        breakdown['Early Departure']++;
+                    }
+                } else {
+                    if (type === 'Late') {
+                        breakdown['Late']++;
+                        if (inMinutes !== null && inMinutes > lateCutoff) {
+                            totalLateMinutes += (inMinutes - lateCutoff);
+                        }
+                    } else if (type === 'Early Departure') {
+                        stats.earlyDepartures++;
+                        breakdown['Early Departure']++;
+                    }
                 }
 
                 // EXTRA HOURS Check
@@ -560,7 +593,6 @@ export class Analytics {
                 else if (log.checkIn) {
                     breakdown['Present']++;
                 }
-            }
         });
 
         stats.present = breakdown['Present'] + breakdown['Work - Home'] + breakdown['Training'];
@@ -945,4 +977,3 @@ export class Analytics {
 
 export const AppAnalytics = new Analytics();
 if (typeof window !== 'undefined') window.AppAnalytics = AppAnalytics;
-
