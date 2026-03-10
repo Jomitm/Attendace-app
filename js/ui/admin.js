@@ -18,7 +18,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         auditStartDate = auditStartDate || today;
         auditEndDate = auditEndDate || today;
 
-        [allUsers, performance, audits, pendingLeaves, simulationCleanupAudits] = await Promise.all([
+        const results = await Promise.allSettled([
             window.AppDB.getCached
                 ? window.AppDB.getCached(window.AppDB.getCacheKey('adminUsers', 'users', {}), (AppConfig?.READ_CACHE_TTLS?.users || 60000), () => window.AppDB.getAll('users'))
                 : window.AppDB.getAll('users'),
@@ -31,6 +31,21 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                 ? window.AppDB.queryMany('system_audit_logs', [], { orderBy: [{ field: 'createdAt', direction: 'desc' }], limit: 80 }).catch(() => window.AppDB.getAll('system_audit_logs'))
                 : window.AppDB.getAll('system_audit_logs')
         ]);
+
+        const readSettled = (idx, fallback, label) => {
+            const result = results[idx];
+            if (result && result.status === 'fulfilled') return result.value;
+            if (result && result.status === 'rejected') {
+                console.warn(`Admin data fetch failed for ${label}:`, result.reason);
+            }
+            return fallback;
+        };
+
+        allUsers = readSettled(0, [], 'users');
+        performance = readSettled(1, { avgScore: 0, trendData: [0, 0, 0, 0, 0, 0, 0], labels: [] }, 'performance');
+        audits = readSettled(2, [], 'location_audits');
+        pendingLeaves = readSettled(3, [], 'pending_leaves');
+        simulationCleanupAudits = readSettled(4, [], 'system_audit_logs');
 
         audits = audits.filter(a => {
             const d = new Date(a.timestamp).toISOString().split('T')[0];
