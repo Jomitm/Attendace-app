@@ -7484,7 +7484,7 @@ textarea:focus {
     }
 }
 
-/* Salary Processing Wide Grid */
+/* Salary Processing - compact and responsive (mobile first) */
 .salary-processing-table-wrap {
     max-height: 68vh;
     overflow: auto;
@@ -7494,41 +7494,45 @@ textarea:focus {
 }
 
 .salary-processing-table {
-    min-width: 2900px;
-    font-size: 0.76rem;
-    line-height: 1.2;
+    width: 100%;
+    min-width: 920px;
+    table-layout: auto;
+    font-size: 0.72rem;
+    line-height: 1.15;
 }
 
 .salary-processing-table th,
 .salary-processing-table td {
-    padding: 0.32rem 0.4rem !important;
+    padding: 0.26rem 0.32rem !important;
     white-space: nowrap;
     vertical-align: middle;
 }
 
 .salary-processing-table th {
-    font-size: 0.72rem;
+    font-size: 0.68rem;
     letter-spacing: 0.01em;
 }
 
 .salary-processing-table input,
 .salary-processing-table select,
 .salary-processing-table textarea {
-    font-size: 0.72rem !important;
-    line-height: 1.1 !important;
-    padding: 0.22rem 0.3rem !important;
-    min-height: 26px !important;
+    width: 100%;
+    max-width: 86px;
+    font-size: 0.68rem !important;
+    line-height: 1.05 !important;
+    padding: 0.2rem 0.25rem !important;
+    min-height: 24px !important;
     border-radius: 6px !important;
 }
 
 .salary-processing-table .action-btn {
-    font-size: 0.7rem !important;
-    padding: 0.32rem 0.45rem !important;
-    border-radius: 7px !important;
+    font-size: 0.66rem !important;
+    padding: 0.26rem 0.36rem !important;
+    border-radius: 6px !important;
 }
 
 .salary-processing-table td div {
-    line-height: 1.15;
+    line-height: 1.1;
 }
 
 .salary-processing-table-wrap thead th {
@@ -7539,13 +7543,13 @@ textarea:focus {
     box-shadow: inset 0 -1px 0 #dbeafe;
 }
 
-/* Freeze first two columns (Staff + Emp ID) while horizontal scrolling */
+/* Keep first two columns visible while scrolling */
 .salary-processing-table thead th:nth-child(1),
 .salary-processing-table tbody td:nth-child(1) {
     position: sticky;
     left: 0;
-    min-width: 180px;
-    width: 180px;
+    min-width: 138px;
+    width: 138px;
     background: #ffffff;
     z-index: 3;
 }
@@ -7553,9 +7557,9 @@ textarea:focus {
 .salary-processing-table thead th:nth-child(2),
 .salary-processing-table tbody td:nth-child(2) {
     position: sticky;
-    left: 180px;
-    min-width: 95px;
-    width: 95px;
+    left: 138px;
+    min-width: 82px;
+    width: 82px;
     background: #ffffff;
     z-index: 3;
 }
@@ -7571,7 +7575,82 @@ textarea:focus {
     box-shadow: 1px 0 0 #e2e8f0;
 }
 
+/* Medium screens: hide low-priority analytics columns to stay compact */
+@media (max-width: 1100px) {
+    .salary-processing-table {
+        min-width: 760px;
+    }
 
+    .salary-processing-table th:nth-child(6),
+    .salary-processing-table td:nth-child(6),
+    .salary-processing-table th:nth-child(7),
+    .salary-processing-table td:nth-child(7),
+    .salary-processing-table th:nth-child(8),
+    .salary-processing-table td:nth-child(8),
+    .salary-processing-table th:nth-child(9),
+    .salary-processing-table td:nth-child(9),
+    .salary-processing-table th:nth-child(11),
+    .salary-processing-table td:nth-child(11),
+    .salary-processing-table th:nth-child(12),
+    .salary-processing-table td:nth-child(12),
+    .salary-processing-table th:nth-child(13),
+    .salary-processing-table td:nth-child(13) {
+        display: none;
+    }
+}
+
+/* Small phones: tighter fonts/padding and only essential columns */
+@media (max-width: 700px) {
+    .salary-processing-table {
+        min-width: 620px;
+        font-size: 0.65rem;
+    }
+
+    .salary-processing-table th,
+    .salary-processing-table td {
+        padding: 0.22rem 0.24rem !important;
+    }
+
+    .salary-processing-table th {
+        font-size: 0.62rem;
+    }
+
+    .salary-processing-table input,
+    .salary-processing-table select,
+    .salary-processing-table textarea {
+        max-width: 74px;
+        font-size: 0.63rem !important;
+        min-height: 22px !important;
+        padding: 0.16rem 0.22rem !important;
+    }
+
+    .salary-processing-table .action-btn {
+        font-size: 0.62rem !important;
+        padding: 0.22rem 0.3rem !important;
+    }
+
+    .salary-processing-table thead th:nth-child(1),
+    .salary-processing-table tbody td:nth-child(1) {
+        min-width: 120px;
+        width: 120px;
+    }
+
+    .salary-processing-table thead th:nth-child(2),
+    .salary-processing-table tbody td:nth-child(2) {
+        left: 120px;
+        min-width: 74px;
+        width: 74px;
+    }
+
+    .salary-processing-table th:nth-child(3),
+    .salary-processing-table td:nth-child(3),
+    .salary-processing-table th:nth-child(4),
+    .salary-processing-table td:nth-child(4),
+    .salary-processing-table th:nth-child(10),
+    .salary-processing-table td:nth-child(10) {
+        display: none;
+    }
+}
 /* Stitch-inspired skin layer for existing Plan Your Day modal */
 /* Annual Plan V2 */
 .annual-v2-shell {
