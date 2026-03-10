@@ -29,6 +29,80 @@ export async function renderMinutes() {
         return req ? req.status : '';
     };
 
+    const sanitizeMinutesHtml = (rawHtml = '') => {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(`<div>${rawHtml || ''}</div>`, 'text/html');
+        const wrapper = doc.body.firstElementChild;
+        if (!wrapper) return '';
+
+        const allowedTags = new Set(['P', 'BR', 'B', 'STRONG', 'I', 'EM', 'U', 'H2', 'H3', 'UL', 'OL', 'LI', 'A']);
+        const allowedAttrs = {
+            A: new Set(['href', 'target', 'rel'])
+        };
+
+        const walk = (node) => {
+            if (!node || !node.childNodes) return;
+            Array.from(node.childNodes).forEach((child) => {
+                if (child.nodeType === Node.ELEMENT_NODE) {
+                    const el = child;
+                    if (!allowedTags.has(el.tagName)) {
+                        while (el.firstChild) node.insertBefore(el.firstChild, el);
+                        node.removeChild(el);
+                        return;
+                    }
+
+                    Array.from(el.attributes).forEach((attr) => {
+                        const allowed = allowedAttrs[el.tagName];
+                        if (!allowed || !allowed.has(attr.name.toLowerCase())) {
+                            el.removeAttribute(attr.name);
+                        }
+                    });
+
+                    if (el.tagName === 'A') {
+                        const href = (el.getAttribute('href') || '').trim();
+                        const safeHref = /^(https?:|mailto:|#)/i.test(href);
+                        if (!safeHref) {
+                            el.removeAttribute('href');
+                        } else {
+                            el.setAttribute('target', '_blank');
+                            el.setAttribute('rel', 'noopener noreferrer');
+                        }
+                    }
+                }
+                walk(child);
+            });
+        };
+
+        walk(wrapper);
+        return wrapper.innerHTML.trim();
+    };
+
+    const htmlToPlainText = (html = '') => {
+        const div = document.createElement('div');
+        div.innerHTML = html || '';
+        return (div.innerText || div.textContent || '').replace(/\r/g, '').trim();
+    };
+
+    const plainTextToRichHtml = (text = '') => safeHtml(text || '').replace(/\n/g, '<br>');
+
+    const getRichContentPayload = (editorId, fallbackTextId = '') => {
+        const editor = document.getElementById(editorId);
+        const rawHtml = editor ? editor.innerHTML : '';
+        const html = sanitizeMinutesHtml(rawHtml);
+        let text = htmlToPlainText(html);
+        if (!text && fallbackTextId) {
+            const fallback = document.getElementById(fallbackTextId);
+            text = (fallback?.value || '').trim();
+        }
+        return { html, text };
+    };
+
+    const renderSafeRichContent = (html = '', textFallback = '') => {
+        const safeRich = sanitizeMinutesHtml(html || '');
+        if (safeRich) return safeRich;
+        return safeHtml(textFallback || '').replace(/\n/g, '<br>');
+    };
+
     // State for the form
     let selectedAttendeeIds = new Set();
 
@@ -44,6 +118,8 @@ export async function renderMinutes() {
                 document.querySelectorAll('.attendee-grid input[type="checkbox"]').forEach(cb => cb.checked = false);
                 const container = document.getElementById('action-items-container');
                 if (container) { container.innerHTML = ''; window.app_addActionItemRow(); }
+                const editor = document.getElementById('new-minute-content-editor');
+                if (editor) editor.innerHTML = '';
             }
         }
     };
@@ -51,6 +127,17 @@ export async function renderMinutes() {
     window.app_refreshMinutesView = async () => {
         const page = document.getElementById('page-content');
         if (page) page.innerHTML = await renderMinutes();
+    };
+
+    window.app_minutesExec = (editorId, command, value = null) => {
+        const editor = document.getElementById(editorId);
+        if (!editor) return;
+        editor.focus();
+        document.execCommand(command, false, value);
+    };
+
+    window.app_minutesFormatBlock = (editorId, tagName) => {
+        window.app_minutesExec(editorId, 'formatBlock', tagName);
     };
 
     window.app_filterAttendees = (query) => {
@@ -125,7 +212,8 @@ export async function renderMinutes() {
     window.app_submitNewMinutes = async () => {
         const title = document.getElementById('new-minute-title').value.trim();
         const date = document.getElementById('new-minute-date').value;
-        const content = document.getElementById('new-minute-content').value.trim();
+        const richContent = getRichContentPayload('new-minute-content-editor', 'new-minute-content');
+        const content = richContent.text;
         const attendeeIds = Array.from(selectedAttendeeIds);
         const actionItems = Array.from(document.querySelectorAll('.action-item-row-card')).map(row => ({
             task: row.querySelector('.action-task').value.trim(),
@@ -136,7 +224,7 @@ export async function renderMinutes() {
 
         if (!title || !content) return alert("Title and content are required.");
         try {
-            await window.AppMinutes.addMinute({ title, date, content, attendeeIds, actionItems });
+            await window.AppMinutes.addMinute({ title, date, content, contentHtml: richContent.html, attendeeIds, actionItems });
             alert("Meeting minutes recorded!");
             window.app_refreshMinutesView();
         } catch (error) { alert("Error saving: " + error.message); }
@@ -177,19 +265,67 @@ export async function renderMinutes() {
         } catch (error) { alert("Error: " + error.message); }
     };
 
+    window.app_saveMinuteEdits = async (id) => {
+        try {
+            const minutesList = await window.AppMinutes.getMinutes();
+            const m = minutesList.find(item => item.id === id);
+            if (!m) return alert('Minute not found.');
+
+            const currentUser = window.AppAuth.getUser();
+            const isOwner = m.createdBy === currentUser.id;
+            const isAdmin = window.app_hasPerm('minutes', 'admin', currentUser);
+            if (!isOwner && !isAdmin) {
+                return alert('Only owner or admin can edit these minutes.');
+            }
+            if (m.locked) {
+                return alert('This record is locked after final approvals.');
+            }
+
+            const titleEl = document.getElementById('minute-edit-title');
+            const dateEl = document.getElementById('minute-edit-date');
+            const richContent = getRichContentPayload('minute-edit-content-editor', 'minute-edit-content');
+
+            const nextTitle = (titleEl?.value || '').trim();
+            const nextDate = (dateEl?.value || '').trim();
+            const nextContent = richContent.text;
+
+            if (!nextTitle || !nextContent) {
+                return alert('Title and content are required.');
+            }
+
+            await window.AppMinutes.updateMinute(
+                id,
+                { title: nextTitle, date: nextDate || m.date, content: nextContent, contentHtml: richContent.html },
+                'Edited meeting details'
+            );
+
+            alert('Minutes updated successfully.');
+            window.app_openMinuteDetails(id);
+            window.app_refreshMinutesView();
+        } catch (error) {
+            alert('Error updating minutes: ' + error.message);
+        }
+    };
+
     window.app_openMinuteDetails = async (id) => {
         const minutesList = await window.AppMinutes.getMinutes();
         const m = minutesList.find(item => item.id === id);
         if (!m) return;
 
         if (!hasMinuteDetailAccess(m)) {
-            return alert("Access Restricted. Please request access from the list view.");
+            return alert('Access Restricted. Please request access from the list view.');
         }
 
         const isAttendee = (m.attendeeIds || []).includes(currentUser.id);
         const hasApproved = m.approvals && m.approvals[currentUser.id];
         const isOwner = m.createdBy === currentUser.id;
         const isAdmin = window.app_hasPerm('minutes', 'admin', currentUser);
+        const canEdit = (isOwner || isAdmin) && !m.locked;
+
+        const createdByName = m.createdByName || (allUsers.find(u => u.id === m.createdBy)?.name) || 'Unknown';
+        const lastEditedByName = m.lastEditedByName || createdByName;
+        const lastEditedAt = m.lastEditedAt || m.createdAt;
+        const initialContentHtml = sanitizeMinutesHtml(m.contentHtml || plainTextToRichHtml(m.content || '')); 
 
         const attendeeApprovals = (m.attendeeIds || []).map(uid => {
             const user = allUsers.find(u => u.id === uid);
@@ -232,6 +368,15 @@ export async function renderMinutes() {
             </div>
         `).join('');
 
+        const historyRows = (m.auditLog || []).slice().reverse().map((entry) => `
+            <div class="access-request-row" style="justify-content:space-between; align-items:flex-start;">
+                <div style="display:flex; flex-direction:column; gap:0.2rem;">
+                    <strong style="font-size:0.82rem;">${safeHtml(entry.userName || 'Unknown')}</strong>
+                    <span style="font-size:0.75rem; color:#64748b;">${safeHtml(entry.action || 'Updated')}</span>
+                </div>
+                <span style="font-size:0.74rem; color:#64748b; white-space:nowrap;">${entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '-'}</span>
+            </div>
+        `).join('');
 
         const modalHtml = `
             <div class="modal-overlay" id="minute-detail-modal" style="display:flex;">
@@ -240,6 +385,12 @@ export async function renderMinutes() {
                         <div>
                             <span class="detail-date">${new Date(m.date).toLocaleDateString()}</span>
                             <h2 style="margin:0; color:#1e1b4b;">${safeHtml(m.title)}</h2>
+                            <div style="font-size:0.78rem; color:#64748b; margin-top:0.35rem;">
+                                Created by ${safeHtml(createdByName)} on ${m.createdAt ? new Date(m.createdAt).toLocaleString() : '-'}
+                            </div>
+                            <div style="font-size:0.78rem; color:#64748b;">
+                                Last edited by ${safeHtml(lastEditedByName)} on ${lastEditedAt ? new Date(lastEditedAt).toLocaleString() : '-'}
+                            </div>
                         </div>
                         <button onclick="document.getElementById('minute-detail-modal').remove()" class="close-modal-btn">&times;</button>
                     </div>
@@ -248,7 +399,24 @@ export async function renderMinutes() {
                             <div class="main-column">
                                 <section>
                                     <label><i class="fa-solid fa-file-lines"></i> Discussion & Decisions</label>
-                                    <div class="content-text">${safeHtml(m.content).replace(/\n/g, '<br>')}</div>
+                                    ${canEdit ? `
+                                        <div style="display:grid; gap:0.6rem; margin-top:0.55rem;">
+                                            <input id="minute-edit-title" class="input-premium" value="${safeAttr(m.title || '')}" />
+                                            <input id="minute-edit-date" class="input-premium" type="date" value="${safeAttr(m.date || '')}" />
+                                            <textarea id="minute-edit-content" class="textarea-premium" style="display:none;">${safeHtml(m.content || '')}</textarea>
+                                            <div class="rich-editor-shell">
+                                                <div class="rich-editor-toolbar">
+                                                    <button type="button" class="rich-editor-btn" onclick="window.app_minutesExec('minute-edit-content-editor','bold')"><i class="fa-solid fa-bold"></i></button>
+                                                    <button type="button" class="rich-editor-btn" onclick="window.app_minutesExec('minute-edit-content-editor','italic')"><i class="fa-solid fa-italic"></i></button>
+                                                    <button type="button" class="rich-editor-btn" onclick="window.app_minutesFormatBlock('minute-edit-content-editor','H2')">H2</button>
+                                                    <button type="button" class="rich-editor-btn" onclick="window.app_minutesFormatBlock('minute-edit-content-editor','H3')">H3</button>
+                                                    <button type="button" class="rich-editor-btn" onclick="window.app_minutesExec('minute-edit-content-editor','insertUnorderedList')"><i class="fa-solid fa-list-ul"></i></button>
+                                                    <button type="button" class="rich-editor-btn" onclick="window.app_minutesExec('minute-edit-content-editor','insertOrderedList')"><i class="fa-solid fa-list-ol"></i></button>
+                                                </div>
+                                                <div id="minute-edit-content-editor" class="rich-editor-area" contenteditable="true">${initialContentHtml}</div>
+                                            </div>
+                                        </div>
+                                    ` : `<div class="content-text rich-minutes-content">${renderSafeRichContent(m.contentHtml, m.content)}</div>`}
                                 </section>
                                 ${actions ? `
                                 <section>
@@ -256,6 +424,10 @@ export async function renderMinutes() {
                                     <div class="action-items-list">${actions}</div>
                                 </section>
                                 ` : ''}
+                                <section>
+                                    <label><i class="fa-solid fa-clock-rotate-left"></i> Edit History</label>
+                                    <div class="access-requests-list" style="max-height:230px;">${historyRows || '<p class="empty">No edit history yet.</p>'}</div>
+                                </section>
                             </div>
                             <div class="side-column">
                                 <section>
@@ -276,6 +448,7 @@ export async function renderMinutes() {
                         ${m.locked ? '<span class="status-locked-msg"><i class="fa-solid fa-lock"></i> Record Locked (All approved)</span>' : ''}
                         <div style="flex:1"></div>
                         <button class="action-btn secondary" onclick="document.getElementById('minute-detail-modal').remove()">Close</button>
+                        ${canEdit ? `<button class="action-btn" onclick="window.app_saveMinuteEdits('${m.id}')">Save Changes</button>` : ''}
                         ${(isOwner || isAdmin) ? `<button class="action-btn danger" onclick="window.app_deleteMinute('${m.id}')">Delete</button>` : ''}
                     </div>
                 </div>
@@ -540,6 +713,76 @@ export async function renderMinutes() {
                     border-color: var(--minutes-primary);
                 }
 
+                .rich-editor-shell {
+                    border: 2px solid var(--minutes-border);
+                    border-radius: 12px;
+                    background: #fff;
+                    overflow: hidden;
+                }
+
+                .rich-editor-toolbar {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 0.35rem;
+                    padding: 0.65rem;
+                    border-bottom: 1px solid var(--minutes-border);
+                    background: #f8fafc;
+                }
+
+                .rich-editor-btn {
+                    border: 1px solid #cbd5e1;
+                    background: #fff;
+                    color: #0f172a;
+                    border-radius: 8px;
+                    min-width: 34px;
+                    height: 32px;
+                    padding: 0 0.55rem;
+                    font-size: 0.85rem;
+                    font-weight: 700;
+                    cursor: pointer;
+                }
+
+                .rich-editor-btn:hover {
+                    border-color: var(--minutes-primary);
+                    color: var(--minutes-primary);
+                }
+
+                .rich-editor-area {
+                    min-height: 180px;
+                    padding: 1rem;
+                    outline: none;
+                    line-height: 1.6;
+                    font-size: 0.95rem;
+                }
+
+                .rich-editor-area:empty:before {
+                    content: attr(data-placeholder);
+                    color: #94a3b8;
+                }
+
+                .rich-editor-area h2,
+                .rich-minutes-content h2 {
+                    font-size: 1.2rem;
+                    margin: 0.55rem 0;
+                }
+
+                .rich-editor-area h3,
+                .rich-minutes-content h3 {
+                    font-size: 1.05rem;
+                    margin: 0.45rem 0;
+                }
+
+                .rich-editor-area ul,
+                .rich-editor-area ol,
+                .rich-minutes-content ul,
+                .rich-minutes-content ol {
+                    margin: 0.45rem 0 0.45rem 1.1rem;
+                }
+
+                .rich-minutes-content p {
+                    margin: 0.4rem 0;
+                }
+
                 /* Action Items */
                 .action-items-section {
                     margin-bottom: 2.5rem;
@@ -707,9 +950,13 @@ export async function renderMinutes() {
 
                 @media (max-width: 768px) {
                     .form-row { grid-template-columns: 1fr; gap: 1rem; }
-                    .action-item-row-card { grid-template-columns: 1fr; padding: 1.5rem; }
+                    .form-glass-card { padding: 1rem; }
+                    .action-item-row-card { grid-template-columns: 1fr; padding: 1rem; }
                     .minutes-header-section { flex-direction: column; align-items: flex-start; gap: 1rem; }
                     .btn-record-meeting { width: 100%; justify-content: center; }
+                    .rich-editor-toolbar { gap: 0.25rem; padding: 0.45rem; }
+                    .rich-editor-btn { min-width: 30px; height: 30px; font-size: 0.78rem; }
+                    .rich-editor-area { font-size: 0.88rem; min-height: 140px; }
                 }
             </style>
 
@@ -764,7 +1011,18 @@ export async function renderMinutes() {
 
                 <div class="discussion-area">
                     <label class="field-label" style="margin-bottom: 0.75rem; display: block;">Discussion & Key Decisions</label>
-                    <textarea id="new-minute-content" class="textarea-premium" placeholder="Summarize what was discussed and the final decisions made..."></textarea>
+                    <textarea id="new-minute-content" class="textarea-premium" placeholder="Summarize what was discussed and the final decisions made..." style="display:none;"></textarea>
+                    <div class="rich-editor-shell">
+                        <div class="rich-editor-toolbar">
+                            <button type="button" class="rich-editor-btn" onclick="window.app_minutesExec('new-minute-content-editor','bold')"><i class="fa-solid fa-bold"></i></button>
+                            <button type="button" class="rich-editor-btn" onclick="window.app_minutesExec('new-minute-content-editor','italic')"><i class="fa-solid fa-italic"></i></button>
+                            <button type="button" class="rich-editor-btn" onclick="window.app_minutesFormatBlock('new-minute-content-editor','H2')">H2</button>
+                            <button type="button" class="rich-editor-btn" onclick="window.app_minutesFormatBlock('new-minute-content-editor','H3')">H3</button>
+                            <button type="button" class="rich-editor-btn" onclick="window.app_minutesExec('new-minute-content-editor','insertUnorderedList')"><i class="fa-solid fa-list-ul"></i></button>
+                            <button type="button" class="rich-editor-btn" onclick="window.app_minutesExec('new-minute-content-editor','insertOrderedList')"><i class="fa-solid fa-list-ol"></i></button>
+                        </div>
+                        <div id="new-minute-content-editor" class="rich-editor-area" contenteditable="true" data-placeholder="Summarize what was discussed and the final decisions made..."></div>
+                    </div>
                 </div>
 
                 <div class="action-items-section">
