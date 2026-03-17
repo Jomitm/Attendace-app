@@ -139,6 +139,7 @@ export function renderModals() {
                     </div>
                     <label>Type
                         <select name="type" required style="width:100%; padding:0.5rem; border:1px solid #ddd; border-radius:0.5rem;">
+                            <option value="Half Day">Half Day</option>
                             <option value="Casual Leave">Casual Leave</option>
                             <option value="Sick Leave">Sick Leave</option>
                             <option value="Earned Leave">Earned Leave</option>

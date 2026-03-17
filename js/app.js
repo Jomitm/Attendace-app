@@ -3835,14 +3835,20 @@ document.addEventListener('submit', (e) => {
 async function handleLeaveRequest(e) {
     const fd = new FormData(e.target);
     const user = window.AppAuth.getUser();
+    const startDate = fd.get('startDate');
+    let endDate = fd.get('endDate');
+    const type = fd.get('type');
+    if (type === 'Half Day') {
+        endDate = startDate;
+    }
     await window.AppLeaves.requestLeave({
         userId: user.id,
         userName: user.name,
-        startDate: fd.get('startDate'),
-        endDate: fd.get('endDate'),
+        startDate,
+        endDate,
         startTime: fd.get('startTime') || '',
         endTime: fd.get('endTime') || '',
-        type: fd.get('type'),
+        type,
         reason: fd.get('reason'),
         durationHours: fd.get('durationHours') || ''
     });

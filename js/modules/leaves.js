@@ -167,7 +167,10 @@ export class Leaves {
         const rule = policy[type];
         const warnings = [];
 
-        if (type === 'Short Leave') {
+        if (type === 'Half Day') {
+            daysRequested = 0.5;
+            leaveData.daysCount = 0.5;
+        } else if (type === 'Short Leave') {
             const usage = await this.getMonthlyShortLeaveUsage(userId, start);
             let requestedHrs = parseFloat(durationHours || 0);
             if (requestedHrs > 2) warnings.push("Short Leave exceeds 2 hours (standard).");
