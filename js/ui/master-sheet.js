@@ -204,7 +204,17 @@ export async function renderMasterSheet(month = null, year = null) {
                 }
             }
 
-            return `<td style="text-align:center; ${canAdminAttendance ? 'cursor:pointer;' : ''} border-right: 1px solid #eee; padding:2px; font-size:0.75rem; ${cellStyle}" title="${tooltip}" ${canAdminAttendance ? `onclick="window.app_openCellOverride('${u.id}', '${dateStr}')"` : ''}>${cellContent}</td>`;
+            const canViewTooltip = canAdminAttendance || (currentUser && (
+                u.id === currentUser.id ||
+                u.user_id === currentUser.id ||
+                (u.username && currentUser.username && u.username === currentUser.username) ||
+                (u.email && currentUser.email && u.email === currentUser.email)
+            ));
+            if (!canViewTooltip) {
+                tooltip = '';
+            }
+
+            return `<td style="text-align:center; ${canAdminAttendance ? 'cursor:pointer;' : ''} border-right: 1px solid #eee; padding:2px; font-size:0.75rem; ${cellStyle}" ${tooltip ? `title="${tooltip}"` : ''} ${canAdminAttendance ? `onclick="window.app_openCellOverride('${u.id}', '${dateStr}')"` : ''}>${cellContent}</td>`;
         }).join('')}
                                 </tr>`;
     }).join('')}

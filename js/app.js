@@ -1240,7 +1240,8 @@ async function router() {
             }
             contentArea.innerHTML = await AppUI.renderPolicyTest();
         } else if (hash === 'master-sheet') {
-            if (!window.app_canManageAttendanceSheet(user)) {
+            const canViewAttendance = window.app_hasPerm('attendance', 'view', user) || window.app_canManageAttendanceSheet(user);
+            if (!canViewAttendance) {
                 window.location.hash = 'dashboard';
                 return;
             }
