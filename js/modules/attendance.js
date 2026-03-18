@@ -201,6 +201,7 @@ export class Attendance {
             overtimeReasonTag: options.overtimeReasonTag || '',
             overtimeExplanation: options.overtimeExplanation || '',
             overtimeCappedToEightHours: !!options.overtimeCappedToEightHours,
+            taskUpdates: Array.isArray(options.taskUpdates) ? options.taskUpdates : [],
             entrySource: 'checkin_checkout',
             attendanceEligible: true,
             synced: false

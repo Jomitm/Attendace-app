@@ -31,6 +31,14 @@ export function renderModals() {
                         </div>
                     </div>
 
+                    <!-- Action Preview (Inline Summary) -->
+                    <div id="checkout-action-preview" style="margin-bottom: 1.5rem; display: none;">
+                        <label style="display: block; font-size: 0.85rem; font-weight: 700; color: #4b5563; margin-bottom: 0.75rem;">Action Preview</label>
+                        <div id="checkout-action-preview-list" class="checkout-action-preview-list">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+
                     <!-- Delegate Selection Panel (Initially Hidden) -->
                     <div id="delegate-panel" style="display:none; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:1rem; margin-bottom:1.5rem;">
                         <h4 id="delegate-selected-task" style="font-size:0.8rem; color:#1e293b; margin-top:0; margin-bottom:0.75rem; line-height:1.4;"></h4>

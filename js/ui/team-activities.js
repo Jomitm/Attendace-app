@@ -64,7 +64,10 @@ function normalizeActivityRows(rows) {
             userId: row.userId || row.user_id || '',
             planId: row.planId || row.id || '',
             taskIndex: Number.isInteger(row.taskIndex) ? row.taskIndex : null,
-            planScope: row.planScope || 'personal'
+            planScope: row.planScope || 'personal',
+            progressPercent: Number.isFinite(Number(row.progressPercent)) ? Number(row.progressPercent) : null,
+            progressStatus: row.progressStatus || '',
+            progressNote: row.progressNote || ''
         };
     });
 }
@@ -277,13 +280,21 @@ function renderTable(state) {
     const body = rows.map(row => {
         const statusClass = String(row.status || '').toLowerCase().replace(/\s+/g, '-');
         const isOwner = currentUserId && row.userId && currentUserId === row.userId;
+        const hasProgress = row.type === 'work' && (row.progressPercent !== null || row.progressStatus || row.progressNote);
+        const statusLabel = row.progressStatus ? String(row.progressStatus).replace(/_/g, ' ') : '';
+        const progressLabel = row.progressPercent !== null ? `${row.progressPercent}%` : '';
+        const noteText = String(row.progressNote || '').trim();
+        const tooltip = noteText ? ` title="${safeHtml(noteText)}"` : '';
+        const progressBadge = hasProgress
+            ? `<div class="team-activities-progress"${tooltip}>${safeHtml(progressLabel)}${progressLabel && statusLabel ? ' • ' : ''}${safeHtml(statusLabel)}</div>`
+            : '';
         return `
         <tr>
             <td>${safeHtml(row.date)}</td>
             <td>${safeHtml(row.staffName)}</td>
             ${vis.type ? `<td class="team-activities-type">${safeHtml(row.type)}</td>` : ''}
             ${vis.status ? `<td><span class="team-activities-status status-${safeHtml(statusClass)}">${safeHtml(row.status)}</span></td>` : ''}
-            <td class="team-activities-desc">${safeHtml(row.description)}</td>
+            <td class="team-activities-desc">${safeHtml(row.description)}${progressBadge}</td>
             ${vis.sourceTime ? `<td>${safeHtml(row.sourceTime || '--')}</td>` : ''}
             <td>
                 <div class="team-activities-row-actions">

@@ -2427,6 +2427,395 @@ window.app_useWorkPlan = () => {
     }
 };
 
+const app_checkoutStatusLabels = {
+    started: 'Started',
+    half_done: 'Half Done',
+    blocked: 'Blocked',
+    waiting: 'Waiting',
+    done: 'Done'
+};
+
+const app_escapeCssValue = (value) => {
+    if (typeof CSS !== 'undefined' && CSS.escape) return CSS.escape(value);
+    return String(value || '').replace(/"/g, '\\"');
+};
+
+window.app_getCheckoutTaskKey = (planId, taskIndex) => `${planId}:${taskIndex}`;
+
+window.app_parseCheckoutTaskKey = (key) => {
+    const raw = String(key || '');
+    const idx = raw.lastIndexOf(':');
+    if (idx <= 0) return { planId: raw, taskIndex: -1 };
+    const planId = raw.slice(0, idx);
+    const taskIndex = Number(raw.slice(idx + 1));
+    return { planId, taskIndex };
+};
+
+window.app_initCheckoutTaskDetails = (planId, taskIndex, task) => {
+    window.app_checkoutTaskDetails = window.app_checkoutTaskDetails || {};
+    const key = window.app_getCheckoutTaskKey(planId, taskIndex);
+    if (!window.app_checkoutTaskDetails[key]) {
+        const rawProgress = Number(task?.progressPercent);
+        const progressPercent = Number.isFinite(rawProgress)
+            ? Math.min(100, Math.max(0, rawProgress))
+            : (task?.status === 'completed' ? 100 : 0);
+        const progressStatus = task?.progressStatus
+            || (progressPercent >= 100 ? 'done' : (progressPercent > 0 ? 'started' : 'waiting'));
+        window.app_checkoutTaskDetails[key] = {
+            action: '',
+            progressPercent,
+            progressStatus,
+            progressNote: task?.progressNote || '',
+            actionMeta: {},
+            lastUpdatedAt: null
+        };
+    }
+    return window.app_checkoutTaskDetails[key];
+};
+
+window.app_markCheckoutTaskSaved = (key) => {
+    const modal = document.querySelector(`.checkout-action-detail-modal[data-checkout-key="${app_escapeCssValue(key)}"]`);
+    const badge = modal?.querySelector('[data-saved-indicator]');
+    if (!badge) return;
+    badge.classList.add('is-visible');
+    clearTimeout(badge._hideTimeout);
+    badge._hideTimeout = setTimeout(() => {
+        badge.classList.remove('is-visible');
+    }, 1400);
+};
+
+window.app_setCheckoutTaskStatus = (key, status) => {
+    const details = window.app_checkoutTaskDetails?.[key];
+    if (!details) return;
+    details.progressStatus = status;
+    details.lastUpdatedAt = new Date().toISOString();
+    window.app_syncCheckoutTaskPanel(key);
+    window.app_markCheckoutTaskSaved(key);
+    window.app_renderCheckoutActionPreview();
+};
+
+window.app_updateCheckoutTaskProgress = (key, value) => {
+    const details = window.app_checkoutTaskDetails?.[key];
+    if (!details) return;
+    const numeric = Math.min(100, Math.max(0, Number(value || 0)));
+    details.progressPercent = numeric;
+    if (numeric >= 100) details.progressStatus = 'done';
+    details.lastUpdatedAt = new Date().toISOString();
+    window.app_syncCheckoutTaskPanel(key);
+    window.app_markCheckoutTaskSaved(key);
+    window.app_renderCheckoutActionPreview();
+};
+
+window.app_updateCheckoutTaskNote = (key, value) => {
+    const details = window.app_checkoutTaskDetails?.[key];
+    if (!details) return;
+    details.progressNote = String(value || '');
+    details.lastUpdatedAt = new Date().toISOString();
+    window.app_markCheckoutTaskSaved(key);
+    window.app_renderCheckoutActionPreview();
+};
+
+window.app_updateCheckoutTaskActionMeta = (key, field, value) => {
+    const details = window.app_checkoutTaskDetails?.[key];
+    if (!details) return;
+    details.actionMeta = details.actionMeta || {};
+    details.actionMeta[field] = value;
+    details.lastUpdatedAt = new Date().toISOString();
+    window.app_markCheckoutTaskSaved(key);
+    window.app_renderCheckoutActionPreview();
+};
+
+window.app_clearCheckoutTaskError = (key) => {
+    const modal = document.querySelector(`.checkout-action-detail-modal[data-checkout-key="${app_escapeCssValue(key)}"]`);
+    if (!modal) return;
+    modal.classList.remove('has-error');
+    const errorEl = modal.querySelector('[data-inline-error]');
+    if (errorEl) errorEl.textContent = '';
+};
+
+window.app_setCheckoutTaskError = (key, message) => {
+    const modal = document.querySelector(`.checkout-action-detail-modal[data-checkout-key="${app_escapeCssValue(key)}"]`);
+    if (!modal) return;
+    modal.classList.add('has-error');
+    const errorEl = modal.querySelector('[data-inline-error]');
+    if (errorEl) errorEl.textContent = message;
+};
+
+window.app_syncCheckoutTaskPanel = (key) => {
+    const details = window.app_checkoutTaskDetails?.[key];
+    const modal = document.querySelector(`.checkout-action-detail-modal[data-checkout-key="${app_escapeCssValue(key)}"]`);
+    if (!modal || !details) return;
+    const progressValue = modal.querySelector('[data-progress-value]');
+    const progressInput = modal.querySelector('[data-progress-input]');
+    if (progressInput) progressInput.value = details.progressPercent;
+    if (progressValue) progressValue.textContent = `${details.progressPercent}%`;
+    const progressNoteInput = modal.querySelector('[data-progress-note]');
+    if (progressNoteInput && progressNoteInput.value !== details.progressNote) {
+        progressNoteInput.value = details.progressNote || '';
+    }
+    modal.querySelectorAll('[data-status-chip]').forEach((chip) => {
+        const status = chip.getAttribute('data-status-chip');
+        chip.classList.toggle('is-selected', status === details.progressStatus);
+    });
+    modal.querySelectorAll('[data-action-panel-section]').forEach((section) => {
+        const targetAction = section.getAttribute('data-action-panel-section');
+        section.style.display = (details.action === targetAction) ? 'block' : 'none';
+    });
+    modal.querySelectorAll('[data-action-field]').forEach((fieldEl) => {
+        const field = fieldEl.getAttribute('data-action-field');
+        const nextValue = details.actionMeta?.[field] ?? '';
+        if (fieldEl.value !== String(nextValue)) fieldEl.value = String(nextValue);
+    });
+};
+
+window.app_collectCheckoutTaskUpdates = () => {
+    const updates = [];
+    const errors = [];
+    const map = window.app_checkoutTaskDetails || {};
+    Object.keys(map).forEach((key) => {
+        const detail = map[key];
+        if (!detail || !detail.action) return;
+        const { planId, taskIndex } = window.app_parseCheckoutTaskKey(key);
+        let error = '';
+        if (detail.action === 'postpone') {
+            const date = detail.actionMeta?.postponeDate;
+            const reason = String(detail.actionMeta?.postponeReason || '').trim();
+            if (!date) error = 'Select a new date to postpone.';
+            else if (!reason) error = 'Add a reason for postponing.';
+        }
+        if (detail.action === 'delegate') {
+            const userId = String(detail.actionMeta?.delegateUserId || '').trim();
+            if (!userId) error = 'Select a staff member to delegate.';
+        }
+        if (error) {
+            errors.push({ key, message: error });
+            return;
+        }
+        updates.push({
+            key,
+            planId,
+            taskIndex,
+            action: detail.action,
+            progressPercent: detail.progressPercent,
+            progressStatus: detail.progressStatus,
+            progressNote: detail.progressNote,
+            actionMeta: detail.actionMeta || {},
+            timestamp: new Date().toISOString()
+        });
+    });
+    return { updates, errors };
+};
+
+window.app_closeCheckoutActionModal = () => {
+    document.getElementById('checkout-action-detail-modal')?.remove();
+};
+
+window.app_openCheckoutActionModal = (key) => {
+    const details = window.app_checkoutTaskDetails?.[key];
+    if (!details || !details.action) return;
+    const meta = window.app_checkoutTaskMeta?.[key] || {};
+    const userMap = window.app_checkoutUserMap || {};
+    const currentUserId = window.AppAuth.getUser()?.id;
+    const current = document.getElementById('checkout-action-detail-modal');
+    if (current) current.remove();
+
+    const actionLabel = details.action === 'complete'
+        ? 'Complete'
+        : details.action === 'postpone'
+            ? 'Postpone'
+            : details.action === 'delegate'
+                ? 'Delegate'
+                : 'Action';
+    const chips = Object.keys(app_checkoutStatusLabels).map((status) => {
+        const selected = details.progressStatus === status ? 'is-selected' : '';
+        return `<button type="button" class="checkout-task-chip ${selected}" data-status-chip="${status}" onclick="window.app_setCheckoutTaskStatus('${app_escapeJsSingleQuote(key)}','${status}')">${app_checkoutStatusLabels[status]}</button>`;
+    }).join('');
+    const postponeDate = app_escapeHtml(details.actionMeta?.postponeDate || new Date(Date.now() + 86400000).toISOString().split('T')[0]);
+    const postponeReason = app_escapeHtml(details.actionMeta?.postponeReason || '');
+    const completionNote = app_escapeHtml(details.actionMeta?.completionNote || '');
+    const delegateNote = app_escapeHtml(details.actionMeta?.delegateNote || '');
+    const delegateUserId = app_escapeHtml(details.actionMeta?.delegateUserId || '');
+    const progressNote = app_escapeHtml(details.progressNote || '');
+    const candidateOptions = Object.keys(userMap).filter((userId) => String(userId) !== String(currentUserId)).map((userId) => {
+        const selected = delegateUserId && delegateUserId === String(userId) ? 'selected' : '';
+        return `<option value="${app_escapeHtml(userId)}" ${selected}>${app_escapeHtml(userMap[userId])}</option>`;
+    }).join('');
+
+    const modal = document.createElement('div');
+    modal.id = 'checkout-action-detail-modal';
+    modal.className = 'modal-overlay checkout-action-detail-modal';
+    modal.setAttribute('data-checkout-key', key);
+    modal.innerHTML = `
+        <div class="modal-content checkout-action-detail-content">
+            <div class="checkout-action-detail-header">
+                <div>
+                    <div class="checkout-action-detail-title">${app_escapeHtml(meta.text || 'Task')}</div>
+                    <div class="checkout-action-detail-sub">${app_escapeHtml(actionLabel)} • ${details.progressPercent}% • ${app_escapeHtml(app_checkoutStatusLabels[details.progressStatus] || '')}</div>
+                </div>
+                <button type="button" class="checkout-action-detail-close" onclick="window.app_closeCheckoutActionModal()">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="checkout-task-panel-body">
+                <div class="checkout-task-panel-header">
+                    <span>Action Details</span>
+                    <span class="checkout-task-saved" data-saved-indicator>Saved</span>
+                </div>
+                <div class="checkout-task-field">
+                    <label>Progress <span class="checkout-task-progress-value" data-progress-value>${details.progressPercent}%</span></label>
+                    <input type="range" min="0" max="100" value="${details.progressPercent}" data-progress-input oninput="window.app_updateCheckoutTaskProgress('${app_escapeJsSingleQuote(key)}', this.value)">
+                </div>
+                <div class="checkout-task-field">
+                    <label>Status</label>
+                    <div class="checkout-task-status-chips">
+                        ${chips}
+                    </div>
+                </div>
+                <div class="checkout-task-field">
+                    <label>Note</label>
+                    <textarea rows="2" data-progress-note placeholder="What changed? (optional)" oninput="window.app_updateCheckoutTaskNote('${app_escapeJsSingleQuote(key)}', this.value)">${progressNote}</textarea>
+                </div>
+                <div class="checkout-task-action-extra" data-action-panel-section="complete" style="display:${details.action === 'complete' ? 'block' : 'none'};">
+                    <label>Completion Note</label>
+                    <textarea rows="2" data-action-field="completionNote" placeholder="Optional details for completion." oninput="window.app_updateCheckoutTaskActionMeta('${app_escapeJsSingleQuote(key)}','completionNote', this.value)">${completionNote}</textarea>
+                </div>
+                <div class="checkout-task-action-extra" data-action-panel-section="postpone" style="display:${details.action === 'postpone' ? 'block' : 'none'};">
+                    <label>New Date</label>
+                    <input type="date" data-action-field="postponeDate" value="${postponeDate}" onchange="window.app_updateCheckoutTaskActionMeta('${app_escapeJsSingleQuote(key)}','postponeDate', this.value)">
+                    <label>Reason</label>
+                    <textarea rows="2" data-action-field="postponeReason" placeholder="Why postponed?" oninput="window.app_updateCheckoutTaskActionMeta('${app_escapeJsSingleQuote(key)}','postponeReason', this.value)">${postponeReason}</textarea>
+                </div>
+                <div class="checkout-task-action-extra" data-action-panel-section="delegate" style="display:${details.action === 'delegate' ? 'block' : 'none'};">
+                    <label>Assign To</label>
+                    <select data-action-field="delegateUserId" onchange="window.app_updateCheckoutTaskActionMeta('${app_escapeJsSingleQuote(key)}','delegateUserId', this.value)">
+                        <option value="">Select staff</option>
+                        ${candidateOptions}
+                    </select>
+                    <label>Handoff Note</label>
+                    <textarea rows="2" data-action-field="delegateNote" placeholder="Handoff context (optional)." oninput="window.app_updateCheckoutTaskActionMeta('${app_escapeJsSingleQuote(key)}','delegateNote', this.value)">${delegateNote}</textarea>
+                </div>
+                <div class="checkout-task-inline-error" data-inline-error></div>
+            </div>
+            <div class="checkout-action-detail-footer">
+                <button type="button" class="action-btn secondary" onclick="window.app_closeCheckoutActionModal()">Done</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    window.app_syncCheckoutTaskPanel(key);
+};
+
+window.app_renderCheckoutActionPreview = () => {
+    const container = document.getElementById('checkout-action-preview');
+    const list = document.getElementById('checkout-action-preview-list');
+    if (!container || !list) return;
+    const detailsMap = window.app_checkoutTaskDetails || {};
+    const metaMap = window.app_checkoutTaskMeta || {};
+    const userMap = window.app_checkoutUserMap || {};
+    const items = Object.keys(detailsMap).map((key) => {
+        const detail = detailsMap[key];
+        if (!detail || !detail.action) return null;
+        const meta = metaMap[key] || {};
+        const title = meta.text || 'Task';
+        const actionLabel = detail.action === 'complete'
+            ? 'Complete'
+            : detail.action === 'postpone'
+                ? 'Postpone'
+                : detail.action === 'delegate'
+                    ? 'Delegate'
+                    : detail.action;
+        const statusLabel = app_checkoutStatusLabels[detail.progressStatus] || 'Waiting';
+        const progressNote = String(detail.progressNote || '').trim();
+        let extra = '';
+        if (detail.action === 'postpone') {
+            const date = app_normalizeIsoDate(detail.actionMeta?.postponeDate) || '—';
+            const reason = String(detail.actionMeta?.postponeReason || '').trim();
+            extra = `New date: ${app_escapeHtml(date)}${reason ? ` • Reason: ${app_escapeHtml(reason)}` : ''}`;
+        }
+        if (detail.action === 'delegate') {
+            const userId = String(detail.actionMeta?.delegateUserId || '');
+            const userName = userMap[userId] || '—';
+            const note = String(detail.actionMeta?.delegateNote || '').trim();
+            extra = `Assigned to: ${app_escapeHtml(userName)}${note ? ` • Note: ${app_escapeHtml(note)}` : ''}`;
+        }
+        if (detail.action === 'complete') {
+            const note = String(detail.actionMeta?.completionNote || '').trim();
+            extra = note ? `Completion note: ${app_escapeHtml(note)}` : '';
+        }
+        return `
+            <div class="checkout-action-preview-item">
+                <div class="checkout-action-preview-title">${app_escapeHtml(title)}</div>
+                <div class="checkout-action-preview-meta">
+                    <span class="checkout-action-preview-chip">${app_escapeHtml(actionLabel)}</span>
+                    <span>${detail.progressPercent}% • ${app_escapeHtml(statusLabel)}</span>
+                </div>
+                ${progressNote ? `<div class="checkout-action-preview-note">${app_escapeHtml(progressNote)}</div>` : ''}
+                ${extra ? `<div class="checkout-action-preview-extra">${extra}</div>` : ''}
+            </div>
+        `;
+    }).filter(Boolean);
+    if (items.length === 0) {
+        container.style.display = 'none';
+        list.innerHTML = '';
+        return;
+    }
+    container.style.display = 'block';
+    list.innerHTML = items.join('');
+};
+
+window.app_applyCheckoutTaskUpdates = async (updates = []) => {
+    if (!Array.isArray(updates) || updates.length === 0) return;
+    const currentUser = window.AppAuth.getUser();
+    const updaterId = currentUser?.id || currentUser?.name || 'staff';
+    const today = new Date().toISOString().split('T')[0];
+    for (const update of updates) {
+        const plan = await window.AppDB.get('work_plans', update.planId).catch(() => null);
+        if (!plan || !Array.isArray(plan.plans)) continue;
+        const task = plan.plans[update.taskIndex];
+        if (!task) continue;
+        task.progressPercent = update.progressPercent;
+        task.progressStatus = update.progressStatus;
+        task.progressNote = update.progressNote;
+        task.lastProgressUpdateAt = update.timestamp;
+        task.lastProgressUpdateBy = updaterId;
+        task.lastCheckoutAction = update.action;
+        if (update.action === 'complete') {
+            task.status = 'completed';
+            if (!task.completedDate) task.completedDate = today;
+        }
+        if (update.action === 'postpone') {
+            task.status = 'postponed';
+        }
+        plan.updatedAt = new Date().toISOString();
+        await window.AppDB.put('work_plans', plan);
+        if (update.action === 'postpone') {
+            const postponeDate = app_normalizeIsoDate(update.actionMeta?.postponeDate);
+            if (postponeDate) {
+                const detailSuffix = (task.subPlans && task.subPlans.length) ? ` - ${task.subPlans.join(', ')}` : '';
+                const baseText = `${task.task}${detailSuffix}`;
+                const fromDate = plan.date || today;
+                const cleanedText = baseText.replace(/\s*\(Postponed from [^)]+\)\s*$/i, '');
+                const postponedText = `${cleanedText} (Postponed from ${fromDate})`;
+                await window.AppCalendar.addWorkPlanTask(postponeDate, currentUser.id, postponedText, [], {
+                    addedFrom: 'postponed',
+                    sourcePlanId: update.planId,
+                    sourceTaskIndex: update.taskIndex,
+                    postponedFromDate: fromDate
+                });
+            }
+        }
+        if (update.action === 'delegate') {
+            const delegateUserId = String(update.actionMeta?.delegateUserId || '').trim();
+            if (delegateUserId) {
+                await window.app_delegateTo(update.planId, update.taskIndex, delegateUserId);
+            }
+        }
+    }
+    if (window.AppStore && window.AppStore.invalidatePlans) {
+        window.AppStore.invalidatePlans();
+    }
+};
+
 
 
 window.app_deleteDayPlan = async (date, targetUserId = null, planScope = null) => {
@@ -3019,29 +3408,45 @@ window.app_handleChecklistAction = async function (planId, taskIndex, action) {
     const actionKey = `${planId}:${taskIndex}`;
     if (!action) {
         delete window.app_checkoutTaskActions[actionKey];
+        if (window.app_checkoutTaskDetails) delete window.app_checkoutTaskDetails[actionKey];
         if (delegatePanel) delegatePanel.style.display = 'none';
         if (checklistSection) checklistSection.classList.remove('delegate-open');
+        const modal = document.querySelector(`.checkout-action-detail-modal[data-checkout-key="${app_escapeCssValue(actionKey)}"]`);
+        if (modal) modal.remove();
+        const detailBtn = document.querySelector(`.checkout-task-detail-btn[data-checkout-detail-key="${app_escapeCssValue(actionKey)}"]`);
+        if (detailBtn) detailBtn.disabled = true;
+        window.app_renderCheckoutActionPreview();
         return;
     }
     window.app_checkoutTaskActions[actionKey] = action;
+    window.app_checkoutTaskDetails = window.app_checkoutTaskDetails || {};
+    const details = window.app_checkoutTaskDetails[actionKey] || {
+        action: '',
+        progressPercent: 0,
+        progressStatus: 'waiting',
+        progressNote: '',
+        actionMeta: {}
+    };
+    details.action = action;
     if (action === 'complete') {
-        if (delegatePanel) delegatePanel.style.display = 'none';
-        if (checklistSection) checklistSection.classList.remove('delegate-open');
+        details.progressPercent = 100;
+        details.progressStatus = 'done';
         await window.app_appendCompletedTaskToSummary(planId, taskIndex);
-        await window.app_markTaskCompleted(planId, taskIndex);
-        return;
     }
     if (action === 'postpone') {
-        if (delegatePanel) delegatePanel.style.display = 'none';
-        if (checklistSection) checklistSection.classList.remove('delegate-open');
-        await window.app_openPostponeModal(planId, taskIndex);
-        return;
+        if (!details.actionMeta?.postponeDate) {
+            details.actionMeta = details.actionMeta || {};
+            details.actionMeta.postponeDate = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+        }
     }
-    if (action === 'delegate') {
-        if (delegatePanel) delegatePanel.style.display = 'none';
-        if (checklistSection) checklistSection.classList.remove('delegate-open');
-        await window.app_openDelegateModal(planId, taskIndex);
-    }
+    window.app_checkoutTaskDetails[actionKey] = details;
+    if (delegatePanel) delegatePanel.style.display = 'none';
+    if (checklistSection) checklistSection.classList.remove('delegate-open');
+    const detailBtn = document.querySelector(`.checkout-task-detail-btn[data-checkout-detail-key="${app_escapeCssValue(actionKey)}"]`);
+    if (detailBtn) detailBtn.disabled = false;
+    window.app_openCheckoutActionModal(actionKey);
+    window.app_clearCheckoutTaskError(actionKey);
+    window.app_renderCheckoutActionPreview();
 };
 // Mark task completed (updates status and credit score via AppRating)
 window.app_markTaskCompleted = async function (planId, taskIndex) {
@@ -3324,6 +3729,9 @@ async function handleAttendance() {
             if (window.app_checkoutActionDate !== today) {
                 window.app_checkoutActionDate = today;
                 window.app_checkoutTaskActions = {};
+                window.app_checkoutTaskDetails = {};
+                window.app_checkoutTaskMeta = {};
+                window.app_checkoutUserMap = {};
             }
 
             // Ensure persistent modals are present
@@ -3415,6 +3823,12 @@ async function handleAttendance() {
                     if (taskListEl) {
                         if (workPlan && Array.isArray(workPlan.plans) && workPlan.plans.length > 0) {
                             const allUsers = await window.AppDB.getAll('users').catch(() => []);
+                            window.app_checkoutUserMap = {};
+                            (allUsers || []).forEach(u => {
+                                window.app_checkoutUserMap[String(u.id)] = u.name;
+                            });
+                            const currentUser = window.AppAuth.getUser();
+                            const candidates = (allUsers || []).filter(u => u.id !== currentUser.id);
                             const rows = workPlan.plans.map((p, idx) => {
                                 const details = (p.subPlans && p.subPlans.length) ? ` — ${p.subPlans.join(', ')}` : '';
                                 const text = `${p.task}${details}`;
@@ -3422,6 +3836,12 @@ async function handleAttendance() {
                                 const taskIndexForTask = typeof p._taskIndex === 'number' ? p._taskIndex : idx;
                                 const status = window.AppCalendar.getSmartTaskStatus(p._planDate || workPlan.date, p.status);
                                 const actionKey = `${planIdForTask}:${taskIndexForTask}`;
+                                window.app_checkoutTaskMeta = window.app_checkoutTaskMeta || {};
+                                window.app_checkoutTaskMeta[actionKey] = {
+                                    text,
+                                    planId: planIdForTask,
+                                    taskIndex: taskIndexForTask
+                                };
                                 const rememberedAction = window.app_checkoutTaskActions && window.app_checkoutTaskActions[actionKey]
                                     ? window.app_checkoutTaskActions[actionKey]
                                     : '';
@@ -3429,33 +3849,53 @@ async function handleAttendance() {
                                     (p.status === 'completed' || status === 'completed') ? 'complete' :
                                         (p.status === 'postponed' ? 'postpone' : '')
                                 );
+                                const detailState = window.app_initCheckoutTaskDetails(planIdForTask, taskIndexForTask, p);
+                                const actionValue = detailState.action || inferredAction || '';
+                                if (actionValue && detailState.action !== actionValue) {
+                                    detailState.action = actionValue;
+                                    if (actionValue === 'complete') {
+                                        detailState.progressPercent = 100;
+                                        detailState.progressStatus = 'done';
+                                    }
+                                }
+                                if (window.app_checkoutTaskActions) {
+                                    if (actionValue) window.app_checkoutTaskActions[actionKey] = actionValue;
+                                }
                                 const statusLabel = status === 'completed' ? 'Completed' :
                                     status === 'in-process' ? 'In Process' :
                                         status === 'overdue' ? 'Overdue' :
                                             status === 'to-be-started' ? 'To Be Started' :
                                                 (p.status || 'Pending');
+                                const postponeDate = app_escapeHtml(detailState.actionMeta?.postponeDate || new Date(Date.now() + 86400000).toISOString().split('T')[0]);
+                                const postponeReason = app_escapeHtml(detailState.actionMeta?.postponeReason || '');
+                                const delegateUserId = app_escapeHtml(detailState.actionMeta?.delegateUserId || '');
+                                const delegateNote = app_escapeHtml(detailState.actionMeta?.delegateNote || '');
+                                const completionNote = app_escapeHtml(detailState.actionMeta?.completionNote || '');
+                                const progressNote = app_escapeHtml(detailState.progressNote || '');
                                 return `
                                         <div class="checkout-task-row">
                                             <div class="checkout-task-copy">
                                                 <div class="checkout-task-title">${window.app_formatTaskWithPostponeChip(text)}</div>
                                                 <div class="checkout-task-status">Status: ${statusLabel}</div>
                                             </div>
-                                            <select onchange="window.app_handleChecklistAction('${planIdForTask}', ${taskIndexForTask}, this.value)" class="checkout-task-action-select">
-                                                <option value="" ${!inferredAction ? 'selected' : ''}>Choose Action</option>
-                                                <option value="complete" ${inferredAction === 'complete' ? 'selected' : ''}>Complete</option>
-                                                <option value="postpone" ${inferredAction === 'postpone' ? 'selected' : ''}>Postpone</option>
-                                                <option value="delegate" ${inferredAction === 'delegate' ? 'selected' : ''}>Delegate</option>
-                                            </select>
+                                            <div class="checkout-task-controls">
+                                                <select onchange="window.app_handleChecklistAction('${planIdForTask}', ${taskIndexForTask}, this.value)" class="checkout-task-action-select">
+                                                    <option value="" ${!actionValue ? 'selected' : ''}>Choose Action</option>
+                                                    <option value="complete" ${actionValue === 'complete' ? 'selected' : ''}>Complete</option>
+                                                    <option value="postpone" ${actionValue === 'postpone' ? 'selected' : ''}>Postpone</option>
+                                                    <option value="delegate" ${actionValue === 'delegate' ? 'selected' : ''}>Delegate</option>
+                                                </select>
+                                                <button type="button" class="checkout-task-detail-btn" data-checkout-detail-key="${app_escapeHtml(actionKey)}" onclick="window.app_openCheckoutActionModal('${app_escapeJsSingleQuote(actionKey)}')" ${actionValue ? '' : 'disabled'}>Action Details</button>
+                                            </div>
                                         </div>`;
                             }).join('');
                             taskListEl.innerHTML = rows;
+                            window.app_renderCheckoutActionPreview();
 
                             if (delegatePanel && delegateList && delegateSelTask) {
                                 delegatePanel.style.display = 'none';
                                 const checklistSection = document.getElementById('checkout-task-checklist');
                                 if (checklistSection) checklistSection.classList.remove('delegate-open');
-                                const currentUser = window.AppAuth.getUser();
-                                const candidates = (allUsers || []).filter(u => u.id !== currentUser.id);
                                 delegateList.innerHTML = candidates.map(u => `
                                         <button type="button" data-user-id="${u.id}" class="delegate-user-btn">
                                             <img src="${u.avatar}" alt="${u.name}" class="delegate-user-avatar">
@@ -3465,6 +3905,7 @@ async function handleAttendance() {
                             }
                         } else {
                             taskListEl.innerHTML = `<div style="font-size:0.8rem; color:#6b7280;">No tasks planned for today.</div>`;
+                            window.app_renderCheckoutActionPreview();
                         }
                     }
                 }
@@ -3537,6 +3978,21 @@ window.app_submitCheckOut = async function (event) {
         submitBtn.disabled = true;
         submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Locating & Saving...`;
 
+        const detailKeys = Object.keys(window.app_checkoutTaskDetails || {});
+        detailKeys.forEach((key) => window.app_clearCheckoutTaskError(key));
+        const { updates: taskUpdates, errors: taskErrors } = window.app_collectCheckoutTaskUpdates();
+        if (taskErrors.length > 0) {
+            taskErrors.forEach(err => window.app_setCheckoutTaskError(err.key, err.message));
+            const firstErrorKey = taskErrors[0]?.key;
+            if (firstErrorKey) {
+                const modal = document.querySelector(`.checkout-action-detail-modal[data-checkout-key="${app_escapeCssValue(firstErrorKey)}"]`);
+                if (modal) modal.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Complete Check-Out';
+            return;
+        }
+
         // Fetch location during checkout - fallback to manual explanation if denied
         let pos = null;
         let locationError = null;
@@ -3591,6 +4047,19 @@ window.app_submitCheckOut = async function (event) {
             }
         }
 
+        if (taskUpdates.length > 0) {
+            checkOutOptions.taskUpdates = taskUpdates.map(update => ({
+                planId: update.planId,
+                taskIndex: update.taskIndex,
+                action: update.action,
+                progressPercent: update.progressPercent,
+                progressStatus: update.progressStatus,
+                progressNote: update.progressNote,
+                actionMeta: update.actionMeta || {},
+                timestamp: update.timestamp
+            }));
+        }
+
         if (!pos && !explanation) {
             const mismatchDiv = document.getElementById('checkout-location-mismatch');
             if (mismatchDiv) mismatchDiv.style.display = 'block';
@@ -3636,7 +4105,16 @@ window.app_submitCheckOut = async function (event) {
         }
         markLocalAttendanceMutation();
 
+        if (taskUpdates.length > 0) {
+            await window.app_applyCheckoutTaskUpdates(taskUpdates);
+        }
+
         window.app_checkoutSummaryDraft = '';
+        window.app_checkoutTaskActions = {};
+        window.app_checkoutTaskDetails = {};
+        window.app_checkoutTaskMeta = {};
+        window.app_checkoutUserMap = {};
+        window.app_renderCheckoutActionPreview();
 
         // Hide modal
         document.getElementById('checkout-modal').style.display = 'none';
@@ -3910,6 +4388,9 @@ function setupDashboardEvents() {
     applyUpdateCtaState();
     if (window.app_refreshNotificationBell) {
         window.app_refreshNotificationBell().catch(() => { });
+    }
+    if (window.app_attachStatsCardHandlers) {
+        window.app_attachStatsCardHandlers();
     }
 }
 window.setupDashboardEvents = setupDashboardEvents;

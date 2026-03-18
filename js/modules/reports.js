@@ -45,6 +45,19 @@ export class Reports {
         }, 0);
     }
 
+    summarizeTaskUpdates(taskUpdates) {
+        if (!Array.isArray(taskUpdates) || taskUpdates.length === 0) return '';
+        return taskUpdates.map((u) => {
+            const action = u.action || 'action';
+            const percent = Number.isFinite(Number(u.progressPercent)) ? `${Number(u.progressPercent)}%` : '';
+            const status = u.progressStatus ? String(u.progressStatus).replace(/_/g, ' ') : '';
+            const note = u.progressNote ? ` - ${u.progressNote}` : '';
+            const meta = `${percent}${percent && status ? ' ' : ''}${status}`.trim();
+            const metaText = meta ? ` (${meta})` : '';
+            return `${action}${metaText}${note}`.trim();
+        }).join(' | ');
+    }
+
     /**
      * Export All Attendance Logs
      */
@@ -79,6 +92,7 @@ export class Reports {
                     checkOut: log.checkOut || '--',
                     duration: log.duration || '--',
                     workSummary: log.workDescription || '--',
+                    taskUpdates: this.summarizeTaskUpdates(log.taskUpdates || []),
                     inLocation: locString,
                     outLocation: log.checkOutLocation || '--',
                     type: log.type || 'Standard'
@@ -108,8 +122,8 @@ export class Reports {
             flattenedData.sort((a, b) => new Date(b.date) - new Date(a.date));
 
             // 4. Generate CSV
-            const headers = ['Date', 'Staff Name', 'Role', 'Star Rating', 'Completion Rate', 'Check In', 'Check Out', 'Duration', 'Work Summary', 'Check-in Location', 'Check-out Location', 'Type'];
-            const keys = ['date', 'name', 'role', 'rating', 'completionRate', 'checkIn', 'checkOut', 'duration', 'workSummary', 'inLocation', 'outLocation', 'type'];
+            const headers = ['Date', 'Staff Name', 'Role', 'Star Rating', 'Completion Rate', 'Check In', 'Check Out', 'Duration', 'Work Summary', 'Task Updates', 'Check-in Location', 'Check-out Location', 'Type'];
+            const keys = ['date', 'name', 'role', 'rating', 'completionRate', 'checkIn', 'checkOut', 'duration', 'workSummary', 'taskUpdates', 'inLocation', 'outLocation', 'type'];
 
             const csvContent = this.convertToCSV(flattenedData, headers, keys);
 
@@ -143,6 +157,7 @@ export class Reports {
                     checkOut: log.checkOut || '--',
                     duration: log.duration || '--',
                     workSummary: log.workDescription || '--',
+                    taskUpdates: this.summarizeTaskUpdates(log.taskUpdates || []),
                     inLocation: locString,
                     outLocation: log.checkOutLocation || '--',
                     type: log.type || 'Standard'
@@ -152,8 +167,8 @@ export class Reports {
             // Sort by Date (descending)
             flattenedData.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-            const headers = ['Date', 'Staff Name', 'Role', 'Check In', 'Check Out', 'Duration', 'Work Summary', 'Check-in Location', 'Check-out Location', 'Type'];
-            const keys = ['date', 'name', 'role', 'checkIn', 'checkOut', 'duration', 'workSummary', 'inLocation', 'outLocation', 'type'];
+            const headers = ['Date', 'Staff Name', 'Role', 'Check In', 'Check Out', 'Duration', 'Work Summary', 'Task Updates', 'Check-in Location', 'Check-out Location', 'Type'];
+            const keys = ['date', 'name', 'role', 'checkIn', 'checkOut', 'duration', 'workSummary', 'taskUpdates', 'inLocation', 'outLocation', 'type'];
 
             const csvContent = this.convertToCSV(flattenedData, headers, keys);
             const fileName = `Attendance_Report_${user.name.replace(/ /g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;

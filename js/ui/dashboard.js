@@ -218,6 +218,7 @@ export function renderActivityList(allLogs, startStr, endStr, targetStaffId, col
         }
         const borderColor = log._isCollab ? '#10b981' : (log._isMinute ? '#6366f1' : '#e5e7eb');
         const collabClass = log._isCollab ? 'dashboard-activity-item-collab' : (log._isMinute ? 'dashboard-activity-item-minute' : '');
+        const progressMeta = renderProgressMeta(log);
         let statusBadge = '';
         if (log._isCollab || log.status || log._isMinute) {
             const status = window.AppCalendar ? window.AppCalendar.getSmartTaskStatus(log.date, log.status) : (log.status || 'to-be-started');
@@ -227,7 +228,7 @@ export function renderActivityList(allLogs, startStr, endStr, targetStaffId, col
                     ${isAdminUser || log._isMinute ? `<div class="dashboard-activity-edit-wrap"><button onclick="${log._isMinute ? `window.app_openMinuteDetails('${log._meetingId}')` : `window.app_openDayPlan('${log.date}', '${targetStaffId}')`}" class="dashboard-activity-edit-btn" title="View/Edit"><i class="fa-solid fa-${log._isMinute ? 'eye' : 'pen-to-square'}"></i></button></div>` : ''}
                 </div>`;
         }
-        html += `<div class="dashboard-activity-item ${collabClass}" style="border-left-color:${borderColor};"><div class="dashboard-activity-desc">${safeHtml(log._displayDesc)}</div>${statusBadge}<div class="dashboard-activity-meta">${safeHtml(log.checkOut || (log.status === 'completed' ? 'Completed' : 'Planned Activity'))}</div></div>`;
+        html += `<div class="dashboard-activity-item ${collabClass}" style="border-left-color:${borderColor};"><div class="dashboard-activity-desc">${safeHtml(log._displayDesc)}</div>${progressMeta}${statusBadge}<div class="dashboard-activity-meta">${safeHtml(log.checkOut || (log.status === 'completed' ? 'Completed' : 'Planned Activity'))}</div></div>`;
     });
     return html;
 }
@@ -298,6 +299,7 @@ export function renderStaffActivityColumn(title, logs, emptyMsg) {
         : logs.map(log => {
             const isOwner = currentUser && log.userId === currentUser.id;
             const canEdit = isAdminUser || isOwner;
+            const progressMeta = renderProgressMeta(log);
             const statusBadge = `
                 <div class="dashboard-activity-status-row">
                     ${renderTaskStatusBadge(log._taskStatus)}
@@ -307,6 +309,7 @@ export function renderStaffActivityColumn(title, logs, emptyMsg) {
                 <div class="dashboard-staff-activity-item dashboard-staff-activity-item-compact">
                     <div class="dashboard-staff-name">${safeHtml(log.staffName || 'Unknown Staff')}<span class="dashboard-team-activity-item-date">${log.date || ''}</span></div>
                     <div class="dashboard-activity-desc dashboard-staff-activity-desc">${safeHtml(log._displayDesc || 'Work Plan Task')}</div>
+                    ${progressMeta}
                     ${statusBadge}
                     <div class="dashboard-activity-meta">${log._taskStatus === 'completed' ? 'Completed' : 'Work Plan'}</div>
                 </div>`;
@@ -322,13 +325,36 @@ export function renderStaffActivityColumn(title, logs, emptyMsg) {
     `;
 }
 
-export function renderStatsCard(title, subtitle, statsObj) {
+function renderProgressMeta(log) {
+    if (!log) return '';
+    const hasPercent = Number.isFinite(Number(log.progressPercent));
+    const status = log.progressStatus ? String(log.progressStatus).replace(/_/g, ' ') : '';
+    const note = String(log.progressNote || '').trim();
+    if (!hasPercent && !status && !note && Array.isArray(log.taskUpdates) && log.taskUpdates.length > 0) {
+        const first = log.taskUpdates[0] || {};
+        const derivedPercent = Number.isFinite(Number(first.progressPercent)) ? `${Number(first.progressPercent)}%` : '';
+        const derivedStatus = first.progressStatus ? String(first.progressStatus).replace(/_/g, ' ') : '';
+        const derivedNote = String(first.progressNote || '').trim();
+        if (!derivedPercent && !derivedStatus && !derivedNote) return '';
+        const derivedTitle = derivedNote ? ` title="${safeHtml(derivedNote)}"` : '';
+        const derivedLabel = `${derivedPercent}${derivedPercent && derivedStatus ? ' • ' : ''}${safeHtml(derivedStatus)}`;
+        return `<div class="dashboard-progress-chip"${derivedTitle}>${derivedLabel}</div>`;
+    }
+    if (!hasPercent && !status && !note) return '';
+    const percent = hasPercent ? `${Number(log.progressPercent)}%` : '';
+    const title = note ? ` title="${safeHtml(note)}"` : '';
+    const label = `${percent}${percent && status ? ' • ' : ''}${safeHtml(status)}`;
+    return `<div class="dashboard-progress-chip"${title}>${label}</div>`;
+}
+
+export function renderStatsCard(title, subtitle, statsObj, statType = '') {
     const penaltyDays = Number(statsObj.penalty ?? statsObj.penaltyLeaves ?? 0);
     const penaltyBadge = penaltyDays > 0
         ? `<span class="dashboard-penalty-badge">Penalty Applies</span>`
         : '';
+    const dataAttr = statType ? ` data-stats-type="${safeHtml(statType)}"` : '';
     return `
-        <div class="card dashboard-stats-card">
+        <div class="card dashboard-stats-card" ${dataAttr} role="button" tabindex="0" aria-label="Open ${safeHtml(title)} details">
             <div class="dashboard-stats-card-head">
                 <div>
                     <h4 class="dashboard-stats-card-title">${safeHtml(title)}</h4>
@@ -385,6 +411,139 @@ export function renderBreakdown(breakdown) {
             </div>
          `;
     }).join('');
+}
+
+function attachStatsCardHandlers() {
+    document.querySelectorAll('.dashboard-stats-card[data-stats-type]').forEach(card => {
+        if (card.dataset.bound === '1') return;
+        card.dataset.bound = '1';
+        const type = card.getAttribute('data-stats-type') || '';
+        card.addEventListener('click', () => {
+            if (window.app_openStatsDetailModal) window.app_openStatsDetailModal(type);
+        });
+        card.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                if (window.app_openStatsDetailModal) window.app_openStatsDetailModal(type);
+            }
+        });
+    });
+}
+
+function parseTimeToMinutesLocal(value) {
+    const raw = String(value || '').trim();
+    if (!raw || raw.toLowerCase().includes('active')) return null;
+    const match = raw.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+    if (!match) return null;
+    let hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    const meridiem = match[3] ? match[3].toUpperCase() : '';
+    if (meridiem === 'PM' && hours < 12) hours += 12;
+    if (meridiem === 'AM' && hours === 12) hours = 0;
+    return (hours * 60) + minutes;
+}
+
+function buildStatsDetailBuckets(logs, range) {
+    const buckets = {
+        late: new Set(),
+        early: new Set(),
+        extra: new Set(),
+        breakdown: {
+            'Present': new Set(),
+            'Work - Home': new Set(),
+            'Training': new Set(),
+            'Sick Leave': new Set(),
+            'Casual Leave': new Set(),
+            'Earned Leave': new Set(),
+            'Paid Leave': new Set(),
+            'Maternity Leave': new Set(),
+            'Absent': new Set(),
+            'Holiday': new Set(),
+            'National Holiday': new Set(),
+            'Regional Holidays': new Set(),
+            'Late': new Set(),
+            'Early Departure': new Set()
+        }
+    };
+
+    const startDate = range?.start ? new Date(range.start) : new Date('1970-01-01');
+    const endDate = range?.end ? new Date(range.end) : new Date();
+    startDate.setHours(0, 0, 0, 0);
+    endDate.setHours(23, 59, 59, 999);
+
+    let canonical = Array.isArray(logs) ? logs : [];
+    if (window.AppAnalytics && window.AppAnalytics.pickBestAttendanceLogPerDay) {
+        try {
+            canonical = window.AppAnalytics.pickBestAttendanceLogPerDay(canonical, startDate, endDate);
+        } catch (err) {
+            console.warn('pickBestAttendanceLogPerDay failed', err);
+        }
+    } else {
+        const byDate = new Map();
+        canonical.forEach(log => {
+            const key = log.date || '';
+            if (!key) return;
+            if (!byDate.has(key)) byDate.set(key, log);
+        });
+        canonical = Array.from(byDate.values());
+    }
+
+    const lateCutoff = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_CUTOFF_MINUTES : 555) || 555;
+    const earlyDeparture = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.EARLY_DEPARTURE_MINUTES : 1020) || 1020;
+
+    canonical.forEach(log => {
+        const logDate = log.date ? new Date(log.date) : null;
+        if (!logDate || Number.isNaN(logDate.getTime())) return;
+        if (logDate < startDate || logDate > endDate) return;
+        const dateStr = log.date;
+        const type = String(log.type || '');
+        const inMinutes = parseTimeToMinutesLocal(log.checkIn);
+        const outMinutes = parseTimeToMinutesLocal(log.checkOut);
+
+        const isManual = log.isManualOverride === true;
+        const isLateCountable = log.lateCountable === true || (!Object.prototype.hasOwnProperty.call(log, 'lateCountable') && inMinutes !== null && inMinutes > lateCutoff);
+        if (isLateCountable) {
+            buckets.late.add(dateStr);
+            buckets.breakdown['Late'].add(dateStr);
+        }
+        if (!isManual) {
+            if (outMinutes !== null && outMinutes < earlyDeparture && !String(type).includes('Leave') && type !== 'Absent') {
+                buckets.early.add(dateStr);
+                buckets.breakdown['Early Departure'].add(dateStr);
+            }
+        } else if (type === 'Early Departure') {
+            buckets.early.add(dateStr);
+            buckets.breakdown['Early Departure'].add(dateStr);
+        }
+
+        const storedExtraMinutes = typeof log.extraWorkedMs === 'number'
+            ? Math.max(0, Math.round(log.extraWorkedMs / (1000 * 60)))
+            : 0;
+        const allowExtra = !(log.autoCheckout && !log.autoCheckoutExtraApproved);
+        const hasExtra = storedExtraMinutes > 0 || (allowExtra && ((inMinutes !== null && inMinutes < lateCutoff) || (outMinutes !== null && outMinutes > earlyDeparture)));
+        if (hasExtra) buckets.extra.add(dateStr);
+
+        if (type === 'Work - Home') buckets.breakdown['Work - Home'].add(dateStr);
+        else if (type === 'Training') buckets.breakdown['Training'].add(dateStr);
+        else if (type === 'Sick Leave') buckets.breakdown['Sick Leave'].add(dateStr);
+        else if (type === 'Casual Leave') buckets.breakdown['Casual Leave'].add(dateStr);
+        else if (type === 'Earned Leave') buckets.breakdown['Earned Leave'].add(dateStr);
+        else if (type === 'Paid Leave') buckets.breakdown['Paid Leave'].add(dateStr);
+        else if (type === 'Maternity Leave') buckets.breakdown['Maternity Leave'].add(dateStr);
+        else if (type === 'Absent') buckets.breakdown['Absent'].add(dateStr);
+        else if (type === 'National Holiday') buckets.breakdown['National Holiday'].add(dateStr);
+        else if (type === 'Regional Holidays') buckets.breakdown['Regional Holidays'].add(dateStr);
+        else if (String(type).includes('Holiday')) buckets.breakdown['Holiday'].add(dateStr);
+        else if (log.checkIn) buckets.breakdown['Present'].add(dateStr);
+    });
+
+    const toSortedArray = (set) => Array.from(set || []).sort((a, b) => new Date(a) - new Date(b));
+    return {
+        late: toSortedArray(buckets.late),
+        early: toSortedArray(buckets.early),
+        extra: toSortedArray(buckets.extra),
+        breakdown: Object.fromEntries(Object.entries(buckets.breakdown).map(([k, v]) => [k, toSortedArray(v)]))
+    };
 }
 
 export function renderLeaveRequests(leaves) {
@@ -693,9 +852,35 @@ export async function renderDashboard() {
     }
 
     const targetStaff = (allUsers || []).find(u => u.id === targetStaffId);
+
     const isViewingSelf = targetStaffId === user.id;
     const displayUser = (!isViewingSelf && targetStaff) ? targetStaff : user;
     const isReadOnlyView = isAdmin && !isViewingSelf && !isFullAdmin;
+    const now = new Date();
+    const monthlyStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthlyEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const fyDates = (window.AppAnalytics && window.AppAnalytics.getFinancialYearDates)
+        ? window.AppAnalytics.getFinancialYearDates()
+        : { start: new Date(now.getFullYear(), 0, 1), end: new Date(now.getFullYear(), 11, 31) };
+    window.app_dashboardStatsStore = {
+        monthly: monthlyStats || {},
+        yearly: yearlyStats || {},
+        monthlyTitle: isViewingSelf ? monthlyStats.label : `${monthlyStats.label} - ${targetStaff?.name || 'Staff'}`,
+        monthlySubtitle: isViewingSelf ? 'Monthly Stats' : 'Viewing Staff Monthly Stats',
+        yearlyTitle: 'Yearly Summary',
+        yearlySubtitle: isViewingSelf ? yearlyStats.label : `${yearlyStats.label} for ${targetStaff?.name || 'Staff'}`,
+        logs: Array.isArray(logs) ? logs : [],
+        ranges: {
+            monthly: {
+                start: monthlyStart.toISOString().split('T')[0],
+                end: monthlyEnd.toISOString().split('T')[0]
+            },
+            yearly: {
+                start: fyDates.start.toISOString().split('T')[0],
+                end: fyDates.end.toISOString().split('T')[0]
+            }
+        }
+    };
 
     const statusData = isReadOnlyView ? { status: displayUser.status || 'out', lastCheckIn: displayUser.lastCheckIn || null } : status;
     const isCheckedIn = statusData.status === 'in';
@@ -771,8 +956,8 @@ export async function renderDashboard() {
                 <div style="flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 1rem;">${renderYearlyPlanHTML}${heroHTML}</div>
             </div>
             <div class="dashboard-stats-row">
-                ${renderStatsCard(isViewingSelf ? monthlyStats.label : `${monthlyStats.label} - ${targetStaff?.name || 'Staff'}`, isViewingSelf ? 'Monthly Stats' : 'Viewing Staff Monthly Stats', monthlyStats)}
-                ${renderStatsCard('Yearly Summary', isViewingSelf ? yearlyStats.label : `${yearlyStats.label} for ${targetStaff?.name || 'Staff'}`, yearlyStats)}
+                ${renderStatsCard(isViewingSelf ? monthlyStats.label : `${monthlyStats.label} - ${targetStaff?.name || 'Staff'}`, isViewingSelf ? 'Monthly Stats' : 'Viewing Staff Monthly Stats', monthlyStats, 'monthly')}
+                ${renderStatsCard('Yearly Summary', isViewingSelf ? yearlyStats.label : `${yearlyStats.label} for ${targetStaff?.name || 'Staff'}`, yearlyStats, 'yearly')}
             </div>`;
     } else {
         summaryHTML = `
@@ -781,8 +966,8 @@ export async function renderDashboard() {
                 <div class="dashboard-summary-col dashboard-summary-col-narrow">${heroHTML}</div>
             </div>
             <div class="dashboard-stats-row">
-                ${renderStatsCard(monthlyStats.label, 'Monthly Stats', monthlyStats)}
-                ${renderStatsCard('Yearly Summary', yearlyStats.label, yearlyStats)}
+                ${renderStatsCard(monthlyStats.label, 'Monthly Stats', monthlyStats, 'monthly')}
+                ${renderStatsCard('Yearly Summary', yearlyStats.label, yearlyStats, 'yearly')}
             </div>`;
     }
 
@@ -959,53 +1144,177 @@ const refreshStaffActivityWidget = async (fetchLogs = true) => {
 // --- Export to Window (Global) ---
 if (typeof window !== 'undefined') {
     window.app_expandTeamActivity = function () {
-        const state = getStaffActivityState();
-        const monthOptions = buildStaffActivityMonthOptions(8);
-        const selectedMonthLabel = formatMonthLabel(state.selectedMonth);
+        if (window.app_closeTeamActivityExpanded) {
+            window.app_closeTeamActivityExpanded();
+        }
+        if (window.location) {
+            window.location.hash = '#team-activities';
+        }
+    };
 
-        const modalOverlay = document.createElement('div');
-        modalOverlay.id = 'team-activity-modal-overlay';
-        modalOverlay.className = 'team-activity-modal-overlay';
-
-        modalOverlay.innerHTML = `
-            <div class="team-activity-modal-content">
-                <div class="team-activity-modal-header">
-                    <div class="team-activity-modal-title-wrap">
-                        <h2>Team Activity - Full View</h2>
-                        <span id="staff-activity-range-label-modal">${safeHtml(selectedMonthLabel)}</span>
+    window.app_openStatsDetailModal = function (type) {
+        const store = window.app_dashboardStatsStore || {};
+        const stats = type === 'yearly' ? store.yearly : store.monthly;
+        if (!stats) return;
+        const title = type === 'yearly' ? store.yearlyTitle : store.monthlyTitle;
+        const subtitle = type === 'yearly' ? store.yearlySubtitle : store.monthlySubtitle;
+        const breakdown = stats.breakdown || {};
+        const range = store.ranges ? (type === 'yearly' ? store.ranges.yearly : store.ranges.monthly) : null;
+        const buckets = buildStatsDetailBuckets(store.logs || [], range);
+        const items = Object.entries(breakdown).filter(([, v]) => Number(v || 0) > 0);
+        const existing = document.getElementById('dashboard-stats-modal');
+        if (existing) existing.remove();
+        const modal = document.createElement('div');
+        modal.id = 'dashboard-stats-modal';
+        modal.className = 'modal-overlay dashboard-stats-modal';
+        modal.innerHTML = `
+            <div class="modal-content dashboard-stats-modal-content">
+                <div class="dashboard-stats-modal-head">
+                    <div>
+                        <div class="dashboard-stats-modal-title">${safeHtml(title || 'Attendance Summary')}</div>
+                        <div class="dashboard-stats-modal-sub">${safeHtml(subtitle || '')}</div>
                     </div>
-                    <div class="team-activity-modal-actions">
-                        <div class="dashboard-team-activity-filters">
-                            <select class="dashboard-team-select" onchange="window.app_setStaffActivityMonth(this.value); window.app_expandTeamActivityRefresh();">
-                                ${monthOptions.map(opt => `<option value="${opt.key}" ${opt.key === state.selectedMonth ? 'selected' : ''}>${safeHtml(opt.label)}</option>`).join('')}
-                            </select>
-                            <select class="dashboard-team-select" onchange="window.app_setStaffActivitySort(this.value); window.app_expandTeamActivityRefresh();">
-                                <option value="date-desc" ${state.sortKey === 'date-desc' ? 'selected' : ''}>Date (Newest)</option>
-                                <option value="date-asc" ${state.sortKey === 'date-asc' ? 'selected' : ''}>Date (Oldest)</option>
-                                <option value="completed-first" ${state.sortKey === 'completed-first' ? 'selected' : ''}>Completed First</option>
-                                <option value="incomplete-first" ${state.sortKey === 'incomplete-first' ? 'selected' : ''}>Incomplete First</option>
-                                <option value="status-priority" ${state.sortKey === 'status-priority' ? 'selected' : ''}>Status Priority</option>
-                                <option value="staff-asc" ${state.sortKey === 'staff-asc' ? 'selected' : ''}>Staff (A-Z)</option>
-                                <option value="staff-desc" ${state.sortKey === 'staff-desc' ? 'selected' : ''}>Staff (Z-A)</option>
-                            </select>
-                        </div>
-                        <button class="team-activity-modal-close" onclick="window.app_closeTeamActivityExpanded()"><i class="fa-solid fa-xmark"></i></button>
+                    <button class="dashboard-stats-modal-close" type="button" onclick="window.app_closeStatsDetailModal()"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="dashboard-stats-modal-grid">
+                    <div class="dashboard-stats-modal-tile" data-stat-detail="late" role="button" tabindex="0">
+                        <span class="label">Late Count</span>
+                        <span class="value">${safeHtml(stats.late ?? 0)}</span>
+                        <span class="hint">Total late entries</span>
+                    </div>
+                    <div class="dashboard-stats-modal-tile" data-stat-detail="late" role="button" tabindex="0">
+                        <span class="label">Late Duration</span>
+                        <span class="value">${safeHtml(stats.totalLateDuration || '0h 0m')}</span>
+                        <span class="hint">Summed lateness time</span>
+                    </div>
+                    <div class="dashboard-stats-modal-tile" data-stat-detail="early" role="button" tabindex="0">
+                        <span class="label">Early Departures</span>
+                        <span class="value">${safeHtml(stats.earlyDepartures ?? 0)}</span>
+                        <span class="hint">Left before cutoff</span>
+                    </div>
+                    <div class="dashboard-stats-modal-tile" data-stat-detail="extra" role="button" tabindex="0">
+                        <span class="label">Extra Hours</span>
+                        <span class="value">${safeHtml(stats.extraWorkedHours ?? 0)}h</span>
+                        <span class="hint">Counted extra time</span>
+                    </div>
+                    <div class="dashboard-stats-modal-tile" data-stat-detail="late" role="button" tabindex="0">
+                        <span class="label">Penalty</span>
+                        <span class="value">${safeHtml(stats.penalty ?? stats.penaltyLeaves ?? 0)}</span>
+                        <span class="hint">Leave deductions</span>
+                    </div>
+                    <div class="dashboard-stats-modal-tile" data-stat-detail="extra" role="button" tabindex="0">
+                        <span class="label">Penalty Offset</span>
+                        <span class="value">${safeHtml(stats.penaltyOffset ?? 0)}</span>
+                        <span class="hint">Extra hours offset</span>
+                    </div>
+                    <div class="dashboard-stats-modal-tile highlight" data-stat-detail="late" role="button" tabindex="0">
+                        <span class="label">Effective Penalty</span>
+                        <span class="value">${safeHtml(stats.effectivePenalty ?? 0)}</span>
+                        <span class="hint">Final deduction</span>
                     </div>
                 </div>
-                <div id="staff-activity-list-modal" class="team-activity-modal-body">
-                    ${renderStaffActivityListSplit(state.logs, state.sortKey)}
+                <div class="dashboard-stats-modal-section">
+                    <div class="dashboard-stats-modal-section-title">Breakdown</div>
+                    <div class="dashboard-stats-modal-breakdown">
+                        ${(items.length ? items : [['No data', 0]]).map(([k, v]) => `
+                            <div class="dashboard-stats-modal-row" data-breakdown-key="${safeHtml(k)}" role="button" tabindex="0">
+                                <span>${safeHtml(k)}</span>
+                                <strong>${safeHtml(v)}</strong>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                <div class="dashboard-stats-modal-section">
+                    <div class="dashboard-stats-modal-section-title" id="dashboard-stats-detail-title">Details</div>
+                    <div class="dashboard-stats-modal-dates" id="dashboard-stats-date-list"></div>
                 </div>
             </div>
         `;
-
-        document.body.appendChild(modalOverlay);
-        document.body.style.overflow = 'hidden'; // Prevent background scrolling
-
-        // Add Escape key listener
-        window._teamActivityEscHandler = (e) => {
-            if (e.key === 'Escape') window.app_closeTeamActivityExpanded();
+        document.body.appendChild(modal);
+        document.body.style.overflow = 'hidden';
+        window._dashboardStatsDetailData = { type, buckets };
+        const defaultKey = buckets.late.length ? 'late' : (buckets.early.length ? 'early' : (buckets.extra.length ? 'extra' : 'Present'));
+        window.app_updateStatsDetailView(defaultKey);
+        modal.addEventListener('click', (event) => {
+            const detailTile = event.target.closest('[data-stat-detail]');
+            if (detailTile) {
+                window.app_updateStatsDetailView(detailTile.getAttribute('data-stat-detail'));
+                return;
+            }
+            const breakdownRow = event.target.closest('[data-breakdown-key]');
+            if (breakdownRow) {
+                window.app_updateStatsDetailView(breakdownRow.getAttribute('data-breakdown-key'));
+            }
+        });
+        modal.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            const detailTile = event.target.closest('[data-stat-detail]');
+            const breakdownRow = event.target.closest('[data-breakdown-key]');
+            if (detailTile || breakdownRow) {
+                event.preventDefault();
+                window.app_updateStatsDetailView((detailTile ? detailTile.getAttribute('data-stat-detail') : breakdownRow.getAttribute('data-breakdown-key')));
+            }
+        });
+        modal.addEventListener('click', (event) => {
+            if (event.target === modal) {
+                window.app_closeStatsDetailModal();
+            }
+        });
+        window._dashboardStatsEscHandler = (e) => {
+            if (e.key === 'Escape') window.app_closeStatsDetailModal();
         };
-        window.addEventListener('keydown', window._teamActivityEscHandler);
+        window.addEventListener('keydown', window._dashboardStatsEscHandler);
+    };
+
+    window.app_closeStatsDetailModal = function () {
+        const modal = document.getElementById('dashboard-stats-modal');
+        if (modal) modal.remove();
+        document.body.style.overflow = '';
+        window._dashboardStatsDetailData = null;
+        if (window._dashboardStatsEscHandler) {
+            window.removeEventListener('keydown', window._dashboardStatsEscHandler);
+            window._dashboardStatsEscHandler = null;
+        }
+    };
+
+    window.app_updateStatsDetailView = function (key) {
+        const data = window._dashboardStatsDetailData || {};
+        const buckets = data.buckets || {};
+        let label = '';
+        let dates = [];
+        if (key === 'late') {
+            label = 'Late Dates';
+            dates = buckets.late || [];
+        } else if (key === 'early') {
+            label = 'Early Departure Dates';
+            dates = buckets.early || [];
+        } else if (key === 'extra') {
+            label = 'Extra Hours Dates';
+            dates = buckets.extra || [];
+        } else if (buckets.breakdown && Object.prototype.hasOwnProperty.call(buckets.breakdown, key)) {
+            label = `${key} Dates`;
+            dates = buckets.breakdown[key] || [];
+        } else {
+            label = 'Details';
+            dates = [];
+        }
+        const titleEl = document.getElementById('dashboard-stats-detail-title');
+        const listEl = document.getElementById('dashboard-stats-date-list');
+        if (titleEl) titleEl.textContent = label;
+        if (listEl) {
+            listEl.innerHTML = dates.length
+                ? dates.map(d => `<div class="dashboard-stats-date-item">${safeHtml(d)}</div>`).join('')
+                : `<div class="dashboard-stats-date-empty">No dates available.</div>`;
+        }
+        document.querySelectorAll('.dashboard-stats-modal-tile, .dashboard-stats-modal-row').forEach(el => {
+            const tileKey = el.getAttribute('data-stat-detail');
+            const rowKey = el.getAttribute('data-breakdown-key');
+            el.classList.toggle('is-active', (tileKey && tileKey === key) || (rowKey && rowKey === key));
+        });
+    };
+
+    window.app_attachStatsCardHandlers = function () {
+        attachStatsCardHandlers();
     };
 
     window.app_expandTeamActivityRefresh = function () {
