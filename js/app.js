@@ -374,6 +374,118 @@ window.app_showAttendanceNotice = (message) => {
     }, 10000);
 };
 
+window.app_promptMissedCheckoutReason = (payload = {}) => {
+    const { logId, date } = payload || {};
+    if (!logId) return;
+    if (document.getElementById('missed-checkout-reason-modal')) return;
+
+    const dateLabel = date ? new Date(`${date}T00:00:00`).toLocaleDateString() : 'previous day';
+    const html = `
+        <div class="modal-overlay" id="missed-checkout-reason-modal" style="display:flex;">
+            <div class="modal-content" style="max-width:560px;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; margin-bottom:0.75rem;">
+                    <div>
+                        <h3 style="margin:0;">Missed Checkout</h3>
+                        <p style="margin:0.35rem 0 0 0; font-size:0.85rem; color:#6b7280;">
+                            Your session on ${escapeDialogHtml(dateLabel)} was auto-checked out and counted as a half day.
+                        </p>
+                    </div>
+                    <button type="button" onclick="this.closest('.modal-overlay').remove()" style="background:none; border:none; font-size:1.2rem; cursor:pointer;">&times;</button>
+                </div>
+                <form onsubmit="window.app_submitMissedCheckoutReason(event, '${String(logId)}')">
+                    <label style="display:block; font-size:0.85rem; margin-bottom:0.35rem;">Reason for not checking out</label>
+                    <textarea name="reason" required placeholder="Share what happened..." style="width:100%; padding:0.75rem; border:1px solid #ddd; border-radius:8px; min-height:110px;"></textarea>
+                    <div style="font-size:0.8rem; color:#92400e; margin-top:0.5rem;">
+                        This will be sent to admin for verification.
+                    </div>
+                    <div style="display:flex; justify-content:flex-end; margin-top:1rem;">
+                        <button type="submit" class="action-btn">Submit Reason</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    `;
+    (document.body || document.getElementById('modal-container')).insertAdjacentHTML('beforeend', html);
+
+    const modal = document.getElementById('missed-checkout-reason-modal');
+    modal?.addEventListener('click', (ev) => {
+        if (ev.target === modal) modal.remove();
+    });
+};
+
+window.app_submitMissedCheckoutReason = async (event, logId) => {
+    event.preventDefault();
+    const form = event.target;
+    const reason = String(new FormData(form).get('reason') || '').trim();
+    if (!reason) {
+        alert('Please enter a reason.');
+        return;
+    }
+
+    try {
+        const currentUser = window.AppAuth.getUser();
+        if (!currentUser) throw new Error('User not authenticated');
+
+        const log = await window.AppDB.get('attendance', logId);
+        if (!log) throw new Error('Attendance record not found.');
+
+        const nowIso = new Date().toISOString();
+        const updatedLog = {
+            ...log,
+            missedCheckoutReason: reason,
+            missedCheckoutReasonSubmittedAt: nowIso,
+            missedCheckoutReasonStatus: 'pending'
+        };
+        await window.AppDB.put('attendance', updatedLog);
+
+        const staff = await window.AppDB.get('users', currentUser.id);
+        if (staff) {
+            if (!staff.notifications) staff.notifications = [];
+            staff.notifications.unshift({
+                id: `mcr_sub_${Date.now()}`,
+                type: 'missed-checkout-reason-submitted',
+                title: 'Missed checkout reason submitted',
+                message: `Reason sent for ${log.date}. Awaiting admin verification.`,
+                status: 'submitted',
+                date: nowIso,
+                read: true
+            });
+            await window.AppDB.put('users', staff);
+            if (window.AppAuth?.getUser) Object.assign(window.AppAuth.getUser(), { notifications: staff.notifications });
+        }
+
+        const admins = (await window.AppDB.getAll('users')).filter(u => u.isAdmin || u.role === 'Administrator');
+        await Promise.all(admins.map(async (admin) => {
+            if (!admin.notifications) admin.notifications = [];
+            admin.notifications.unshift({
+                id: `mcr_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                type: 'missed-checkout-reason',
+                title: 'Missed checkout reason submitted',
+                message: `${currentUser.name} submitted a reason for missed checkout on ${log.date}.`,
+                description: reason,
+                staffId: currentUser.id,
+                staffName: currentUser.name,
+                missedCheckoutDate: log.date,
+                logId: String(log.id || ''),
+                taggedById: currentUser.id,
+                taggedByName: currentUser.name,
+                taggedAt: nowIso,
+                status: 'pending',
+                date: nowIso,
+                read: false
+            });
+            await window.AppDB.put('users', admin);
+        }));
+
+        document.getElementById('missed-checkout-reason-modal')?.remove();
+        if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
+        window.app_showSyncToast('Reason submitted for admin verification.');
+    } catch (err) {
+        console.error('Missed checkout reason submit failed:', err);
+        alert('Failed to submit reason: ' + err.message);
+    }
+};
+
 window.app_showSyncToast = (message = 'Status updated from another device.') => {
     const id = 'app-sync-toast';
     const old = document.getElementById(id);
@@ -536,6 +648,7 @@ const isPendingNotif = (notif) => toSafeNotifStatus(notif) === 'pending';
 
 const getNotifSource = (notif) => {
     if (notif?.type === 'minute-access-request') return 'Minutes';
+    if (String(notif?.type || '').includes('missed-checkout')) return 'Attendance';
     if (notif?.type === 'task') return 'Task';
     if (notif?.type === 'tag' || notif?.type === 'mention') return 'Tag';
     if (notif?.type === 'reminder') return 'Reminder';
@@ -642,6 +755,10 @@ window.app_respondNotificationFromHistory = async (notifIndex, notifId, action) 
             await window.app_reviewMinuteAccessFromNotification(resolvedIndex, notif.id, decision === 'approve' ? 'approved' : 'rejected');
             return;
         }
+        if (notif.type === 'missed-checkout-reason' && (currentUser.isAdmin || currentUser.role === 'Administrator')) {
+            await window.app_reviewMissedCheckoutReasonFromNotification(resolvedIndex, notif.id, decision === 'approve' ? 'approved' : 'rejected');
+            return;
+        }
 
         const taskIndex = Number(notif.taskIndex);
         if (notif.planId && Number.isInteger(taskIndex) && taskIndex >= 0) {
@@ -714,7 +831,15 @@ window.app_openNotificationHistory = async () => {
                 <div class="notif-drawer-item-head">
                     <div class="notif-drawer-item-left">
                         <div class="notif-drawer-source-icon">
-                            <i class="fa-solid ${row.type === 'tag' || row.type === 'mention' ? 'fa-at' : row.type === 'task' ? 'fa-list-check' : row.type === 'minute-access-request' ? 'fa-file-lines' : 'fa-bell'}"></i>
+                            <i class="fa-solid ${row.type === 'tag' || row.type === 'mention'
+                                ? 'fa-at'
+                                : row.type === 'task'
+                                    ? 'fa-list-check'
+                                    : row.type === 'minute-access-request'
+                                        ? 'fa-file-lines'
+                                        : String(row.type || '').includes('missed-checkout')
+                                            ? 'fa-user-clock'
+                                            : 'fa-bell'}"></i>
                         </div>
                         <div>
                             <div class="notif-drawer-title">${escapeDialogHtml(title)}</div>
@@ -3171,6 +3296,12 @@ async function handleAttendance() {
             if (checkInResult && checkInResult.resolvedMissedCheckout && checkInResult.noticeMessage) {
                 window.app_showAttendanceNotice(checkInResult.noticeMessage);
             }
+            if (checkInResult && checkInResult.missedCheckoutReasonRequired && checkInResult.missedCheckoutLogId) {
+                window.app_promptMissedCheckoutReason({
+                    logId: checkInResult.missedCheckoutLogId,
+                    date: checkInResult.missedCheckoutDate
+                });
+            }
             // Prompt to add plan if missing
             if (window.AppDayPlan && typeof window.AppDayPlan.openDayPlan === 'function') {
                 await window.AppDayPlan.openDayPlan(getLocalISO());
@@ -4359,6 +4490,91 @@ window.app_reviewMinuteAccessFromNotification = async (notifIndex, notifId, deci
         if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
     } catch (err) {
         alert('Failed to review access request: ' + err.message);
+    }
+};
+
+window.app_reviewMissedCheckoutReasonFromNotification = async (notifIndex, notifId, decision) => {
+    try {
+        const currentUser = window.AppAuth.getUser();
+        const isAdmin = currentUser && (currentUser.isAdmin || currentUser.role === 'Administrator');
+        if (!isAdmin) {
+            alert('Only admin can review missed checkout reasons.');
+            return;
+        }
+
+        const adminUser = await window.AppDB.get('users', currentUser.id);
+        if (!adminUser || !Array.isArray(adminUser.notifications)) {
+            alert('Notification not found.');
+            return;
+        }
+
+        let notif = null;
+        if (typeof notifIndex === 'number' && adminUser.notifications[notifIndex]) {
+            notif = adminUser.notifications[notifIndex];
+        }
+        if (!notif && notifId) {
+            notif = adminUser.notifications.find(n => String(n.id) === String(notifId));
+        }
+        if (!notif || notif.type !== 'missed-checkout-reason') {
+            alert('This notification is no longer available.');
+            return;
+        }
+
+        const staffId = notif.staffId || notif.taggedById;
+        const logId = notif.logId;
+        if (!staffId || !logId) {
+            alert('Invalid missed checkout payload.');
+            return;
+        }
+
+        let reviewNote = '';
+        if (decision === 'rejected') {
+            reviewNote = (await window.appPrompt('Optional: add a rejection reason', '', { title: 'Reject Reason', confirmText: 'Submit Reason' })) || '';
+        }
+
+        const log = await window.AppDB.get('attendance', logId);
+        if (log) {
+            await window.AppDB.put('attendance', {
+                ...log,
+                missedCheckoutReasonStatus: decision,
+                missedCheckoutReviewedBy: currentUser.name,
+                missedCheckoutReviewedAt: new Date().toISOString(),
+                missedCheckoutReviewNote: reviewNote || ''
+            });
+        }
+
+        const nowIso = new Date().toISOString();
+        const targetNotif = adminUser.notifications.find(n => String(n.id) === String(notif.id));
+        if (targetNotif) {
+            targetNotif.status = decision;
+            targetNotif.respondedAt = nowIso;
+            targetNotif.read = true;
+            await window.AppAuth.updateUser(adminUser);
+        }
+
+        const staffUser = await window.AppDB.get('users', staffId);
+        if (staffUser) {
+            if (!staffUser.notifications) staffUser.notifications = [];
+            const reviewedDate = notif.missedCheckoutDate || (log ? log.date : 'the previous day');
+            staffUser.notifications.unshift({
+                id: `mcr_rev_${Date.now()}`,
+                type: 'missed-checkout-reason-reviewed',
+                title: 'Missed checkout reason reviewed',
+                message: `Admin ${decision} your missed checkout reason for ${reviewedDate}.`,
+                status: decision,
+                date: nowIso,
+                taggedById: currentUser.id,
+                taggedByName: currentUser.name,
+                reviewNote: reviewNote || ''
+            });
+            await window.AppDB.put('users', staffUser);
+        }
+
+        contentArea.innerHTML = await AppUI.renderDashboard();
+        if (window.setupDashboardEvents) window.setupDashboardEvents();
+        if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
+    } catch (err) {
+        alert('Failed to review missed checkout reason: ' + err.message);
     }
 };
 

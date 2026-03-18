@@ -44,6 +44,8 @@ export class Attendance {
 
         let resolvedMissedCheckout = false;
         let noticeMessage = '';
+        let missedCheckoutLogId = null;
+        let missedCheckoutDate = null;
 
         if (user.status === 'in' && user.lastCheckIn) {
             const priorCheckInTime = new Date(user.lastCheckIn);
@@ -52,9 +54,14 @@ export class Attendance {
             const todayLocalDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
             if (priorLocalDate < todayLocalDate) {
-                const fixedDurationMs = 8 * 60 * 60 * 1000;
+                const fixedDurationMs = 4 * 60 * 60 * 1000;
                 const priorCheckOutTime = new Date(priorCheckInTime.getTime() + fixedDurationMs);
-                const statusMeta = this.evaluateAttendanceStatus(priorCheckInTime, fixedDurationMs);
+                const statusMeta = {
+                    status: 'Half Day',
+                    dayCredit: this.getDayCredit('Half Day'),
+                    lateCountable: false,
+                    extraWorkedMs: 0
+                };
                 const priorLocation = user.currentLocation || user.lastLocation || null;
                 const closureTimestamp = new Date().toISOString();
 
@@ -77,22 +84,31 @@ export class Attendance {
                     checkOutLocation: 'System closure on next check-in',
                     outLat: null,
                     outLng: null,
-                    workDescription: 'System closure: previous open session was closed at fixed 8 credited hours.',
+                    workDescription: 'System closure: missed checkout auto-closed as half day. Reason required on next login.',
                     locationMismatched: false,
                     locationExplanation: '',
                     activityScore: 0,
-                    autoCheckout: false,
-                    autoCheckoutReason: '',
-                    autoCheckoutAt: null,
+                    autoCheckout: true,
+                    autoCheckoutReason: 'missed_checkout_next_login',
+                    autoCheckoutAt: closureTimestamp,
                     autoCheckoutRequiresApproval: false,
                     autoCheckoutExtraApproved: null,
                     missedCheckoutResolved: true,
-                    missedCheckoutPolicy: 'fixed_8h_on_next_checkin',
+                    missedCheckoutPolicy: 'half_day_on_missed_checkout',
+                    missedCheckoutReasonRequired: true,
+                    missedCheckoutReasonStatus: 'pending',
+                    missedCheckoutReason: '',
+                    missedCheckoutReasonSubmittedAt: null,
+                    missedCheckoutReviewedBy: '',
+                    missedCheckoutReviewedAt: '',
+                    missedCheckoutReviewNote: '',
                     systemClosedAt: closureTimestamp,
                     synced: false
                 };
 
                 await AppDB.add('attendance', missedLog);
+                missedCheckoutLogId = missedLog.id;
+                missedCheckoutDate = missedLog.date;
 
                 user.status = 'out';
                 user.lastCheckOut = priorCheckOutTime.getTime();
@@ -103,7 +119,7 @@ export class Attendance {
                 user.currentLocation = null;
 
                 resolvedMissedCheckout = true;
-                noticeMessage = 'Previous open session was closed by policy at 8 credited hours because checkout was missed.';
+                noticeMessage = 'Previous open session was closed as half day because checkout was missed. Please submit a reason for admin verification.';
             } else {
                 return {
                     ok: false,
@@ -126,7 +142,10 @@ export class Attendance {
         return {
             ok: true,
             resolvedMissedCheckout,
-            noticeMessage
+            noticeMessage,
+            missedCheckoutReasonRequired: resolvedMissedCheckout,
+            missedCheckoutLogId,
+            missedCheckoutDate
         };
     }
 
@@ -476,5 +495,3 @@ export class Attendance {
 
 export const AppAttendance = new Attendance();
 if (typeof window !== 'undefined') window.AppAttendance = AppAttendance;
-
-

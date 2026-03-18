@@ -69,5 +69,7 @@ For afternoon check-ins, result is hours-based:
 - Useful after policy updates so dashboard/salary summaries match current rules
 
 ## 9. Notes
+- Missed checkout handling: if a session is auto-closed on the next login/check-in, it is credited as **Half Day only**.
+- The staff member is prompted on next login to submit a reason for the missed checkout, which is sent to admin for verification.
 - Historical records created before policy updates may show old behavior until recalculated.
 - Manual override logs are treated as admin-controlled records.
