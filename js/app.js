@@ -1338,6 +1338,11 @@ async function router() {
         if (hash === 'dashboard') {
             contentArea.innerHTML = await AppUI.renderDashboard();
             setupDashboardEvents();
+        } else if (hash === 'team-activities') {
+            contentArea.innerHTML = await AppUI.renderTeamActivitiesPage();
+            if (window.app_initTeamActivities) {
+                await window.app_initTeamActivities();
+            }
         } else if (hash === 'staff-directory') {
             contentArea.innerHTML = await AppUI.renderStaffDirectoryPage();
         } else if (hash === 'policies') {

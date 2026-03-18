@@ -855,7 +855,22 @@ export class Analytics {
             const endDate = new Date();
             const startDate = new Date();
 
-            if (mode === 'days') {
+            if (mode === 'range') {
+                const startIsoRaw = String(normalized.startIso || '');
+                const endIsoRaw = String(normalized.endIso || '');
+                if (!startIsoRaw || !endIsoRaw) {
+                    throw new Error('Range mode requires startIso and endIso.');
+                }
+                const rangeStart = new Date(startIsoRaw);
+                const rangeEnd = new Date(endIsoRaw);
+                if (Number.isNaN(rangeStart.getTime()) || Number.isNaN(rangeEnd.getTime())) {
+                    throw new Error(`Invalid range dates: ${startIsoRaw} to ${endIsoRaw}`);
+                }
+                startDate.setTime(rangeStart.getTime());
+                endDate.setTime(rangeEnd.getTime());
+                startDate.setHours(0, 0, 0, 0);
+                endDate.setHours(23, 59, 59, 999);
+            } else if (mode === 'days') {
                 const daysBack = Number.isFinite(Number(normalized.daysBack))
                     ? Number(normalized.daysBack)
                     : 7;
@@ -930,7 +945,7 @@ export class Analytics {
                     const dayKey = `${wp.userId}:${wp.date}`;
                     const dayAttendanceContent = attendanceContentByDay[dayKey] || [];
 
-                    wp.plans.forEach(plan => {
+                    wp.plans.forEach((plan, idx) => {
                         // Deduplication Logic:
                         // If this task text is found as a substring within any associated attendance log's description 
                         // (which often happens at checkout when tasks are auto-appended to summary), we skip it here.
@@ -950,6 +965,9 @@ export class Analytics {
                             ...plan,
                             date: wp.date,
                             id: wp.id, // work_plan document id
+                            planId: wp.id,
+                            taskIndex: idx,
+                            planScope: plan.planScope || wp.planScope || 'personal',
                             userId: wpUserId,
                             type: 'work',
                             staffName: staffName,

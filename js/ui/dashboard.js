@@ -777,8 +777,8 @@ export async function renderDashboard() {
     } else {
         summaryHTML = `
             <div class="dashboard-summary-row">
-                <div style="flex: 1.2; min-width: 300px; display: flex; flex-direction: column;">${renderStaffDirectory(allUsers, notifications, user)}</div>
-                <div style="flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 1rem;">${renderYearlyPlanHTML}${heroHTML}</div>
+                <div class="dashboard-summary-col dashboard-summary-col-wide">${renderYearlyPlanHTML}</div>
+                <div class="dashboard-summary-col dashboard-summary-col-narrow">${heroHTML}</div>
             </div>
             <div class="dashboard-stats-row">
                 ${renderStatsCard(monthlyStats.label, 'Monthly Stats', monthlyStats)}
@@ -813,7 +813,7 @@ export async function renderDashboard() {
                 </button>
             </div>
             <div class="dashboard-primary-row">
-                <div class="card check-in-widget" style="flex: 1; min-width: 210px; padding: 1rem; display: flex; flex-direction: column; justify-content: space-between; margin-bottom: 0; background: white; border: 1px solid #eef2ff;">
+                <div class="card check-in-widget dashboard-primary-card" style="padding: 1rem; display: flex; flex-direction: column; justify-content: space-between; margin-bottom: 0; background: white; border: 1px solid #eef2ff;">
                     <div style="display: flex; align-items: center; justify-content: center; gap: 1rem; margin-bottom: 0.75rem;"><div style="position: relative;"><img src="${safeUrl(displayUser.avatar)}" alt="Profile" style="width: 48px; height: 48px; border-radius: 50%; border: 2px solid #e0e7ff;"><div style="position: absolute; bottom: 0; right: 0; width: 12px; height: 12px; border-radius: 50%; background: ${isCheckedIn ? '#10b981' : '#94a3b8'}; border: 2px solid white;"></div></div><div style="text-align: left;"><h4 style="font-size: 0.95rem; margin: 0; color: #1e1b4b;">${safeHtml(displayUser.name)}</h4><p class="text-muted" style="font-size: 0.75rem; margin: 0;">${safeHtml(displayUser.role)}</p></div></div>
                     <div style="text-align:center; padding: 0.5rem 0;"><div class="timer-display" id="timer-display" style="font-size: 2.25rem; font-weight: 800; color: #1e1b4b; line-height: 1; letter-spacing: -1px;">${timerHTML}</div><div id="timer-label" style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; color: #64748b; margin-top: 6px; font-weight: 600;">Elapsed Time Today</div></div>
                     <div id="countdown-container" style="display: none; margin-bottom: 0.75rem; width: 100%;"><div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: #4b5563; margin-bottom: 4px;"><span id="countdown-label">Time to checkout</span><span id="countdown-value" style="font-weight: 600;">--:--:--</span></div><div style="width: 100%; height: 4px; background: #e5e7eb; border-radius: 2px; overflow: hidden;"><div id="countdown-progress" style="width: 0%; height: 100%; background: var(--primary); transition: width 1s linear;"></div></div></div>
@@ -821,9 +821,8 @@ export async function renderDashboard() {
                     <button class="${btnClass}" id="attendance-btn" ${isReadOnlyView ? 'disabled' : ''} title="${isReadOnlyView ? 'View only' : ''}" style="width: 100%; padding: 0.75rem; font-size: 0.9rem; border-radius: 10px; margin-top: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; transition: all 0.3s ease; ${isReadOnlyView ? 'opacity:0.6; cursor:not-allowed;' : ''}">${btnText} <i class="fa-solid fa-fingerprint"></i></button>
                     <div class="location-text" id="location-text" style="font-size: 0.65rem; color: #94a3b8; text-align: center; margin-top: 0.5rem;"><i class="fa-solid fa-location-dot"></i><span>${isCheckedIn && displayUser.currentLocation ? `Lat: ${Number(displayUser.currentLocation.lat).toFixed(4)}, Lng: ${Number(displayUser.currentLocation.lng).toFixed(4)}` : 'Waiting for location...'}</span></div>
                 </div>
-                <div style="flex: 1.1; min-width: 230px; display: flex; flex-direction: column; ${!isViewingSelf ? 'border: 2px solid #fb923c; border-radius: 12px;' : ''}">${renderWorkLog(logs, collaborations, targetStaff, minutesData)}</div>
-                <div style="flex: 1.8; min-width: 280px; display: flex; flex-direction: column;">${renderActivityLog(staffActivities)}</div>
-                ${isAdmin ? `<div style="flex: 1.2; min-width: 210px; display: flex; flex-direction: column;">${renderStaffDirectory(allUsers, notifications, user)}</div>` : ''}
+                <div class="dashboard-primary-col ${!isViewingSelf ? 'dashboard-primary-col-highlight' : ''}">${renderWorkLog(logs, collaborations, targetStaff, minutesData)}</div>
+                <div class="dashboard-primary-col">${renderActivityLog(staffActivities)}</div>
             </div>
             ${summaryHTML}
         </div>`;

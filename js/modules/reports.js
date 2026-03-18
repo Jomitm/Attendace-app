@@ -330,6 +330,39 @@ export class Reports {
             throw new Error("Failed to export list: " + err.message);
         }
     }
+
+    exportTeamActivitiesXLSX(rows, meta = {}) {
+        try {
+            if (typeof window === 'undefined' || !window.XLSX) {
+                alert('Excel export library not loaded.');
+                return false;
+            }
+            const dataRows = (rows || []).map(r => ([
+                r.date || '',
+                r.staffName || '',
+                r.type || '',
+                r.status || '',
+                r.description || '',
+                r.sourceTime || ''
+            ]));
+
+            const headers = ['Date', 'Staff', 'Type', 'Status', 'Description', 'Time'];
+            const ws = window.XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+            const wb = window.XLSX.utils.book_new();
+            window.XLSX.utils.book_append_sheet(wb, ws, 'Team Activities');
+
+            const start = (meta.start || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+            const end = (meta.end || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+            const suffix = start && end ? `${start}_to_${end}` : (start || end || 'export');
+            const fileName = `Team_Activities_${suffix}.xlsx`;
+            window.XLSX.writeFile(wb, fileName);
+            return true;
+        } catch (err) {
+            console.error("Team Activities Export Failed:", err);
+            alert("Export Failed: " + err.message);
+            return false;
+        }
+    }
 }
 
 export const AppReports = new Reports();
