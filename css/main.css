@@ -9255,6 +9255,71 @@ textarea:focus {
     overflow: hidden;
 }
 
+.app-hover-help-tooltip {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 10030;
+    max-width: min(260px, calc(100vw - 2rem));
+    padding: 0.55rem 0.75rem;
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.94);
+    color: #f8fafc;
+    font-size: 0.78rem;
+    font-weight: 600;
+    line-height: 1.35;
+    box-shadow: 0 16px 36px rgba(15, 23, 42, 0.28);
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.app-hover-help-tooltip.is-visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.page-usage-note {
+    margin-top: 1.25rem;
+    padding: 1rem 1.1rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 16px;
+    background: linear-gradient(180deg, #f8fbff 0%, #eef6ff 100%);
+    color: #1e293b;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.page-usage-note-header {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    margin-bottom: 0.65rem;
+}
+
+.page-usage-note-header i {
+    width: 34px;
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: rgba(63, 99, 168, 0.12);
+    color: var(--primary);
+}
+
+.page-usage-note-header h3 {
+    margin: 0;
+    font-size: 0.98rem;
+    font-family: var(--font-display);
+}
+
+.page-usage-note p {
+    margin: 0.45rem 0 0;
+    line-height: 1.6;
+    font-size: 0.9rem;
+}
+
 .dashboard-checkin-countdown-progress {
     width: 0;
     height: 100%;

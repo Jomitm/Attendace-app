@@ -11,6 +11,22 @@ export async function renderMinutes() {
     const allUsers = window.AppDB?.getAll ? await window.AppDB.getAll('users') : [];
     const currentUser = window.AppAuth.getUser();
     const calendarPlans = window.AppCalendar ? await window.AppCalendar.getPlans() : { leaves: [], events: [], work: [] };
+    const now = new Date();
+    const defaultMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    if (!window._minutesUiState) {
+        window._minutesUiState = {
+            viewMode: 'list',
+            searchQuery: '',
+            monthKey: defaultMonthKey
+        };
+    } else {
+        window._minutesUiState.viewMode = window._minutesUiState.viewMode || 'list';
+        window._minutesUiState.searchQuery = window._minutesUiState.searchQuery || '';
+        window._minutesUiState.monthKey = window._minutesUiState.monthKey || defaultMonthKey;
+    }
+
+    const minutesUiState = window._minutesUiState;
 
     // Helper functions
     const hasMinuteDetailAccess = (m, user = currentUser) => {
@@ -85,6 +101,36 @@ export async function renderMinutes() {
 
     const plainTextToRichHtml = (text = '') => safeHtml(text || '').replace(/\n/g, '<br>');
 
+    const parseMinuteDate = (value) => {
+        if (!value) return null;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return new Date(`${value}T00:00:00`);
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
+
+    const formatMinuteDate = (value, options = { day: 'numeric', month: 'short', year: 'numeric' }) => {
+        const parsed = parseMinuteDate(value);
+        return parsed ? parsed.toLocaleDateString(undefined, options) : 'Date not set';
+    };
+
+    const monthKeyToDate = (monthKey) => {
+        const [year, month] = String(monthKey || defaultMonthKey).split('-').map(Number);
+        if (!year || !month) return new Date(now.getFullYear(), now.getMonth(), 1);
+        return new Date(year, month - 1, 1);
+    };
+
+    const getMinuteSearchText = (minute) => {
+        const attendeeNames = (minute.attendeeIds || [])
+            .map(id => allUsers.find(u => u.id === id)?.name || allUsers.find(u => u.id === id)?.username || '')
+            .join(' ');
+        return [
+            minute.title,
+            minute.date,
+            minute.content,
+            attendeeNames
+        ].join(' ').toLowerCase();
+    };
+
     const getRichContentPayload = (editorId, fallbackTextId = '') => {
         const editor = document.getElementById(editorId);
         const rawHtml = editor ? editor.innerHTML : '';
@@ -126,7 +172,10 @@ export async function renderMinutes() {
 
     window.app_refreshMinutesView = async () => {
         const page = document.getElementById('page-content');
-        if (page) page.innerHTML = await renderMinutes();
+        if (page) {
+            page.innerHTML = await renderMinutes();
+            window.setTimeout(() => window.app_filterMinutes(minutesUiState.searchQuery || ''), 0);
+        }
     };
 
     window.app_minutesExec = (editorId, command, value = null) => {
@@ -149,12 +198,48 @@ export async function renderMinutes() {
     };
 
     window.app_filterMinutes = (query) => {
-        const q = query.toLowerCase();
+        minutesUiState.searchQuery = query || '';
+        const q = minutesUiState.searchQuery.toLowerCase().trim();
+        let visibleCount = 0;
+
         document.querySelectorAll('.minute-card-modern').forEach(card => {
-            const title = card.querySelector('.card-title-modern')?.textContent.toLowerCase() || '';
-            const date = card.querySelector('.card-date-badge')?.textContent.toLowerCase() || '';
-            card.style.display = (title.includes(q) || date.includes(q)) ? 'flex' : 'none';
+            const haystack = (card.dataset.searchText || '').toLowerCase();
+            const match = !q || haystack.includes(q);
+            card.style.display = match ? 'flex' : 'none';
+            if (match) visibleCount += 1;
         });
+
+        document.querySelectorAll('.minutes-calendar-entry').forEach(entry => {
+            const haystack = (entry.dataset.searchText || '').toLowerCase();
+            const match = !q || haystack.includes(q);
+            entry.style.display = match ? 'flex' : 'none';
+        });
+
+        document.querySelectorAll('.minutes-calendar-day').forEach(day => {
+            const entries = Array.from(day.querySelectorAll('.minutes-calendar-entry'));
+            const hasVisibleEntries = entries.some(entry => entry.style.display !== 'none');
+            const countEl = day.querySelector('.minutes-calendar-count');
+            day.classList.toggle('has-visible-meeting', hasVisibleEntries);
+            if (countEl) countEl.textContent = hasVisibleEntries ? `${entries.filter(entry => entry.style.display !== 'none').length} meeting${entries.filter(entry => entry.style.display !== 'none').length === 1 ? '' : 's'}` : '';
+            if (hasVisibleEntries) visibleCount += 1;
+        });
+
+        const listEmpty = document.getElementById('minutes-list-empty-state');
+        if (listEmpty) listEmpty.style.display = visibleCount === 0 ? 'block' : 'none';
+        const calendarEmpty = document.getElementById('minutes-calendar-empty-state');
+        if (calendarEmpty) calendarEmpty.style.display = visibleCount === 0 ? 'block' : 'none';
+    };
+
+    window.app_setMinutesView = (viewMode) => {
+        minutesUiState.viewMode = viewMode === 'calendar' ? 'calendar' : 'list';
+        window.app_refreshMinutesView();
+    };
+
+    window.app_shiftMinutesMonth = (offset) => {
+        const cursor = monthKeyToDate(minutesUiState.monthKey);
+        cursor.setMonth(cursor.getMonth() + Number(offset || 0));
+        minutesUiState.monthKey = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`;
+        window.app_refreshMinutesView();
     };
 
     window.app_toggleAttendeePick = (checkbox) => {
@@ -470,6 +555,33 @@ export async function renderMinutes() {
         } catch (error) { alert("Error: " + error.message); }
     };
 
+    const sortedMinutes = [...minutes].sort((a, b) => {
+        const aDate = parseMinuteDate(a.date)?.getTime() || 0;
+        const bDate = parseMinuteDate(b.date)?.getTime() || 0;
+        return bDate - aDate;
+    });
+
+    const currentMonthDate = monthKeyToDate(minutesUiState.monthKey);
+    const currentMonthLabel = currentMonthDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    const monthStart = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth(), 1);
+    const calendarStart = new Date(monthStart);
+    calendarStart.setDate(monthStart.getDate() - monthStart.getDay());
+    const calendarDays = Array.from({ length: 42 }, (_, index) => {
+        const day = new Date(calendarStart);
+        day.setDate(calendarStart.getDate() + index);
+        return day;
+    });
+    const minutesByDate = sortedMinutes.reduce((acc, minute) => {
+        const parsed = parseMinuteDate(minute.date);
+        if (!parsed) return acc;
+        const key = `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+        if (!acc[key]) acc[key] = [];
+        acc[key].push(minute);
+        return acc;
+    }, {});
+
+    window.setTimeout(() => window.app_filterMinutes(minutesUiState.searchQuery || ''), 0);
+
     return `
         <div class="minutes-container">
             <style>
@@ -534,6 +646,40 @@ export async function renderMinutes() {
                     transform: translateY(-2px);
                     box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.3);
                     background: var(--minutes-secondary);
+                }
+
+                .minutes-view-controls {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.75rem;
+                    flex-wrap: wrap;
+                }
+
+                .minutes-toggle-group {
+                    display: inline-flex;
+                    padding: 0.3rem;
+                    border-radius: 14px;
+                    background: #eef2ff;
+                    border: 1px solid #c7d2fe;
+                }
+
+                .minutes-toggle-btn {
+                    border: none;
+                    background: transparent;
+                    color: #4338ca;
+                    padding: 0.65rem 1rem;
+                    border-radius: 10px;
+                    font-weight: 800;
+                    cursor: pointer;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 0.55rem;
+                }
+
+                .minutes-toggle-btn.active {
+                    background: #fff;
+                    color: #1e1b4b;
+                    box-shadow: 0 8px 18px rgba(79, 70, 229, 0.12);
                 }
 
                 /* Form Styling */
@@ -870,6 +1016,12 @@ export async function renderMinutes() {
                     border-color: var(--minutes-primary);
                 }
 
+                .minutes-list-container {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+                    gap: 1.25rem;
+                }
+
                 .minute-card-status {
                     position: absolute;
                     top: 1.5rem;
@@ -948,17 +1100,179 @@ export async function renderMinutes() {
                     font-weight: 700;
                 }
 
+                .minutes-calendar-shell {
+                    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+                    border: 1px solid var(--minutes-border);
+                    border-radius: 24px;
+                    padding: 1.25rem;
+                    box-shadow: var(--minutes-shadow);
+                }
+
+                .minutes-calendar-toolbar {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    gap: 1rem;
+                    margin-bottom: 1rem;
+                    flex-wrap: wrap;
+                }
+
+                .minutes-calendar-month {
+                    font-family: 'Sora', sans-serif;
+                    font-size: 1.3rem;
+                    font-weight: 800;
+                    color: #0f172a;
+                }
+
+                .minutes-month-actions {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.65rem;
+                }
+
+                .minutes-month-btn {
+                    width: 40px;
+                    height: 40px;
+                    border: 1px solid #cbd5e1;
+                    background: #fff;
+                    border-radius: 12px;
+                    cursor: pointer;
+                    color: #334155;
+                }
+
+                .minutes-calendar-grid {
+                    display: grid;
+                    grid-template-columns: repeat(7, minmax(0, 1fr));
+                    gap: 0.75rem;
+                }
+
+                .minutes-calendar-weekday {
+                    text-align: center;
+                    font-size: 0.78rem;
+                    font-weight: 800;
+                    text-transform: uppercase;
+                    letter-spacing: 0.08em;
+                    color: var(--minutes-muted);
+                    padding: 0.35rem 0;
+                }
+
+                .minutes-calendar-day {
+                    min-height: 150px;
+                    padding: 0.85rem;
+                    border-radius: 18px;
+                    border: 1px solid #dbe4f0;
+                    background: #fff;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 0.65rem;
+                }
+
+                .minutes-calendar-day.is-outside-month {
+                    background: #f8fafc;
+                    opacity: 0.65;
+                }
+
+                .minutes-calendar-day.is-today {
+                    border-color: #818cf8;
+                    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
+                }
+
+                .minutes-calendar-day.has-visible-meeting {
+                    background: linear-gradient(180deg, #ffffff 0%, #eef2ff 100%);
+                }
+
+                .minutes-calendar-dayhead {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    gap: 0.5rem;
+                }
+
+                .minutes-calendar-date {
+                    font-weight: 800;
+                    color: #0f172a;
+                }
+
+                .minutes-calendar-count {
+                    font-size: 0.72rem;
+                    color: var(--minutes-muted);
+                }
+
+                .minutes-calendar-items {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 0.5rem;
+                }
+
+                .minutes-calendar-entry {
+                    border: 1px solid #c7d2fe;
+                    background: rgba(238, 242, 255, 0.9);
+                    border-radius: 14px;
+                    padding: 0.65rem;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 0.35rem;
+                }
+
+                .minutes-calendar-entry.clickable {
+                    cursor: pointer;
+                }
+
+                .minutes-calendar-entry-title {
+                    font-size: 0.84rem;
+                    font-weight: 800;
+                    color: #312e81;
+                    line-height: 1.35;
+                }
+
+                .minutes-calendar-entry-meta {
+                    display: flex;
+                    justify-content: space-between;
+                    gap: 0.5rem;
+                    font-size: 0.72rem;
+                    color: #475569;
+                }
+
+                .minutes-calendar-restricted {
+                    margin-top: 0.2rem;
+                    border: none;
+                    background: #fff;
+                    color: #991b1b;
+                    border-radius: 10px;
+                    padding: 0.45rem 0.55rem;
+                    font-size: 0.72rem;
+                    font-weight: 700;
+                    cursor: pointer;
+                }
+
+                .minutes-no-results {
+                    margin-top: 1rem;
+                    padding: 1rem 1.25rem;
+                    border-radius: 16px;
+                    background: #fff7ed;
+                    border: 1px solid #fed7aa;
+                    color: #9a3412;
+                    font-weight: 700;
+                    display: none;
+                }
+
                 @media (max-width: 768px) {
                     .form-row { grid-template-columns: 1fr; gap: 1rem; }
                     .form-glass-card { padding: 1rem; }
                     .action-item-row-card { grid-template-columns: 1fr; padding: 1rem; }
                     .minutes-header-section { flex-direction: column; align-items: flex-start; gap: 1rem; }
                     .btn-record-meeting { width: 100%; justify-content: center; }
+                    .minutes-view-controls { width: 100%; }
+                    .minutes-toggle-group { width: 100%; justify-content: space-between; }
+                    .minutes-toggle-btn { flex: 1; justify-content: center; }
                     .rich-editor-toolbar { gap: 0.25rem; padding: 0.45rem; }
                     .rich-editor-btn { min-width: 30px; height: 30px; font-size: 0.78rem; }
                     .rich-editor-area { font-size: 0.88rem; min-height: 140px; }
                     .attendee-picker-container { padding: 0.7rem; }
                     .attendee-grid { grid-template-columns: 1fr; max-height: 170px; }
+                    .minutes-list-header { flex-direction: column; align-items: stretch !important; gap: 1rem; }
+                    .minutes-calendar-grid { gap: 0.5rem; }
+                    .minutes-calendar-day { min-height: 130px; padding: 0.7rem; }
                 }
             </style>
 
@@ -967,10 +1281,22 @@ export async function renderMinutes() {
                     <h2>Meeting Minutes</h2>
                     <p>Document decisions and track team accountability.</p>
                 </div>
-                <button class="btn-record-meeting" onclick="window.app_toggleNewMinuteForm()">
-                    <i class="fa-solid fa-plus-circle"></i>
-                    Record Meeting
-                </button>
+                <div class="minutes-view-controls">
+                    <div class="minutes-toggle-group">
+                        <button class="minutes-toggle-btn ${minutesUiState.viewMode === 'list' ? 'active' : ''}" onclick="window.app_setMinutesView('list')">
+                            <i class="fa-solid fa-table-list"></i>
+                            List View
+                        </button>
+                        <button class="minutes-toggle-btn ${minutesUiState.viewMode === 'calendar' ? 'active' : ''}" onclick="window.app_setMinutesView('calendar')">
+                            <i class="fa-solid fa-calendar-days"></i>
+                            Month View
+                        </button>
+                    </div>
+                    <button class="btn-record-meeting" onclick="window.app_toggleNewMinuteForm()">
+                        <i class="fa-solid fa-plus-circle"></i>
+                        Record Meeting
+                    </button>
+                </div>
             </div>
 
             <div id="new-minute-form" class="form-glass-card" style="display:none;">
@@ -1053,20 +1379,76 @@ export async function renderMinutes() {
             </div>
 
             <div class="minutes-list-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; margin-top: 2rem;">
-                <h3 style="margin:0; font-family:'Sora'; font-weight:800; color:#0f172a;">Recent Meetings</h3>
+                <h3 style="margin:0; font-family:'Sora'; font-weight:800; color:#0f172a;">${minutesUiState.viewMode === 'calendar' ? 'Monthly Meeting Calendar' : 'Recent Meetings'}</h3>
                 <div style="position: relative; width: 300px;">
                     <i class="fa-solid fa-search" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--minutes-muted);"></i>
-                    <input type="text" placeholder="Search meetings..." oninput="window.app_filterMinutes(this.value)" class="input-premium" style="padding-left: 2.75rem; width: 100%; padding-top: 0.6rem; padding-bottom: 0.6rem; font-size: 0.9rem;">
+                    <input type="text" placeholder="Search meetings..." value="${safeAttr(minutesUiState.searchQuery || '')}" oninput="window.app_filterMinutes(this.value)" class="input-premium" style="padding-left: 2.75rem; width: 100%; padding-top: 0.6rem; padding-bottom: 0.6rem; font-size: 0.9rem;">
                 </div>
             </div>
 
+            ${minutesUiState.viewMode === 'calendar' ? `
+                <div class="minutes-calendar-shell">
+                    <div class="minutes-calendar-toolbar">
+                        <div>
+                            <div class="minutes-calendar-month">${currentMonthLabel}</div>
+                            <div style="font-size:0.85rem; color:var(--minutes-muted);">Browse every meeting record in a monthly calendar format.</div>
+                        </div>
+                        <div class="minutes-month-actions">
+                            <button class="minutes-month-btn" onclick="window.app_shiftMinutesMonth(-1)" aria-label="Previous month">
+                                <i class="fa-solid fa-chevron-left"></i>
+                            </button>
+                            <button class="minutes-month-btn" onclick="window.app_shiftMinutesMonth(1)" aria-label="Next month">
+                                <i class="fa-solid fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="minutes-calendar-grid">
+                        ${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => `<div class="minutes-calendar-weekday">${day}</div>`).join('')}
+                        ${calendarDays.map(day => {
+                            const dayKey = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+                            const dayMinutes = minutesByDate[dayKey] || [];
+                            const isCurrentMonth = day.getMonth() === currentMonthDate.getMonth();
+                            const isToday = day.toDateString() === now.toDateString();
+                            return `
+                                <div class="minutes-calendar-day ${isCurrentMonth ? '' : 'is-outside-month'} ${isToday ? 'is-today' : ''} ${dayMinutes.length ? 'has-visible-meeting' : ''}">
+                                    <div class="minutes-calendar-dayhead">
+                                        <span class="minutes-calendar-date">${day.getDate()}</span>
+                                        <span class="minutes-calendar-count">${dayMinutes.length ? `${dayMinutes.length} meeting${dayMinutes.length === 1 ? '' : 's'}` : ''}</span>
+                                    </div>
+                                    <div class="minutes-calendar-items">
+                                        ${dayMinutes.map(m => {
+                                            const hasAccess = hasMinuteDetailAccess(m);
+                                            const reqStatus = getMinuteRequestStatus(m);
+                                            return `
+                                                <div class="minutes-calendar-entry ${hasAccess ? 'clickable' : ''}" data-search-text="${safeAttr(getMinuteSearchText(m))}" ${hasAccess ? `onclick="window.app_openMinuteDetails('${m.id}')"` : ''}>
+                                                    <div class="minutes-calendar-entry-title">${safeHtml(m.title)}</div>
+                                                    <div class="minutes-calendar-entry-meta">
+                                                        <span>${m.attendeeIds?.length || 0} attendees</span>
+                                                        <span>${m.locked ? 'Locked' : 'Open'}</span>
+                                                    </div>
+                                                    ${!hasAccess ? `
+                                                        <button class="minutes-calendar-restricted" onclick="event.stopPropagation(); window.app_requestMinuteAccess('${m.id}')">
+                                                            ${reqStatus === 'pending' ? 'Access Pending' : reqStatus === 'rejected' ? 'Access Denied' : 'Request Access'}
+                                                        </button>
+                                                    ` : ''}
+                                                </div>
+                                            `;
+                                        }).join('')}
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                    <div id="minutes-calendar-empty-state" class="minutes-no-results">No meetings match this search in ${currentMonthLabel}.</div>
+                </div>
+            ` : `
             <div class="minutes-list-container">
-                ${minutes.length ? minutes.sort((a, b) => new Date(b.date) - new Date(a.date)).map(m => {
+                ${sortedMinutes.length ? sortedMinutes.map(m => {
         const hasAccess = hasMinuteDetailAccess(m);
         const reqStatus = getMinuteRequestStatus(m);
         return `
-                        <div class="minute-card-modern ${hasAccess ? 'clickable' : ''}" ${hasAccess ? `onclick="window.app_openMinuteDetails('${m.id}')"` : ''}>
-                            <div class="card-date-badge">${new Date(m.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                        <div class="minute-card-modern ${hasAccess ? 'clickable' : ''}" data-search-text="${safeAttr(getMinuteSearchText(m))}" ${hasAccess ? `onclick="window.app_openMinuteDetails('${m.id}')"` : ''}>
+                            <div class="card-date-badge">${formatMinuteDate(m.date)}</div>
                             
                             <div class="minute-card-status">
                                 ${m.locked ?
@@ -1107,6 +1489,8 @@ export async function renderMinutes() {
                     </div>
                 `}
             </div>
+            <div id="minutes-list-empty-state" class="minutes-no-results">No meetings match this search.</div>
+            `}
         </div>
     `;
 }
