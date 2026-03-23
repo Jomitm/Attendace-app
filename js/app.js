@@ -331,7 +331,7 @@ window.app_canSeeAdminPanel = (user = window.AppAuth?.getUser()) => {
     if (window.app_isAdminUser(user)) return true;
     // If they have ANY specific admin level permission, they can enter the admin panel
     if (user.permissions) {
-        return Object.values(user.permissions).some(p => p === 'admin');
+        return Object.entries(user.permissions).some(([module, level]) => module !== 'birthday' && level === 'admin');
     }
     return false;
 };
@@ -351,6 +351,22 @@ window.app_hasPerm = (module, level = 'view', user = window.AppAuth?.getUser()) 
 window.app_canManageAttendanceSheet = (user = window.AppAuth?.getUser()) => {
     if (!user) return false;
     return window.app_hasPerm('attendance', 'admin', user) || !!user.canManageAttendanceSheet;
+};
+
+window.app_canManageBirthdays = (user = window.AppAuth?.getUser()) => {
+    if (!user) return false;
+    return window.app_isAdminUser(user)
+        || user.role === 'Administrator'
+        || !!user.canManageBirthdays
+        || window.app_hasPerm('birthday', 'view', user);
+};
+
+window.app_canAdminBirthdays = (user = window.AppAuth?.getUser()) => {
+    if (!user) return false;
+    return window.app_isAdminUser(user)
+        || user.role === 'Administrator'
+        || !!user.canManageBirthdays
+        || window.app_hasPerm('birthday', 'admin', user);
 };
 
 window.app_getReadTelemetry = () => {
@@ -740,15 +756,28 @@ const renderDialogMessage = (message) => {
 };
 
 const toSafeNotifStatus = (notif) => String(notif?.status || 'pending').toLowerCase();
-const isPendingNotif = (notif) => toSafeNotifStatus(notif) === 'pending';
+const isPendingNotif = (notif) => {
+    if (notif?.type === 'birthday-reminder') {
+        return notif?.read !== true;
+    }
+    return toSafeNotifStatus(notif) === 'pending';
+};
 
 const getNotifSource = (notif) => {
+    if (notif?.type === 'birthday-reminder') return 'Birthday';
     if (notif?.type === 'minute-access-request') return 'Minutes';
     if (String(notif?.type || '').includes('missed-checkout')) return 'Attendance';
     if (notif?.type === 'task') return 'Task';
     if (notif?.type === 'tag' || notif?.type === 'mention') return 'Tag';
     if (notif?.type === 'reminder') return 'Reminder';
     return 'Notification';
+};
+
+const canRespondToNotification = (notif) => {
+    if (!notif) return false;
+    if (notif.type === 'minute-access-request') return true;
+    if (String(notif.type || '').includes('missed-checkout')) return true;
+    return notif.type === 'tag' || notif.type === 'mention';
 };
 
 const getNotifPreview = (notif) => {
@@ -916,7 +945,7 @@ window.app_openNotificationHistory = async () => {
         };
         const colors = statusColors[status] || statusColors.default;
 
-        const approveRejectBtns = (isPending || (isAdmin && row.type === 'minute-access-request')) ? `
+        const approveRejectBtns = ((isPending && canRespondToNotification(row)) || (isAdmin && row.type === 'minute-access-request')) ? `
             <div class="notif-drawer-actions">
                 <button type="button" class="notif-drawer-btn approve" onclick="window.app_respondNotificationFromHistory(${Number(row._index)}, ${notifIdArg}, 'approve')">
                     <i class="fa-solid fa-check"></i> Approve
@@ -933,6 +962,8 @@ window.app_openNotificationHistory = async () => {
                         <div class="notif-drawer-source-icon">
                             <i class="fa-solid ${row.type === 'tag' || row.type === 'mention'
                                 ? 'fa-at'
+                                : row.type === 'birthday-reminder'
+                                    ? 'fa-cake-candles'
                                 : row.type === 'task'
                                     ? 'fa-list-check'
                                     : row.type === 'minute-access-request'
@@ -1085,6 +1116,672 @@ window.app_openNotificationHistory = async () => {
     renderFilteredList();
 
     await window.app_refreshNotificationBell();
+};
+
+window.app_openBirthdayEditor = async (userId) => {
+    const currentUser = window.AppAuth?.getUser?.();
+    if (!window.app_canAdminBirthdays(currentUser)) {
+        alert('You do not have permission to manage birthdays.');
+        return;
+    }
+    const user = await window.AppDB.get('users', userId);
+    if (!user) {
+        alert('Staff member not found.');
+        return;
+    }
+    const html = `
+        <div class="modal-overlay" id="birthday-details-modal" style="display:flex;">
+            <div class="modal-content" style="max-width:560px;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; margin-bottom:1rem;">
+                    <div>
+                        <div style="font-size:0.78rem; font-weight:800; color:#9a3412; text-transform:uppercase; letter-spacing:0.08em;">Birthday Details</div>
+                        <h3 style="margin:0.35rem 0 0.2rem 0;">${escapeDialogHtml(user.name || 'Staff')}</h3>
+                        <div style="font-size:0.84rem; color:#64748b;">${escapeDialogHtml(user.role || 'Employee')} • ${escapeDialogHtml(user.dept || 'General')}</div>
+                    </div>
+                    <button type="button" onclick="document.getElementById('birthday-details-modal')?.remove()" style="background:none; border:none; font-size:1.25rem; cursor:pointer;">&times;</button>
+                </div>
+                <form id="birthday-details-form">
+                    <input type="hidden" name="userId" value="${escapeDialogHtml(user.id)}">
+                    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:0.75rem;">
+                        <label>
+                            <span style="display:block; font-size:0.78rem; color:#64748b; margin-bottom:0.25rem;">Day</span>
+                            <input type="number" name="birthDay" min="1" max="31" placeholder="DD" value="${escapeDialogHtml(user.birthDay || '')}" style="width:100%; padding:0.65rem; border:1px solid #ddd; border-radius:8px;">
+                        </label>
+                        <label>
+                            <span style="display:block; font-size:0.78rem; color:#64748b; margin-bottom:0.25rem;">Month</span>
+                            <input type="number" name="birthMonth" min="1" max="12" placeholder="MM" value="${escapeDialogHtml(user.birthMonth || '')}" style="width:100%; padding:0.65rem; border:1px solid #ddd; border-radius:8px;">
+                        </label>
+                        <label>
+                            <span style="display:block; font-size:0.78rem; color:#64748b; margin-bottom:0.25rem;">Year</span>
+                            <input type="number" name="birthYear" min="1900" max="2100" placeholder="YYYY" value="${escapeDialogHtml(user.birthYear || '')}" style="width:100%; padding:0.65rem; border:1px solid #ddd; border-radius:8px;">
+                        </label>
+                    </div>
+                    <div style="margin-top:0.65rem; font-size:0.8rem; color:#64748b;">Save one field, two fields, or all three. Reminders need day and month.</div>
+                    <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.2rem;">
+                        <button type="button" class="action-btn secondary" onclick="document.getElementById('birthday-details-modal')?.remove()">Cancel</button>
+                        <button type="submit" class="action-btn">Save Birthday</button>
+                    </div>
+                </form>
+            </div>
+        </div>`;
+    window.app_showModal(html, 'birthday-details-modal');
+};
+
+window.app_submitBirthdayDetails = async (event) => {
+    event.preventDefault();
+    const currentUser = window.AppAuth?.getUser?.();
+    if (!window.app_canAdminBirthdays(currentUser)) {
+        alert('You do not have permission to manage birthdays.');
+        return;
+    }
+    const formData = new FormData(event.target);
+    const userId = String(formData.get('userId') || '').trim();
+    if (!userId) {
+        alert('Missing staff record.');
+        return;
+    }
+    try {
+        const birthdayFields = app_extractBirthdayFields(formData);
+        const existing = await window.AppDB.get('users', userId);
+        if (!existing) throw new Error('Staff member not found.');
+        const success = await window.AppAuth.updateUser({
+            id: userId,
+            birthDay: birthdayFields.birthDay,
+            birthMonth: birthdayFields.birthMonth,
+            birthYear: birthdayFields.birthYear
+        });
+        if (!success) throw new Error('Unable to save birthday details.');
+        document.getElementById('birthday-details-modal')?.remove();
+        window.app_showSyncToast(`Birthday details saved for ${existing.name || 'staff member'}.`);
+        if ((window.location.hash.slice(1) || 'dashboard') === 'birthday-calendar') {
+            const page = document.getElementById('page-content');
+            if (page) page.innerHTML = await AppUI.renderBirthdayCalendar();
+        } else if (window.app_refreshAdminPage) {
+            await window.app_refreshAdminPage();
+        }
+    } catch (err) {
+        alert(`Failed to save birthday details: ${err.message}`);
+    }
+};
+
+window.app_submitBirthdayMonthForm = async (event, month) => {
+    event.preventDefault();
+    const currentUser = window.AppAuth?.getUser?.();
+    if (!window.app_canAdminBirthdays(currentUser)) {
+        alert('You do not have permission to manage birthdays.');
+        return;
+    }
+
+    const targetMonth = Number(month || 0);
+    if (!targetMonth || targetMonth < 1 || targetMonth > 12) {
+        alert('Invalid birthday month.');
+        return;
+    }
+
+    const formData = new FormData(event.target);
+    const userId = String(formData.get('userId') || '').trim();
+    if (!userId) {
+        alert('Please select a staff member.');
+        return;
+    }
+
+    try {
+        const birthdayFields = app_extractBirthdayFields(formData);
+        const existing = await window.AppDB.get('users', userId);
+        if (!existing) throw new Error('Staff member not found.');
+
+        const updatePayload = {
+            id: userId,
+            birthMonth: targetMonth,
+            birthDay: birthdayFields.birthDay,
+            birthYear: birthdayFields.birthYear
+        };
+
+        const success = await window.AppAuth.updateUser(updatePayload);
+        if (!success) throw new Error('Unable to save birthday details.');
+
+        event.target.reset();
+        const page = document.getElementById('page-content');
+        if (page) page.innerHTML = await AppUI.renderBirthdayCalendar();
+        window.app_showSyncToast(`Birthday updated for ${existing.name || 'staff member'}.`);
+    } catch (err) {
+        alert(`Failed to save birthday details: ${err.message}`);
+    }
+};
+
+window.app_syncBirthdayReminders = async () => {
+    const currentUser = window.AppAuth?.getUser?.();
+    if (!window.app_canManageBirthdays(currentUser)) return;
+
+    const allUsers = await window.AppDB.getAll('users').catch(() => []);
+    if (!Array.isArray(allUsers) || !allUsers.length) return;
+
+    const today = app_getISTNowDate();
+    today.setHours(0, 0, 0, 0);
+    const todayKey = app_toDateKey(today);
+    const recipients = allUsers.filter((user) => window.app_canManageBirthdays(user));
+    if (!recipients.length) return;
+
+    let currentUserNotifications = Array.isArray(currentUser?.notifications) ? [...currentUser.notifications] : [];
+
+    for (const staff of allUsers) {
+        const birthdayDate = app_getBirthdayOccurrence(staff, today);
+        if (!birthdayDate) continue;
+        const reminderDate = app_getPreviousWorkingDay(birthdayDate);
+        const reminderKey = app_toDateKey(reminderDate);
+        if (reminderKey !== todayKey) continue;
+
+        const birthdayKey = app_toDateKey(birthdayDate);
+        const reminderReason = app_getBirthdayReminderReason(birthdayDate, reminderDate);
+        const title = `Upcoming Staff Birthday: ${staff.name || 'Staff'}`;
+        const message = `${staff.name || 'Staff'} has a birthday on ${app_formatBirthdayDate(staff.birthDay, staff.birthMonth)}.`;
+
+        for (const recipient of recipients) {
+            const notifications = Array.isArray(recipient.notifications) ? [...recipient.notifications] : [];
+            const exists = notifications.some((notif) =>
+                notif?.type === 'birthday-reminder'
+                && String(notif.birthdayStaffId || '') === String(staff.id || '')
+                && String(notif.birthdayDate || '') === birthdayKey
+                && String(notif.reminderDate || '') === reminderKey
+            );
+            if (exists) continue;
+
+            notifications.unshift({
+                id: `birthday_${birthdayKey}_${staff.id}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                type: 'birthday-reminder',
+                title,
+                message,
+                description: `${reminderReason}. ${staff.role || 'Employee'} • ${staff.dept || 'General'}`,
+                status: 'pending',
+                date: new Date().toISOString(),
+                read: false,
+                taggedByName: 'Birthday Calendar',
+                birthdayStaffId: staff.id,
+                birthdayStaffName: staff.name || 'Staff',
+                birthdayDate: birthdayKey,
+                reminderDate: reminderKey,
+                birthdayDisplay: app_formatBirthdayDate(staff.birthDay, staff.birthMonth, staff.birthYear),
+                birthdayReason: reminderReason,
+                role: staff.role || '',
+                dept: staff.dept || ''
+            });
+
+            await window.AppDB.put('users', {
+                ...recipient,
+                notifications
+            });
+
+            if (currentUser && String(currentUser.id) === String(recipient.id)) {
+                currentUserNotifications = notifications;
+            }
+        }
+    }
+
+    if (currentUser && Array.isArray(currentUserNotifications)) {
+        currentUser.notifications = currentUserNotifications;
+    }
+};
+
+window.app_dismissBirthdayPopup = async ({ openCalendar = false } = {}) => {
+    const currentUser = window.AppAuth?.getUser?.();
+    if (!currentUser) return;
+    const freshUser = await window.AppDB.get('users', currentUser.id).catch(() => currentUser);
+    if (!freshUser || !Array.isArray(freshUser.notifications)) return;
+
+    let changed = false;
+    freshUser.notifications = freshUser.notifications.map((notif) => {
+        if (notif?.type === 'birthday-reminder' && notif?.read !== true) {
+            changed = true;
+            return {
+                ...notif,
+                read: true,
+                status: 'seen',
+                dismissedAt: new Date().toISOString()
+            };
+        }
+        return notif;
+    });
+
+    if (changed) {
+        await window.AppAuth.updateUser(freshUser);
+    }
+    document.getElementById('birthday-reminder-modal')?.remove();
+    if (window.app_refreshNotificationBell) {
+        await window.app_refreshNotificationBell();
+    }
+    if (openCalendar) {
+        window.location.hash = 'birthday-calendar';
+    }
+};
+
+window.app_maybeOpenBirthdayPopup = async () => {
+    const currentUser = window.AppAuth?.getUser?.();
+    if (!window.app_canManageBirthdays(currentUser)) return;
+    if (document.getElementById('birthday-reminder-modal')) return;
+
+    const freshUser = await window.AppDB.get('users', currentUser.id).catch(() => currentUser);
+    const birthdayRows = Array.isArray(freshUser?.notifications)
+        ? freshUser.notifications.filter((notif) => notif?.type === 'birthday-reminder' && notif?.read !== true)
+        : [];
+    if (!birthdayRows.length) return;
+
+    const cards = birthdayRows.map((notif) => `
+        <div style="border:1px solid #fed7aa; background:linear-gradient(135deg, #fff7ed, #fffbeb); border-radius:16px; padding:1rem;">
+            <div style="display:flex; justify-content:space-between; gap:0.75rem; align-items:flex-start;">
+                <div>
+                    <div style="font-size:0.78rem; font-weight:800; color:#9a3412; text-transform:uppercase; letter-spacing:0.08em;">Upcoming Staff Birthday</div>
+                    <h4 style="margin:0.35rem 0 0.2rem 0; color:#7c2d12;">${escapeDialogHtml(notif.birthdayStaffName || 'Staff')}</h4>
+                    <div style="font-size:0.84rem; color:#9a3412;">${escapeDialogHtml(notif.birthdayDisplay || notif.birthdayDate || '')}</div>
+                    <div style="font-size:0.8rem; color:#7c2d12; margin-top:0.35rem;">${escapeDialogHtml(notif.birthdayReason || 'Upcoming birthday')}</div>
+                    <div style="font-size:0.8rem; color:#92400e; margin-top:0.25rem;">${escapeDialogHtml(notif.role || 'Employee')} • ${escapeDialogHtml(notif.dept || 'General')}</div>
+                </div>
+                <button type="button" class="action-btn secondary" style="padding:0.45rem 0.7rem;" onclick="window.app_openBirthdayEditor('${escapeDialogHtml(notif.birthdayStaffId || '')}')">Edit Birthday Details</button>
+            </div>
+        </div>
+    `).join('');
+
+    const html = `
+        <div class="modal-overlay" id="birthday-reminder-modal" style="display:flex;">
+            <div class="modal-content" style="max-width:720px; border-radius:22px; padding:0; overflow:hidden;">
+                <div style="padding:1.35rem 1.4rem; background:linear-gradient(135deg, #9a3412, #f97316); color:#fff;">
+                    <div style="display:flex; justify-content:space-between; gap:1rem; align-items:flex-start;">
+                        <div>
+                            <div style="font-size:0.78rem; font-weight:800; text-transform:uppercase; letter-spacing:0.08em; opacity:0.9;">Birthday Reminder</div>
+                            <h3 style="margin:0.35rem 0 0.2rem 0;">Staff birthdays are coming up</h3>
+                            <p style="margin:0; opacity:0.92;">Review the upcoming birthdays and update any missing details before the next working day.</p>
+                        </div>
+                        <button type="button" onclick="window.app_dismissBirthdayPopup()" style="background:none; border:none; color:#fff; font-size:1.3rem; cursor:pointer;">&times;</button>
+                    </div>
+                </div>
+                <div style="padding:1.2rem 1.4rem; display:flex; flex-direction:column; gap:0.85rem; max-height:60vh; overflow:auto;">
+                    ${cards}
+                </div>
+                <div style="display:flex; justify-content:flex-end; gap:0.75rem; padding:1rem 1.4rem 1.3rem; border-top:1px solid #e5e7eb; background:#fff;">
+                    <button type="button" class="action-btn secondary" onclick="window.app_dismissBirthdayPopup()">Dismiss</button>
+                    <button type="button" class="action-btn" onclick="window.app_dismissBirthdayPopup({ openCalendar: true })">View Birthday Calendar</button>
+                </div>
+            </div>
+        </div>`;
+    window.app_showModal(html, 'birthday-reminder-modal');
+};
+
+window.app_openBirthdayEditor = async (sourceOrId, maybeId) => {
+    const currentUser = window.AppAuth?.getUser?.();
+    if (!window.app_canAdminBirthdays(currentUser)) {
+        alert('You do not have permission to manage birthdays.');
+        return;
+    }
+    const source = maybeId ? sourceOrId : 'user';
+    const recordId = maybeId || sourceOrId;
+    const config = app_getBirthdaySourceConfig(source);
+    const record = await window.AppDB.get(config.collection, recordId);
+    if (!record) {
+        alert(config.emptyMessage);
+        return;
+    }
+    const editorMeta = app_getBirthdayEditorMeta(record, config.source);
+    const extraFields = config.source === 'external' ? `
+                    <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:0.75rem; margin-bottom:0.75rem;">
+                        <label>
+                            <span style="display:block; font-size:0.78rem; color:#64748b; margin-bottom:0.25rem;">Name</span>
+                            <input type="text" name="name" value="${escapeDialogHtml(record.name || '')}" placeholder="Full name" style="width:100%; padding:0.65rem; border:1px solid #ddd; border-radius:8px;">
+                        </label>
+                        <label>
+                            <span style="display:block; font-size:0.78rem; color:#64748b; margin-bottom:0.25rem;">Position</span>
+                            <input type="text" name="position" value="${escapeDialogHtml(record.position || '')}" placeholder="President / Trustee / etc." style="width:100%; padding:0.65rem; border:1px solid #ddd; border-radius:8px;">
+                        </label>
+                    </div>
+                    <label style="display:block; margin-bottom:0.75rem;">
+                        <span style="display:block; font-size:0.78rem; color:#64748b; margin-bottom:0.25rem;">Location</span>
+                        <input type="text" name="location" value="${escapeDialogHtml(record.location || '')}" placeholder="City / Office / Campus" style="width:100%; padding:0.65rem; border:1px solid #ddd; border-radius:8px;">
+                    </label>
+    ` : '';
+    const html = `
+        <div class="modal-overlay" id="birthday-details-modal" style="display:flex;">
+            <div class="modal-content" style="max-width:560px;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; margin-bottom:1rem;">
+                    <div>
+                        <div style="font-size:0.78rem; font-weight:800; color:#9a3412; text-transform:uppercase; letter-spacing:0.08em;">Birthday Details</div>
+                        <h3 style="margin:0.35rem 0 0.2rem 0;">${escapeDialogHtml(editorMeta.title)}</h3>
+                        <div style="font-size:0.84rem; color:#64748b;">${escapeDialogHtml(editorMeta.subtitle)}</div>
+                    </div>
+                    <button type="button" onclick="document.getElementById('birthday-details-modal')?.remove()" style="background:none; border:none; font-size:1.25rem; cursor:pointer;">&times;</button>
+                </div>
+                <form id="birthday-details-form">
+                    <input type="hidden" name="birthdaySource" value="${escapeDialogHtml(config.source)}">
+                    <input type="hidden" name="recordId" value="${escapeDialogHtml(record.id)}">
+                    ${extraFields}
+                    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:0.75rem;">
+                        <label>
+                            <span style="display:block; font-size:0.78rem; color:#64748b; margin-bottom:0.25rem;">Day</span>
+                            <input type="number" name="birthDay" min="1" max="31" placeholder="DD" value="${escapeDialogHtml(record.birthDay || '')}" style="width:100%; padding:0.65rem; border:1px solid #ddd; border-radius:8px;">
+                        </label>
+                        <label>
+                            <span style="display:block; font-size:0.78rem; color:#64748b; margin-bottom:0.25rem;">Month</span>
+                            <input type="number" name="birthMonth" min="1" max="12" placeholder="MM" value="${escapeDialogHtml(record.birthMonth || '')}" style="width:100%; padding:0.65rem; border:1px solid #ddd; border-radius:8px;">
+                        </label>
+                        <label>
+                            <span style="display:block; font-size:0.78rem; color:#64748b; margin-bottom:0.25rem;">Year</span>
+                            <input type="number" name="birthYear" min="1900" max="2100" placeholder="YYYY" value="${escapeDialogHtml(record.birthYear || '')}" style="width:100%; padding:0.65rem; border:1px solid #ddd; border-radius:8px;">
+                        </label>
+                    </div>
+                    <div style="margin-top:0.65rem; font-size:0.8rem; color:#64748b;">Save one field, two fields, or all three. Reminders need day and month.</div>
+                    <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.2rem;">
+                        <button type="button" class="action-btn secondary" onclick="document.getElementById('birthday-details-modal')?.remove()">Cancel</button>
+                        <button type="submit" class="action-btn">Save Birthday</button>
+                    </div>
+                </form>
+            </div>
+        </div>`;
+    window.app_showModal(html, 'birthday-details-modal');
+};
+
+window.app_submitBirthdayDetails = async (event) => {
+    event.preventDefault();
+    const currentUser = window.AppAuth?.getUser?.();
+    if (!window.app_canAdminBirthdays(currentUser)) {
+        alert('You do not have permission to manage birthdays.');
+        return;
+    }
+    const formData = new FormData(event.target);
+    const source = String(formData.get('birthdaySource') || 'user').trim().toLowerCase();
+    const recordId = String(formData.get('recordId') || '').trim();
+    const config = app_getBirthdaySourceConfig(source);
+    if (!recordId) {
+        alert(`Missing ${config.label.toLowerCase()} record.`);
+        return;
+    }
+    try {
+        const birthdayFields = app_extractBirthdayFields(formData);
+        const existing = await window.AppDB.get(config.collection, recordId);
+        if (!existing) throw new Error(config.emptyMessage);
+        if (config.source === 'external') {
+            const name = String(formData.get('name') || '').trim();
+            if (!name) throw new Error('Name is required.');
+            await window.AppDB.put(config.collection, {
+                ...existing,
+                name,
+                position: String(formData.get('position') || '').trim(),
+                location: String(formData.get('location') || '').trim(),
+                birthDay: birthdayFields.birthDay,
+                birthMonth: birthdayFields.birthMonth,
+                birthYear: birthdayFields.birthYear,
+                updatedAt: new Date().toISOString(),
+                updatedById: currentUser?.id || ''
+            });
+        } else {
+            const success = await window.AppAuth.updateUser({
+                id: recordId,
+                birthDay: birthdayFields.birthDay,
+                birthMonth: birthdayFields.birthMonth,
+                birthYear: birthdayFields.birthYear
+            });
+            if (!success) throw new Error('Unable to save birthday details.');
+        }
+        document.getElementById('birthday-details-modal')?.remove();
+        window.app_showSyncToast(`Birthday details saved for ${existing.name || config.label.toLowerCase()}.`);
+        if ((window.location.hash.slice(1) || 'dashboard') === 'birthday-calendar') {
+            const page = document.getElementById('page-content');
+            if (page) page.innerHTML = await AppUI.renderBirthdayCalendar();
+        } else if (window.app_refreshAdminPage) {
+            await window.app_refreshAdminPage();
+        }
+    } catch (err) {
+        alert(`Failed to save birthday details: ${err.message}`);
+    }
+};
+
+window.app_openExternalBirthdayPersonModal = async (defaultMonth = '') => {
+    const currentUser = window.AppAuth?.getUser?.();
+    if (!window.app_canAdminBirthdays(currentUser)) {
+        alert('You do not have permission to manage birthdays.');
+        return;
+    }
+    const html = `
+        <div class="modal-overlay" id="birthday-external-modal" style="display:flex;">
+            <div class="modal-content" style="max-width:620px;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; margin-bottom:1rem;">
+                    <div>
+                        <div style="font-size:0.78rem; font-weight:800; color:#9a3412; text-transform:uppercase; letter-spacing:0.08em;">Person Not In System</div>
+                        <h3 style="margin:0.35rem 0 0.2rem 0;">Add Birthday Person</h3>
+                        <div style="font-size:0.84rem; color:#64748b;">Save birthdays for trustees, president, or any other person who is not a staff account.</div>
+                    </div>
+                    <button type="button" onclick="document.getElementById('birthday-external-modal')?.remove()" style="background:none; border:none; font-size:1.25rem; cursor:pointer;">&times;</button>
+                </div>
+                <form id="birthday-external-form">
+                    <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:0.75rem; margin-bottom:0.75rem;">
+                        <label>
+                            <span style="display:block; font-size:0.78rem; color:#64748b; margin-bottom:0.25rem;">Name</span>
+                            <input type="text" name="name" required placeholder="Full name" style="width:100%; padding:0.65rem; border:1px solid #ddd; border-radius:8px;">
+                        </label>
+                        <label>
+                            <span style="display:block; font-size:0.78rem; color:#64748b; margin-bottom:0.25rem;">Position</span>
+                            <input type="text" name="position" placeholder="President / Trustee / etc." style="width:100%; padding:0.65rem; border:1px solid #ddd; border-radius:8px;">
+                        </label>
+                    </div>
+                    <label style="display:block; margin-bottom:0.75rem;">
+                        <span style="display:block; font-size:0.78rem; color:#64748b; margin-bottom:0.25rem;">Location</span>
+                        <input type="text" name="location" placeholder="City / Office / Campus" style="width:100%; padding:0.65rem; border:1px solid #ddd; border-radius:8px;">
+                    </label>
+                    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:0.75rem;">
+                        <label>
+                            <span style="display:block; font-size:0.78rem; color:#64748b; margin-bottom:0.25rem;">Day</span>
+                            <input type="number" name="birthDay" min="1" max="31" placeholder="DD" style="width:100%; padding:0.65rem; border:1px solid #ddd; border-radius:8px;">
+                        </label>
+                        <label>
+                            <span style="display:block; font-size:0.78rem; color:#64748b; margin-bottom:0.25rem;">Month</span>
+                            <input type="number" name="birthMonth" min="1" max="12" placeholder="MM" value="${escapeDialogHtml(defaultMonth || '')}" style="width:100%; padding:0.65rem; border:1px solid #ddd; border-radius:8px;">
+                        </label>
+                        <label>
+                            <span style="display:block; font-size:0.78rem; color:#64748b; margin-bottom:0.25rem;">Year</span>
+                            <input type="number" name="birthYear" min="1900" max="2100" placeholder="YYYY" style="width:100%; padding:0.65rem; border:1px solid #ddd; border-radius:8px;">
+                        </label>
+                    </div>
+                    <div style="margin-top:0.65rem; font-size:0.8rem; color:#64748b;">Name is required. Day, month, and year can be saved separately.</div>
+                    <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.2rem;">
+                        <button type="button" class="action-btn secondary" onclick="document.getElementById('birthday-external-modal')?.remove()">Cancel</button>
+                        <button type="submit" class="action-btn">Save Person</button>
+                    </div>
+                </form>
+            </div>
+        </div>`;
+    window.app_showModal(html, 'birthday-external-modal');
+};
+
+window.app_submitExternalBirthdayPerson = async (event) => {
+    event.preventDefault();
+    const currentUser = window.AppAuth?.getUser?.();
+    if (!window.app_canAdminBirthdays(currentUser)) {
+        alert('You do not have permission to manage birthdays.');
+        return;
+    }
+    const formData = new FormData(event.target);
+    const name = String(formData.get('name') || '').trim();
+    if (!name) {
+        alert('Please enter a name.');
+        return;
+    }
+    try {
+        const birthdayFields = app_extractBirthdayFields(formData);
+        const person = {
+            id: `birthday_person_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            name,
+            position: String(formData.get('position') || '').trim(),
+            location: String(formData.get('location') || '').trim(),
+            birthDay: birthdayFields.birthDay,
+            birthMonth: birthdayFields.birthMonth,
+            birthYear: birthdayFields.birthYear,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            createdById: currentUser?.id || '',
+            updatedById: currentUser?.id || ''
+        };
+        await window.AppDB.put('birthday_people', person);
+        document.getElementById('birthday-external-modal')?.remove();
+        const page = document.getElementById('page-content');
+        if (page && (window.location.hash.slice(1) || 'dashboard') === 'birthday-calendar') {
+            page.innerHTML = await AppUI.renderBirthdayCalendar();
+        }
+        window.app_showSyncToast(`Birthday person saved for ${name}.`);
+    } catch (err) {
+        alert(`Failed to save birthday person: ${err.message}`);
+    }
+};
+
+window.app_refreshBirthdayCalendar = async () => {
+    if ((window.location.hash.slice(1) || 'dashboard') !== 'birthday-calendar') return;
+    const page = document.getElementById('page-content');
+    if (page) page.innerHTML = await AppUI.renderBirthdayCalendar();
+};
+
+window.app_setBirthdayCalendarView = async (view) => {
+    const state = window.app_birthdayCalendarState || {};
+    window.app_birthdayCalendarState = {
+        ...state,
+        view: String(view || 'month').toLowerCase() === 'year' ? 'year' : 'month'
+    };
+    await window.app_refreshBirthdayCalendar();
+};
+
+window.app_goToBirthdayCalendarMonth = async (month, year = null) => {
+    const targetMonth = Number(month || 0);
+    if (!targetMonth || targetMonth < 1 || targetMonth > 12) return;
+    const now = app_getISTNowDate();
+    const state = window.app_birthdayCalendarState || {};
+    window.app_birthdayCalendarState = {
+        ...state,
+        selectedMonth: targetMonth,
+        selectedYear: Number(year || state.selectedYear || now.getFullYear()),
+        view: 'month'
+    };
+    await window.app_refreshBirthdayCalendar();
+};
+
+window.app_changeBirthdayCalendarMonth = async (delta) => {
+    const step = Number(delta || 0);
+    if (!step) return;
+    const now = app_getISTNowDate();
+    const state = window.app_birthdayCalendarState || {};
+    const selectedMonth = Number(state.selectedMonth || now.getMonth() + 1);
+    const selectedYear = Number(state.selectedYear || now.getFullYear());
+    const cursor = new Date(selectedYear, selectedMonth - 1 + step, 1);
+    window.app_birthdayCalendarState = {
+        ...state,
+        selectedMonth: cursor.getMonth() + 1,
+        selectedYear: cursor.getFullYear(),
+        view: 'month'
+    };
+    await window.app_refreshBirthdayCalendar();
+};
+
+window.app_syncBirthdayReminders = async () => {
+    const currentUser = window.AppAuth?.getUser?.();
+    if (!window.app_canManageBirthdays(currentUser)) return;
+
+    const [allUsers, externalPeople] = await Promise.all([
+        window.AppDB.getAll('users').catch(() => []),
+        window.AppDB.getAll('birthday_people').catch(() => [])
+    ]);
+    const birthdayEntries = [
+        ...(Array.isArray(allUsers) ? allUsers.map((user) => ({ ...user, birthdaySource: 'user' })) : []),
+        ...(Array.isArray(externalPeople) ? externalPeople.map((person) => ({ ...person, birthdaySource: 'external' })) : [])
+    ];
+    if (!birthdayEntries.length) return;
+
+    const today = app_getISTNowDate();
+    today.setHours(0, 0, 0, 0);
+    const todayKey = app_toDateKey(today);
+    const recipients = allUsers.filter((user) => window.app_canManageBirthdays(user));
+    if (!recipients.length) return;
+
+    let currentUserNotifications = Array.isArray(currentUser?.notifications) ? [...currentUser.notifications] : [];
+
+    for (const entry of birthdayEntries) {
+        const birthdayDate = app_getBirthdayOccurrence(entry, today);
+        if (!birthdayDate) continue;
+        const reminderDate = app_getPreviousWorkingDay(birthdayDate);
+        const reminderKey = app_toDateKey(reminderDate);
+        if (reminderKey !== todayKey) continue;
+
+        const birthdayKey = app_toDateKey(birthdayDate);
+        for (const recipient of recipients) {
+            const notifications = Array.isArray(recipient.notifications) ? [...recipient.notifications] : [];
+            const exists = notifications.some((notif) =>
+                notif?.type === 'birthday-reminder'
+                && String(notif.birthdayStaffId || '') === String(entry.id || '')
+                && String(notif.birthdaySource || 'user') === String(entry.birthdaySource || 'user')
+                && String(notif.birthdayDate || '') === birthdayKey
+                && String(notif.reminderDate || '') === reminderKey
+            );
+            if (exists) continue;
+
+            notifications.unshift(app_buildBirthdayReminderPayload(entry, entry.birthdaySource || 'user', birthdayDate, reminderDate));
+
+            await window.AppDB.put('users', {
+                ...recipient,
+                notifications
+            });
+
+            if (currentUser && String(currentUser.id) === String(recipient.id)) {
+                currentUserNotifications = notifications;
+            }
+        }
+    }
+
+    if (currentUser && Array.isArray(currentUserNotifications)) {
+        currentUser.notifications = currentUserNotifications;
+    }
+};
+
+window.app_maybeOpenBirthdayPopup = async () => {
+    const currentUser = window.AppAuth?.getUser?.();
+    if (!window.app_canManageBirthdays(currentUser)) return;
+    if (document.getElementById('birthday-reminder-modal')) return;
+
+    const freshUser = await window.AppDB.get('users', currentUser.id).catch(() => currentUser);
+    const birthdayRows = Array.isArray(freshUser?.notifications)
+        ? freshUser.notifications.filter((notif) => notif?.type === 'birthday-reminder' && notif?.read !== true)
+        : [];
+    if (!birthdayRows.length) return;
+
+    const cards = birthdayRows.map((notif) => `
+        <div style="border:1px solid #fed7aa; background:linear-gradient(135deg, #fff7ed, #fffbeb); border-radius:16px; padding:1rem;">
+            <div style="display:flex; justify-content:space-between; gap:0.75rem; align-items:flex-start;">
+                <div>
+                    <div style="font-size:0.78rem; font-weight:800; color:#9a3412; text-transform:uppercase; letter-spacing:0.08em;">Upcoming Birthday</div>
+                    <h4 style="margin:0.35rem 0 0.2rem 0; color:#7c2d12;">${escapeDialogHtml(notif.birthdayStaffName || 'Staff')}</h4>
+                    <div style="font-size:0.84rem; color:#9a3412;">${escapeDialogHtml(notif.birthdayDisplay || notif.birthdayDate || '')}</div>
+                    <div style="font-size:0.8rem; color:#7c2d12; margin-top:0.35rem;">${escapeDialogHtml(notif.birthdayReason || 'Upcoming birthday')}</div>
+                    <div style="font-size:0.8rem; color:#92400e; margin-top:0.25rem;">${escapeDialogHtml(notif.role || 'Employee')} • ${escapeDialogHtml(notif.dept || 'General')}</div>
+                </div>
+                <button type="button" class="action-btn secondary" style="padding:0.45rem 0.7rem;" onclick="window.app_openBirthdayEditor('${escapeDialogHtml(notif.birthdaySource || 'user')}', '${escapeDialogHtml(notif.birthdayStaffId || '')}')">Edit Birthday Details</button>
+            </div>
+        </div>
+    `).join('');
+
+    const html = `
+        <div class="modal-overlay" id="birthday-reminder-modal" style="display:flex;">
+            <div class="modal-content" style="max-width:720px; border-radius:22px; padding:0; overflow:hidden;">
+                <div style="padding:1.35rem 1.4rem; background:linear-gradient(135deg, #9a3412, #f97316); color:#fff;">
+                    <div style="display:flex; justify-content:space-between; gap:1rem; align-items:flex-start;">
+                        <div>
+                            <div style="font-size:0.78rem; font-weight:800; text-transform:uppercase; letter-spacing:0.08em; opacity:0.9;">Birthday Reminder</div>
+                            <h3 style="margin:0.35rem 0 0.2rem 0;">Birthdays are coming up</h3>
+                            <p style="margin:0; opacity:0.92;">Review the upcoming birthdays and update any missing details before the next working day.</p>
+                        </div>
+                        <button type="button" onclick="window.app_dismissBirthdayPopup()" style="background:none; border:none; color:#fff; font-size:1.3rem; cursor:pointer;">&times;</button>
+                    </div>
+                </div>
+                <div style="padding:1.2rem 1.4rem; display:flex; flex-direction:column; gap:0.85rem; max-height:60vh; overflow:auto;">
+                    ${cards}
+                </div>
+                <div style="display:flex; justify-content:flex-end; gap:0.75rem; padding:1rem 1.4rem 1.3rem; border-top:1px solid #e5e7eb; background:#fff;">
+                    <button type="button" class="action-btn secondary" onclick="window.app_dismissBirthdayPopup()">Dismiss</button>
+                    <button type="button" class="action-btn" onclick="window.app_dismissBirthdayPopup({ openCalendar: true })">View Birthday Calendar</button>
+                </div>
+            </div>
+        </div>`;
+    window.app_showModal(html, 'birthday-reminder-modal');
 };
 
 window.app_systemDialog = function ({
@@ -1391,6 +2088,7 @@ async function router() {
     const canSeeReports = window.app_hasPerm('reports', 'view', user);
     const canSeePoliciesAdmin = window.app_hasPerm('policies', 'view', user);
     const canSeeAdmin = window.app_canSeeAdminPanel(user);
+    const canSeeBirthdayCalendar = window.app_canManageBirthdays(user);
 
     document.querySelectorAll('a[data-page="admin"]').forEach(link => {
         link.style.display = canSeeAdmin ? 'flex' : 'none';
@@ -1410,6 +2108,11 @@ async function router() {
     document.querySelectorAll('a[data-page="policy-test"]').forEach(link => {
         link.style.display = canSeePoliciesAdmin ? 'flex' : 'none';
         if (!canSeePoliciesAdmin) link.style.setProperty('display', 'none', 'important');
+    });
+
+    document.querySelectorAll('a[data-page="birthday-calendar"]').forEach(link => {
+        link.style.display = canSeeBirthdayCalendar ? 'flex' : 'none';
+        if (!canSeeBirthdayCalendar) link.style.setProperty('display', 'none', 'important');
     });
 
     // Active Nav
@@ -1451,6 +2154,12 @@ async function router() {
             }
         } else if (hash === 'annual-plan') {
             contentArea.innerHTML = await AppUI.renderAnnualPlan();
+        } else if (hash === 'birthday-calendar') {
+            if (!window.app_canManageBirthdays(user)) {
+                window.location.hash = 'dashboard';
+                return;
+            }
+            contentArea.innerHTML = await AppUI.renderBirthdayCalendar();
         } else if (hash === 'timesheet') {
             contentArea.innerHTML = await AppUI.renderTimesheet();
         } else if (hash === 'profile') {
@@ -1486,12 +2195,14 @@ async function router() {
             window.AppAnalytics.initAdminCharts();
             startAdminRealtimeListener();
         }
+        await window.app_syncBirthdayReminders?.();
         if (window.app_updateStaffNavIndicator) {
             await window.app_updateStaffNavIndicator();
         }
         if (window.app_refreshNotificationBell) {
             await window.app_refreshNotificationBell();
         }
+        await window.app_maybeOpenBirthdayPopup?.();
     } catch (e) {
         console.error("Render Error:", e);
         contentArea.innerHTML = `<div style="text-align:center; color:red; padding:2rem;">Error loading page: ${e.message}</div>`;
@@ -1998,6 +2709,169 @@ const app_deriveEmployeeId = (joinDateRaw, userIdRaw) => {
     const suffix = String(userIdRaw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(-3) || 'USR';
     return `EMP-${compact}-${suffix}`;
 };
+
+const app_getBirthdayFieldValue = (raw, min, max) => {
+    const value = String(raw ?? '').trim();
+    if (!value) return null;
+    if (!/^\d+$/.test(value)) throw new Error('Birthday fields must be numeric.');
+    const num = Number(value);
+    if (!Number.isInteger(num) || num < min || num > max) {
+        throw new Error(`Birthday value must be between ${min} and ${max}.`);
+    }
+    return num;
+};
+
+const app_daysInMonth = (year, month) => new Date(year, month, 0).getDate();
+
+const app_extractBirthdayFields = (formData) => {
+    const currentYear = new Date().getFullYear() + 1;
+    const birthDay = app_getBirthdayFieldValue(formData.get('birthDay'), 1, 31);
+    const birthMonth = app_getBirthdayFieldValue(formData.get('birthMonth'), 1, 12);
+    const birthYear = app_getBirthdayFieldValue(formData.get('birthYear'), 1900, currentYear);
+
+    if (birthDay && birthMonth) {
+        const validationYear = birthYear || 2024;
+        const maxDay = app_daysInMonth(validationYear, birthMonth);
+        if (birthDay > maxDay) {
+            throw new Error(`Birthday day is not valid for month ${birthMonth}.`);
+        }
+    }
+
+    return { birthDay, birthMonth, birthYear };
+};
+
+const app_formatBirthdayDate = (birthDay, birthMonth, birthYear = null) => {
+    const day = Number(birthDay || 0);
+    const month = Number(birthMonth || 0);
+    const year = Number(birthYear || 0);
+    const monthLabel = month >= 1 && month <= 12
+        ? new Date(2026, month - 1, 1).toLocaleString('en-US', { month: 'long' })
+        : '--';
+    const dayLabel = day ? String(day).padStart(2, '0') : '--';
+    const yearLabel = year ? ` ${year}` : '';
+    return `${dayLabel} ${monthLabel}${yearLabel}`.trim();
+};
+
+const app_getBirthdaySourceConfig = (source = 'user') => {
+    const normalizedSource = String(source || 'user').trim().toLowerCase() === 'external' ? 'external' : 'user';
+    return normalizedSource === 'external'
+        ? {
+            source: 'external',
+            collection: 'birthday_people',
+            label: 'Birthday Person',
+            emptyMessage: 'Birthday person not found.',
+            roleLabel: 'Position',
+            deptLabel: 'Location'
+        }
+        : {
+            source: 'user',
+            collection: 'users',
+            label: 'Staff',
+            emptyMessage: 'Staff member not found.',
+            roleLabel: 'Role',
+            deptLabel: 'Department'
+        };
+};
+
+const app_getBirthdayEditorMeta = (record, source = 'user') => {
+    const config = app_getBirthdaySourceConfig(source);
+    if (config.source === 'external') {
+        return {
+            title: record?.name || 'Birthday Person',
+            subtitle: `${record?.position || 'Position not set'} • ${record?.location || 'Location not set'}`
+        };
+    }
+    return {
+        title: record?.name || 'Staff',
+        subtitle: `${record?.role || 'Employee'} • ${record?.dept || 'General'}`
+    };
+};
+
+const app_buildBirthdayReminderPayload = (record, source, birthdayDate, reminderDate) => {
+    const config = app_getBirthdaySourceConfig(source);
+    const birthdayKey = app_toDateKey(birthdayDate);
+    const reminderKey = app_toDateKey(reminderDate);
+    const reminderReason = app_getBirthdayReminderReason(birthdayDate, reminderDate);
+    const isExternal = config.source === 'external';
+    const role = isExternal ? (record?.position || '') : (record?.role || '');
+    const dept = isExternal ? (record?.location || '') : (record?.dept || '');
+    const label = isExternal ? 'Birthday Person' : 'Staff';
+    return {
+        id: `birthday_${config.source}_${birthdayKey}_${record.id}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        type: 'birthday-reminder',
+        title: `Upcoming Birthday: ${record.name || label}`,
+        message: `${record.name || label} has a birthday on ${app_formatBirthdayDate(record.birthDay, record.birthMonth)}.`,
+        description: `${reminderReason}. ${role || (isExternal ? 'Position not set' : 'Employee')} • ${dept || (isExternal ? 'Location not set' : 'General')}`,
+        status: 'pending',
+        date: new Date().toISOString(),
+        read: false,
+        taggedByName: 'Birthday Calendar',
+        birthdayStaffId: record.id,
+        birthdayStaffName: record.name || label,
+        birthdaySource: config.source,
+        birthdayDate: birthdayKey,
+        reminderDate: reminderKey,
+        birthdayDisplay: app_formatBirthdayDate(record.birthDay, record.birthMonth, record.birthYear),
+        birthdayReason: reminderReason,
+        role,
+        dept
+    };
+};
+
+const app_getISTNowDate = () => {
+    if (window.AppDB && typeof window.AppDB.getIstNow === 'function') {
+        return window.AppDB.getIstNow();
+    }
+    return new Date();
+};
+
+const app_toDateKey = (dateObj) => {
+    const d = dateObj instanceof Date ? new Date(dateObj) : new Date(dateObj);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const app_getBirthdayOccurrence = (user, baseDate = app_getISTNowDate()) => {
+    const birthDay = Number(user?.birthDay || 0);
+    const birthMonth = Number(user?.birthMonth || 0);
+    if (!birthDay || !birthMonth) return null;
+
+    const base = new Date(baseDate);
+    const buildOccurrence = (year) => {
+        const maxDay = app_daysInMonth(year, birthMonth);
+        const safeDay = Math.min(birthDay, maxDay);
+        return new Date(year, birthMonth - 1, safeDay);
+    };
+
+    let occurrence = buildOccurrence(base.getFullYear());
+    occurrence.setHours(0, 0, 0, 0);
+    const baseKey = app_toDateKey(base);
+    if (app_toDateKey(occurrence) < baseKey) {
+        occurrence = buildOccurrence(base.getFullYear() + 1);
+        occurrence.setHours(0, 0, 0, 0);
+    }
+    return occurrence;
+};
+
+const app_isWorkingDay = (dateObj) => {
+    const dayType = window.AppAnalytics?.getDayType?.(dateObj);
+    return dayType !== 'Holiday';
+};
+
+const app_getPreviousWorkingDay = (dateObj) => {
+    const cursor = new Date(dateObj);
+    cursor.setHours(0, 0, 0, 0);
+    cursor.setDate(cursor.getDate() - 1);
+    while (!app_isWorkingDay(cursor)) {
+        cursor.setDate(cursor.getDate() - 1);
+    }
+    return cursor;
+};
+
+const app_getBirthdayReminderReason = (birthdayDate, reminderDate) => {
+    const diffDays = Math.round((birthdayDate.getTime() - reminderDate.getTime()) / 86400000);
+    return diffDays <= 1 ? 'Birthday is tomorrow' : 'Birthday is on the next working day';
+};
+
 const app_formatDateGb = (value, fallback = 'NA') => {
     if (value === null || value === undefined || value === '') return fallback;
     const d = value instanceof Date ? value : new Date(value);
@@ -4293,6 +5167,13 @@ async function handleAddUser(e) {
 
     const isAdmin = formData.get('isAdmin') === 'on' || formData.get('isAdmin') === 'true';
     const canManageAttendanceSheet = formData.get('canManageAttendanceSheet') === 'on' || formData.get('canManageAttendanceSheet') === 'true';
+    let birthdayFields;
+    try {
+        birthdayFields = app_extractBirthdayFields(formData);
+    } catch (err) {
+        alert(err.message);
+        return;
+    }
 
     const userData = {
         id: 'u' + Date.now(),
@@ -4306,6 +5187,10 @@ async function handleAddUser(e) {
         joinDate: formData.get('joinDate'),
         isAdmin: isAdmin,
         canManageAttendanceSheet: canManageAttendanceSheet,
+        canManageBirthdays: false,
+        birthDay: birthdayFields.birthDay,
+        birthMonth: birthdayFields.birthMonth,
+        birthYear: birthdayFields.birthYear,
         permissions: window.app_getPermissionsFromUI('add'),
         avatar: `https://ui-avatars.com/api/?name=${formData.get('name')}&background=random&color=fff`,
         status: 'out',
@@ -4316,8 +5201,14 @@ async function handleAddUser(e) {
         if (userData.isAdmin) {
             userData.role = 'Administrator';
             userData.canManageAttendanceSheet = true;
+            userData.canManageBirthdays = true;
+            userData.permissions = {
+                ...(userData.permissions || {}),
+                birthday: 'admin'
+            };
         } else {
             userData.isAdmin = false;
+            userData.canManageBirthdays = userData.permissions?.birthday === 'admin';
         }
 
         await window.AppDB.add('users', userData);
@@ -4333,7 +5224,7 @@ async function handleAddUser(e) {
 
 window.app_getPermissionsFromUI = (prefix) => {
     const permissions = {};
-    const modules = ['dashboard', 'leaves', 'users', 'attendance', 'reports', 'minutes', 'policies'];
+    const modules = ['dashboard', 'leaves', 'users', 'attendance', 'reports', 'minutes', 'policies', 'birthday'];
     modules.forEach(m => {
         const viewCheck = document.getElementById(`${prefix}-perm-${m}-view`);
         const adminCheck = document.getElementById(`${prefix}-perm-${m}-admin`);
@@ -4381,6 +5272,13 @@ window.app_submitEditUser = async (e) => {
     const bankIfsc = String(formData.get('bankIfsc') || '').trim().toUpperCase();
     const joinDate = String(formData.get('joinDate') || '').trim();
     const inputEmployeeId = String(formData.get('employeeId') || '').trim();
+    let birthdayFields;
+    try {
+        birthdayFields = app_extractBirthdayFields(formData);
+    } catch (err) {
+        alert(err.message);
+        return;
+    }
     const panPattern = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
     const ifscPattern = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 
@@ -4418,8 +5316,12 @@ window.app_submitEditUser = async (e) => {
         phone: (formData.get('phone') || "").trim(),
         isAdmin,
         canManageAttendanceSheet,
+        canManageBirthdays: false,
         employeeId,
         joinDate: joinDate || null,
+        birthDay: birthdayFields.birthDay,
+        birthMonth: birthdayFields.birthMonth,
+        birthYear: birthdayFields.birthYear,
         baseSalary: Number(formData.get('baseSalary') || 0),
         otherAllowances: Number(formData.get('otherAllowances') || 0),
         providentFund: Number(formData.get('providentFund') || 0),
@@ -4437,7 +5339,14 @@ window.app_submitEditUser = async (e) => {
     console.log("Executing Update for User:", userData);
     if (userData.isAdmin) {
         userData.canManageAttendanceSheet = true;
+        userData.canManageBirthdays = true;
         userData.role = 'Administrator';
+        userData.permissions = {
+            ...(userData.permissions || {}),
+            birthday: 'admin'
+        };
+    } else {
+        userData.canManageBirthdays = userData.permissions?.birthday === 'admin';
     }
 
     try {
@@ -4540,6 +5449,16 @@ document.addEventListener('submit', (e) => {
     else if (id === 'edit-user-form') {
         console.log("Routing to app_submitEditUser...");
         window.app_submitEditUser(e);
+    }
+    else if (id === 'birthday-details-form') {
+        window.app_submitBirthdayDetails(e);
+    }
+    else if (id === 'birthday-external-form') {
+        window.app_submitExternalBirthdayPerson(e);
+    }
+    else if (id.startsWith('birthday-month-form-')) {
+        const month = Number(id.replace('birthday-month-form-', ''));
+        window.app_submitBirthdayMonthForm(e, month);
     }
     else if (id === 'notify-form') handleNotifyUser(e);
     else if (id === 'leave-request-form') handleLeaveRequest(e);
@@ -5267,6 +6186,9 @@ window.app_editUser = async (userId) => {
     setVal('#edit-user-phone', user.phone);
     setChecked('#edit-user-isAdmin', !!(user.isAdmin || user.role === 'Administrator'));
     setChecked('#edit-user-can-manage-attendance-sheet', !!(user.canManageAttendanceSheet || user.isAdmin || user.role === 'Administrator'));
+    setVal('#edit-user-birth-day', user.birthDay || '');
+    setVal('#edit-user-birth-month', user.birthMonth || '');
+    setVal('#edit-user-birth-year', user.birthYear || '');
 
     const normalizedJoinDate = app_normalizeIsoDate(user.joinDate);
     setVal('#edit-user-join-date', normalizedJoinDate);
@@ -5286,7 +6208,7 @@ window.app_editUser = async (userId) => {
     setVal('#edit-user-uan', user.uan || user.UAN || '');
 
     // Populate permissions
-    const modules = ['dashboard', 'leaves', 'users', 'attendance', 'reports', 'minutes', 'policies'];
+    const modules = ['dashboard', 'leaves', 'users', 'attendance', 'reports', 'minutes', 'policies', 'birthday'];
     const permissions = user.permissions || {};
     modules.forEach(m => {
         const val = permissions[m];
@@ -5295,6 +6217,13 @@ window.app_editUser = async (userId) => {
         if (viewEl) viewEl.checked = (val === 'view' || val === 'admin');
         if (adminEl) adminEl.checked = (val === 'admin');
     });
+
+    if (!permissions.birthday && (user.canManageBirthdays || user.isAdmin || user.role === 'Administrator')) {
+        const birthdayViewEl = document.getElementById('edit-perm-birthday-view');
+        const birthdayAdminEl = document.getElementById('edit-perm-birthday-admin');
+        if (birthdayViewEl) birthdayViewEl.checked = true;
+        if (birthdayAdminEl) birthdayAdminEl.checked = true;
+    }
 
     const modal = document.getElementById('edit-user-modal');
     if (modal) {

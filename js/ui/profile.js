@@ -28,6 +28,16 @@ export async function renderProfile() {
         const profileEmployeeId = profileJoinDate
             ? (profileUser.employeeId || deriveEmployeeId(profileJoinDate, profileUser.id))
             : 'NA';
+        const profileBirthDay = Number(profileUser.birthDay || 0);
+        const profileBirthMonth = Number(profileUser.birthMonth || 0);
+        const profileBirthYear = Number(profileUser.birthYear || 0);
+        const profileBirthday = [
+            profileBirthDay ? String(profileBirthDay).padStart(2, '0') : '--',
+            (profileBirthMonth >= 1 && profileBirthMonth <= 12)
+                ? new Date(2026, profileBirthMonth - 1, 1).toLocaleString('en-US', { month: 'long' })
+                : '--',
+            profileBirthYear ? String(profileBirthYear) : ''
+        ].filter(Boolean).join(' ').trim();
 
         const [monthlyStats, yearlyStats, leaves] = await Promise.all([
             window.AppAnalytics ? window.AppAnalytics.getUserMonthlyStats(profileUser.id) : null,
@@ -213,6 +223,7 @@ export async function renderProfile() {
                 ['Reports To', profileUser.reportsTo || 'Admin'],
                 ['Employee ID', profileEmployeeId],
                 ['Join Date', profileJoinDate || 'N/A'],
+                ['Birthday', profileBirthday || 'N/A'],
                 ['Payroll Cycle', 'Monthly (25th)'],
             ].map(([label, value]) => `
                                 <div class="pro-detail-row">
@@ -261,4 +272,3 @@ export async function renderProfile() {
         return `<div class="card error-card">Failed to load profile: ${safeHtml(err.message)}</div>`;
     }
 }
-

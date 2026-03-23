@@ -261,6 +261,11 @@ export function renderModals() {
                             <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Company Policies</div>
                             <input type="checkbox" class="perm-check" data-module="policies" data-level="view" id="edit-perm-policies-view">
                             <input type="checkbox" class="perm-check" data-module="policies" data-level="admin" id="edit-perm-policies-admin">
+
+                            <!-- Birthday -->
+                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Birthday Calendar</div>
+                            <input type="checkbox" class="perm-check" data-module="birthday" data-level="view" id="edit-perm-birthday-view">
+                            <input type="checkbox" class="perm-check" data-module="birthday" data-level="admin" id="edit-perm-birthday-admin">
                         </div>
                     </div>
                      <div style="display: flex; gap: 1rem;">
@@ -272,6 +277,24 @@ export function renderModals() {
                             Phone
                             <input type="tel" name="phone" id="edit-user-phone" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
                         </label>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.85rem; font-weight: 600; color: #334155; margin-bottom: 0.45rem;">Date of Birth</div>
+                        <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:0.75rem;">
+                            <label>
+                                <span style="display:block; font-size:0.78rem; color:#64748b; margin-bottom:0.25rem;">Day</span>
+                                <input type="number" name="birthDay" id="edit-user-birth-day" min="1" max="31" placeholder="DD" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                            </label>
+                            <label>
+                                <span style="display:block; font-size:0.78rem; color:#64748b; margin-bottom:0.25rem;">Month</span>
+                                <input type="number" name="birthMonth" id="edit-user-birth-month" min="1" max="12" placeholder="MM" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                            </label>
+                            <label>
+                                <span style="display:block; font-size:0.78rem; color:#64748b; margin-bottom:0.25rem;">Year</span>
+                                <input type="number" name="birthYear" id="edit-user-birth-year" min="1900" max="2100" placeholder="YYYY" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                            </label>
+                        </div>
+                        <div style="font-size:0.78rem; color:#64748b; margin-top:0.35rem;">You can save any one or more birthday fields. Day and month are required only for reminders.</div>
                     </div>
                     
                     <div style="display: flex; gap: 1rem; margin-top: 1rem;">
@@ -404,6 +427,11 @@ export function renderModals() {
                             <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Company Policies</div>
                             <input type="checkbox" class="perm-check" data-module="policies" data-level="view" id="add-perm-policies-view">
                             <input type="checkbox" class="perm-check" data-module="policies" data-level="admin" id="add-perm-policies-admin">
+
+                            <!-- Birthday -->
+                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Birthday Calendar</div>
+                            <input type="checkbox" class="perm-check" data-module="birthday" data-level="view" id="add-perm-birthday-view">
+                            <input type="checkbox" class="perm-check" data-module="birthday" data-level="admin" id="add-perm-birthday-admin">
                         </div>
                     </div>
                      <div style="display: flex; gap: 1rem;">
@@ -415,6 +443,24 @@ export function renderModals() {
                             Phone
                             <input type="tel" name="phone" required style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
                         </label>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.85rem; font-weight: 600; color: #334155; margin-bottom: 0.45rem;">Date of Birth</div>
+                        <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:0.75rem;">
+                            <label>
+                                <span style="display:block; font-size:0.78rem; color:#64748b; margin-bottom:0.25rem;">Day</span>
+                                <input type="number" name="birthDay" min="1" max="31" placeholder="DD" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                            </label>
+                            <label>
+                                <span style="display:block; font-size:0.78rem; color:#64748b; margin-bottom:0.25rem;">Month</span>
+                                <input type="number" name="birthMonth" min="1" max="12" placeholder="MM" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                            </label>
+                            <label>
+                                <span style="display:block; font-size:0.78rem; color:#64748b; margin-bottom:0.25rem;">Year</span>
+                                <input type="number" name="birthYear" min="1900" max="2100" placeholder="YYYY" style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 0.5rem;">
+                            </label>
+                        </div>
+                        <div style="font-size:0.78rem; color:#64748b; margin-top:0.35rem;">You can save any one or more birthday fields. Day and month are required only for reminders.</div>
                     </div>
                     <label>
                         Joining Date

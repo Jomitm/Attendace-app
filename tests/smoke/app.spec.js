@@ -310,6 +310,269 @@ test.describe("CRWI Attendance smoke", () => {
     expect(result.staffText).not.toContain('theirs');
     expect(result.adminText).toContain('theirs');
   });
+
+  test("renders birthday calendar for birthday managers", async ({ page }) => {
+    await page.goto("/index.html", { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => Boolean(globalThis.AppUI?.renderBirthdayCalendar));
+
+    const html = await page.evaluate(async () => {
+      const w = globalThis;
+      const originals = {
+        getUser: w.AppAuth.getUser,
+        getAll: w.AppDB.getAll,
+        getIstNow: w.AppDB.getIstNow
+      };
+
+      w.AppAuth.getUser = () => ({
+        id: "mgr1",
+        name: "Birthday Manager",
+        role: "Employee",
+        permissions: { birthday: "admin" }
+      });
+      w.AppDB.getAll = async (collection) => {
+        if (collection === "users") {
+          return [
+            { id: "mgr1", name: "Birthday Manager", role: "Employee", dept: "HR", permissions: { birthday: "admin" }, birthMonth: 4, birthDay: 5 },
+            { id: "u2", name: "Maria", role: "Coordinator", dept: "Admin", birthMonth: 3, birthDay: 24, birthYear: 1990 },
+            { id: "u3", name: "Anita", role: "Staff", dept: "Operations", birthYear: 1988 }
+          ];
+        }
+        if (collection === "birthday_people") {
+          return [
+            { id: "bp1", name: "Sr Mary", position: "Trustee", location: "Kolkata", birthMonth: 3, birthDay: 28 }
+          ];
+        }
+        return [];
+      };
+      w.AppDB.getIstNow = () => new Date("2026-03-23T09:00:00+05:30");
+
+      try {
+        return await w.AppUI.renderBirthdayCalendar();
+      } finally {
+        w.AppAuth.getUser = originals.getUser;
+        w.AppDB.getAll = originals.getAll;
+        w.AppDB.getIstNow = originals.getIstNow;
+      }
+    });
+
+    expect(html).toContain("Birthday Calendar");
+    expect(html).toContain("Monthly View");
+    expect(html).toContain("Yearly View");
+    expect(html).toContain("March 2026");
+    expect(html).toContain("March Calendar");
+    expect(html).toContain("Add Person Not In System");
+    expect(html).toContain("Maria");
+    expect(html).toContain("Sr Mary");
+    expect(html).toContain("Trustee");
+    expect(html).toContain("Incomplete Birthday Records");
+    expect(html).toContain("Anita");
+  });
+
+  test("birthday manager can add a person not in system from birthday calendar", async ({ page }) => {
+    await page.goto("/index.html", { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => Boolean(globalThis.app_submitExternalBirthdayPerson));
+
+    const result = await page.evaluate(async () => {
+      const w = globalThis;
+      const savedPeople = [];
+      const originals = {
+        getUser: w.AppAuth.getUser,
+        put: w.AppDB.put,
+        renderBirthdayCalendar: w.AppUI.renderBirthdayCalendar,
+        showSyncToast: w.app_showSyncToast
+      };
+
+      w.AppAuth.getUser = () => ({
+        id: "mgr1",
+        name: "Birthday Manager",
+        role: "Employee",
+        permissions: { birthday: "admin" }
+      });
+      w.AppDB.put = async (collection, payload) => {
+        if (collection === "birthday_people") {
+          savedPeople.push(payload);
+        }
+      };
+      w.AppUI.renderBirthdayCalendar = async () => "<div>Birthday calendar refreshed</div>";
+      w.app_showSyncToast = () => {};
+      if (!document.querySelector("#page-content")) {
+        document.body.insertAdjacentHTML("beforeend", '<div id="page-content"></div>');
+      }
+      w.app_openExternalBirthdayPersonModal(4);
+      const form = document.querySelector("#birthday-external-form");
+      form.querySelector('[name="name"]').value = "Mother Teresa";
+      form.querySelector('[name="position"]').value = "President";
+      form.querySelector('[name="location"]').value = "Kolkata";
+      form.querySelector('[name="birthDay"]').value = "12";
+      form.querySelector('[name="birthMonth"]').value = "4";
+      form.querySelector('[name="birthYear"]').value = "1910";
+
+      try {
+        await w.app_submitExternalBirthdayPerson({ preventDefault() {}, target: form });
+        return {
+          savedPeople,
+          modalPresent: Boolean(document.querySelector("#birthday-external-modal"))
+        };
+      } finally {
+        w.AppAuth.getUser = originals.getUser;
+        w.AppDB.put = originals.put;
+        w.AppUI.renderBirthdayCalendar = originals.renderBirthdayCalendar;
+        w.app_showSyncToast = originals.showSyncToast;
+      }
+    });
+
+    expect(result.savedPeople).toHaveLength(1);
+    expect(result.savedPeople[0].name).toBe("Mother Teresa");
+    expect(result.savedPeople[0].position).toBe("President");
+    expect(result.savedPeople[0].location).toBe("Kolkata");
+    expect(result.savedPeople[0].birthDay).toBe(12);
+    expect(result.savedPeople[0].birthMonth).toBe(4);
+    expect(result.modalPresent).toBe(false);
+  });
+
+  test("profile shows saved birthday details", async ({ page }) => {
+    await page.goto("/index.html", { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => Boolean(globalThis.AppUI?.renderProfile));
+
+    const html = await page.evaluate(async () => {
+      const w = globalThis;
+      const originals = {
+        getUser: w.AppAuth.getUser,
+        monthly: w.AppAnalytics.getUserMonthlyStats,
+        yearly: w.AppAnalytics.getUserYearlyStats,
+        leaves: w.AppLeaves.getUserLeaves
+      };
+
+      w.AppAuth.getUser = () => ({
+        id: "u9",
+        name: "Rachel",
+        role: "Coordinator",
+        dept: "Administration",
+        email: "rachel@example.com",
+        birthDay: 24,
+        birthMonth: 3,
+        birthYear: 1991
+      });
+      w.AppAnalytics.getUserMonthlyStats = async () => ({ attendanceRate: 0, punctualityRate: 0, totalHours: 0 });
+      w.AppAnalytics.getUserYearlyStats = async () => ({ totalDays: 0, breakdown: {} });
+      w.AppLeaves.getUserLeaves = async () => [];
+
+      try {
+        return await w.AppUI.renderProfile();
+      } finally {
+        w.AppAuth.getUser = originals.getUser;
+        w.AppAnalytics.getUserMonthlyStats = originals.monthly;
+        w.AppAnalytics.getUserYearlyStats = originals.yearly;
+        w.AppLeaves.getUserLeaves = originals.leaves;
+      }
+    });
+
+    expect(html).toContain("Birthday");
+    expect(html).toContain("24 March 1991");
+  });
+
+  test("birthday reminder popup is personalized and dedupes notifications", async ({ page }) => {
+    await page.goto("/index.html", { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => Boolean(globalThis.app_syncBirthdayReminders));
+
+    const result = await page.evaluate(async () => {
+      const w = globalThis;
+      const userDocs = new Map([
+        ["mgr1", {
+          id: "mgr1",
+          name: "Birthday Manager",
+          role: "Employee",
+          dept: "HR",
+          permissions: { birthday: "admin" },
+          notifications: []
+        }],
+        ["u2", {
+          id: "u2",
+          name: "Sister Agnes",
+          role: "Coordinator",
+          dept: "Administration",
+          birthDay: 24,
+          birthMonth: 3,
+          birthYear: 1992
+        }]
+      ]);
+      const birthdayPeople = new Map([
+        ["bp1", {
+          id: "bp1",
+          name: "Fr Thomas",
+          position: "Trustee",
+          location: "Bengaluru",
+          birthDay: 24,
+          birthMonth: 3
+        }]
+      ]);
+
+      const originals = {
+        getUser: w.AppAuth.getUser,
+        updateUser: w.AppAuth.updateUser,
+        getAll: w.AppDB.getAll,
+        get: w.AppDB.get,
+        put: w.AppDB.put,
+        getIstNow: w.AppDB.getIstNow,
+        getDayType: w.AppAnalytics.getDayType
+      };
+
+      w.AppAuth.getUser = () => userDocs.get("mgr1");
+      w.AppAuth.updateUser = async (userData) => {
+        const existing = userDocs.get(userData.id);
+        userDocs.set(userData.id, { ...existing, ...userData });
+        return true;
+      };
+      w.AppDB.getAll = async (collection) => {
+        if (collection === "users") return Array.from(userDocs.values());
+        if (collection === "birthday_people") return Array.from(birthdayPeople.values());
+        return [];
+      };
+      w.AppDB.get = async (collection, id) => {
+        if (collection === "users") return userDocs.get(id);
+        if (collection === "birthday_people") return birthdayPeople.get(id);
+        return null;
+      };
+      w.AppDB.put = async (collection, payload) => {
+        if (collection === "users") {
+          const existing = userDocs.get(payload.id) || {};
+          userDocs.set(payload.id, { ...existing, ...payload });
+        }
+        if (collection === "birthday_people") {
+          const existing = birthdayPeople.get(payload.id) || {};
+          birthdayPeople.set(payload.id, { ...existing, ...payload });
+        }
+      };
+      w.AppDB.getIstNow = () => new Date("2026-03-23T09:00:00+05:30");
+      w.AppAnalytics.getDayType = () => "Working Day";
+
+      try {
+        await w.app_syncBirthdayReminders();
+        await w.app_syncBirthdayReminders();
+        await w.app_maybeOpenBirthdayPopup();
+        return {
+          popupText: document.querySelector("#birthday-reminder-modal")?.innerText || "",
+          notifCount: (userDocs.get("mgr1")?.notifications || []).filter((n) => n.type === "birthday-reminder").length
+        };
+      } finally {
+        w.AppAuth.getUser = originals.getUser;
+        w.AppAuth.updateUser = originals.updateUser;
+        w.AppDB.getAll = originals.getAll;
+        w.AppDB.get = originals.get;
+        w.AppDB.put = originals.put;
+        w.AppDB.getIstNow = originals.getIstNow;
+        w.AppAnalytics.getDayType = originals.getDayType;
+      }
+    });
+
+    expect(result.popupText).toContain("UPCOMING BIRTHDAY");
+    expect(result.popupText).toContain("Sister Agnes");
+    expect(result.popupText).toContain("Fr Thomas");
+    expect(result.popupText).toContain("Birthday is tomorrow");
+    expect(result.popupText).toContain("Administration");
+    expect(result.popupText).toContain("Trustee");
+    expect(result.notifCount).toBe(2);
+  });
 });
 
 

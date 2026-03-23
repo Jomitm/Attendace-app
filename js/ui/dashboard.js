@@ -20,10 +20,42 @@ function getStaffActivityState() {
         window.app_staffActivityState = {
             selectedMonth: new Date().toISOString().slice(0, 7),
             sortKey: 'date-desc',
-            logs: []
+            logs: [],
+            leaveHistoryDate: new Date().toISOString().slice(0, 10)
         };
     }
+    if (!window.app_staffActivityState.leaveHistoryDate) {
+        window.app_staffActivityState.leaveHistoryDate = new Date().toISOString().slice(0, 10);
+    }
     return window.app_staffActivityState;
+}
+
+function getWeekRange(dateStr) {
+    const base = dateStr ? new Date(`${dateStr}T00:00:00`) : new Date();
+    if (Number.isNaN(base.getTime())) {
+        return getWeekRange(new Date().toISOString().slice(0, 10));
+    }
+    const day = base.getDay();
+    const diffToMonday = day === 0 ? -6 : 1 - day;
+    const start = new Date(base);
+    start.setDate(base.getDate() + diffToMonday);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    end.setHours(23, 59, 59, 999);
+    const fmt = (d) => {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const dayNum = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${dayNum}`;
+    };
+    return {
+        start,
+        end,
+        startKey: fmt(start),
+        endKey: fmt(end),
+        label: `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+    };
 }
 
 let dashboardActionDelegatesBound = false;
@@ -58,7 +90,12 @@ function ensureDashboardActionDelegates() {
                 if (window.AppLeaves?.updateLeaveStatus) {
                     await window.AppLeaves.updateLeaveStatus(leaveId, status, adminId);
                 }
-                if (window.app_refreshCurrentPage) await window.app_refreshCurrentPage();
+                if (typeof window.app_refreshCurrentPage === 'function') {
+                    await window.app_refreshCurrentPage();
+                } else {
+                    const contentArea = document.getElementById('page-content');
+                    if (contentArea) contentArea.innerHTML = await renderDashboard();
+                }
             }
         } catch (err) {
             console.error('Dashboard leave action failed:', err);
@@ -617,11 +654,18 @@ export function renderLeaveRequests(leaves) {
 export function renderLeaveHistory(leaves, options = {}) {
     const title = options.title || 'Leave History';
     const subtitle = options.subtitle || 'Past records';
+    const selectedDate = options.selectedDate || new Date().toISOString().slice(0, 10);
 
     if (!leaves || leaves.length === 0) {
         return `
             <div class="card dashboard-leave-history-card">
-                <div class="dashboard-leave-history-head"><h4>${safeHtml(title)}</h4><span>${safeHtml(subtitle)}</span></div>
+                <div class="dashboard-leave-history-head">
+                    <div>
+                        <h4>${safeHtml(title)}</h4>
+                        <span>${safeHtml(subtitle)}</span>
+                    </div>
+                    <input type="date" class="dashboard-team-select" value="${safeHtml(selectedDate)}" onchange="window.app_setDashboardLeaveHistoryDate(this.value)">
+                </div>
                 <div class="dashboard-activity-empty">No leave history found.</div>
             </div>`;
     }
@@ -635,8 +679,11 @@ export function renderLeaveHistory(leaves, options = {}) {
     return `
         <div class="card dashboard-leave-history-card">
             <div class="dashboard-leave-history-head">
-                <h4>${safeHtml(title)}</h4>
-                <span>${safeHtml(subtitle)}</span>
+                <div>
+                    <h4>${safeHtml(title)}</h4>
+                    <span>${safeHtml(subtitle)}</span>
+                </div>
+                <input type="date" class="dashboard-team-select" value="${safeHtml(selectedDate)}" onchange="window.app_setDashboardLeaveHistoryDate(this.value)">
             </div>
             <div class="dashboard-leave-history-list">
                 ${leaves.map(l => `
@@ -758,6 +805,7 @@ export async function renderDashboard() {
     const isFullAdmin = window.app_hasPerm('dashboard', 'admin', user);
     const staffActivityState = getStaffActivityState();
     const selectedMonth = staffActivityState.selectedMonth;
+    const leaveHistoryDate = staffActivityState.leaveHistoryDate || new Date().toISOString().slice(0, 10);
     const dateKeys = window.AppDB?.getISTDateKeys ? window.AppDB.getISTDateKeys() : {
         todayKey: new Date().toISOString().split('T')[0],
         yesterdayKey: new Date(Date.now() - (24 * 60 * 60 * 1000)).toISOString().split('T')[0]
@@ -855,9 +903,7 @@ export async function renderDashboard() {
             : window.AppDB.getAll('users'),
         window.AppCalendar ? window.AppCalendar.getCollaborations(targetStaffId) : Promise.resolve([]),
         window.app_hasPerm('leaves', 'view')
-            ? (window.AppDB.queryMany
-                ? window.AppDB.queryMany('leaves', [{ field: 'status', operator: '==', value: 'Pending' }]).catch(() => window.AppDB.getAll('leaves'))
-                : window.AppDB.getAll('leaves'))
+            ? window.AppDB.getAll('leaves')
             : Promise.resolve([]),
         dailySummaryPromise,
         window.AppMinutes ? window.AppMinutes.getMinutes() : Promise.resolve([])
@@ -1071,12 +1117,23 @@ export async function renderDashboard() {
 
     if (isAdmin) {
         const hasExplicitSelection = !!window.app_selectedSummaryStaffId && window.app_selectedSummaryStaffId !== user.id;
-        const leaveHistoryItems = (allLeaves || []).slice().sort((a, b) => new Date(b.appliedOn || 0) - new Date(a.appliedOn || 0));
-        const filteredHistory = hasExplicitSelection ? leaveHistoryItems.filter(l => (l.userId || l.user_id) === targetStaffId).slice(0, 8) : leaveHistoryItems.slice(0, 8);
+        const weekRange = getWeekRange(leaveHistoryDate);
+        const leaveHistoryItems = (allLeaves || [])
+            .filter(l => {
+                const historyDate = String(l.appliedOn || l.actionDate || l.startDate || '').slice(0, 10);
+                return historyDate && historyDate >= weekRange.startKey && historyDate <= weekRange.endKey;
+            })
+            .sort((a, b) => new Date(b.appliedOn || b.actionDate || b.startDate || 0) - new Date(a.appliedOn || a.actionDate || a.startDate || 0));
+        const filteredHistory = hasExplicitSelection
+            ? leaveHistoryItems.filter(l => (l.userId || l.user_id) === targetStaffId).slice(0, 8)
+            : leaveHistoryItems.slice(0, 8);
 
         const historyHTML = renderLeaveHistory(filteredHistory, {
             title: hasExplicitSelection ? `${targetStaff?.name || 'Staff'} Leave History` : 'Leave Request History',
-            subtitle: hasExplicitSelection ? 'Based on selected staff summary' : 'Latest requests (all staff)'
+            subtitle: hasExplicitSelection
+                ? `Current week (${weekRange.label}) for selected staff`
+                : `Current week (${weekRange.label}) across all staff`,
+            selectedDate: leaveHistoryDate
         });
 
         summaryHTML = `
@@ -1294,6 +1351,13 @@ const refreshStaffActivityWidget = async (fetchLogs = true) => {
 
 // --- Export to Window (Global) ---
 if (typeof window !== 'undefined') {
+    window.app_setDashboardLeaveHistoryDate = async function (value) {
+        const state = getStaffActivityState();
+        state.leaveHistoryDate = value || new Date().toISOString().slice(0, 10);
+        const contentArea = document.getElementById('page-content');
+        if (contentArea) contentArea.innerHTML = await renderDashboard();
+    };
+
     window.app_expandTeamActivity = function () {
         if (window.app_closeTeamActivityExpanded) {
             window.app_closeTeamActivityExpanded();

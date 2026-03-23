@@ -62,6 +62,15 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
 
     const activeCount = allUsers.filter(u => u.status === 'in').length;
     const adminCount = allUsers.filter(u => u.role === 'Administrator' || u.isAdmin === true).length;
+    const birthdayManagedCount = allUsers.filter(u => Number(u.birthMonth || 0) >= 1 && Number(u.birthDay || 0) >= 1).length;
+    const upcomingBirthdayUsers = [...allUsers]
+        .filter(u => Number(u.birthMonth || 0) >= 1)
+        .sort((a, b) => {
+            const aKey = `${String(Number(a.birthMonth || 99)).padStart(2, '0')}-${String(Number(a.birthDay || 99)).padStart(2, '0')}-${String(a.name || '').toLowerCase()}`;
+            const bKey = `${String(Number(b.birthMonth || 99)).padStart(2, '0')}-${String(Number(b.birthDay || 99)).padStart(2, '0')}-${String(b.name || '').toLowerCase()}`;
+            return aKey.localeCompare(bKey);
+        })
+        .slice(0, 5);
     const perfStatus = performance.avgScore > 70 ? 'Optimal' : (performance.avgScore > 40 ? 'Good' : 'Low');
     const perfColor = performance.avgScore > 70 ? '#166534' : (performance.avgScore > 40 ? '#854d0e' : '#991b1b');
     const perfBg = performance.avgScore > 70 ? '#f0fdf4' : (performance.avgScore > 40 ? '#fefce8' : '#fef2f2');
@@ -102,6 +111,13 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         if (contentArea) contentArea.innerHTML = await renderAdmin(start, end);
     };
 
+    window.app_refreshAdminPage = async () => {
+        const start = document.getElementById('audit-start')?.value || auditStartDate;
+        const end = document.getElementById('audit-end')?.value || auditEndDate;
+        const contentArea = document.getElementById('page-content');
+        if (contentArea) contentArea.innerHTML = await renderAdmin(start, end);
+    };
+
     return `
         <div class="dashboard-grid dashboard-modern dashboard-admin-view">
             <div class="card admin-kpi-card">
@@ -136,10 +152,10 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                                         <td><span class="admin-leave-type-badge">${safeHtml(l.type)}</span></td>
                                         <td>${l.daysCount}</td>
                                         <td>
-                                            <div class="admin-leave-actions">
+                                                <div class="admin-leave-actions">
                                                 ${window.app_hasPerm('leaves', 'admin') ? `
-                                                    <button onclick="window.AppLeaves.updateLeaveStatus('${l.id}', 'Approved', window.AppAuth?.getUser?.()?.id).then(() => window.app_refreshCurrentPage())" class="admin-btn admin-btn-success">Approve</button>
-                                                    <button onclick="window.AppLeaves.updateLeaveStatus('${l.id}', 'Rejected', window.AppAuth?.getUser?.()?.id).then(() => window.app_refreshCurrentPage())" class="admin-btn admin-btn-danger">Reject</button>
+                                                    <button onclick="window.AppLeaves.updateLeaveStatus('${l.id}', 'Approved', window.AppAuth?.getUser?.()?.id).then(() => window.app_refreshAdminPage())" class="admin-btn admin-btn-success">Approve</button>
+                                                    <button onclick="window.AppLeaves.updateLeaveStatus('${l.id}', 'Rejected', window.AppAuth?.getUser?.()?.id).then(() => window.app_refreshAdminPage())" class="admin-btn admin-btn-danger">Reject</button>
                                                 ` : '<span class="text-muted" style="font-size:0.7rem;">View Only</span>'}
                                             </div>
                                         </td>
@@ -165,11 +181,37 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                 </div>
             </div>
 
+            ${(window.app_isAdminUser?.() || window.app_canManageBirthdays?.()) ? `
+            <div class="card admin-performance-card" style="background:linear-gradient(135deg, #fff7ed, #fffbeb); border:1px solid #fed7aa;">
+                <div class="admin-performance-head">
+                    <div>
+                        <h4 class="admin-performance-title">Birthday Calendar</h4>
+                        <p class="text-muted">${birthdayManagedCount} staff with reminder-ready birthdays</p>
+                    </div>
+                    <button class="action-btn" onclick="window.location.hash='birthday-calendar'"><i class="fa-solid fa-cake-candles"></i> Open</button>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:0.55rem;">
+                    ${upcomingBirthdayUsers.length
+            ? upcomingBirthdayUsers.map((user) => `
+                            <div style="display:flex; justify-content:space-between; gap:0.75rem; border:1px solid #fdba74; border-radius:12px; padding:0.7rem 0.8rem; background:rgba(255,255,255,0.72);">
+                                <div>
+                                    <div style="font-weight:700; color:#7c2d12;">${safeHtml(user.name || 'Staff')}</div>
+                                    <div style="font-size:0.8rem; color:#9a3412;">${safeHtml(user.role || 'Employee')} / ${safeHtml(user.dept || 'General')}</div>
+                                </div>
+                                <div style="text-align:right; color:#9a3412; font-weight:700;">${safeHtml(String(user.birthDay || '--'))}/${safeHtml(String(user.birthMonth || '--'))}${user.birthYear ? `/${safeHtml(String(user.birthYear))}` : ''}</div>
+                            </div>
+                        `).join('')
+            : '<div style="color:#9a3412; font-size:0.85rem;">No birthdays saved yet.</div>'}
+                </div>
+            </div>
+            ` : ''}
+
             ${window.app_hasPerm('users', 'view') ? `
             <div class="card full-width">
                 <div class="admin-staff-head">
                     <h3 class="admin-staff-title">Staff Management</h3>
                     <div class="admin-staff-head-actions">
+                        ${(window.app_isAdminUser?.() || window.app_canManageBirthdays?.()) ? `<button class="action-btn secondary" onclick="window.location.hash='birthday-calendar'"><i class="fa-solid fa-cake-candles"></i> Birthday Calendar</button>` : ''}
                         ${window.app_hasPerm('users', 'admin') ? `<button class="action-btn" onclick="document.getElementById('add-user-modal').style.display='flex'"><i class="fa-solid fa-user-plus"></i> Add Staff</button>` : ''}
                     </div>
                 </div>
