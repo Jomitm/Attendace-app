@@ -648,109 +648,389 @@ export class Analytics {
         return 'Work Day';
     }
 
-    async getHeroOfTheWeek() {
+    getHeroPolicy() {
+        return AppConfig?.HERO_POLICY || {};
+    }
+
+    parseHeroLogDate(raw) {
+        if (!raw) return null;
+        if (raw instanceof Date && !Number.isNaN(raw.getTime())) return raw;
+        if (typeof raw !== 'string') return null;
+        const s = raw.trim();
+        if (!s) return null;
+
+        const direct = new Date(s);
+        if (!Number.isNaN(direct.getTime())) return direct;
+
+        // Compatibility for legacy/localized strings such as DD/MM/YYYY or MM/DD/YYYY.
+        const m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+        if (!m) return null;
+        const a = Number(m[1]);
+        const b = Number(m[2]);
+        let y = Number(m[3]);
+        if (y < 100) y += 2000;
+        if (!Number.isFinite(a) || !Number.isFinite(b) || !Number.isFinite(y)) return null;
+
+        const mm = a > 12 ? b : a;
+        const dd = a > 12 ? a : b;
+        const dt = new Date(y, mm - 1, dd);
+        return Number.isNaN(dt.getTime()) ? null : dt;
+    }
+
+    resolveHeroUserId(log) {
+        const raw = log?.user_id ?? log?.userId ?? log?.uid ?? log?.user ?? '';
+        const uid = String(raw || '').trim();
+        return uid || null;
+    }
+
+    resolveHeroDurationMs(log) {
+        let durationMs = Number(log?.durationMs);
+        if (!Number.isFinite(durationMs)) durationMs = 0;
+        if (durationMs > 0) return durationMs;
+        if (log?.checkIn && log?.checkOut && log.checkOut !== 'Active Now') {
+            const inMins = this.parseTimeToMinutes(log.checkIn);
+            const outMins = this.parseTimeToMinutes(log.checkOut);
+            if (inMins !== null && outMins !== null) {
+                durationMs = (outMins - inMins) * 60 * 1000;
+            }
+        }
+        return Math.max(0, Number(durationMs) || 0);
+    }
+
+    normalizeHeroLogs(logs = []) {
+        return (logs || [])
+            .map((log) => {
+                const logDate = this.parseHeroLogDate(log?.date);
+                const userId = this.resolveHeroUserId(log);
+                if (!logDate || !userId) return null;
+                const durationMs = this.resolveHeroDurationMs(log);
+                const activityScore = Number(log?.activityScore);
+                return {
+                    userId,
+                    logDate,
+                    dateKey: logDate.toISOString().split('T')[0],
+                    durationMs,
+                    activityLogDepth: String(log?.workDescription || '').length,
+                    activityScore: Number.isFinite(activityScore) ? activityScore : null
+                };
+            })
+            .filter(Boolean);
+    }
+
+    buildHeroCandidateStats(normalizedLogs = []) {
+        const byUser = new Map();
+        normalizedLogs.forEach((log) => {
+            if (!byUser.has(log.userId)) {
+                byUser.set(log.userId, {
+                    userId: log.userId,
+                    totalDurationMs: 0,
+                    daysSet: new Set(),
+                    activityLogDepth: 0,
+                    activityScoreTotal: 0,
+                    activityScoreCount: 0
+                });
+            }
+            const bucket = byUser.get(log.userId);
+            bucket.totalDurationMs += Math.max(0, Number(log.durationMs) || 0);
+            bucket.daysSet.add(log.dateKey);
+            bucket.activityLogDepth += Math.max(0, Number(log.activityLogDepth) || 0);
+            if (Number.isFinite(log.activityScore)) {
+                bucket.activityScoreTotal += log.activityScore;
+                bucket.activityScoreCount += 1;
+            }
+        });
+        return Array.from(byUser.values());
+    }
+
+    classifyHeroTaskStatus(rawStatus, planDate = null) {
+        const normalized = String(rawStatus || '').toLowerCase().trim();
+        const smartStatus = window.AppCalendar?.getSmartTaskStatus
+            ? String(window.AppCalendar.getSmartTaskStatus(planDate, normalized) || normalized)
+            : normalized;
+        if (smartStatus === 'completed') return 'completed';
+        if (smartStatus === 'in-process' || smartStatus === 'in progress' || smartStatus === 'to-be-started' || smartStatus === 'pending' || smartStatus === '') return 'in_progress';
+        if (smartStatus === 'not-completed' || smartStatus === 'overdue' || smartStatus === 'postponed' || smartStatus === 'missed') return 'missed';
+        return 'in_progress';
+    }
+
+    normalizeHeroTasks(workPlans = []) {
+        const rows = [];
+        (workPlans || []).forEach((wp) => {
+            const userId = String(wp?.userId || wp?.user_id || '').trim();
+            if (!userId || !Array.isArray(wp?.plans)) return;
+            wp.plans.forEach((task) => {
+                if (!task || !String(task.task || '').trim()) return;
+                const status = this.classifyHeroTaskStatus(task.status, wp.date);
+                rows.push({ userId, status, date: wp.date });
+            });
+        });
+        return rows;
+    }
+
+    buildHeroTaskStats(taskRows = []) {
+        const byUser = new Map();
+        taskRows.forEach((row) => {
+            if (!byUser.has(row.userId)) {
+                byUser.set(row.userId, { planned: 0, completed: 0, inProgress: 0, missed: 0 });
+            }
+            const bucket = byUser.get(row.userId);
+            bucket.planned += 1;
+            if (row.status === 'completed') bucket.completed += 1;
+            else if (row.status === 'missed') bucket.missed += 1;
+            else bucket.inProgress += 1;
+        });
+        return byUser;
+    }
+
+    rankHeroCandidates(attendanceStats = [], taskStats = new Map(), policy = {}) {
+        const weights = policy.WEIGHTS || {};
+        const caps = policy.CAPS || {};
+        const windowDays = Math.max(1, Number(policy.WINDOW_DAYS || 7));
+        const hourCap = Math.max(1, Number(caps.hours || 40));
+        const attendanceModifier = policy.ATTENDANCE_MODIFIER || {};
+
+        const wTaskExecution = Number(weights.taskExecution ?? 0.45);
+        const wTaskCompletionRate = Number(weights.taskCompletionRate ?? 0.2);
+        const wTaskInProgressSupport = Number(weights.taskInProgressSupport ?? 0.1);
+        const wTaskMissPenalty = Number(weights.taskMissPenalty ?? 0.1);
+
+        const modifierBase = Number(attendanceModifier.base ?? 0.9);
+        const modifierMaxBonus = Number(attendanceModifier.maxBonus ?? 0.15);
+        const modifierConsistencyImpact = Number(attendanceModifier.consistencyImpact ?? 0.65);
+        const modifierEffortImpact = Number(attendanceModifier.effortImpact ?? 0.35);
+
+        const attendanceMap = new Map(attendanceStats.map((row) => [String(row.userId), row]));
+        const allUserIds = new Set([...attendanceMap.keys(), ...taskStats.keys()]);
+
+        return Array.from(allUserIds).map((userId) => {
+            const attendance = attendanceMap.get(String(userId)) || {
+                userId,
+                totalDurationMs: 0,
+                daysSet: new Set(),
+                activityLogDepth: 0
+            };
+            const tasks = taskStats.get(String(userId)) || { planned: 0, completed: 0, inProgress: 0, missed: 0 };
+
+            const days = attendance.daysSet.size;
+            const hoursValue = attendance.totalDurationMs / (1000 * 60 * 60);
+            const planned = Math.max(0, Number(tasks.planned) || 0);
+            const completed = Math.max(0, Number(tasks.completed) || 0);
+            const inProgress = Math.max(0, Number(tasks.inProgress) || 0);
+            const missed = Math.max(0, Number(tasks.missed) || 0);
+            const completionRate = planned > 0 ? (completed / planned) * 100 : 0;
+
+            const taskExecutionScore = planned > 0
+                ? Math.max(0, Math.min(100, ((completed + (inProgress * 0.5) - missed) / planned) * 100))
+                : 0;
+            const inProgressScore = planned > 0 ? Math.max(0, Math.min(100, (inProgress / planned) * 100)) : 0;
+            const missPenaltyScore = planned > 0 ? Math.max(0, Math.min(100, (missed / planned) * 100)) : 0;
+            const consistencyScore = (days / windowDays) * 100;
+            const effortScore = Math.min((hoursValue / hourCap) * 100, 100);
+
+            const taskScore = (taskExecutionScore * wTaskExecution)
+                + (completionRate * wTaskCompletionRate)
+                + (inProgressScore * wTaskInProgressSupport)
+                - (missPenaltyScore * wTaskMissPenalty);
+            const attendanceReliability = ((consistencyScore / 100) * modifierConsistencyImpact)
+                + ((effortScore / 100) * modifierEffortImpact);
+            const attendanceBoost = Math.max(0, Math.min(modifierMaxBonus, attendanceReliability * modifierMaxBonus));
+            const attendanceFactor = Math.max(0.5, modifierBase + attendanceBoost);
+            const finalScore = taskScore * attendanceFactor;
+
+            return {
+                userId,
+                days,
+                hours: Number(hoursValue.toFixed(1)),
+                totalDurationMs: Math.max(0, Number(attendance.totalDurationMs) || 0),
+                activityLogDepth: attendance.activityLogDepth,
+                taskPlanned: planned,
+                taskCompleted: completed,
+                taskInProgress: inProgress,
+                taskMissed: missed,
+                completionRate: Number(completionRate.toFixed(1)),
+                taskScore: Number(Math.max(0, taskScore).toFixed(2)),
+                attendanceFactor: Number(attendanceFactor.toFixed(3)),
+                finalScore: Number(Math.max(0, finalScore).toFixed(2))
+            };
+        }).sort((a, b) => {
+            if (b.finalScore !== a.finalScore) return b.finalScore - a.finalScore;
+            if (b.taskCompleted !== a.taskCompleted) return b.taskCompleted - a.taskCompleted;
+            if (a.taskMissed !== b.taskMissed) return a.taskMissed - b.taskMissed;
+            if (b.days !== a.days) return b.days - a.days;
+            if (b.totalDurationMs !== a.totalDurationMs) return b.totalDurationMs - a.totalDurationMs;
+            return String(a.userId).localeCompare(String(b.userId));
+        });
+    }
+
+    createNoHeroPayload({ reason = 'No eligible attendance data found.', period = 'weekly', source = 'direct_cache' } = {}) {
+        return {
+            state: 'no_eligible_data',
+            user: null,
+            stats: null,
+            reason,
+            period,
+            source,
+            confidence: 0,
+            schemaVersion: Number(this.getHeroPolicy()?.SCHEMA_VERSION || 1)
+        };
+    }
+
+    scoreHeroFromLogs(logs = [], users = [], options = {}) {
+        const period = String(options.period || 'weekly');
+        const source = String(options.source || 'direct_cache');
+        const policy = this.getHeroPolicy();
+        const minEvidence = policy.MIN_EVIDENCE || {};
+        const minDays = Math.max(1, Number(minEvidence.minDays || 1));
+        const minDurationMs = Math.max(0, Number(minEvidence.minDurationMs || 1));
+        const minPlannedTasks = Math.max(0, Number(minEvidence.minPlannedTasks || 1));
+
+        const normalized = this.normalizeHeroLogs(logs);
+        const workPlans = Array.isArray(options.workPlans) ? options.workPlans : [];
+        const normalizedTasks = this.normalizeHeroTasks(workPlans);
+        if (normalized.length === 0 && normalizedTasks.length === 0) {
+            return this.createNoHeroPayload({ period, source });
+        }
+
+        const ranked = this.rankHeroCandidates(
+            this.buildHeroCandidateStats(normalized),
+            this.buildHeroTaskStats(normalizedTasks),
+            policy
+        );
+        const eligible = ranked.filter((row) =>
+            row.taskPlanned >= minPlannedTasks &&
+            (row.days >= minDays || row.totalDurationMs >= minDurationMs)
+        );
+        if (eligible.length === 0) {
+            return this.createNoHeroPayload({ reason: 'No staff met the minimum hero criteria this period.', period, source });
+        }
+
+        const winnerStats = eligible[0];
+        const winner = (users || []).find(u => String(u.id) === String(winnerStats.userId));
+        if (!winner) {
+            return this.createNoHeroPayload({ reason: 'No valid user mapping found for hero candidates.', period, source });
+        }
+
+        const confidenceTasks = winnerStats.taskPlanned > 0
+            ? Math.min(1, winnerStats.taskCompleted / winnerStats.taskPlanned)
+            : 0;
+        const confidenceDays = Math.min(1, winnerStats.days / Math.max(1, Number(policy.WINDOW_DAYS || 7)));
+        const confidenceHours = Math.min(1, winnerStats.totalDurationMs / (1000 * 60 * 60 * Math.max(1, Number(policy?.CAPS?.hours || 40))));
+        const confidence = Number(((confidenceTasks + confidenceDays + confidenceHours) / 3).toFixed(2));
+
+        return {
+            state: 'winner',
+            user: winner,
+            stats: winnerStats,
+            reason: this.determineHeroReason(winnerStats),
+            period,
+            source,
+            confidence,
+            schemaVersion: Number(policy.SCHEMA_VERSION || 1)
+        };
+    }
+
+    async getHeroOfTheWeek(options = {}) {
         try {
-            const sevenDaysAgo = new Date();
-            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-            sevenDaysAgo.setHours(0, 0, 0, 0);
-            const [logs, users] = await Promise.all([
-                this.getAttendanceInRange(sevenDaysAgo, new Date(), 'hero'),
+            const policy = this.getHeroPolicy();
+            const windowDays = Math.max(1, Number(policy.WINDOW_DAYS || 7));
+            const fallbackDays = Math.max(windowDays, Number(policy.FALLBACK_LOOKBACK_DAYS || 90));
+            const now = new Date();
+            const start = new Date(now);
+            start.setDate(start.getDate() - windowDays);
+            start.setHours(0, 0, 0, 0);
+
+            const [logs, workPlans, users] = await Promise.all([
+                this.getAttendanceInRange(start, now, 'hero'),
+                this.db.queryMany
+                    ? this.db.queryMany('work_plans', [
+                        { field: 'date', operator: '>=', value: start.toISOString().split('T')[0] },
+                        { field: 'date', operator: '<=', value: now.toISOString().split('T')[0] }
+                    ])
+                    : this.db.getAll('work_plans'),
                 this.getUsersCached()
             ]);
 
-            const recentLogs = logs.filter(l => {
-                const logDate = new Date(l.date);
-                return !isNaN(logDate.getTime()) && logDate >= sevenDaysAgo;
+            const weeklyHero = this.scoreHeroFromLogs(logs, users, {
+                period: 'weekly',
+                source: String(options.source || 'direct_cache'),
+                workPlans
             });
+            if (weeklyHero.state === 'winner') return weeklyHero;
 
-            if (recentLogs.length === 0) return null;
+            const fallbackStart = new Date(now);
+            fallbackStart.setDate(fallbackStart.getDate() - fallbackDays);
+            fallbackStart.setHours(0, 0, 0, 0);
+            const [widerLogs, widerWorkPlans] = await Promise.all([
+                this.getAttendanceInRange(fallbackStart, now, 'hero_fallback_lookback'),
+                this.db.queryMany
+                    ? this.db.queryMany('work_plans', [
+                        { field: 'date', operator: '>=', value: fallbackStart.toISOString().split('T')[0] },
+                        { field: 'date', operator: '<=', value: now.toISOString().split('T')[0] }
+                    ])
+                    : this.db.getAll('work_plans')
+            ]);
+            const normalizedWiderLogs = this.normalizeHeroLogs(widerLogs);
+            const normalizedWiderTasks = this.normalizeHeroTasks(widerWorkPlans);
+            if (normalizedWiderLogs.length === 0 && normalizedWiderTasks.length === 0) {
+                return this.createNoHeroPayload({
+                    reason: weeklyHero.reason,
+                    period: 'latest_active_window',
+                    source: String(options.source || 'direct_cache')
+                });
+            }
 
-            const userStats = {};
-
-            recentLogs.forEach(l => {
-                const uid = l.user_id || l.userId;
-                if (!uid) return;
-
-                if (!userStats[uid]) {
-                    userStats[uid] = {
-                        userId: uid,
-                        totalDurationMs: 0,
-                        daysCount: new Set(),
-                        activityLogDepth: 0,
-                        avgActivityScore: 0,
-                        scoreCount: 0
-                    };
-                }
-
-                const stats = userStats[uid];
-
-                // Fallback for logs without durationMs
-                let dMs = l.durationMs;
-                if (dMs === undefined && l.checkIn && l.checkOut && l.checkOut !== 'Active Now') {
-                    const inMins = this.parseTimeToMinutes(l.checkIn);
-                    const outMins = this.parseTimeToMinutes(l.checkOut);
-                    if (inMins !== null && outMins !== null) {
-                        dMs = (outMins - inMins) * 60 * 1000;
-                    }
-                    if (dMs < 0) dMs = 0;
-                }
-
-                stats.totalDurationMs += dMs || 0;
-                stats.daysCount.add(l.date);
-                stats.activityLogDepth += (l.workDescription || "").length;
-                if (l.activityScore !== undefined) {
-                    stats.avgActivityScore += l.activityScore;
-                    stats.scoreCount++;
-                }
+            const latestFromAttendance = normalizedWiderLogs.length > 0
+                ? normalizedWiderLogs.reduce((max, row) => (row.logDate > max ? row.logDate : max), normalizedWiderLogs[0].logDate)
+                : null;
+            const latestFromTasks = normalizedWiderTasks.length > 0
+                ? normalizedWiderTasks.reduce((max, row) => {
+                    const dt = this.parseHeroLogDate(row?.date);
+                    return (dt && (!max || dt > max)) ? dt : max;
+                }, null)
+                : null;
+            const latestLogDate = latestFromAttendance || latestFromTasks || now;
+            const windowStart = new Date(latestLogDate);
+            windowStart.setDate(windowStart.getDate() - (windowDays - 1));
+            windowStart.setHours(0, 0, 0, 0);
+            const slicedRawLogs = (widerLogs || []).filter((log) => {
+                const dt = this.parseHeroLogDate(log?.date);
+                return !!dt && dt >= windowStart && dt <= latestLogDate;
             });
-
-            // Calculate final scores
-            const rankings = Object.values(userStats).map(stats => {
-                const days = stats.daysCount.size;
-                const hours = stats.totalDurationMs / (1000 * 60 * 60);
-                const avgScore = stats.scoreCount > 0 ? stats.avgActivityScore / stats.scoreCount : 70;
-
-                // Algorithm: 
-                // - 40% Weight for Consistency (Days present)
-                // - 30% Weight for Effort (Hours worked)
-                // - 20% Weight for Quality (Activity log depth)
-                // - 10% Weight for Engagement (Activity Score)
-
-                const consistencyScore = (days / 7) * 100;
-                const effortScore = Math.min((hours / 40) * 100, 100); // Caps at 40 hours
-                const qualityScore = Math.min((stats.activityLogDepth / 500) * 100, 100); // Caps at 500 chars total
-
-                const finalScore = (consistencyScore * 0.4) + (effortScore * 0.3) + (qualityScore * 0.2) + (avgScore * 0.1);
-
-                return {
-                    ...stats,
-                    days,
-                    hours: hours.toFixed(1),
-                    finalScore
-                };
+            const slicedWorkPlans = (widerWorkPlans || []).filter((plan) => {
+                const dt = this.parseHeroLogDate(plan?.date);
+                return !!dt && dt >= windowStart && dt <= latestLogDate;
             });
-
-            rankings.sort((a, b) => b.finalScore - a.finalScore);
-            const winnerStats = rankings[0];
-            const winner = users.find(u => u.id === winnerStats.userId);
-
-            if (!winner) return null;
-
-            return {
-                user: winner,
-                stats: winnerStats,
-                reason: this.determineHeroReason(winnerStats)
-            };
+            return this.scoreHeroFromLogs(slicedRawLogs, users, {
+                period: 'latest_active_window',
+                source: String(options.source || 'direct_cache'),
+                workPlans: slicedWorkPlans
+            });
         } catch (err) {
-            console.error("Hero Calculation Error:", err);
-            return null;
+            console.error('Hero Calculation Error:', err);
+            return {
+                state: 'fetch_error',
+                user: null,
+                stats: null,
+                reason: 'Unable to calculate hero right now.',
+                period: 'weekly',
+                source: String(options.source || 'direct_cache'),
+                confidence: 0,
+                schemaVersion: Number(this.getHeroPolicy()?.SCHEMA_VERSION || 1)
+            };
         }
     }
 
     determineHeroReason(stats) {
-        if (stats.days >= 5) return "Unmatched Consistency";
-        if (stats.hours >= 40) return "Hardworking Machine";
-        if (stats.activityLogDepth > 300) return "Detailed Communicator";
+        const planned = Number(stats?.taskPlanned || 0);
+        const completed = Number(stats?.taskCompleted || 0);
+        const inProgress = Number(stats?.taskInProgress || 0);
+        const missed = Number(stats?.taskMissed || 0);
+        const completionRate = planned > 0 ? (completed / planned) * 100 : 0;
+        const attendanceFactor = Number(stats?.attendanceFactor || 1);
+        if (planned >= 6 && completionRate >= 80) return "Execution Champion";
+        if (completed >= 4 && inProgress >= 2) return "Delivery Momentum";
+        if (completionRate >= 70 && attendanceFactor >= 1) return "Reliable Executor";
+        if (planned > 0 && missed === 0 && completionRate >= 60) return "Reliable Finisher";
         return "Top Performer";
     }
 
@@ -824,7 +1104,7 @@ export class Analytics {
         const activityLimit = Math.max(1, Number(AppConfig?.SUMMARY_POLICY?.TEAM_ACTIVITY_LIMIT) || 15);
 
         const [hero, teamActivities] = await Promise.all([
-            this.getHeroOfTheWeek(),
+            this.getHeroOfTheWeek({ source: 'shared_summary' }),
             this.getAllStaffActivities({ mode: 'month', month: monthKey, scope: 'work' })
         ]);
 
@@ -833,7 +1113,7 @@ export class Analytics {
             monthKey,
             version: Number(AppConfig?.SUMMARY_POLICY?.SCHEMA_VERSION || 1),
             generatedAt: Date.now(),
-            hero: hero || null,
+            hero: (hero && hero.state !== 'fetch_error') ? hero : null,
             teamActivityPreview: (teamActivities || []).slice(0, activityLimit),
             range: {
                 startIso: monthStart.toISOString().split('T')[0],

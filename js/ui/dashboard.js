@@ -66,29 +66,46 @@ function ensureDashboardActionDelegates() {
 // --- Dashboard Components ---
 
 export function renderHeroCard(heroData, heroMeta = {}) {
-    if (!heroData) {
+    const heroState = heroData?.state || (heroData?.user ? 'winner' : 'no_eligible_data');
+    if (!heroData || heroState !== 'winner') {
+        const emptyReason = heroData?.reason || (heroState === 'fetch_error'
+            ? 'Hero stats are temporarily unavailable.'
+            : 'No eligible hero data available.');
+        const chipText = heroState === 'fetch_error' ? 'Fetch Error' : 'No Eligible Data';
         return `
             <div class="card dashboard-hero-stats-card hero-slot">
                 <div class="dashboard-hero-stats-head">
                     <div class="hero-label-badge">Hero of the Week</div>
+                    ${heroMeta.generatedAt ? `<span class="hero-sync-time" title="Source: ${heroMeta.source || heroData?.source || 'unknown'}">Synced ${timeAgo(heroMeta.generatedAt)}</span>` : ''}
                 </div>
                 <div class="dashboard-activity-empty">
-                    ${heroMeta.lowRead ? 'Loading stats...' : 'No hero data available.'}
+                    ${safeHtml(emptyReason)}
+                </div>
+                <div class="dashboard-hero-stats-foot">
+                    <span class="dashboard-kpi-tag">${chipText}</span>
                 </div>
             </div>`;
     }
 
     const { user, stats } = heroData;
-    const daysPresent = Number(stats?.daysPresent ?? stats?.days ?? 0);
-    const totalHours = Number(stats?.totalHours ?? stats?.hours ?? 0);
-    const lateCount = Number(stats?.lateCount ?? stats?.late ?? 0);
+    const taskPlanned = Number(stats?.taskPlanned ?? 0);
+    const taskCompleted = Number(stats?.taskCompleted ?? 0);
+    const taskInProgress = Number(stats?.taskInProgress ?? 0);
+    const taskMissed = Number(stats?.taskMissed ?? 0);
+    const attendanceDays = Number(stats?.days ?? 0);
+    const attendanceHours = Number(stats?.hours ?? 0);
+    const attendanceFactor = Number(stats?.attendanceFactor ?? 1);
     const isNew = heroMeta.source === 'generated';
+    const confidencePct = Number.isFinite(Number(heroData?.confidence))
+        ? Math.round(Number(heroData.confidence) * 100)
+        : 0;
+    const periodLabel = heroData?.period === 'latest_active_window' ? 'Latest Active Window' : 'Weekly';
 
     return `
         <div class="card dashboard-hero-stats-card hero-slot ${isNew ? 'is-new-summary' : ''}">
             <div class="dashboard-hero-stats-head">
                 <div class="hero-label-badge">Hero of the Week</div>
-                ${heroMeta.generatedAt ? `<span class="hero-sync-time" title="Source: ${heroMeta.source}">Synced ${timeAgo(heroMeta.generatedAt)}</span>` : ''}
+                ${heroMeta.generatedAt ? `<span class="hero-sync-time" title="Source: ${heroMeta.source || heroData?.source || 'unknown'}">Synced ${timeAgo(heroMeta.generatedAt)}</span>` : ''}
             </div>
             <div class="dashboard-hero-stats-body">
                 <div class="hero-profile">
@@ -100,18 +117,31 @@ export function renderHeroCard(heroData, heroMeta = {}) {
                 </div>
                 <div class="hero-metrics">
                     <div class="hero-metric">
-                        <div class="hero-metric-value">${daysPresent}</div>
-                        <div class="hero-metric-label">Days</div>
+                        <div class="hero-metric-value">${taskPlanned}</div>
+                        <div class="hero-metric-label">Planned</div>
                     </div>
                     <div class="hero-metric">
-                        <div class="hero-metric-value">${totalHours}h</div>
-                        <div class="hero-metric-label">Hours</div>
+                        <div class="hero-metric-value">${taskCompleted}</div>
+                        <div class="hero-metric-label">Completed</div>
                     </div>
                     <div class="hero-metric">
-                        <div class="hero-metric-value">${lateCount}</div>
-                        <div class="hero-metric-label">Lates</div>
+                        <div class="hero-metric-value">${taskInProgress}</div>
+                        <div class="hero-metric-label">In Progress</div>
+                    </div>
+                    <div class="hero-metric">
+                        <div class="hero-metric-value">${taskMissed}</div>
+                        <div class="hero-metric-label">Missed</div>
                     </div>
                 </div>
+                <div class="hero-attendance-modifier-row">
+                    <span class="hero-attendance-pill">Days <strong>${attendanceDays}</strong></span>
+                    <span class="hero-attendance-pill">Hours <strong>${attendanceHours}h</strong></span>
+                    <span class="hero-attendance-pill">Factor <strong>x${attendanceFactor.toFixed(2)}</strong></span>
+                </div>
+            </div>
+            <div class="dashboard-hero-stats-foot">
+                <span class="dashboard-kpi-tag">${safeHtml(periodLabel)}</span>
+                <span class="dashboard-kpi-tag">Confidence ${confidencePct}%</span>
             </div>
         </div>`;
 }
@@ -732,17 +762,32 @@ export async function renderDashboard() {
     const todayStr = dateKeys.todayKey;
     const yesterdayStr = dateKeys.yesterdayKey;
     const sharedSummaryEnabled = !!AppConfig?.READ_OPT_FLAGS?.FF_SHARED_DAILY_SUMMARY;
+    const heroCacheKey = `hero_stats_${todayStr}`;
+    const heroCacheTtl = 24 * 60 * 60 * 1000;
 
     const targetStaffId = (isAdmin && window.app_selectedSummaryStaffId) ? window.app_selectedSummaryStaffId : user.id;
 
     console.time('DashboardFetch');
+    const readDirectHeroCached = async () => {
+        try {
+            return await window.AppDB.getOrGenerateSummary(
+                heroCacheKey,
+                async () => {
+                    const hero = await window.AppAnalytics.getHeroOfTheWeek({ source: 'direct_cache' });
+                    if (!hero || hero.state === 'fetch_error') throw new Error('direct hero unavailable');
+                    return hero;
+                },
+                heroCacheTtl
+            );
+        } catch (err) {
+            console.warn('Direct hero cache read failed:', err);
+            return null;
+        }
+    };
+
     const heroPromise = sharedSummaryEnabled
         ? Promise.resolve(null)
-        : window.AppDB.getOrGenerateSummary(
-            `hero_stats_${todayStr}`,
-            () => window.AppAnalytics.getHeroOfTheWeek(),
-            24 * 60 * 60 * 1000
-        );
+        : readDirectHeroCached();
 
     const staffActivityPromise = sharedSummaryEnabled
         ? Promise.resolve([])
@@ -818,7 +863,7 @@ export async function renderDashboard() {
 
     const heroMeta = sharedSummaryEnabled
         ? {
-            lowRead: true,
+            lowRead: false,
             generatedAt: dailySummary?.generatedAt || dailySummary?.meta?.generatedAt || 0,
             source: dailySummary?._source || ''
         }
@@ -832,17 +877,98 @@ export async function renderDashboard() {
 
     const heroHTML = renderHeroCard(heroData, heroMeta);
 
-    // Update hero card if sharedSummaryTask was slow
+    // Update hero card if sharedSummaryTask was slow.
+    // If it resolves without hero, optionally run one guarded fallback direct read (once/day).
     if (sharedSummaryEnabled && heroData == null && sharedSummaryTask) {
-        sharedSummaryTask.then(ds => {
+        const fallbackKey = 'app_hero_fallback_attempted_date';
+        const hasFallbackAttemptForToday = () => {
+            try {
+                return localStorage.getItem(fallbackKey) === todayStr;
+            } catch {
+                return false;
+            }
+        };
+        const markFallbackAttemptForToday = () => {
+            try { localStorage.setItem(fallbackKey, todayStr); } catch { /* ignore storage failures */ }
+        };
+        const replaceHeroSlot = (html) => {
+            const slot = document.querySelector('.hero-slot');
+            if (slot) slot.outerHTML = html;
+        };
+
+        sharedSummaryTask.then(async (ds) => {
             const latestHero = ds && ds.hero ? ds.hero : null;
             if (latestHero) {
-                const updatedMeta = { ...heroMeta, generatedAt: ds.generatedAt || heroMeta.generatedAt, source: ds._source || heroMeta.source };
-                const newHtml = renderHeroCard(latestHero, updatedMeta);
-                const slot = document.querySelector('.hero-slot');
-                if (slot) slot.innerHTML = newHtml;
+                const updatedMeta = { ...heroMeta, lowRead: false, generatedAt: ds.generatedAt || heroMeta.generatedAt, source: ds._source || heroMeta.source };
+                replaceHeroSlot(renderHeroCard(latestHero, updatedMeta));
+                return;
             }
-        }).catch(() => { });
+
+            // Step 2: shared summary missing hero -> use cached direct hero.
+            const directCachedHero = await readDirectHeroCached();
+            if (directCachedHero) {
+                replaceHeroSlot(renderHeroCard(directCachedHero, {
+                    ...heroMeta,
+                    lowRead: false,
+                    generatedAt: Date.now(),
+                    source: 'direct_cache'
+                }));
+                return;
+            }
+
+            replaceHeroSlot(renderHeroCard({
+                state: 'no_eligible_data',
+                reason: 'No eligible hero data available.',
+                source: 'shared_summary'
+            }, {
+                ...heroMeta,
+                lowRead: false,
+                generatedAt: ds?.generatedAt || heroMeta.generatedAt,
+                source: ds?._source || 'shared_missing'
+            }));
+
+            if (hasFallbackAttemptForToday()) return;
+            markFallbackAttemptForToday();
+
+            try {
+                // Step 3: one/day fallback direct read, then cache the result.
+                const directHero = await window.AppAnalytics.getHeroOfTheWeek({ source: 'direct_fallback' });
+                if (!directHero || directHero.state === 'fetch_error') {
+                    replaceHeroSlot(renderHeroCard({
+                        state: 'fetch_error',
+                        reason: 'Hero stats are temporarily unavailable.',
+                        source: 'direct_fallback'
+                    }, {
+                        ...heroMeta,
+                        lowRead: false,
+                        generatedAt: Date.now(),
+                        source: 'direct_fallback'
+                    }));
+                    return;
+                }
+                await window.AppDB.getOrGenerateSummary(heroCacheKey, async () => directHero, heroCacheTtl);
+                const fallbackMeta = { ...heroMeta, lowRead: false, generatedAt: Date.now(), source: 'direct_fallback' };
+                replaceHeroSlot(renderHeroCard(directHero, fallbackMeta));
+            } catch (err) {
+                console.warn('Hero fallback direct fetch failed:', err);
+                replaceHeroSlot(renderHeroCard({
+                    state: 'fetch_error',
+                    reason: 'Hero stats are temporarily unavailable.',
+                    source: 'direct_fallback'
+                }, {
+                    ...heroMeta,
+                    lowRead: false,
+                    generatedAt: Date.now(),
+                    source: 'direct_fallback'
+                }));
+            }
+        }).catch(() => {
+            replaceHeroSlot(renderHeroCard({
+                state: 'fetch_error',
+                reason: 'Hero stats are temporarily unavailable.',
+                source: 'shared_error'
+            }, { ...heroMeta, lowRead: false, source: 'shared_error' }));
+        });
     }
 
     if (window.AppRating && user.rating === undefined) {

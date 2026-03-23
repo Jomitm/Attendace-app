@@ -60,9 +60,36 @@ export const AppConfig = {
         STALENESS_MS: 24 * 60 * 60 * 1000,
         TEAM_ACTIVITY_LIMIT: 15,
         LOCK_TTL_MS: 90000,
-        SCHEMA_VERSION: 1,
+        SCHEMA_VERSION: 2,
         RECOMPUTE_CUTOFF_HOUR_IST: 17,
         FALLBACK_TO_PREVIOUS_DAY: true
+    },
+    HERO_POLICY: {
+        SCHEMA_VERSION: 2,
+        WINDOW_DAYS: 7,
+        FALLBACK_LOOKBACK_DAYS: 90,
+        WEIGHTS: {
+            taskExecution: 0.45,
+            taskCompletionRate: 0.2,
+            taskInProgressSupport: 0.1,
+            taskMissPenalty: 0.1
+        },
+        ATTENDANCE_MODIFIER: {
+            base: 0.9,
+            maxBonus: 0.15,
+            consistencyImpact: 0.65,
+            effortImpact: 0.35
+        },
+        CAPS: {
+            hours: 40,
+            qualityChars: 500
+        },
+        DEFAULT_ACTIVITY_SCORE: 70,
+        MIN_EVIDENCE: {
+            minDays: 1,
+            minDurationMs: 1,
+            minPlannedTasks: 1
+        }
     },
     SIMULATION_POLICY: {
         LEGACY_DUMMY_CLEANUP: {

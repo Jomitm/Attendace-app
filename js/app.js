@@ -790,11 +790,19 @@ window.app_openNotificationHistory = async () => {
     const rows = [
         ...notifications.map((n, index) => ({ ...n, _source: 'live', _index: index })),
         ...tagHistory.map((h) => ({ ...h, _source: 'history', _index: -1 }))
-    ].sort((a, b) => {
-        const ta = new Date(a.respondedAt || a.taggedAt || a.date || 0).getTime();
-        const tb = new Date(b.respondedAt || b.taggedAt || b.date || 0).getTime();
-        return tb - ta;
-    });
+    ];
+
+    const getNotifTimeMs = (notif) => new Date(notif.respondedAt || notif.taggedAt || notif.date || 0).getTime() || 0;
+    const normalizeText = (value) => String(value || '').trim().toLowerCase();
+    const availableSources = Array.from(new Set(rows.map(r => getNotifSource(r)))).filter(Boolean).sort((a, b) => a.localeCompare(b));
+    const sourceOptionsHtml = ['<option value="all">All Sources</option>', ...availableSources.map(src => `<option value="${escapeDialogHtml(src.toLowerCase())}">${escapeDialogHtml(src)}</option>`)].join('');
+
+    const drawerState = {
+        search: '',
+        status: 'all',
+        source: 'all',
+        sort: 'newest'
+    };
 
     const renderRow = (row) => {
         const status = toSafeNotifStatus(row);
@@ -811,10 +819,6 @@ window.app_openNotificationHistory = async () => {
             default: { bg: '#f8fafc', border: '#e2e8f0', badge: '#6b7280' }
         };
         const colors = statusColors[status] || statusColors.default;
-
-        const dismissBtn = row._source === 'history'
-            ? `<button class="notif-drawer-dismiss" title="Remove" onclick="window.app_dismissNotifDrawerItem(null, ${notifIdArg}, 'history')"><i class="fa-solid fa-xmark"></i></button>`
-            : `<button class="notif-drawer-dismiss" title="Remove" onclick="window.app_dismissNotifDrawerItem(${Number(row._index)}, ${notifIdArg}, 'live')"><i class="fa-solid fa-xmark"></i></button>`;
 
         const approveRejectBtns = (isPending || (isAdmin && row.type === 'minute-access-request')) ? `
             <div class="notif-drawer-actions">
@@ -848,7 +852,6 @@ window.app_openNotificationHistory = async () => {
                     </div>
                     <div class="notif-drawer-item-right">
                         <span class="notif-drawer-badge" style="background:${colors.badge}">${escapeDialogHtml(status)}</span>
-                        ${dismissBtn}
                     </div>
                 </div>
                 ${summary ? `<div class="notif-drawer-text">${escapeDialogHtml(summary)}</div>` : ''}
@@ -856,9 +859,36 @@ window.app_openNotificationHistory = async () => {
             </div>`;
     };
 
-    const listHtml = rows.length
-        ? rows.map(renderRow).join('')
-        : `<div class="notif-drawer-empty"><i class="fa-regular fa-bell-slash"></i><p>You're all caught up!</p></div>`;
+    const getFilteredRows = () => {
+        const filtered = rows.filter((row) => {
+            const status = toSafeNotifStatus(row);
+            const source = getNotifSource(row);
+            const sender = row.taggedByName || 'System';
+            const title = row.title || `${source} from ${sender}`;
+            const summary = getNotifPreview(row);
+            const searchBlob = `${title} ${summary} ${source} ${sender} ${status}`;
+
+            if (drawerState.status !== 'all' && status !== drawerState.status) return false;
+            if (drawerState.source !== 'all' && normalizeText(source) !== drawerState.source) return false;
+            if (drawerState.search && !normalizeText(searchBlob).includes(drawerState.search)) return false;
+            return true;
+        });
+
+        if (drawerState.sort === 'oldest') {
+            filtered.sort((a, b) => getNotifTimeMs(a) - getNotifTimeMs(b));
+        } else if (drawerState.sort === 'pending') {
+            filtered.sort((a, b) => {
+                const pendingA = isPendingNotif(a) ? 1 : 0;
+                const pendingB = isPendingNotif(b) ? 1 : 0;
+                if (pendingA !== pendingB) return pendingB - pendingA;
+                return getNotifTimeMs(b) - getNotifTimeMs(a);
+            });
+        } else {
+            filtered.sort((a, b) => getNotifTimeMs(b) - getNotifTimeMs(a));
+        }
+
+        return filtered;
+    };
 
     const unreadCount = notifications.filter(isPendingNotif).length;
 
@@ -873,12 +903,31 @@ window.app_openNotificationHistory = async () => {
                         <div class="notif-drawer-header-sub">${unreadCount > 0 ? `${unreadCount} pending action${unreadCount > 1 ? 's' : ''}` : 'All caught up'}</div>
                     </div>
                 </div>
-                <div style="display:flex; gap:0.5rem; align-items:center;">
-                    ${rows.length > 0 ? `<button type="button" class="notif-drawer-clear-btn" onclick="window.app_dismissAllReadNotifications()">Clear Read</button>` : ''}
-                    <button type="button" class="notif-drawer-close-btn" onclick="window.app_closeNotificationHistory()"><i class="fa-solid fa-xmark"></i></button>
-                </div>
             </div>
-            <div class="notif-drawer-list" id="notif-drawer-list">${listHtml}</div>
+            <div class="notif-drawer-tools">
+                <div class="notif-drawer-search-wrap">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="search" id="notif-drawer-search" class="notif-drawer-search-input" placeholder="Search title, sender, message">
+                </div>
+                <div class="notif-drawer-controls">
+                    <div class="notif-drawer-status-tabs" id="notif-drawer-status-tabs">
+                        <button type="button" class="notif-drawer-status-tab is-active" data-notif-status="all">All</button>
+                        <button type="button" class="notif-drawer-status-tab" data-notif-status="pending">Pending</button>
+                        <button type="button" class="notif-drawer-status-tab" data-notif-status="accepted">Accepted</button>
+                        <button type="button" class="notif-drawer-status-tab" data-notif-status="rejected">Rejected</button>
+                    </div>
+                    <div class="notif-drawer-selects">
+                        <select id="notif-drawer-source">${sourceOptionsHtml}</select>
+                        <select id="notif-drawer-sort">
+                            <option value="newest">Newest First</option>
+                            <option value="oldest">Oldest First</option>
+                            <option value="pending">Pending First</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="notif-drawer-results" id="notif-drawer-results"></div>
+            </div>
+            <div class="notif-drawer-list" id="notif-drawer-list"></div>
         </div>`;
 
     // Inject into body (not modal-container) so it can slide in from the right
@@ -894,107 +943,53 @@ window.app_openNotificationHistory = async () => {
         if (backdrop) backdrop.classList.add('notif-drawer-backdrop-visible');
     });
 
+    const listEl = document.getElementById('notif-drawer-list');
+    const resultsEl = document.getElementById('notif-drawer-results');
+    const searchEl = document.getElementById('notif-drawer-search');
+    const sourceEl = document.getElementById('notif-drawer-source');
+    const sortEl = document.getElementById('notif-drawer-sort');
+    const tabsEl = document.getElementById('notif-drawer-status-tabs');
+
+    const renderFilteredList = () => {
+        if (!listEl) return;
+        const filteredRows = getFilteredRows();
+        listEl.innerHTML = filteredRows.length
+            ? filteredRows.map(renderRow).join('')
+            : `<div class="notif-drawer-empty"><i class="fa-regular fa-bell-slash"></i><p>No notifications match your search/filter.</p></div>`;
+
+        if (resultsEl) {
+            resultsEl.textContent = `Showing ${filteredRows.length} of ${rows.length}`;
+        }
+    };
+
+    searchEl?.addEventListener('input', (event) => {
+        drawerState.search = normalizeText(event.target.value);
+        renderFilteredList();
+    });
+
+    sourceEl?.addEventListener('change', (event) => {
+        drawerState.source = normalizeText(event.target.value) || 'all';
+        renderFilteredList();
+    });
+
+    sortEl?.addEventListener('change', (event) => {
+        drawerState.sort = normalizeText(event.target.value) || 'newest';
+        renderFilteredList();
+    });
+
+    tabsEl?.addEventListener('click', (event) => {
+        const btn = event.target.closest('[data-notif-status]');
+        if (!btn) return;
+        drawerState.status = normalizeText(btn.getAttribute('data-notif-status')) || 'all';
+        tabsEl.querySelectorAll('.notif-drawer-status-tab').forEach(tab => tab.classList.remove('is-active'));
+        btn.classList.add('is-active');
+        renderFilteredList();
+    });
+
+    renderFilteredList();
+
     await window.app_refreshNotificationBell();
 };
-
-// Dismiss a single notification item from the drawer
-window.app_dismissNotifDrawerItem = async (notifIndex, notifId, source) => {
-    const currentUser = window.AppAuth.getUser();
-    if (!currentUser) return;
-    try {
-        const freshUser = await window.AppDB.get('users', currentUser.id);
-        if (!freshUser) return;
-        if (source === 'live') {
-            const notifs = Array.isArray(freshUser.notifications) ? [...freshUser.notifications] : [];
-            // Find by ID first, fall back to index
-            const idx = notifs.findIndex(n => String(n.id) === String(notifId));
-            const removeIdx = idx >= 0 ? idx : (Number.isInteger(notifIndex) && notifIndex >= 0 ? notifIndex : -1);
-            if (removeIdx >= 0) {
-                notifs.splice(removeIdx, 1);
-                await window.AppDB.update('users', currentUser.id, { notifications: notifs });
-                if (window.AppAuth?.getUser) Object.assign(window.AppAuth.getUser(), { notifications: notifs });
-            }
-        } else {
-            // history
-            const hist = Array.isArray(freshUser.tagHistory) ? [...freshUser.tagHistory] : [];
-            const idx = hist.findIndex(h => String(h.id) === String(notifId));
-            if (idx >= 0) {
-                hist.splice(idx, 1);
-                await window.AppDB.update('users', currentUser.id, { tagHistory: hist });
-            }
-        }
-        // Remove item from DOM instantly
-        const item = document.querySelector(`[data-notif-id="${CSS.escape(String(notifId))}"]`);
-        if (item) {
-            item.style.transition = 'opacity 0.2s, transform 0.2s';
-            item.style.opacity = '0';
-            item.style.transform = 'translateX(30px)';
-            setTimeout(() => item.remove(), 220);
-        }
-        await window.app_refreshNotificationBell();
-        // Update header sub-text
-        const sub = document.querySelector('.notif-drawer-header-sub');
-        if (sub) {
-            const user = window.AppAuth.getUser();
-            const cnt = (user?.notifications || []).filter(isPendingNotif).length;
-            sub.textContent = cnt > 0 ? `${cnt} pending action${cnt > 1 ? 's' : ''}` : 'All caught up';
-        }
-    } catch (err) {
-        console.warn('Failed to dismiss notification', err);
-    }
-};
-
-// Bulk-remove all non-pending (read/dismissed) notifications
-window.app_dismissAllReadNotifications = async () => {
-    const currentUser = window.AppAuth.getUser();
-    if (!currentUser) return;
-    try {
-        const freshUser = await window.AppDB.get('users', currentUser.id);
-        if (!freshUser) return;
-        const notifs = (freshUser.notifications || []).filter(isPendingNotif);
-        const hist = []; // clear all tag history
-        await window.AppDB.update('users', currentUser.id, { notifications: notifs, tagHistory: hist });
-        if (window.AppAuth?.getUser) Object.assign(window.AppAuth.getUser(), { notifications: notifs, tagHistory: hist });
-        await window.app_refreshNotificationBell();
-        // Re-render the list
-        const list = document.getElementById('notif-drawer-list');
-        if (list) {
-            const remaining = notifs.map((n, i) => ({ ...n, _source: 'live', _index: i }));
-            list.innerHTML = remaining.length
-                ? remaining.map(r => {
-                    const status = toSafeNotifStatus(r);
-                    const source = getNotifSource(r);
-                    const sender = r.taggedByName || 'System';
-                    const title = r.title || `${source} from ${sender}`;
-                    const notifIdArg = JSON.stringify(String(r.id || ''));
-                    return `
-                        <div class="notif-drawer-item is-pending" data-notif-id="${escapeDialogHtml(String(r.id || ''))}">
-                            <div class="notif-drawer-item-head">
-                                <div class="notif-drawer-item-left">
-                                    <div class="notif-drawer-source-icon"><i class="fa-solid fa-at"></i></div>
-                                    <div>
-                                        <div class="notif-drawer-title">${escapeDialogHtml(title)}</div>
-                                        <div class="notif-drawer-meta">${escapeDialogHtml(source)} • ${escapeDialogHtml(sender)} • ${escapeDialogHtml(getNotifTimeLabel(r))}</div>
-                                    </div>
-                                </div>
-                                <div class="notif-drawer-item-right">
-                                    <span class="notif-drawer-badge" style="background:#f97316">${escapeDialogHtml(status)}</span>
-                                    <button class="notif-drawer-dismiss" onclick="window.app_dismissNotifDrawerItem(${r._index}, ${notifIdArg}, 'live')"><i class="fa-solid fa-xmark"></i></button>
-                                </div>
-                            </div>
-                            <div class="notif-drawer-actions">
-                                <button class="notif-drawer-btn approve" onclick="window.app_respondNotificationFromHistory(${r._index}, ${notifIdArg}, 'approve')"><i class="fa-solid fa-check"></i> Approve</button>
-                                <button class="notif-drawer-btn reject" onclick="window.app_respondNotificationFromHistory(${r._index}, ${notifIdArg}, 'reject')"><i class="fa-solid fa-xmark"></i> Reject</button>
-                            </div>
-                        </div>`;
-                }).join('')
-                : `<div class="notif-drawer-empty"><i class="fa-regular fa-bell-slash"></i><p>You're all caught up!</p></div>`;
-        }
-    } catch (err) {
-        console.warn('Failed to clear notifications', err);
-    }
-};
-
 
 window.app_systemDialog = function ({
     title = 'Notice',
@@ -7048,6 +7043,7 @@ window.app_forceRefresh = async () => {
 init();
 
 console.log("App.js Loaded & Globals Ready");
+
 
 
 
