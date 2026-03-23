@@ -63,6 +63,20 @@ export async function renderMasterSheet(month = null, year = null) {
         );
     };
 
+    const getAutoClosureNote = (log) => {
+        if (!log || !log.autoCheckout) return '';
+        if (String(log.missedCheckoutReasonStatus || '').toLowerCase() === 'approved' || log.missedCheckoutApprovedAsFullDay) {
+            return 'Auto-closed due to missed checkout. Admin approved and converted this entry to full day.';
+        }
+        if (String(log.missedCheckoutReasonStatus || '').toLowerCase() === 'rejected') {
+            return 'Auto-closed due to missed checkout. Admin rejected the submitted reason.';
+        }
+        if (String(log.missedCheckoutReasonStatus || '').toLowerCase() === 'approved') {
+            return 'Auto-closed due to missed checkout. Admin approved the submitted reason.';
+        }
+        return 'Auto-closed due to missed checkout.';
+    };
+
     const getLogPriority = (log) => {
         if (log?.isManualOverride) return 4;
         if (isLeaveLog(log)) return 3;
@@ -139,6 +153,7 @@ export async function renderMasterSheet(month = null, year = null) {
                     <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#eff6ff;"><strong>D</strong> = On Duty</span>
                     <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#f8fafc;"><strong>H</strong> = Holiday</span>
                     <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#f8fafc;"><strong>-</strong> = No Log / Future</span>
+                    <span style="padding:0.2rem 0.45rem; border:1px solid #c7d2fe; border-radius:999px; background:#eef2ff; color:#4338ca;"><strong>•</strong> = Auto-closed entry</span>
                 </div>
 
                 <div class="table-container" style="max-height: 70vh; overflow: auto; border: 1px solid #eee; border-radius: 8px;">
@@ -173,9 +188,14 @@ export async function renderMasterSheet(month = null, year = null) {
 
             if (dayAttendanceLogs.length > 0) {
                 const log = dayAttendanceLogs.slice().sort((a, b) => getLogPriority(b) - getLogPriority(a))[0];
-                const type = (window.AppAttendance && window.AppAttendance.normalizeType) ? window.AppAttendance.normalizeType(log.type) : log.type;
+                const derivedType = (log.autoCheckout && String(log.missedCheckoutReasonStatus || '').toLowerCase() === 'approved')
+                    ? 'Present'
+                    : log.type;
+                const type = (window.AppAttendance && window.AppAttendance.normalizeType) ? window.AppAttendance.normalizeType(derivedType) : derivedType;
+                const autoClosureNote = getAutoClosureNote(log);
                 cellContent = type.charAt(0).toUpperCase();
                 tooltip = `${log.checkIn} - ${log.checkOut || 'Active'}\n${type}`;
+                if (autoClosureNote) tooltip += `\n${autoClosureNote}`;
 
                 if (type === 'Present') { cellStyle = 'color: #10b981; font-weight: bold; font-size: 0.9rem;'; }
                 else if (type === 'Late') { cellStyle = 'color: #f59e0b; font-weight: bold;'; cellContent = 'L'; }
@@ -187,6 +207,10 @@ export async function renderMasterSheet(month = null, year = null) {
 
                 if (log.isManualOverride) {
                     cellStyle = 'color: #be185d; font-weight: bold; background: #fdf2f8;';
+                }
+
+                if (autoClosureNote) {
+                    cellContent = `<span style="display:inline-flex; align-items:flex-start; gap:2px;"><span>${cellContent}</span><span style="color:#4338ca; font-size:0.7rem; line-height:1;">•</span></span>`;
                 }
             } else {
                 const isCheckedInToday = (dateStr === todayIso && u.status === 'in' && u.lastCheckIn && toLocalIso(u.lastCheckIn) === dateStr);

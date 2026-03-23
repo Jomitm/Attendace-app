@@ -6037,8 +6037,21 @@ window.app_reviewMissedCheckoutReasonFromNotification = async (notifIndex, notif
 
         const log = await window.AppDB.get('attendance', logId);
         if (log) {
+            const approvedMissedCheckoutUpdate = decision === 'approved' && log.autoCheckout
+                ? {
+                    type: 'Present',
+                    dayCredit: (window.AppAttendance && typeof window.AppAttendance.getDayCredit === 'function')
+                        ? window.AppAttendance.getDayCredit('Present')
+                        : 1,
+                    lateCountable: false,
+                    missedCheckoutApprovedAsFullDay: true,
+                    missedCheckoutApprovedAt: new Date().toISOString(),
+                    missedCheckoutApprovedBy: currentUser.name
+                }
+                : {};
             await window.AppDB.put('attendance', {
                 ...log,
+                ...approvedMissedCheckoutUpdate,
                 missedCheckoutReasonStatus: decision,
                 missedCheckoutReviewedBy: currentUser.name,
                 missedCheckoutReviewedAt: new Date().toISOString(),
@@ -6961,6 +6974,10 @@ window.app_runAttendancePolicyMigration = async () => {
             const isDuplicate = !!(keeperId && keeperId !== log.id);
             const hasTimePair = !!(log.checkIn && log.checkOut && log.checkOut !== 'Active Now');
             const invalidTimeRange = hasTimePair && !!(inDt && outDt && outDt <= inDt);
+            const preserveApprovedAutoClosure = !!(
+                log.autoCheckout
+                && String(log.missedCheckoutReasonStatus || '').toLowerCase() === 'approved'
+            );
 
             let nextType = log.type;
             let nextDayCredit = log.dayCredit;
@@ -6986,7 +7003,14 @@ window.app_runAttendancePolicyMigration = async () => {
             }
 
             // Staff manual work logs: derive attendance only from worked duration.
-            if (inferredSource === 'staff_manual_work' && !isDuplicate && !invalidTimeRange) {
+            if (preserveApprovedAutoClosure && !isDuplicate && !invalidTimeRange) {
+                nextType = 'Present';
+                nextDayCredit = (window.AppAttendance && typeof window.AppAttendance.getDayCredit === 'function')
+                    ? window.AppAttendance.getDayCredit('Present')
+                    : 1;
+                nextLateCountable = false;
+                nextExtraWorkedMs = 0;
+            } else if (inferredSource === 'staff_manual_work' && !isDuplicate && !invalidTimeRange) {
                 if (workedHours >= 8) {
                     nextType = 'Present';
                     nextDayCredit = 1;
@@ -7022,6 +7046,7 @@ window.app_runAttendancePolicyMigration = async () => {
                 lateCountable: nextLateCountable === true,
                 extraWorkedMs: nextExtraWorkedMs || 0,
                 durationMs: normalizedDurationMs,
+                missedCheckoutApprovedAsFullDay: preserveApprovedAutoClosure ? true : log.missedCheckoutApprovedAsFullDay,
                 policyVersion: 'v2'
             };
 
