@@ -4,7 +4,9 @@
   "private": true,
   "description": "Automation tooling for linting and smoke testing",
   "scripts": {
+    "predev": "node scripts/generate-build-assets.cjs",
     "dev": "vite",
+    "prebuild": "node scripts/generate-build-assets.cjs",
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint \"js/**/*.js\" \"tests/**/*.js\"",

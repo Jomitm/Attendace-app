@@ -6,3 +6,6 @@ Thumbs.db
 playwright-report/
 test-results/
 Backup/
+.generated/
+public/sw.js
+public/version.json

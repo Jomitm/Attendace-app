@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Offline - Attendance App</title>
+    <meta name="theme-color" content="#0b1f2a" />
+    <style>
+        :root {
+            color-scheme: only light;
+        }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            background: radial-gradient(1200px 800px at 20% 10%, #e6f2ff 0%, #f5f9ff 45%, #ffffff 100%);
+            color: #0b1f2a;
+            font-family: "Outfit", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        }
+        .card {
+            max-width: 520px;
+            padding: 32px;
+            border-radius: 20px;
+            background: #ffffff;
+            box-shadow: 0 14px 40px rgba(11, 31, 42, 0.12);
+            border: 1px solid rgba(11, 31, 42, 0.08);
+            text-align: center;
+        }
+        h1 {
+            margin: 0 0 8px;
+            font-weight: 600;
+            letter-spacing: 0.2px;
+        }
+        p {
+            margin: 0 0 20px;
+            color: #274456;
+        }
+        button {
+            appearance: none;
+            border: none;
+            background: #0b1f2a;
+            color: #ffffff;
+            padding: 10px 16px;
+            border-radius: 10px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #123243;
+        }
+        .hint {
+            margin-top: 16px;
+            font-size: 0.92rem;
+            color: #4a677a;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>You are offline</h1>
+        <p>We could not reach the server. Some features may be unavailable until you reconnect.</p>
+        <button type="button" onclick="location.reload()">Try again</button>
+        <div class="hint">Tip: Once you are back online, the app can pull the latest deployed version.</div>
+    </div>
+</body>
+</html>

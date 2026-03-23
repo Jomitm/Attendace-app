@@ -20,7 +20,8 @@ module.exports = [
         ...globals.browser,
         ...globals.es2021,
         firebase: "readonly",
-        Chart: "readonly"
+        Chart: "readonly",
+        __APP_BUILD_META__: "readonly"
       }
     },
     rules: {

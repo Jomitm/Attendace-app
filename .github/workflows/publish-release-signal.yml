@@ -1,9 +1,15 @@
 name: Publish Release Signal
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: Optional message shown in the update prompt
+        required: false
+        default: Manual emergency update signal
+      release_id:
+        description: Optional custom release identifier
+        required: false
 
 jobs:
   publish-release-signal:
@@ -25,6 +31,8 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
           RELEASE_COMMIT_SHA: ${{ github.sha }}
           RELEASE_BRANCH: ${{ github.ref_name }}
+          RELEASE_NOTES: ${{ inputs.notes }}
+          RELEASE_ID: ${{ inputs.release_id }}
         run: |
           node <<'NODE'
           const admin = require('firebase-admin');
@@ -36,17 +44,14 @@ jobs:
           const commitSha = String(process.env.RELEASE_COMMIT_SHA || '');
           const shortSha = commitSha.slice(0, 7);
           const nowIso = new Date().toISOString();
-          const releaseId = shortSha ? shortSha + '-' + Date.now() : 'release-' + Date.now();
+          const releaseId = String(process.env.RELEASE_ID || '').trim() || (shortSha ? shortSha + '-' + Date.now() : 'release-' + Date.now());
           const payload = {
             id: 'release_signal',
             releaseId,
             commitSha,
             branch: String(process.env.RELEASE_BRANCH || 'main'),
             deployedAt: nowIso,
-            notes: 'Auto-published from GitHub Actions',
-            forceAfterMs: 90000,
-            snoozeMs: 300000,
-            maxSnoozeCount: 1,
+            notes: String(process.env.RELEASE_NOTES || 'Manual emergency update signal'),
             active: true
           };
           db.collection('app_meta').doc('release_signal').set(payload, { merge: true })

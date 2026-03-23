@@ -31,35 +31,36 @@ let attendanceActionInFlight = false;
 let lastSyncedAttendanceStatus = null;
 let userSyncRenderLock = false;
 let suppressSyncToastUntil = 0;
+let appServiceWorkerRegistration = null;
 let releaseSignalUnsubscribe = null;
 let releaseSignalPollTimer = null;
 let releaseSignalListenerStarted = false;
-let releaseCountdownTimer = null;
+let versionPollTimer = null;
+let versionCheckInFlight = null;
+const APP_BUILD_META = Object.freeze(typeof __APP_BUILD_META__ === 'object' && __APP_BUILD_META__
+    ? __APP_BUILD_META__
+    : {
+        buildId: 'local',
+        commitSha: '',
+        builtAt: ''
+    });
+const UPDATE_MANIFEST_URL = '/version.json';
+const UPDATE_CHECK_INTERVAL_MS = 60000;
 const RELEASE_SIGNAL_DOC_ID = 'release_signal';
 const RELEASE_META_COLLECTION = 'app_meta';
 const RELEASE_SEEN_KEY = 'app_last_seen_release_id';
 const releaseUpdateState = {
     active: false,
     releaseId: '',
+    buildId: '',
     commitSha: '',
     deployedAt: '',
     notes: '',
-    forceAfterMs: 90000,
-    snoozeMs: 300000,
-    maxSnoozeCount: 1,
-    deadlineTs: 0,
-    snoozeCount: 0
+    source: '',
+    popupDismissed: false
 };
 const LOCATION_CACHE_TIME = 30000; // 30 seconds cache
 window.app_annualYear = new Date().getFullYear();
-
-const formatMsToMmSs = (ms) => {
-    const safe = Math.max(0, Number(ms) || 0);
-    const totalSeconds = Math.floor(safe / 1000);
-    const mins = Math.floor(totalSeconds / 60);
-    const secs = totalSeconds % 60;
-    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-};
 
 const getStoredSeenReleaseId = () => {
     try {
@@ -79,31 +80,33 @@ const setStoredSeenReleaseId = (releaseId) => {
     }
 };
 
-const stopReleaseCountdown = () => {
-    if (releaseCountdownTimer) {
-        clearInterval(releaseCountdownTimer);
-        releaseCountdownTimer = null;
-    }
+const normalizeReleasePayload = (payload = {}, source = 'version') => {
+    const buildId = String(payload.buildId || payload.releaseId || payload.commitSha || '').trim();
+    if (!buildId) return null;
+
+    return {
+        releaseId: buildId,
+        buildId,
+        commitSha: String(payload.commitSha || '').trim(),
+        deployedAt: String(payload.deployedAt || payload.builtAt || '').trim(),
+        notes: String(payload.notes || '').trim(),
+        source: String(source || payload.source || 'version').trim()
+    };
 };
 
 const getReleaseUpdateSnapshot = () => {
-    const remainingMs = releaseUpdateState.active
-        ? Math.max(0, releaseUpdateState.deadlineTs - Date.now())
-        : 0;
     return {
         active: !!releaseUpdateState.active,
         releaseId: releaseUpdateState.releaseId || '',
+        buildId: releaseUpdateState.buildId || '',
         commitSha: releaseUpdateState.commitSha || '',
         deployedAt: releaseUpdateState.deployedAt || '',
         notes: releaseUpdateState.notes || '',
-        forceAfterMs: Number(releaseUpdateState.forceAfterMs) || 90000,
-        snoozeMs: Number(releaseUpdateState.snoozeMs) || 300000,
-        maxSnoozeCount: Number(releaseUpdateState.maxSnoozeCount) || 1,
-        snoozeCount: Number(releaseUpdateState.snoozeCount) || 0,
-        canSnooze: (Number(releaseUpdateState.snoozeCount) || 0) < (Number(releaseUpdateState.maxSnoozeCount) || 1),
-        deadlineTs: Number(releaseUpdateState.deadlineTs) || 0,
-        remainingMs,
-        countdownLabel: formatMsToMmSs(remainingMs)
+        source: releaseUpdateState.source || '',
+        popupDismissed: !!releaseUpdateState.popupDismissed,
+        currentBuildId: APP_BUILD_META.buildId || '',
+        currentCommitSha: APP_BUILD_META.commitSha || '',
+        currentBuiltAt: APP_BUILD_META.builtAt || ''
     };
 };
 
@@ -115,8 +118,8 @@ const applyUpdateCtaState = () => {
     if (!btn) return;
     if (state.active) {
         btn.classList.add('is-update-pending');
-        btn.setAttribute('title', `Update available. Auto-refresh in ${state.countdownLabel}`);
-        btn.innerHTML = `System update available <span class="dashboard-refresh-countdown">(${state.countdownLabel})</span>`;
+        btn.setAttribute('title', 'Update available. Click to refresh into the new version.');
+        btn.textContent = 'System update available';
     } else {
         btn.classList.remove('is-update-pending');
         btn.setAttribute('title', 'Check for System Update (Ctrl+Shift+R)');
@@ -129,76 +132,145 @@ window.app_applyUpdateCtaState = applyUpdateCtaState;
 const broadcastReleaseUpdateState = () => {
     applyUpdateCtaState();
     if (window.dispatchEvent) {
-        window.dispatchEvent(new CustomEvent('app:update-countdown', { detail: getReleaseUpdateSnapshot() }));
+        window.dispatchEvent(new CustomEvent('app:update-state', { detail: getReleaseUpdateSnapshot() }));
     }
 };
 
-const clearReleaseUpdateState = (markSeen = true) => {
+const clearReleaseUpdateState = (markSeen = false) => {
     const currentRelease = releaseUpdateState.releaseId;
-    stopReleaseCountdown();
     releaseUpdateState.active = false;
-    releaseUpdateState.deadlineTs = 0;
-    releaseUpdateState.snoozeCount = 0;
+    releaseUpdateState.releaseId = '';
+    releaseUpdateState.buildId = '';
+    releaseUpdateState.commitSha = '';
+    releaseUpdateState.deployedAt = '';
+    releaseUpdateState.notes = '';
+    releaseUpdateState.source = '';
+    releaseUpdateState.popupDismissed = false;
     if (markSeen && currentRelease) setStoredSeenReleaseId(currentRelease);
     broadcastReleaseUpdateState();
 };
 
-const startReleaseCountdown = () => {
-    stopReleaseCountdown();
-    releaseCountdownTimer = setInterval(() => {
-        if (!releaseUpdateState.active) {
-            stopReleaseCountdown();
-            return;
-        }
-        const remaining = releaseUpdateState.deadlineTs - Date.now();
-        if (remaining <= 0) {
-            stopReleaseCountdown();
-            window.app_forceRefresh();
-            return;
-        }
-        broadcastReleaseUpdateState();
-    }, 1000);
+window.app_dismissReleaseUpdatePrompt = () => {
+    if (!releaseUpdateState.active) return;
+    if (releaseUpdateState.releaseId) {
+        setStoredSeenReleaseId(releaseUpdateState.releaseId);
+    }
+    releaseUpdateState.popupDismissed = true;
+    document.getElementById('system-update-modal')?.remove();
     broadcastReleaseUpdateState();
 };
 
-window.app_snoozeReleaseUpdate = () => {
-    if (!releaseUpdateState.active) return;
-    if (releaseUpdateState.snoozeCount >= releaseUpdateState.maxSnoozeCount) return;
-    releaseUpdateState.snoozeCount += 1;
-    releaseUpdateState.deadlineTs = Date.now() + releaseUpdateState.snoozeMs;
-    window.app_showSyncToast(`Update snoozed for ${Math.round(releaseUpdateState.snoozeMs / 60000)} minutes.`);
-    startReleaseCountdown();
-};
+const activateReleaseUpdatePrompt = (payload, options = {}) => {
+    const normalized = normalizeReleasePayload(payload, payload?.source || 'version');
+    if (!normalized) return false;
+    if (normalized.buildId === APP_BUILD_META.buildId) {
+        clearReleaseUpdateState(false);
+        return false;
+    }
 
-const activateReleaseUpdatePrompt = (payload) => {
-    const incomingReleaseId = String(payload.releaseId || payload.commitSha || '');
-    if (!incomingReleaseId) return;
+    const forcePopup = options.forcePopup === true;
     const lastSeen = getStoredSeenReleaseId();
-    if (incomingReleaseId === releaseUpdateState.releaseId && releaseUpdateState.active) return;
-    if (incomingReleaseId === lastSeen) return;
+    const isSameActiveRelease = releaseUpdateState.active && releaseUpdateState.releaseId === normalized.releaseId;
 
     releaseUpdateState.active = true;
-    releaseUpdateState.releaseId = incomingReleaseId;
-    releaseUpdateState.commitSha = String(payload.commitSha || '');
-    releaseUpdateState.deployedAt = String(payload.deployedAt || '');
-    releaseUpdateState.notes = String(payload.notes || '');
-    releaseUpdateState.forceAfterMs = Number(payload.forceAfterMs) || 90000;
-    releaseUpdateState.snoozeMs = Number(payload.snoozeMs) || 300000;
-    releaseUpdateState.maxSnoozeCount = Number(payload.maxSnoozeCount) || 1;
-    releaseUpdateState.snoozeCount = 0;
-    releaseUpdateState.deadlineTs = Date.now() + releaseUpdateState.forceAfterMs;
+    releaseUpdateState.releaseId = normalized.releaseId;
+    releaseUpdateState.buildId = normalized.buildId;
+    releaseUpdateState.commitSha = normalized.commitSha;
+    releaseUpdateState.deployedAt = normalized.deployedAt;
+    releaseUpdateState.notes = normalized.notes;
+    releaseUpdateState.source = normalized.source;
+    releaseUpdateState.popupDismissed = normalized.releaseId === lastSeen;
 
-    window.app_showSyncToast('New system update available.');
-    startReleaseCountdown();
+    if (!isSameActiveRelease) {
+        window.app_showSyncToast('New version available.');
+    }
     if (window.dispatchEvent) {
         window.dispatchEvent(new CustomEvent('app:update-available', { detail: getReleaseUpdateSnapshot() }));
     }
+    broadcastReleaseUpdateState();
+
+    if (forcePopup || !releaseUpdateState.popupDismissed) {
+        releaseUpdateState.popupDismissed = false;
+        window.app_showSystemUpdatePopup();
+    }
+
+    return true;
+};
+
+const fetchDeployedVersionManifest = async ({ manual = false } = {}) => {
+    try {
+        const response = await fetch(`${UPDATE_MANIFEST_URL}?t=${Date.now()}`, {
+            cache: 'no-store',
+            headers: {
+                'cache-control': 'no-cache'
+            }
+        });
+        if (!response.ok) {
+            throw new Error(`Version check failed with ${response.status}`);
+        }
+        const payload = await response.json();
+        return normalizeReleasePayload(payload, 'version');
+    } catch (err) {
+        console.warn('Unable to fetch deployed version manifest:', err);
+        if (manual) {
+            window.app_showSyncToast('Could not check for updates right now.');
+        }
+        return null;
+    }
+};
+
+const checkForDeployedUpdate = async (options = {}) => {
+    if (versionCheckInFlight) {
+        return versionCheckInFlight;
+    }
+
+    versionCheckInFlight = (async () => {
+        const payload = await fetchDeployedVersionManifest({ manual: options.manual === true });
+        if (!payload) {
+            return false;
+        }
+        return activateReleaseUpdatePrompt(payload, { forcePopup: options.forcePopup === true });
+    })();
+
+    try {
+        return await versionCheckInFlight;
+    } finally {
+        versionCheckInFlight = null;
+    }
+};
+
+const startRoutineUpdateChecks = () => {
+    if (versionPollTimer) return;
+    versionPollTimer = setInterval(() => {
+        if (document.visibilityState === 'visible' && window.AppAuth?.getUser()) {
+            void checkForDeployedUpdate();
+        }
+    }, UPDATE_CHECK_INTERVAL_MS);
+    void checkForDeployedUpdate();
+};
+
+const stopRoutineUpdateChecks = () => {
+    if (versionPollTimer) {
+        clearInterval(versionPollTimer);
+        versionPollTimer = null;
+    }
+};
+
+const pingForVisibleUpdate = () => {
+    if (document.visibilityState !== 'visible') return;
+    if (!window.AppAuth?.getUser()) return;
+    void checkForDeployedUpdate();
+};
+
+const pingForFocusedUpdate = () => {
+    if (!window.AppAuth?.getUser()) return;
+    void checkForDeployedUpdate();
 };
 
 const handleReleaseSignalDoc = (doc) => {
     if (!doc || doc.id !== RELEASE_SIGNAL_DOC_ID) return;
     if (doc.active === false) return;
-    activateReleaseUpdatePrompt(doc);
+    activateReleaseUpdatePrompt({ ...doc, source: 'release-signal' }, { forcePopup: true });
 };
 
 const startReleaseSignalListener = () => {
@@ -233,7 +305,19 @@ const stopReleaseSignalListener = () => {
         releaseSignalPollTimer = null;
     }
     releaseSignalListenerStarted = false;
-    clearReleaseUpdateState(false);
+};
+
+window.app_checkForSystemUpdate = async () => {
+    if (releaseUpdateState.active) {
+        window.app_showSystemUpdatePopup();
+        return true;
+    }
+
+    const hasUpdate = await checkForDeployedUpdate({ manual: true, forcePopup: true });
+    if (!hasUpdate) {
+        window.app_showSyncToast('You are already using the latest version.');
+    }
+    return hasUpdate;
 };
 
 window.app_isAdminUser = (user = window.AppAuth?.getUser()) => {
@@ -333,13 +417,25 @@ function updateThemeIcons(theme) {
 }
 
 function registerSW() {
-    if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-            navigator.serviceWorker.register('./sw.js')
-                .then(() => console.log('ServiceWorker registered'))
-                .catch(err => console.log('ServiceWorker registration failed: ', err));
-        });
+    if (!('serviceWorker' in navigator)) return;
+
+    const runRegistration = async () => {
+        try {
+            appServiceWorkerRegistration = await navigator.serviceWorker.register('/sw.js');
+            console.log('ServiceWorker registered');
+        } catch (err) {
+            console.log('ServiceWorker registration failed: ', err);
+        }
+    };
+
+    if (document.readyState === 'complete') {
+        void runRegistration();
+        return;
     }
+
+    window.addEventListener('load', () => {
+        void runRegistration();
+    }, { once: true });
 }
 
 // --- UI Helpers ---
@@ -1193,13 +1289,17 @@ async function init() {
     cleanURL();
     window.addEventListener('app:user-sync', handleUserSyncEvent);
     window.addEventListener('app:update-available', applyUpdateCtaState);
-    window.addEventListener('app:update-countdown', applyUpdateCtaState);
+    window.addEventListener('app:update-state', applyUpdateCtaState);
+    document.addEventListener('visibilitychange', pingForVisibleUpdate);
+    window.addEventListener('focus', pingForFocusedUpdate);
+    window.addEventListener('online', pingForFocusedUpdate);
     try {
         await window.AppAuth.init();
         const initialUser = window.AppAuth.getUser();
         if (initialUser) {
             lastSyncedAttendanceStatus = initialUser.status || 'out';
             startReleaseSignalListener();
+            startRoutineUpdateChecks();
         }
         registerSW();
 
@@ -1251,6 +1351,8 @@ async function router() {
     // AUTH GUARD
     if (!user) {
         stopReleaseSignalListener();
+        stopRoutineUpdateChecks();
+        clearReleaseUpdateState(false);
         if (sidebar) sidebar.style.display = 'none';
         if (mobileHeader) mobileHeader.style.display = 'none';
         if (mobileNav) mobileNav.style.display = 'none';
@@ -1262,6 +1364,7 @@ async function router() {
         return;
     }
     startReleaseSignalListener();
+    startRoutineUpdateChecks();
 
     // LOGGED IN
     // Clear mobile specific states on route change
@@ -6961,6 +7064,7 @@ window.app_getSystemUpdateNotes = () => ([
 window.app_showSystemUpdatePopup = () => {
     const modalId = 'system-update-modal';
     const state = getReleaseUpdateSnapshot();
+    const isUpdateReady = state.active && state.buildId && state.buildId !== state.currentBuildId;
     const notes = (window.app_getSystemUpdateNotes() || []).slice(0, 5);
     const listHtml = notes.length
         ? notes.map(n => `
@@ -6970,27 +7074,41 @@ window.app_showSystemUpdatePopup = () => {
                 </li>
             `).join('')
         : '<li style="color:#64748b;">No update notes available.</li>';
-    const releaseMeta = state.active
+    const releaseMeta = isUpdateReady
         ? `
                 <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:0.6rem 0.75rem; margin-bottom:0.8rem;">
-                    <div style="font-size:0.78rem; font-weight:700; color:#0f172a;">Update detected</div>
+                    <div style="font-size:0.78rem; font-weight:700; color:#0f172a;">New version available</div>
                     <div style="font-size:0.74rem; color:#475569; margin-top:0.15rem;">
-                        Commit: ${escapeDialogHtml((state.commitSha || '').slice(0, 7) || state.releaseId)}
-                        ${state.deployedAt ? ` • Deployed: ${escapeDialogHtml(state.deployedAt)}` : ''}
+                        Running build: ${escapeDialogHtml((state.currentCommitSha || '').slice(0, 7) || state.currentBuildId || 'local')}
+                        ${state.currentBuiltAt ? ` | Built: ${escapeDialogHtml(state.currentBuiltAt)}` : ''}
                     </div>
-                    <div style="font-size:0.78rem; color:#b45309; font-weight:700; margin-top:0.35rem;">
-                        Auto-refresh in <span id="system-update-countdown">${state.countdownLabel}</span>
+                    <div style="font-size:0.74rem; color:#475569; margin-top:0.25rem;">
+                        Available build: ${escapeDialogHtml((state.commitSha || '').slice(0, 7) || state.buildId)}
+                        ${state.deployedAt ? ` | Deployed: ${escapeDialogHtml(state.deployedAt)}` : ''}
                     </div>
+                    ${state.notes ? `<div style="font-size:0.78rem; color:#0f172a; margin-top:0.45rem;">${escapeDialogHtml(state.notes)}</div>` : ''}
                 </div>
             `
-        : '';
+        : `
+                <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:0.6rem 0.75rem; margin-bottom:0.8rem;">
+                    <div style="font-size:0.78rem; font-weight:700; color:#0f172a;">You are on the latest version</div>
+                    <div style="font-size:0.74rem; color:#475569; margin-top:0.15rem;">
+                        Current build: ${escapeDialogHtml((state.currentCommitSha || '').slice(0, 7) || state.currentBuildId || 'local')}
+                        ${state.currentBuiltAt ? ` | Built: ${escapeDialogHtml(state.currentBuiltAt)}` : ''}
+                    </div>
+                </div>
+            `;
 
+    const closeAction = isUpdateReady ? 'window.app_dismissReleaseUpdatePrompt()' : "this.closest('.modal-overlay').remove()";
+    const primaryAction = isUpdateReady
+        ? `<button type="button" class="action-btn" onclick="this.closest('.modal-overlay').remove(); window.app_forceRefresh();">Update now</button>`
+        : '';
     const html = `
             <div class="modal-overlay" id="${modalId}" style="display:flex;">
                 <div class="modal-content" style="max-width:560px;">
                     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.8rem;">
-                        <h3 style="margin:0; font-size:1.1rem;">System Updates</h3>
-                        <button type="button" onclick="this.closest('.modal-overlay').remove()" style="background:none; border:none; font-size:1.25rem; cursor:pointer;">&times;</button>
+                        <h3 style="margin:0; font-size:1.1rem;">${isUpdateReady ? 'System Update Available' : 'System Updates'}</h3>
+                        <button type="button" onclick="${closeAction}" style="background:none; border:none; font-size:1.25rem; cursor:pointer;">&times;</button>
                     </div>
                     ${releaseMeta}
                     <p style="margin:0 0 0.8rem 0; color:#64748b; font-size:0.86rem;">Recent functionality changes</p>
@@ -6998,36 +7116,46 @@ window.app_showSystemUpdatePopup = () => {
                         ${listHtml}
                     </ul>
                     <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top:1rem;">
-                        ${state.active && state.canSnooze ? '<button type="button" class="action-btn secondary" onclick="window.app_snoozeReleaseUpdate()">Snooze 5 min</button>' : ''}
-                        <button type="button" class="action-btn secondary" onclick="this.closest('.modal-overlay').remove()">Close</button>
-                        <button type="button" class="action-btn" onclick="this.closest('.modal-overlay').remove(); window.app_forceRefresh();">Update now (Ctrl+Shift+R)</button>
+                        <button type="button" class="action-btn secondary" onclick="${closeAction}">${isUpdateReady ? 'Later' : 'Close'}</button>
+                        ${primaryAction}
                     </div>
                 </div>
             </div>
         `;
     window.app_showModal(html, modalId);
-    const syncCountdown = () => {
-        const el = document.getElementById('system-update-countdown');
-        if (!el) return;
-        const latest = getReleaseUpdateSnapshot();
-        el.textContent = latest.countdownLabel;
-    };
-    syncCountdown();
-    const countdownTimer = setInterval(() => {
-        if (!document.getElementById(modalId)) {
-            clearInterval(countdownTimer);
-            return;
-        }
-        syncCountdown();
-    }, 1000);
+};
+
+const activateWaitingServiceWorker = async (registration) => {
+    if (!registration?.waiting || !navigator.serviceWorker) return false;
+
+    const waitingWorker = registration.waiting;
+    return new Promise((resolve) => {
+        let settled = false;
+        const finish = (value) => {
+            if (settled) return;
+            settled = true;
+            navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+            clearTimeout(timeoutId);
+            resolve(value);
+        };
+        const onControllerChange = () => finish(true);
+        const timeoutId = setTimeout(() => finish(false), 3000);
+
+        navigator.serviceWorker.addEventListener('controllerchange', onControllerChange, { once: true });
+        waitingWorker.postMessage({ type: 'SKIP_WAITING' });
+    });
 };
 
 window.app_forceRefresh = async () => {
-    clearReleaseUpdateState(true);
     try {
         if (navigator.serviceWorker) {
             const regs = await navigator.serviceWorker.getRegistrations();
-            await Promise.all(regs.map(r => r.unregister()));
+            if (appServiceWorkerRegistration?.update) {
+                await appServiceWorkerRegistration.update();
+            }
+            for (const registration of regs) {
+                await activateWaitingServiceWorker(registration);
+            }
         }
         if (window.caches) {
             const keys = await caches.keys();
@@ -7036,7 +7164,8 @@ window.app_forceRefresh = async () => {
     } catch (err) {
         console.warn('Force refresh cleanup failed:', err);
     }
-    window.location.reload(true);
+    clearReleaseUpdateState(true);
+    window.location.reload();
 };
 
 // Initialization

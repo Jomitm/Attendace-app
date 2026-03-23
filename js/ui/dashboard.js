@@ -1097,7 +1097,7 @@ export async function renderDashboard() {
             </div>`;
     }
 
-    const updateState = (window.app_getReleaseUpdateState && window.app_getReleaseUpdateState()) || { active: false, countdownLabel: '00:00' };
+    const updateState = (window.app_getReleaseUpdateState && window.app_getReleaseUpdateState()) || { active: false };
     setTimeout(() => ensureDashboardActionDelegates(), 0);
 
     return `
@@ -1119,8 +1119,8 @@ export async function renderDashboard() {
                         <div class="welcome-icon dashboard-hero-weather"><i class="fa-solid fa-cloud-sun dashboard-hero-weather-icon"></i></div>
                     </div>
                 </div>
-                <button class="${updateState.active ? 'dashboard-refresh-link is-update-pending' : 'dashboard-refresh-link'}" onclick="window.app_showSystemUpdatePopup()" title="${updateState.active ? `Update available. Auto-refresh in ${updateState.countdownLabel}` : 'Check for System Update'}">
-                    ${updateState.active ? `System update available <span class="dashboard-refresh-countdown">(${updateState.countdownLabel})</span>` : 'Check for System Update'}
+                <button class="${updateState.active ? 'dashboard-refresh-link is-update-pending' : 'dashboard-refresh-link'}" onclick="window.app_checkForSystemUpdate()" title="${updateState.active ? 'Update available. Click to refresh into the new version.' : 'Check for System Update'}">
+                    ${updateState.active ? 'System update available' : 'Check for System Update'}
                 </button>
             </div>
             <div class="dashboard-primary-row">
