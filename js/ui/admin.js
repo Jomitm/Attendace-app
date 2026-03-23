@@ -9,6 +9,7 @@ import { AppConfig } from '../config.js';
 export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
     let allUsers = [];
     let pendingLeaves = [];
+    let attendanceLogs = [];
     let performance = { avgScore: 0, trendData: [0, 0, 0, 0, 0, 0, 0], labels: [] };
     let audits = [];
     let simulationCleanupAudits = [];
@@ -27,6 +28,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                 ? window.AppDB.queryMany('location_audits', [], { orderBy: [{ field: 'timestamp', direction: 'desc' }], limit: 300 }).catch(() => window.AppDB.getAll('location_audits'))
                 : window.AppDB.getAll('location_audits'),
             window.AppLeaves.getPendingLeaves(),
+            window.AppDB.getAll('attendance'),
             window.AppDB.queryMany
                 ? window.AppDB.queryMany('system_audit_logs', [], { orderBy: [{ field: 'createdAt', direction: 'desc' }], limit: 80 }).catch(() => window.AppDB.getAll('system_audit_logs'))
                 : window.AppDB.getAll('system_audit_logs')
@@ -45,7 +47,8 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         performance = readSettled(1, { avgScore: 0, trendData: [0, 0, 0, 0, 0, 0, 0], labels: [] }, 'performance');
         audits = readSettled(2, [], 'location_audits');
         pendingLeaves = readSettled(3, [], 'pending_leaves');
-        simulationCleanupAudits = readSettled(4, [], 'system_audit_logs');
+        attendanceLogs = readSettled(4, [], 'attendance');
+        simulationCleanupAudits = readSettled(5, [], 'system_audit_logs');
 
         audits = audits.filter(a => {
             const d = new Date(a.timestamp).toISOString().split('T')[0];
@@ -74,6 +77,31 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
     const perfStatus = performance.avgScore > 70 ? 'Optimal' : (performance.avgScore > 40 ? 'Good' : 'Low');
     const perfColor = performance.avgScore > 70 ? '#166534' : (performance.avgScore > 40 ? '#854d0e' : '#991b1b');
     const perfBg = performance.avgScore > 70 ? '#f0fdf4' : (performance.avgScore > 40 ? '#fefce8' : '#fef2f2');
+    const currentUser = window.AppAuth?.getUser?.();
+    const currentAdmin = currentUser ? allUsers.find((user) => String(user.id) === String(currentUser.id)) || currentUser : null;
+    const adminNotifications = Array.isArray(currentAdmin?.notifications) ? currentAdmin.notifications : [];
+    const usersById = new Map(allUsers.map((user) => [String(user.id), user]));
+    const missedCheckoutItems = (attendanceLogs || [])
+        .filter((log) => log
+            && log.missedCheckoutReasonRequired
+            && log.missedCheckoutReasonSubmittedAt
+            && String(log.missedCheckoutReasonStatus || '').toLowerCase() === 'pending')
+        .map((log) => {
+            const staff = usersById.get(String(log.user_id));
+            const notification = adminNotifications.find((notif) =>
+                notif
+                && notif.type === 'missed-checkout-reason'
+                && String(notif.logId || '') === String(log.id || '')
+                && String(notif.status || 'pending').toLowerCase() === 'pending'
+            );
+            return {
+                ...log,
+                staffName: staff?.name || 'Staff',
+                staffRole: staff?.role || 'Employee',
+                notificationId: notification?.id || ''
+            };
+        })
+        .sort((a, b) => new Date(b.missedCheckoutReasonSubmittedAt || b.systemClosedAt || b.date || 0) - new Date(a.missedCheckoutReasonSubmittedAt || a.systemClosedAt || a.date || 0));
 
     const formatCleanupSummary = (row) => {
         const payload = row && row.payload ? row.payload : {};
@@ -165,6 +193,40 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                         </table>
                     </div>
                  `}
+            </div>
+            ` : ''}
+
+            ${window.app_hasPerm('dashboard', 'admin') ? `
+            <div class="card full-width dashboard-tagged-card">
+                <div class="dashboard-tagged-head">
+                    <h4>Missed Checkout Requests (${missedCheckoutItems.length})</h4>
+                    <span>Pending admin review</span>
+                </div>
+                ${missedCheckoutItems.length === 0 ? '<p class="text-muted">No missed checkout reasons waiting for review.</p>' : `
+                    <div class="dashboard-tagged-list">
+                        ${missedCheckoutItems.map((log) => `
+                            <div class="dashboard-tagged-item">
+                                <div>
+                                    <div class="dashboard-tagged-title">${safeHtml(log.staffName)}</div>
+                                    <div class="dashboard-tagged-desc">${safeHtml(log.missedCheckoutReason || 'Reason not submitted yet.')}</div>
+                                    <div class="dashboard-tagged-meta">
+                                        ${safeHtml(log.date || '--')} | ${safeHtml(log.staffRole || 'Employee')}
+                                        ${log.missedCheckoutReasonSubmittedAt ? ` | Submitted ${safeHtml(new Date(log.missedCheckoutReasonSubmittedAt).toLocaleString())}` : ''}
+                                    </div>
+                                </div>
+                                <div class="dashboard-tagged-status">
+                                    <span class="dashboard-tagged-pill pending">Pending</span>
+                                    ${log.notificationId ? `
+                                        <div class="dashboard-tagged-actions">
+                                            <button class="dashboard-tagged-btn accept" onclick='window.app_reviewMissedCheckoutReasonFromNotification(-1, ${JSON.stringify(String(log.notificationId))}, "approved")'>Approve</button>
+                                            <button class="dashboard-tagged-btn reject" onclick='window.app_reviewMissedCheckoutReasonFromNotification(-1, ${JSON.stringify(String(log.notificationId))}, "rejected")'>Reject</button>
+                                        </div>
+                                    ` : '<span class="text-muted" style="font-size:0.7rem;">Notification sync pending</span>'}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `}
             </div>
             ` : ''}
 

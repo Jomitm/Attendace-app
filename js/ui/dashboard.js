@@ -651,6 +651,43 @@ export function renderLeaveRequests(leaves) {
         </div>`;
 }
 
+export function renderMissedCheckoutRequests(items) {
+    if (!items || items.length === 0) {
+        return `
+            <div class="card full-width dashboard-tagged-card">
+                <div class="dashboard-tagged-head"><h4>Missed Checkout Requests</h4><span>Pending admin review</span></div>
+                <div class="dashboard-tagged-list">
+                    <div class="dashboard-activity-empty">No missed checkout requests waiting for review.</div>
+                </div>
+            </div>`;
+    }
+
+    return `
+        <div class="card full-width dashboard-tagged-card">
+            <div class="dashboard-tagged-head"><h4>Missed Checkout Requests</h4><span>Pending admin review</span></div>
+            <div class="dashboard-tagged-list">
+                ${items.map((item) => `
+                    <div class="dashboard-tagged-item">
+                        <div class="dashboard-tagged-main">
+                            <div class="dashboard-tagged-title">${safeHtml(item.staffName || 'Staff')}</div>
+                            <div class="dashboard-tagged-desc">${safeHtml(item.reason || 'Reason not available.')}</div>
+                            <div class="dashboard-tagged-meta">${safeHtml(item.date || '--')} | ${safeHtml(item.staffRole || 'Employee')}${item.submittedAt ? ` | Submitted ${safeHtml(new Date(item.submittedAt).toLocaleString())}` : ''}</div>
+                        </div>
+                        <div class="dashboard-tagged-status">
+                            <span class="dashboard-tagged-pill pending">PENDING</span>
+                            ${item.notificationId ? `
+                                <div class="dashboard-tagged-actions">
+                                    <button class="dashboard-tagged-btn accept" onclick='window.app_reviewMissedCheckoutReasonFromNotification(-1, ${JSON.stringify(String(item.notificationId))}, "approved")'>Approve</button>
+                                    <button class="dashboard-tagged-btn reject" onclick='window.app_reviewMissedCheckoutReasonFromNotification(-1, ${JSON.stringify(String(item.notificationId))}, "rejected")'>Reject</button>
+                                </div>
+                            ` : '<span class="text-muted" style="font-size:0.7rem;">Notification sync pending</span>'}
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>`;
+}
+
 export function renderLeaveHistory(leaves, options = {}) {
     const title = options.title || 'Leave History';
     const subtitle = options.subtitle || 'Past records';
@@ -889,7 +926,7 @@ export async function renderDashboard() {
     }
 
     // Parallel Fetch
-    const [status, logs, monthlyStats, yearlyStats, heroDataRaw, calendarPlans, staffActivitiesRaw, pendingLeaves, allUsers, collaborations, allLeaves, dailySummary, minutesData] = await Promise.all([
+    const [status, logs, monthlyStats, yearlyStats, heroDataRaw, calendarPlans, staffActivitiesRaw, pendingLeaves, allUsers, collaborations, allLeaves, dailySummary, minutesData, attendanceLogs] = await Promise.all([
         window.AppAttendance.getStatus(),
         window.AppAttendance.getLogs(targetStaffId),
         window.AppAnalytics.getUserMonthlyStats(targetStaffId),
@@ -906,7 +943,8 @@ export async function renderDashboard() {
             ? window.AppDB.getAll('leaves')
             : Promise.resolve([]),
         dailySummaryPromise,
-        window.AppMinutes ? window.AppMinutes.getMinutes() : Promise.resolve([])
+        window.AppMinutes ? window.AppMinutes.getMinutes() : Promise.resolve([]),
+        isAdmin ? window.AppDB.getAll('attendance') : Promise.resolve([])
     ]);
     console.timeEnd('DashboardFetch');
 
@@ -1061,6 +1099,32 @@ export async function renderDashboard() {
     const isCheckedIn = statusData.status === 'in';
     const notifications = user.notifications || [];
     const tagHistory = user.tagHistory || [];
+    const usersById = new Map((allUsers || []).map((entry) => [String(entry.id), entry]));
+    const missedCheckoutRequests = isAdmin
+        ? (attendanceLogs || [])
+            .filter((log) => log
+                && log.missedCheckoutReasonRequired
+                && log.missedCheckoutReasonSubmittedAt
+                && String(log.missedCheckoutReasonStatus || '').toLowerCase() === 'pending')
+            .map((log) => {
+                const staff = usersById.get(String(log.user_id));
+                const notification = notifications.find((notif) =>
+                    notif
+                    && notif.type === 'missed-checkout-reason'
+                    && String(notif.logId || '') === String(log.id || '')
+                    && String(notif.status || 'pending').toLowerCase() === 'pending'
+                );
+                return {
+                    notificationId: notification?.id || '',
+                    staffName: staff?.name || 'Staff',
+                    staffRole: staff?.role || 'Employee',
+                    reason: log.missedCheckoutReason || '',
+                    date: log.date || '',
+                    submittedAt: log.missedCheckoutReasonSubmittedAt || ''
+                };
+            })
+            .sort((a, b) => new Date(b.submittedAt || b.date || 0) - new Date(a.submittedAt || a.date || 0))
+        : [];
 
     let timerHTML = '00 : 00 : 00';
     let btnText = 'Check-in';
@@ -1138,7 +1202,7 @@ export async function renderDashboard() {
 
         summaryHTML = `
             <div class="dashboard-summary-row">
-                <div style="flex: 2; min-width: 350px; display: flex; flex-direction: column;">${renderLeaveRequests(pendingLeaves)}${historyHTML}</div>
+                <div style="flex: 2; min-width: 350px; display: flex; flex-direction: column;">${renderLeaveRequests(pendingLeaves)}${renderMissedCheckoutRequests(missedCheckoutRequests)}${historyHTML}</div>
                 <div style="flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 1rem;">${renderYearlyPlanHTML}${heroHTML}</div>
             </div>
             <div class="dashboard-stats-row">

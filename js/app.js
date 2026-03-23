@@ -6056,9 +6056,9 @@ window.app_reviewMissedCheckoutReasonFromNotification = async (notifIndex, notif
         }
 
         const staffUser = await window.AppDB.get('users', staffId);
+        const reviewedDate = notif.missedCheckoutDate || (log ? log.date : 'the previous day');
         if (staffUser) {
             if (!staffUser.notifications) staffUser.notifications = [];
-            const reviewedDate = notif.missedCheckoutDate || (log ? log.date : 'the previous day');
             staffUser.notifications.unshift({
                 id: `mcr_rev_${Date.now()}`,
                 type: 'missed-checkout-reason-reviewed',
@@ -6076,6 +6076,14 @@ window.app_reviewMissedCheckoutReasonFromNotification = async (notifIndex, notif
         contentArea.innerHTML = await AppUI.renderDashboard();
         if (window.setupDashboardEvents) window.setupDashboardEvents();
         if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
+
+        const decisionLabel = decision === 'approved' ? 'approved' : 'rejected';
+        const confirmationMessage = `${notif.staffName || 'Staff'}'s missed checkout for ${reviewedDate} was ${decisionLabel}.`;
+        if (window.appAlert) {
+            await window.appAlert(confirmationMessage, 'Review Complete');
+        } else {
+            alert(confirmationMessage);
+        }
     } catch (err) {
         alert('Failed to review missed checkout reason: ' + err.message);
     }
