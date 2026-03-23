@@ -4,7 +4,7 @@
  */
 
 // bump this version whenever static assets change so clients reload fresh copies
-const CACHE_NAME = 'crwi-attendance-v16';
+const CACHE_NAME = 'crwi-attendance-v20';
 const RUNTIME_CACHE = 'crwi-attendance-runtime';
 const OFFLINE_URL = './offline.html';
 const ASSETS_TO_CACHE = [

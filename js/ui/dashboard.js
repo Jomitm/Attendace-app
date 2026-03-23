@@ -1041,22 +1041,22 @@ export async function renderDashboard() {
     let staffViewBannerHTML = '';
     if (isAdmin && !isViewingSelf && targetStaff) {
         staffViewBannerHTML = `
-            <div class="card full-width" style="background: linear-gradient(135deg, #f97316 0%, #fb923c 100%); color: white; padding: 1rem 1.5rem; border-left: 5px solid #ea580c; margin-bottom: 1rem;">
-                <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
-                    <div style="display: flex; align-items: center; gap: 1rem;">
-                        <div style="position: relative;">
-                            <img src="${safeUrl(targetStaff.avatar)}" alt="${safeHtml(targetStaff.name)}" style="width: 48px; height: 48px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.3);">
-                            <div style="position: absolute; bottom: -2px; right: -2px; background: #ea580c; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 800; border: 2px solid white;">
+            <div class="card full-width dashboard-staff-view-banner">
+                <div class="dashboard-staff-view-banner-inner">
+                    <div class="dashboard-staff-view-banner-profile">
+                        <div class="dashboard-staff-view-avatar-wrap">
+                            <img src="${safeUrl(targetStaff.avatar)}" alt="${safeHtml(targetStaff.name)}" class="dashboard-staff-view-avatar">
+                            <div class="dashboard-staff-view-avatar-badge">
                                 <i class="fa-solid fa-eye"></i>
                             </div>
                         </div>
-                        <div>
-                            <div style="font-size: 0.7rem; font-weight: 600; opacity: 0.9; text-transform: uppercase; letter-spacing: 0.5px;">Currently Viewing</div>
-                            <h3 style="margin: 0; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.5px;">${safeHtml(targetStaff.name)}'s Dashboard</h3>
-                            <div style="font-size: 0.8rem; opacity: 0.9; margin-top: 2px;">${safeHtml(targetStaff.role)} • ${safeHtml(targetStaff.dept || 'General')}</div>
+                        <div class="dashboard-staff-view-copy">
+                            <div class="dashboard-staff-view-eyebrow">Currently Viewing</div>
+                            <h3 class="dashboard-staff-view-title">${safeHtml(targetStaff.name)}'s Dashboard</h3>
+                            <div class="dashboard-staff-view-meta">${safeHtml(targetStaff.role)} • ${safeHtml(targetStaff.dept || 'General')}</div>
                         </div>
                     </div>
-                    <button onclick="window.app_changeSummaryStaff('${user.id}')" style="background: rgba(255,255,255,0.2); color: white; border: 2px solid rgba(255,255,255,0.3); padding: 0.6rem 1.2rem; border-radius: 10px; cursor: pointer; font-weight: 700; font-size: 0.85rem; backdrop-filter: blur(10px); transition: all 0.2s;">
+                    <button onclick="window.app_changeSummaryStaff('${user.id}')" class="dashboard-staff-view-back-btn">
                         <i class="fa-solid fa-arrow-left"></i> Back to My Dashboard
                     </button>
                 </div>
@@ -1124,13 +1124,31 @@ export async function renderDashboard() {
                 </button>
             </div>
             <div class="dashboard-primary-row">
-                <div class="card check-in-widget dashboard-primary-card" style="padding: 1rem; display: flex; flex-direction: column; justify-content: space-between; margin-bottom: 0; background: white; border: 1px solid #eef2ff;">
-                    <div style="display: flex; align-items: center; justify-content: center; gap: 1rem; margin-bottom: 0.75rem;"><div style="position: relative;"><img src="${safeUrl(displayUser.avatar)}" alt="Profile" style="width: 48px; height: 48px; border-radius: 50%; border: 2px solid #e0e7ff;"><div style="position: absolute; bottom: 0; right: 0; width: 12px; height: 12px; border-radius: 50%; background: ${isCheckedIn ? '#10b981' : '#94a3b8'}; border: 2px solid white;"></div></div><div style="text-align: left;"><h4 style="font-size: 0.95rem; margin: 0; color: #1e1b4b;">${safeHtml(displayUser.name)}</h4><p class="text-muted" style="font-size: 0.75rem; margin: 0;">${safeHtml(displayUser.role)}</p></div></div>
-                    <div style="text-align:center; padding: 0.5rem 0;"><div class="timer-display" id="timer-display" style="font-size: 2.25rem; font-weight: 800; color: #1e1b4b; line-height: 1; letter-spacing: -1px;">${timerHTML}</div><div id="timer-label" style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; color: #64748b; margin-top: 6px; font-weight: 600;">Elapsed Time Today</div></div>
-                    <div id="countdown-container" style="display: none; margin-bottom: 0.75rem; width: 100%;"><div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: #4b5563; margin-bottom: 4px;"><span id="countdown-label">Time to checkout</span><span id="countdown-value" style="font-weight: 600;">--:--:--</span></div><div style="width: 100%; height: 4px; background: #e5e7eb; border-radius: 2px; overflow: hidden;"><div id="countdown-progress" style="width: 0%; height: 100%; background: var(--primary); transition: width 1s linear;"></div></div></div>
-                    <div id="overtime-container" style="display: none; background: #fff7ed; border: 1px solid #ffedd5; padding: 0.5rem; border-radius: 8px; margin-bottom: 0.75rem; text-align: center;"><div style="color: #c2410c; font-weight: 700; font-size: 0.8rem; margin-bottom: 2px;">OVERTIME</div><div id="overtime-value" style="color: #ea580c; font-size: 1.1rem; font-weight: 800; font-family: monospace;">00:00:00</div></div>
-                    <button class="${btnClass}" id="attendance-btn" ${isReadOnlyView ? 'disabled' : ''} title="${isReadOnlyView ? 'View only' : ''}" style="width: 100%; padding: 0.75rem; font-size: 0.9rem; border-radius: 10px; margin-top: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; transition: all 0.3s ease; ${isReadOnlyView ? 'opacity:0.6; cursor:not-allowed;' : ''}">${btnText} <i class="fa-solid fa-fingerprint"></i></button>
-                    <div class="location-text" id="location-text" style="font-size: 0.65rem; color: #94a3b8; text-align: center; margin-top: 0.5rem;"><i class="fa-solid fa-location-dot"></i><span>${isCheckedIn && displayUser.currentLocation ? `Lat: ${Number(displayUser.currentLocation.lat).toFixed(4)}, Lng: ${Number(displayUser.currentLocation.lng).toFixed(4)}` : 'Waiting for location...'}</span></div>
+                <div class="card check-in-widget dashboard-primary-card dashboard-checkin-card">
+                    <div class="dashboard-checkin-head">
+                        <div class="dashboard-checkin-avatar-wrap">
+                            <img src="${safeUrl(displayUser.avatar)}" alt="Profile" class="dashboard-checkin-avatar">
+                            <div class="dashboard-checkin-status-dot" style="background: ${isCheckedIn ? '#10b981' : '#94a3b8'};"></div>
+                        </div>
+                        <div class="dashboard-checkin-identity">
+                            <h4 class="dashboard-checkin-name">${safeHtml(displayUser.name)}</h4>
+                            <p class="text-muted dashboard-checkin-role">${safeHtml(displayUser.role)}</p>
+                        </div>
+                    </div>
+                    <div class="dashboard-checkin-timer-wrap">
+                        <div class="timer-display dashboard-checkin-timer" id="timer-display">${timerHTML}</div>
+                        <div id="timer-label" class="dashboard-checkin-timer-label">Elapsed Time Today</div>
+                    </div>
+                    <div id="countdown-container" class="dashboard-checkin-countdown">
+                        <div class="dashboard-checkin-countdown-meta"><span id="countdown-label">Time to checkout</span><span id="countdown-value" class="dashboard-checkin-countdown-value">--:--:--</span></div>
+                        <div class="dashboard-checkin-countdown-bar"><div id="countdown-progress" class="dashboard-checkin-countdown-progress"></div></div>
+                    </div>
+                    <div id="overtime-container" class="dashboard-checkin-overtime">
+                        <div class="dashboard-checkin-overtime-label">OVERTIME</div>
+                        <div id="overtime-value" class="dashboard-checkin-overtime-value">00:00:00</div>
+                    </div>
+                    <button class="${btnClass} dashboard-checkin-btn" id="attendance-btn" ${isReadOnlyView ? 'disabled' : ''} title="${isReadOnlyView ? 'View only' : ''}">${btnText} <i class="fa-solid fa-fingerprint"></i></button>
+                    <div class="location-text dashboard-checkin-location" id="location-text"><i class="fa-solid fa-location-dot"></i><span>${isCheckedIn && displayUser.currentLocation ? `Lat: ${Number(displayUser.currentLocation.lat).toFixed(4)}, Lng: ${Number(displayUser.currentLocation.lng).toFixed(4)}` : 'Waiting for location...'}</span></div>
                 </div>
                 <div class="dashboard-primary-col ${!isViewingSelf ? 'dashboard-primary-col-highlight' : ''}">${renderWorkLog(logs, collaborations, targetStaff, minutesData)}</div>
                 <div class="dashboard-primary-col">${renderActivityLog(staffActivities)}</div>
