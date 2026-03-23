@@ -8886,18 +8886,48 @@ textarea:focus {
     min-height: 72px !important;
     max-height: 72px !important;
     padding: 0.28rem 0.68rem 0.24rem !important;
-    background: linear-gradient(135deg, rgba(22, 44, 72, 0.9) 0%, rgba(47, 79, 120, 0.82) 58%, rgba(86, 121, 162, 0.74) 100%);
+    position: relative;
+    overflow: hidden;
+    background:
+        radial-gradient(circle at 82% 28%, rgba(146, 214, 255, 0.3), transparent 18%),
+        radial-gradient(circle at 12% 16%, rgba(255, 255, 255, 0.14), transparent 20%),
+        linear-gradient(135deg, rgba(20, 70, 156, 0.97) 0%, rgba(31, 105, 196, 0.95) 48%, rgba(17, 82, 169, 0.96) 100%);
     border: 1px solid rgba(255, 255, 255, 0.34);
-    box-shadow: 0 20px 34px rgba(9, 46, 67, 0.22);
+    box-shadow: 0 20px 34px rgba(7, 34, 80, 0.24);
     display: flex;
     flex-direction: column;
     justify-content: center;
+}
+
+.dashboard-modern .dashboard-hero-card::before {
+    content: '';
+    position: absolute;
+    inset: -15% auto -25% -12%;
+    width: 42%;
+    background: linear-gradient(115deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.04) 55%, transparent 100%);
+    transform: skewX(-18deg);
+    opacity: 0.95;
+    animation: dashboardHeroSweep 7.2s ease-in-out infinite;
+    pointer-events: none;
+}
+
+.dashboard-modern .dashboard-hero-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(circle at 74% 50%, rgba(108, 193, 255, 0.18), transparent 22%),
+        radial-gradient(circle at 26% 72%, rgba(255, 255, 255, 0.08), transparent 18%);
+    opacity: 0.95;
+    animation: dashboardHeroGlow 6.5s ease-in-out infinite alternate;
+    pointer-events: none;
 }
 
 .dashboard-hero-orb {
     position: absolute;
     border-radius: 50%;
     opacity: 0.34;
+    animation: dashboardHeroOrbFloat 6s ease-in-out infinite;
 }
 
 .dashboard-hero-orb-top {
@@ -8905,7 +8935,8 @@ textarea:focus {
     right: -28px;
     width: 58px;
     height: 58px;
-    background: rgba(255, 255, 255, 0.13);
+    background: rgba(191, 230, 255, 0.2);
+    animation-delay: -1.8s;
 }
 
 .dashboard-hero-orb-bottom {
@@ -8913,7 +8944,7 @@ textarea:focus {
     left: -10px;
     width: 34px;
     height: 34px;
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.1);
 }
 
 .dashboard-modern .dashboard-hero-content {
@@ -8928,6 +8959,15 @@ textarea:focus {
     gap: 0.4rem;
     min-height: 34px;
     padding-right: 5.6rem;
+}
+
+.dashboard-modern .dashboard-hero-aside {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.34rem;
+    min-width: 0;
+    flex: 0 0 auto;
 }
 
 .dashboard-modern .dashboard-hero-copy {
@@ -8977,7 +9017,7 @@ textarea:focus {
 }
 
 .dashboard-hero-chip-icon {
-    color: #c7dcff;
+    color: #ffd08a;
     font-size: 0.56rem;
 }
 
@@ -9003,7 +9043,7 @@ textarea:focus {
 }
 
 .dashboard-modern .dashboard-viewing-icon {
-    color: #d9e8ff;
+    color: #f1f6ff;
     font-size: 0.56rem;
 }
 
@@ -9029,9 +9069,9 @@ textarea:focus {
 
 .dashboard-modern .dashboard-viewing-state {
     font-size: 0.38rem;
-    color: #fff7ed;
-    background: rgba(216, 119, 38, 0.3);
-    border: 1px solid rgba(255, 237, 213, 0.38);
+    color: #fff8ef;
+    background: rgba(243, 144, 31, 0.28);
+    border: 1px solid rgba(255, 214, 153, 0.4);
     padding: 0.05rem 0.2rem;
     border-radius: 999px;
     font-weight: 800;
@@ -9049,15 +9089,25 @@ textarea:focus {
     cursor: pointer;
 }
 
-.dashboard-modern .dashboard-hero-weather {
+.dashboard-modern .dashboard-hero-brand {
     position: relative;
     z-index: 2;
+    width: 34px;
+    height: 34px;
+    padding: 0.18rem;
+    border-radius: 12px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.24) 0%, rgba(255, 255, 255, 0.14) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 10px 18px rgba(13, 36, 66, 0.18);
+    flex: 0 0 auto;
 }
 
-.dashboard-modern .dashboard-hero-weather-icon {
-    font-size: 0.72rem;
-    color: #ffd166;
-    filter: drop-shadow(0 4px 8px rgba(251, 191, 36, 0.26));
+.dashboard-modern .dashboard-hero-brand-logo {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: contain;
+    filter: drop-shadow(0 4px 8px rgba(14, 30, 56, 0.16));
 }
 
 .dashboard-modern .dashboard-refresh-link {
@@ -9271,6 +9321,42 @@ textarea:focus {
     }
 }
 
+@keyframes dashboardHeroSweep {
+    0%,
+    100% {
+        transform: translateX(-8%) skewX(-18deg);
+        opacity: 0.68;
+    }
+
+    50% {
+        transform: translateX(170%) skewX(-18deg);
+        opacity: 1;
+    }
+}
+
+@keyframes dashboardHeroGlow {
+    0% {
+        transform: scale(1) translate3d(0, 0, 0);
+        opacity: 0.72;
+    }
+
+    100% {
+        transform: scale(1.08) translate3d(-1.5%, 0, 0);
+        opacity: 1;
+    }
+}
+
+@keyframes dashboardHeroOrbFloat {
+    0%,
+    100% {
+        transform: translate3d(0, 0, 0);
+    }
+
+    50% {
+        transform: translate3d(0, 4px, 0);
+    }
+}
+
 @keyframes dashboardUpdateBlink {
     0%,
     100% {
@@ -9341,6 +9427,11 @@ textarea:focus {
         min-width: 0;
     }
 
+    .dashboard-modern .dashboard-hero-aside {
+        width: 100%;
+        justify-content: space-between;
+    }
+
     .dashboard-modern .dashboard-viewing-inner {
         max-width: none;
     }
@@ -9367,19 +9458,25 @@ textarea:focus {
 }
 
 @media (max-width: 640px) {
-    .dashboard-modern .dashboard-hero-weather {
-        display: none;
-    }
-
     .dashboard-modern .dashboard-hero-card {
         height: 58px !important;
         min-height: 58px !important;
         max-height: 58px !important;
     }
+
+    .dashboard-modern .dashboard-hero-brand {
+        width: 28px;
+        height: 28px;
+        padding: 0.14rem;
+        border-radius: 10px;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
     .dashboard-modern .card::after,
+    .dashboard-modern .dashboard-hero-card::before,
+    .dashboard-modern .dashboard-hero-card::after,
+    .dashboard-hero-orb,
     .dashboard-modern .dashboard-refresh-link.is-update-pending,
     .dashboard-modern .dashboard-refresh-link.is-update-pending::before {
         animation: none !important;
