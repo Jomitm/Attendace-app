@@ -231,10 +231,17 @@ export class Leaves {
         const leave = await this.db.get('leaves', leaveId);
         if (!leave) throw new Error("Leave not found");
 
+        const actingUserId = adminId || window.AppAuth?.getUser?.()?.id || null;
+
         leave.status = status;
-        leave.actionBy = adminId;
         leave.actionDate = new Date().toISOString();
         leave.adminComment = adminComment;
+
+        if (actingUserId) {
+            leave.actionBy = actingUserId;
+        } else {
+            delete leave.actionBy;
+        }
 
         await this.db.put('leaves', leave);
 

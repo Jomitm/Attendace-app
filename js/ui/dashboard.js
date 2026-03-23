@@ -54,7 +54,10 @@ function ensureDashboardActionDelegates() {
             }
             if (action === 'approve' || action === 'reject') {
                 const status = action === 'approve' ? 'Approved' : 'Rejected';
-                if (window.AppLeaves?.updateLeaveStatus) await window.AppLeaves.updateLeaveStatus(leaveId, status);
+                const adminId = window.AppAuth?.getUser?.()?.id;
+                if (window.AppLeaves?.updateLeaveStatus) {
+                    await window.AppLeaves.updateLeaveStatus(leaveId, status, adminId);
+                }
                 if (window.app_refreshCurrentPage) await window.app_refreshCurrentPage();
             }
         } catch (err) {
@@ -1118,7 +1121,7 @@ export async function renderDashboard() {
                         <div class="dashboard-hero-aside">
                             ${isAdmin ? `<div class="dashboard-viewing-box"><div class="dashboard-viewing-inner"><i class="fa-solid fa-users-viewfinder dashboard-viewing-icon"></i><div class="dashboard-viewing-meta"><div class="dashboard-viewing-head"><div class="dashboard-viewing-label">Viewing Summary For</div>${targetStaffId !== user.id ? '<span class="dashboard-viewing-state">STAFF VIEW ACTIVE</span>' : ''}</div><select onchange="window.app_changeSummaryStaff(this.value)" class="dashboard-viewing-select"><option value="${user.id}">My Own Summary</option><optgroup label="Staff Members">${(allUsers || []).filter(u => u.id !== user.id).sort((a, b) => a.name.localeCompare(b.name)).map(u => `<option value="${u.id}" ${u.id === targetStaffId ? 'selected' : ''}>${u.name}</option>`).join('')}</optgroup></select></div></div></div>` : ''}
                             <div class="dashboard-hero-brand" aria-hidden="true">
-                                <img src="Logo/LOGO%20USED%20IN%20WEB.png" alt="CRWI logo" class="dashboard-hero-brand-logo">
+                                <img src="crwi-logo.png" alt="CRWI logo" class="dashboard-hero-brand-logo">
                             </div>
                         </div>
                     </div>

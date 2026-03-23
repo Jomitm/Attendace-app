@@ -138,8 +138,8 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                                         <td>
                                             <div class="admin-leave-actions">
                                                 ${window.app_hasPerm('leaves', 'admin') ? `
-                                                    <button onclick="window.AppLeaves.updateLeaveStatus('${l.id}', 'Approved').then(() => window.app_refreshCurrentPage())" class="admin-btn admin-btn-success">Approve</button>
-                                                    <button onclick="window.AppLeaves.updateLeaveStatus('${l.id}', 'Rejected').then(() => window.app_refreshCurrentPage())" class="admin-btn admin-btn-danger">Reject</button>
+                                                    <button onclick="window.AppLeaves.updateLeaveStatus('${l.id}', 'Approved', window.AppAuth?.getUser?.()?.id).then(() => window.app_refreshCurrentPage())" class="admin-btn admin-btn-success">Approve</button>
+                                                    <button onclick="window.AppLeaves.updateLeaveStatus('${l.id}', 'Rejected', window.AppAuth?.getUser?.()?.id).then(() => window.app_refreshCurrentPage())" class="admin-btn admin-btn-danger">Reject</button>
                                                 ` : '<span class="text-muted" style="font-size:0.7rem;">View Only</span>'}
                                             </div>
                                         </td>
@@ -257,4 +257,3 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
             </div>
         </div>`;
 }
-
