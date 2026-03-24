@@ -276,9 +276,8 @@ const handleReleaseSignalDoc = (doc) => {
 const startReleaseSignalListener = () => {
     if (releaseSignalListenerStarted) return;
     releaseSignalListenerStarted = true;
-    if (window.AppDB && typeof window.AppDB.listen === 'function') {
-        releaseSignalUnsubscribe = window.AppDB.listen(RELEASE_META_COLLECTION, (rows) => {
-            const doc = (rows || []).find(r => r.id === RELEASE_SIGNAL_DOC_ID);
+    if (window.AppDB && typeof window.AppDB.listenDoc === 'function') {
+        releaseSignalUnsubscribe = window.AppDB.listenDoc(RELEASE_META_COLLECTION, RELEASE_SIGNAL_DOC_ID, (doc) => {
             if (doc) handleReleaseSignalDoc(doc);
         });
         return;
@@ -2145,7 +2144,7 @@ window.app_syncBirthdayReminders = async () => {
 
     const [allUsers, externalPeople] = await Promise.all([
         window.AppDB.getAll('users').catch(() => []),
-        window.AppDB.getAll('birthday_people').catch(() => [])
+        window.AppDB.getAll('birthday_people', { silentPermissionDenied: true }).catch(() => [])
     ]);
     const birthdayEntries = [
         ...(Array.isArray(allUsers) ? allUsers.map((user) => ({ ...user, birthdaySource: 'user' })) : []),
@@ -4296,6 +4295,12 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
     const form = e.target;
     const hadPersonal = form?.dataset?.hadPersonal === '1';
     const hadAnnual = form?.dataset?.hadAnnual === '1';
+    let removedTasks = [];
+    try {
+        removedTasks = JSON.parse(form?.dataset?.removedTasks || '[]');
+    } catch {
+        removedTasks = [];
+    }
 
     const planBlocks = document.querySelectorAll('.plan-block');
     const plans = [];
@@ -4321,6 +4326,8 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
         const endDateInput = block.querySelector('.plan-end-date');
         const startDate = startDateInput ? String(startDateInput.value || '').trim() : '';
         const endDate = endDateInput ? String(endDateInput.value || '').trim() : '';
+        const rootIdInput = block.querySelector('.plan-root-id');
+        const carryForwardRootId = rootIdInput ? String(rootIdInput.value || '').trim() : '';
         const scopeSelect = block.querySelector('.plan-scope');
         const taskScope = scopeSelect && scopeSelect.value === 'annual' ? 'annual' : 'personal';
 
@@ -4344,6 +4351,7 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
                 startDate: taskStartDate,
                 endDate: taskEndDate,
                 planScope: taskScope,
+                carryForwardRootId: carryForwardRootId || null,
                 completedDate: status === 'completed' ? new Date().toISOString().split('T')[0] : null
             };
             plans.push(planPayload);
@@ -4352,16 +4360,47 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
         }
     });
 
-    if (plans.length === 0) {
-        alert(validationError || "Please add at least one task.");
-        return;
-    }
+    removedTasks.forEach((removedTask) => {
+        const normalizedRootId = String(removedTask?.rootId || '').trim();
+        const removedScope = removedTask?.scope === 'annual' ? 'annual' : 'personal';
+        if (!normalizedRootId) return;
+        const removedPayload = {
+            task: '[Removed Task]',
+            subPlans: [],
+            tags: [],
+            status: 'not-completed',
+            assignedTo: targetId || null,
+            startDate: date,
+            endDate: date,
+            planScope: removedScope,
+            carryForwardRootId: normalizedRootId,
+            isRemoved: true,
+            removedAt: new Date().toISOString()
+        };
+        plans.push(removedPayload);
+        if (removedScope === 'annual') annualPlans.push(removedPayload);
+        else personalPlans.push(removedPayload);
+    });
+
     if (validationError) {
         alert(validationError);
         return;
     }
 
     try {
+        if (plans.length === 0) {
+            if (hadPersonal) {
+                await window.AppCalendar.deleteWorkPlan(date, targetId, { planScope: 'personal' });
+            }
+            if (hadAnnual) {
+                await window.AppCalendar.deleteWorkPlan(date, targetId, { planScope: 'annual' });
+            }
+            if (!hadPersonal && !hadAnnual) {
+                alert("Please add at least one task.");
+                return;
+            }
+        }
+
         if (personalPlans.length > 0) {
             await window.AppCalendar.setWorkPlan(date, personalPlans, targetId, { planScope: 'personal' });
             planIdsByScope.personal = window.AppCalendar.getWorkPlanId(date, targetId, 'personal');
@@ -5388,9 +5427,7 @@ async function handleAttendance() {
                 if (result && result.conflict) {
                     window.app_showSyncToast(result.message || 'Status updated from another device.');
                 }
-                const contentArea = document.getElementById('page-content');
-                contentArea.innerHTML = await AppUI.renderDashboard();
-                setupDashboardEvents();
+                await refreshDashboardAfterAttendance();
             }
         }
     } catch (err) {
@@ -5534,11 +5571,7 @@ window.app_submitCheckOut = async function (event) {
             const modal = document.getElementById('checkout-modal');
             if (modal) modal.style.display = 'none';
             window.app_showSyncToast(checkOutResult.message || 'Status updated from another device.');
-            const contentArea = document.getElementById('page-content');
-            if (contentArea) {
-                contentArea.innerHTML = await AppUI.renderDashboard();
-                setupDashboardEvents();
-            }
+            await refreshDashboardAfterAttendance();
             return;
         }
         markLocalAttendanceMutation();
@@ -5558,11 +5591,7 @@ window.app_submitCheckOut = async function (event) {
         document.getElementById('checkout-modal').style.display = 'none';
 
         // Refresh
-        const contentArea = document.getElementById('page-content');
-        if (contentArea) {
-            contentArea.innerHTML = await AppUI.renderDashboard();
-            setupDashboardEvents();
-        }
+        await refreshDashboardAfterAttendance();
     } catch (err) {
         alert("Check-out failed: " + err.message);
         submitBtn.disabled = false;
@@ -5868,6 +5897,21 @@ function setupDashboardEvents() {
 }
 window.setupDashboardEvents = setupDashboardEvents;
 
+async function refreshDashboardAfterAttendance() {
+    const contentArea = document.getElementById('page-content');
+    if (!contentArea) return;
+    try {
+        contentArea.innerHTML = await AppUI.renderDashboard();
+        setupDashboardEvents();
+    } catch (err) {
+        console.error('Dashboard refresh after attendance failed:', err);
+        if (typeof window.app_showSyncToast === 'function') {
+            window.app_showSyncToast('Attendance saved. Refresh the page if the dashboard looks stale.');
+        }
+    }
+}
+window.app_refreshDashboard = refreshDashboardAfterAttendance;
+
 // --- Global Event Delegation ---
 
 document.addEventListener('submit', (e) => {
@@ -5875,7 +5919,7 @@ document.addEventListener('submit', (e) => {
     e.preventDefault();
 
     // Use getAttribute('id') because elements with name="id" shadow the form.id property!
-    const id = e.target.getAttribute('id');
+    const id = String(e.target.getAttribute('id') || '');
     console.log("Submit Event Intercepted. Form ID:", id);
 
     if (id === 'manual-log-form') handleManualLog(e);

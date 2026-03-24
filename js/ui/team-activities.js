@@ -85,9 +85,10 @@ function nextDateIso(dateStr) {
 }
 
 function isValidIsoDate(value) {
-    if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-    const d = new Date(value);
-    return !Number.isNaN(d.getTime()) && d.toISOString().startsWith(value);
+    const normalized = String(value || '').trim();
+    if (!normalized || !/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return false;
+    const d = new Date(normalized);
+    return !Number.isNaN(d.getTime()) && d.toISOString().startsWith(normalized);
 }
 
 function openPostponePicker(anchorEl, defaultDate) {
@@ -277,9 +278,12 @@ function renderTable(state) {
     `;
 
     const currentUserId = window.AppAuth?.getUser ? window.AppAuth.getUser()?.id : null;
+    const currentUser = window.AppAuth?.getUser ? window.AppAuth.getUser() : null;
+    const canAdminDelete = !!(currentUser && (currentUser.role === 'Administrator' || currentUser.isAdmin));
     const body = rows.map(row => {
         const statusClass = String(row.status || '').toLowerCase().replace(/\s+/g, '-');
         const isOwner = currentUserId && row.userId && currentUserId === row.userId;
+        const canRemove = row.type === 'work' && row.planId && Number.isInteger(row.taskIndex) && (isOwner || canAdminDelete);
         const hasProgress = row.type === 'work' && (row.progressPercent !== null || row.progressStatus || row.progressNote);
         const statusLabel = row.progressStatus ? String(row.progressStatus).replace(/_/g, ' ') : '';
         const progressLabel = row.progressPercent !== null ? `${row.progressPercent}%` : '';
@@ -307,6 +311,11 @@ function renderTable(state) {
                         </button>
                         <button class="team-activities-row-btn success" data-action="complete" data-plan-id="${safeHtml(row.planId)}" data-task-index="${row.taskIndex}" data-user-id="${safeHtml(row.userId)}">
                             <i class="fa-solid fa-check"></i> Complete
+                        </button>
+                    ` : ''}
+                    ${canRemove ? `
+                        <button class="team-activities-row-btn danger" data-action="remove" data-plan-id="${safeHtml(row.planId)}" data-task-index="${row.taskIndex}" data-user-id="${safeHtml(row.userId)}">
+                            <i class="fa-solid fa-trash"></i> Remove
                         </button>
                     ` : ''}
                 </div>
@@ -454,6 +463,9 @@ function bindEvents() {
             if (action === 'postpone' && window.app_teamActivitiesPostponeTask) {
                 await window.app_teamActivitiesPostponeTask(actionBtn);
             }
+            if (action === 'remove' && window.app_teamActivitiesRemoveTask) {
+                await window.app_teamActivitiesRemoveTask(actionBtn);
+            }
         }
 
         const tableHead = target.closest('th[data-sort]');
@@ -518,7 +530,7 @@ function buildCSV(rows) {
         r.status,
         r.description,
         r.sourceTime
-    ].map(val => `"${String(val || '').replace(/\"/g, '""')}"`).join(','));
+    ].map(val => `"${String(val || '').replace(/"/g, '""')}"`).join(','));
     return [headers.join(','), ...lines].join('\n');
 }
 
@@ -680,6 +692,34 @@ if (typeof window !== 'undefined') {
         } catch (err) {
             console.error('Postpone task failed', err);
             alert('Failed to postpone task.');
+        }
+    };
+
+    window.app_teamActivitiesRemoveTask = async function (btn) {
+        try {
+            const currentUser = window.AppAuth?.getUser ? window.AppAuth.getUser() : null;
+            const currentUserId = currentUser?.id || null;
+            const isAdmin = !!(currentUser && (currentUser.role === 'Administrator' || currentUser.isAdmin));
+            const planId = btn.getAttribute('data-plan-id');
+            const taskIndex = Number(btn.getAttribute('data-task-index'));
+            const ownerId = btn.getAttribute('data-user-id') || '';
+            if (!planId || !Number.isInteger(taskIndex) || !window.AppCalendar?.removeTask) return;
+            if (!isAdmin && (!currentUserId || currentUserId !== ownerId)) {
+                alert('Only the assigned staff member or an admin can remove this task.');
+                return;
+            }
+            if (!window.appConfirm || !await window.appConfirm('Remove this task so it stops carrying forward?')) {
+                return;
+            }
+            btn.disabled = true;
+            await window.AppCalendar.removeTask(planId, taskIndex);
+            await refreshData();
+            if (window.app_showSyncToast) {
+                window.app_showSyncToast('Task removed.');
+            }
+        } catch (err) {
+            console.error('Remove task failed', err);
+            alert('Failed to remove task.');
         }
     };
 }

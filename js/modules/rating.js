@@ -6,7 +6,7 @@ export class RatingSystem {
     }
 
     normalizePlanTasks(workPlan) {
-        if (Array.isArray(workPlan?.plans)) return workPlan.plans;
+        if (Array.isArray(workPlan?.plans)) return workPlan.plans.filter(task => task && task.isRemoved !== true);
         return [];
     }
     /**

@@ -1176,6 +1176,10 @@ export class Analytics {
             const startIso = startDate.toISOString().split('T')[0];
             const endIso = endDate.toISOString().split('T')[0];
 
+            if (window.AppCalendar?.ensureCarryForwardForRange) {
+                await window.AppCalendar.ensureCarryForwardForRange(startIso, endIso);
+            }
+
             const shouldFetchAttendance = scope !== 'work';
             const [attendanceLogs, workPlans, users] = await Promise.all([
                 shouldFetchAttendance
@@ -1226,6 +1230,7 @@ export class Analytics {
                     const dayAttendanceContent = attendanceContentByDay[dayKey] || [];
 
                     wp.plans.forEach((plan, idx) => {
+                        if (plan?.isRemoved === true) return;
                         // Deduplication Logic:
                         // If this task text is found as a substring within any associated attendance log's description 
                         // (which often happens at checkout when tasks are auto-appended to summary), we skip it here.

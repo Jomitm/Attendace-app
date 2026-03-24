@@ -109,7 +109,7 @@ export class Leaves {
             monthlyShortLeaves = leaves.filter(l =>
                 l.userId === userId &&
                 l.type === 'Short Leave' &&
-                l.startDate.startsWith(monthStr) &&
+                String(l.startDate || '').startsWith(monthStr) &&
                 (l.status === 'Approved' || l.status === 'Pending')
             );
         }

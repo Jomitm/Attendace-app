@@ -42,8 +42,18 @@ function canUpdateMinute(existing, user, auditAction, options = {}) {
 export async function getMinutes(options = {}) {
     try {
         const limit = options.limit || 150;
-        if (window.AppDB) {
-            return await window.AppDB.getAll(COLLECTION);
+        if (window.AppDB?.queryMany) {
+            return await window.AppDB.queryMany(
+                COLLECTION,
+                [],
+                { orderBy: [{ field: 'date', direction: 'desc' }], limit }
+            );
+        }
+        if (window.AppDB?.getAll) {
+            const all = await window.AppDB.getAll(COLLECTION);
+            return all
+                .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
+                .slice(0, limit);
         }
         const snapshot = await window.AppFirestore.collection(COLLECTION).orderBy('date', 'desc').limit(limit).get();
         return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));

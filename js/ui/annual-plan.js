@@ -87,7 +87,16 @@ export async function renderAnnualPlan() {
     const year = window.app_annualYear || today.getFullYear();
     const plans = await window.AppCalendar.getPlans();
     const users = await window.AppDB.getAll('users').catch(() => []);
-    const attendanceLogs = await window.AppDB.getAll('attendance').catch(() => []);
+    const yearStart = `${year}-01-01`;
+    const yearEnd = `${year}-12-31`;
+    const attendanceLogs = await (
+        window.AppDB.queryMany
+            ? window.AppDB.queryMany('attendance', [
+                { field: 'date', operator: '>=', value: yearStart },
+                { field: 'date', operator: '<=', value: yearEnd }
+            ]).catch(() => window.AppDB.getAll('attendance'))
+            : window.AppDB.getAll('attendance')
+    ).catch(() => []);
     window._currentPlans = plans;
     const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
@@ -106,6 +115,7 @@ export async function renderAnnualPlan() {
     window.app_annualLegendFilters = filters;
 
     let selectedDate = window.app_selectedAnnualDate || (year === today.getFullYear() ? todayStr : null);
+    selectedDate = selectedDate ? String(selectedDate) : null;
     if (selectedDate && !selectedDate.startsWith(`${year}-`)) selectedDate = null;
     window.app_selectedAnnualDate = selectedDate;
 
@@ -529,4 +539,3 @@ export async function renderAnnualPlan() {
             </div>
         </div>`;
 }
-

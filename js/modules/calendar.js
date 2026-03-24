@@ -12,8 +12,206 @@ export class Calendar {
         this.db = AppDB;
     }
 
+    getTodayKey() {
+        const now = new Date();
+        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    }
+
     normalizePlanScope(scope) {
         return String(scope || '').toLowerCase() === 'annual' ? 'annual' : 'personal';
+    }
+
+    normalizeTaskStatus(status) {
+        const key = String(status || '').trim().toLowerCase();
+        if (key === 'in-progress') return 'in-process';
+        return key;
+    }
+
+    getTaskRootId(task = {}, planId = '', taskIndex = 0) {
+        if (task.carryForwardRootId) return String(task.carryForwardRootId);
+        if (task.sourcePlanId && Number.isInteger(task.sourceTaskIndex)) {
+            return `${task.sourcePlanId}::${task.sourceTaskIndex}`;
+        }
+        return `${planId}::${taskIndex}`;
+    }
+
+    sanitizePlanTasks(tasks = []) {
+        return (Array.isArray(tasks) ? tasks : []).filter(task => task && task.isRemoved !== true);
+    }
+
+    isTaskClosed(task = {}, planDate = '') {
+        if (!task || task.isRemoved === true) return true;
+        const status = this.normalizeTaskStatus(task.status);
+        if (status === 'completed' || status === 'not-completed' || status === 'cancelled') return true;
+        const smartStatus = this.getSmartTaskStatus(planDate || task.startDate || '', status || null);
+        return smartStatus === 'completed' || smartStatus === 'not-completed';
+    }
+
+    cloneTaskForDate(task = {}, targetDate, rootId, sourcePlan = {}) {
+        const cloned = {
+            ...task,
+            startDate: targetDate,
+            endDate: targetDate,
+            carryForwardRootId: rootId,
+            carriedForwardFromDate: sourcePlan.date || task.startDate || '',
+            carriedForwardFromPlanId: sourcePlan.id || task.carriedForwardFromPlanId || null,
+            autoForwardedAt: new Date().toISOString(),
+            isAutoForwarded: true
+        };
+        if (this.normalizeTaskStatus(cloned.status) !== 'in-process') {
+            cloned.status = '';
+        }
+        delete cloned.completedDate;
+        delete cloned.removedAt;
+        delete cloned.removedBy;
+        cloned.isRemoved = false;
+        return cloned;
+    }
+
+    async getAllWorkPlansUntil(endDate) {
+        if (this.db.queryMany) {
+            return this.db.queryMany('work_plans', [
+                { field: 'date', operator: '<=', value: endDate }
+            ]).catch(() => this.db.getAll('work_plans'));
+        }
+        return this.db.getAll('work_plans');
+    }
+
+    buildDateRange(startDate, endDate) {
+        const start = new Date(`${startDate}T00:00:00`);
+        const end = new Date(`${endDate}T00:00:00`);
+        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return [];
+        const dates = [];
+        const cursor = new Date(start);
+        while (cursor <= end) {
+            dates.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`);
+            cursor.setDate(cursor.getDate() + 1);
+        }
+        return dates;
+    }
+
+    async ensureCarryForwardForRange(startDate, endDate, options = {}) {
+        const safeEndDate = String(endDate || '').trim();
+        if (!safeEndDate) return { created: 0, updatedPlans: [] };
+        const todayKey = this.getTodayKey();
+        const effectiveEndDate = safeEndDate > todayKey ? todayKey : safeEndDate;
+        const safeStartDate = String(startDate || effectiveEndDate).trim() || effectiveEndDate;
+        if (safeStartDate > effectiveEndDate) return { created: 0, updatedPlans: [] };
+
+        const targetUserIds = Array.isArray(options.userIds)
+            ? options.userIds.map(v => String(v || '').trim()).filter(Boolean)
+            : null;
+        const allPlans = (await this.getAllWorkPlansUntil(effectiveEndDate))
+            .filter(plan => !!plan && !!plan.date && plan.date <= effectiveEndDate);
+
+        const groups = new Map();
+        const upsertGroupPlan = (plan, scope, ownerKey) => {
+            const groupKey = `${scope}::${ownerKey}`;
+            if (!groups.has(groupKey)) groups.set(groupKey, new Map());
+            groups.get(groupKey).set(plan.date, {
+                ...plan,
+                planScope: scope,
+                plans: Array.isArray(plan.plans) ? [...plan.plans] : []
+            });
+        };
+
+        allPlans.forEach((plan) => {
+            const scope = this.normalizePlanScope(plan.planScope);
+            if (scope === 'personal') {
+                const ownerKey = String(plan.userId || '').trim();
+                if (!ownerKey || ownerKey === 'annual_shared') return;
+                if (targetUserIds && !targetUserIds.includes(ownerKey)) return;
+                upsertGroupPlan(plan, 'personal', ownerKey);
+                return;
+            }
+            upsertGroupPlan(plan, 'annual', 'annual_shared');
+        });
+
+        const updatedPlans = [];
+
+        for (const [groupKey, plansByDate] of groups.entries()) {
+            const [scope, ownerKey] = groupKey.split('::');
+            const dateKeys = this.buildDateRange(safeStartDate, effectiveEndDate);
+            const priorDates = Array.from(plansByDate.keys()).filter(date => date < safeStartDate).sort();
+            const rootsState = new Map();
+
+            priorDates.forEach((dateKey) => {
+                const existingPlan = plansByDate.get(dateKey);
+                if (!existingPlan) return;
+                (Array.isArray(existingPlan.plans) ? existingPlan.plans : []).forEach((task, idx) => {
+                    const rootId = this.getTaskRootId(task, existingPlan.id, idx);
+                    if (this.isTaskClosed(task, existingPlan.date)) {
+                        rootsState.delete(rootId);
+                        return;
+                    }
+                    rootsState.set(rootId, { task, plan: existingPlan, index: idx });
+                });
+            });
+
+            for (const dateKey of dateKeys) {
+                let dayPlan = plansByDate.get(dateKey) || null;
+                const existingTasks = dayPlan && Array.isArray(dayPlan.plans) ? [...dayPlan.plans] : [];
+                const rootsInCurrentPlan = new Set();
+
+                existingTasks.forEach((task, idx) => {
+                    rootsInCurrentPlan.add(this.getTaskRootId(task, dayPlan?.id || this.getWorkPlanId(dateKey, ownerKey, scope), idx));
+                });
+
+                const carryTasks = [];
+                rootsState.forEach(({ task, plan, index }, rootId) => {
+                    if (rootsInCurrentPlan.has(rootId)) return;
+                    carryTasks.push(this.cloneTaskForDate(task, dateKey, rootId, {
+                        id: plan.id,
+                        date: plan.date,
+                        sourceTaskIndex: index
+                    }));
+                });
+
+                if (carryTasks.length > 0) {
+                    const firstCarrySource = carryTasks[0];
+                    const fallbackName = scope === 'annual'
+                        ? 'All Staff'
+                        : (firstCarrySource?.assignedToName || Array.from(rootsState.values())[0]?.plan?.userName || '');
+                    if (!dayPlan) {
+                        dayPlan = {
+                            id: this.getWorkPlanId(dateKey, ownerKey, scope),
+                            userId: scope === 'annual' ? 'annual_shared' : ownerKey,
+                            userName: fallbackName,
+                            date: dateKey,
+                            plans: [],
+                            planScope: scope
+                        };
+                    }
+                    dayPlan.plans = [...existingTasks, ...carryTasks];
+                    dayPlan.updatedAt = new Date().toISOString();
+                    await this.db.put('work_plans', dayPlan);
+                    plansByDate.set(dateKey, dayPlan);
+                    updatedPlans.push(dayPlan.id);
+                }
+
+                const latestPlan = plansByDate.get(dateKey);
+                const latestTasks = latestPlan && Array.isArray(latestPlan.plans) ? latestPlan.plans : [];
+                latestTasks.forEach((task, idx) => {
+                    const rootId = this.getTaskRootId(task, latestPlan.id, idx);
+                    if (this.isTaskClosed(task, latestPlan.date)) {
+                        rootsState.delete(rootId);
+                        return;
+                    }
+                    rootsState.set(rootId, { task, plan: latestPlan, index: idx });
+                });
+            }
+        }
+
+        return {
+            created: updatedPlans.length,
+            updatedPlans
+        };
+    }
+
+    async ensureCarryForwardForDate(date, options = {}) {
+        const targetDate = String(date || '').trim();
+        if (!targetDate) return { created: 0, updatedPlans: [] };
+        return this.ensureCarryForwardForRange(targetDate, targetDate, options);
     }
 
     getWorkPlanId(date, targetUserId = null, planScope = 'personal') {
@@ -69,10 +267,12 @@ export class Calendar {
                 return Array.from(unique.values());
             })();
 
-            const normalizedWorkPlans = (workPlans || []).map((plan) => ({
-                ...plan,
-                plans: Array.isArray(plan.plans) ? plan.plans : []
-            }));
+            const normalizedWorkPlans = (workPlans || [])
+                .map((plan) => ({
+                    ...plan,
+                    plans: this.sanitizePlanTasks(plan.plans)
+                }))
+                .filter((plan) => plan.plans.length > 0);
 
             return {
                 leaves: enrichedLeaves,
@@ -108,7 +308,7 @@ export class Calendar {
             userId: planScope === 'annual' ? 'annual_shared' : targetId,
             userName: planScope === 'annual' ? 'All Staff' : targetUser.name,
             date: date,
-            plans: plans, // Array of { task, subPlans, tags: [{id, name}] }
+            plans: Array.isArray(plans) ? plans : [], // includes hidden removal markers used to stop carry-forward
             planScope,
             createdById: currentUser.id,
             createdByName: currentUser.name || 'Admin',
@@ -142,6 +342,7 @@ export class Calendar {
 
         // Add the task
         if (!workPlan.plans) workPlan.plans = [];
+        workPlan.plans = this.sanitizePlanTasks(workPlan.plans);
 
         if (meta.sourcePlanId !== undefined && meta.sourceTaskIndex !== undefined && meta.sourcePlanId !== null) {
             const existing = workPlan.plans.find(p =>
@@ -201,13 +402,16 @@ export class Calendar {
         const preferAnnual = !!options.preferAnnual;
 
         if (planScope) {
-            return await this.db.get('work_plans', this.getWorkPlanId(date, userId, planScope));
+            const scopedPlan = await this.db.get('work_plans', this.getWorkPlanId(date, userId, planScope));
+            return scopedPlan ? { ...scopedPlan, plans: this.sanitizePlanTasks(scopedPlan.plans) } : null;
         }
 
-        const personalPlan = await this.db.get('work_plans', this.getWorkPlanId(date, userId, 'personal'));
+        const personalPlanRaw = await this.db.get('work_plans', this.getWorkPlanId(date, userId, 'personal'));
+        const personalPlan = personalPlanRaw ? { ...personalPlanRaw, plans: this.sanitizePlanTasks(personalPlanRaw.plans) } : null;
         if (!includeAnnual) return personalPlan;
 
-        const annualPlan = await this.db.get('work_plans', this.getWorkPlanId(date, userId, 'annual'));
+        const annualPlanRaw = await this.db.get('work_plans', this.getWorkPlanId(date, userId, 'annual'));
+        const annualPlan = annualPlanRaw ? { ...annualPlanRaw, plans: this.sanitizePlanTasks(annualPlanRaw.plans) } : null;
         if (mergeAnnual && annualPlan && personalPlan) {
             const mergedPlans = [];
             (annualPlan.plans || []).forEach((task, idx) => {
@@ -293,6 +497,31 @@ export class Calendar {
         }
     }
 
+    async removeTask(planId, taskIndex) {
+        try {
+            const currentUser = AppAuth.getUser();
+            const plan = await this.db.get('work_plans', planId);
+            if (!plan || !Array.isArray(plan.plans) || !plan.plans[taskIndex]) {
+                throw new Error('Plan or task not found');
+            }
+
+            plan.plans[taskIndex] = {
+                ...plan.plans[taskIndex],
+                status: 'not-completed',
+                isRemoved: true,
+                removedAt: new Date().toISOString(),
+                removedBy: currentUser?.id || ''
+            };
+            plan.updatedAt = new Date().toISOString();
+
+            await this.db.put('work_plans', plan);
+            return plan;
+        } catch (err) {
+            console.error('Failed to remove task:', err);
+            throw err;
+        }
+    }
+
     /**
      * Reassign task to another user
      */
@@ -335,6 +564,7 @@ export class Calendar {
 
                 if (plan.plans && Array.isArray(plan.plans)) {
                     plan.plans.forEach((task, idx) => {
+                        if (task.isRemoved === true) return;
                         const taskStatus = this.getSmartTaskStatus(plan.date, task.status);
                         if (taskStatus === status) {
                             tasks.push({

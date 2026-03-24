@@ -296,6 +296,7 @@ function createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, ini
         attributes: {
             'data-had-personal': personalWorkPlan ? '1' : '0',
             'data-had-annual': annualWorkPlan ? '1' : '0',
+            'data-removed-tasks': '[]',
         },
         children: [columns, footer]
     });
@@ -315,7 +316,9 @@ export function openPlanEditor(args) {
         assignedTo: targetId,
         startDate: date,
         endDate: date,
-        planScope: scope
+        planScope: scope,
+        carryForwardRootId: '',
+        isRemoved: false
     };
 
     const overlay = createElement('div', { className: 'plan-editor-overlay' });
@@ -497,6 +500,8 @@ export function dayPlanRenderBlockV3(args) {
         <select class="plan-assignee"><option value="${esc(assignedTo)}" selected></option></select>
         <input class="plan-start-date" value="${esc(startDate)}">
         <input class="plan-end-date" value="${esc(endDate)}">
+        <input class="plan-root-id" value="${esc(plan.carryForwardRootId || '')}">
+        <input class="plan-removed-flag" value="${plan.isRemoved === true ? '1' : '0'}">
     `;
     // Add subplans if any
     if (plan.subPlans) {
@@ -554,7 +559,14 @@ export function dayPlanRenderBlockV3(args) {
                 className: 'day-plan-remove-btn',
                 attributes: { title: 'Remove task' },
                 innerHTML: '<i class="fa-solid fa-trash-can"></i>',
-                onClick: () => planBlock.remove()
+                onClick: () => window.app_markTaskRemoved(planBlock)
+            }));
+        } else {
+            headerActions.appendChild(createButton({
+                className: 'day-plan-remove-btn',
+                attributes: { title: 'Remove task' },
+                innerHTML: '<i class="fa-solid fa-trash-can"></i>',
+                onClick: () => window.app_markTaskRemoved(planBlock)
             }));
         }
     }
@@ -583,6 +595,8 @@ export function app_extractBlockData(block) {
     const assignedTo = block.querySelector('.plan-assignee')?.value || '';
     const startDate = block.querySelector('.plan-start-date')?.value || '';
     const endDate = block.querySelector('.plan-end-date')?.value || '';
+    const carryForwardRootId = block.querySelector('.plan-root-id')?.value || '';
+    const isRemoved = block.querySelector('.plan-removed-flag')?.value === '1';
 
     const subPlans = Array.from(block.querySelectorAll('.sub-plan-input')).map(i => i.value);
     const tags = Array.from(block.querySelectorAll('.tag-chip')).map(c => ({
@@ -591,7 +605,7 @@ export function app_extractBlockData(block) {
         status: c.dataset.status
     }));
 
-    return { task, status, planScope, assignedTo, startDate, endDate, subPlans, tags };
+    return { task, status, planScope, assignedTo, startDate, endDate, subPlans, tags, carryForwardRootId, isRemoved };
 }
 
 export async function openDayPlan(date, targetUserId = null, forcedScope = null) {
@@ -603,6 +617,10 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null)
     const isEditingOther = targetId !== currentUser.id;
     const defaultScope = forcedScope === 'annual' ? 'annual' : 'personal';
     window.app_currentDayPlanTargetId = targetId;
+
+    if (AppCalendar?.ensureCarryForwardForDate && date <= AppCalendar.getTodayKey()) {
+        await AppCalendar.ensureCarryForwardForDate(date, { userIds: [targetId] });
+    }
 
     const [personalWorkPlan, annualWorkPlan, allDayPlans] = await Promise.all([
         AppCalendar.getWorkPlan(targetId, date, { planScope: 'personal' }),
@@ -622,7 +640,7 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null)
                 planScope: scope,
                 userName: userName || workPlan.userName,
                 isReference: !!userName
-            }));
+            })).filter(p => p.isRemoved !== true);
         }
         return [];
     };
@@ -722,6 +740,26 @@ window.app_openDayPlan = openDayPlan;
 window.app_dayPlanRenderBlockV3 = dayPlanRenderBlockV3;
 window.app_addPlanBlockUI = addPlanBlockUI;
 window.app_extractBlockData = app_extractBlockData;
+window.app_markTaskRemoved = function (block) {
+    if (!block) return;
+    const form = block.closest('.day-plan-form');
+    const data = app_extractBlockData(block);
+    const rootId = data?.carryForwardRootId || '';
+    if (form && rootId) {
+        let removed = [];
+        try {
+            removed = JSON.parse(form.dataset.removedTasks || '[]');
+        } catch {
+            removed = [];
+        }
+        const scope = data?.planScope === 'annual' ? 'annual' : 'personal';
+        if (!removed.find(item => item && item.rootId === rootId && item.scope === scope)) {
+            removed.push({ rootId, scope });
+            form.dataset.removedTasks = JSON.stringify(removed);
+        }
+    }
+    block.remove();
+};
 
 export { AppDayPlan };
 

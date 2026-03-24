@@ -371,13 +371,23 @@ export class Database {
         return q;
     }
 
-    async getAll(collectionName) {
+    isPermissionDenied(error) {
+        const code = String(error?.code || '').toLowerCase();
+        const message = String(error?.message || '').toLowerCase();
+        return code.includes('permission-denied')
+            || message.includes('missing or insufficient permissions');
+    }
+
+    async getAll(collectionName, options = {}) {
         try {
             const snapshot = await this.db.collection(collectionName).get();
             const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
             this.track('getAll', collectionName, data.length);
             return data;
         } catch (error) {
+            if (options?.silentPermissionDenied && this.isPermissionDenied(error)) {
+                return [];
+            }
             console.error(`Error getting all from ${collectionName}:`, error);
             throw error;
         }

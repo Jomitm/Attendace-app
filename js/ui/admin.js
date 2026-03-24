@@ -28,7 +28,6 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                 ? window.AppDB.queryMany('location_audits', [], { orderBy: [{ field: 'timestamp', direction: 'desc' }], limit: 300 }).catch(() => window.AppDB.getAll('location_audits'))
                 : window.AppDB.getAll('location_audits'),
             window.AppLeaves.getPendingLeaves(),
-            window.AppDB.getAll('attendance'),
             window.AppDB.queryMany
                 ? window.AppDB.queryMany('system_audit_logs', [], { orderBy: [{ field: 'createdAt', direction: 'desc' }], limit: 80 }).catch(() => window.AppDB.getAll('system_audit_logs'))
                 : window.AppDB.getAll('system_audit_logs')
@@ -47,8 +46,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         performance = readSettled(1, { avgScore: 0, trendData: [0, 0, 0, 0, 0, 0, 0], labels: [] }, 'performance');
         audits = readSettled(2, [], 'location_audits');
         pendingLeaves = readSettled(3, [], 'pending_leaves');
-        attendanceLogs = readSettled(4, [], 'attendance');
-        simulationCleanupAudits = readSettled(5, [], 'system_audit_logs');
+        simulationCleanupAudits = readSettled(4, [], 'system_audit_logs');
 
         audits = audits.filter(a => {
             const d = new Date(a.timestamp).toISOString().split('T')[0];
@@ -59,6 +57,24 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
             .filter((row) => row && row.module === 'simulation' && String(row.type || '').startsWith('legacy_dummy_cleanup_'))
             .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0))
             .slice(0, 25);
+
+        const currentUser = window.AppAuth?.getUser?.();
+        const currentAdmin = currentUser ? allUsers.find((user) => String(user.id) === String(currentUser.id)) || currentUser : null;
+        const pendingNotifications = (Array.isArray(currentAdmin?.notifications) ? currentAdmin.notifications : [])
+            .filter((notif) =>
+                notif
+                && notif.type === 'missed-checkout-reason'
+                && String(notif.status || 'pending').toLowerCase() === 'pending'
+                && notif.logId);
+        const pendingLogIds = Array.from(new Set(
+            pendingNotifications.map((notif) => String(notif.logId || '')).filter(Boolean)
+        ));
+
+        attendanceLogs = pendingLogIds.length
+            ? (window.AppDB.getManyByIds
+                ? await window.AppDB.getManyByIds('attendance', pendingLogIds)
+                : (await Promise.all(pendingLogIds.map((id) => window.AppDB.get('attendance', id)))).filter(Boolean))
+            : [];
     } catch (e) {
         console.error('Failed to fetch admin data', e);
     }

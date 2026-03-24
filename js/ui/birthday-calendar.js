@@ -143,7 +143,7 @@ export async function renderBirthdayCalendar() {
 
     const [users, externalPeople] = await Promise.all([
         window.AppDB.getAll('users').catch(() => []),
-        window.AppDB.getAll('birthday_people').catch(() => [])
+        window.AppDB.getAll('birthday_people', { silentPermissionDenied: true }).catch(() => [])
     ]);
 
     const sortedUsers = [...users].sort((a, b) => toSortKey(a).localeCompare(toSortKey(b)));

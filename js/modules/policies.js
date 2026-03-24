@@ -339,7 +339,7 @@ export const AppPolicies = {
         e.preventDefault();
         const year = this.currentYear;
         const name = (document.getElementById('holiday-name-input')?.value || '').trim();
-        const date = (document.getElementById('holiday-date-input')?.value || '').trim();
+        const date = String(document.getElementById('holiday-date-input')?.value || '').trim();
         const type = (document.getElementById('holiday-type-input')?.value || 'Regional').trim();
         if (!name || !date) {
             alert('Please provide holiday name and date.');

@@ -925,6 +925,17 @@ export async function renderDashboard() {
         }
     }
 
+    const pendingMissedCheckoutNotifications = isAdmin
+        ? (Array.isArray(user.notifications) ? user.notifications : []).filter((notif) =>
+            notif
+            && notif.type === 'missed-checkout-reason'
+            && String(notif.status || 'pending').toLowerCase() === 'pending'
+            && notif.logId)
+        : [];
+    const pendingMissedCheckoutLogIds = Array.from(new Set(
+        pendingMissedCheckoutNotifications.map((notif) => String(notif.logId || '')).filter(Boolean)
+    ));
+
     // Parallel Fetch
     const [status, logs, monthlyStats, yearlyStats, heroDataRaw, calendarPlans, staffActivitiesRaw, pendingLeaves, allUsers, collaborations, allLeaves, dailySummary, minutesData, attendanceLogs] = await Promise.all([
         window.AppAttendance.getStatus(),
@@ -944,7 +955,11 @@ export async function renderDashboard() {
             : Promise.resolve([]),
         dailySummaryPromise,
         window.AppMinutes ? window.AppMinutes.getMinutes() : Promise.resolve([]),
-        isAdmin ? window.AppDB.getAll('attendance') : Promise.resolve([])
+        (isAdmin && pendingMissedCheckoutLogIds.length)
+            ? (window.AppDB.getManyByIds
+                ? window.AppDB.getManyByIds('attendance', pendingMissedCheckoutLogIds)
+                : Promise.all(pendingMissedCheckoutLogIds.map((id) => window.AppDB.get('attendance', id))).then((rows) => rows.filter(Boolean)))
+            : Promise.resolve([])
     ]);
     console.timeEnd('DashboardFetch');
 
