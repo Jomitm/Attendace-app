@@ -59,7 +59,8 @@ const releaseUpdateState = {
     source: '',
     popupDismissed: false
 };
-const LOCATION_CACHE_TIME = 30000; // 30 seconds cache
+const LOCATION_CACHE_TIME = 180000; // 3 minutes cache
+const LOCATION_STALE_FALLBACK_TIME = 600000; // 10 minutes fallback when live lookup fails
 window.app_annualYear = new Date().getFullYear();
 
 const getStoredSeenReleaseId = () => {
@@ -2971,41 +2972,47 @@ window.getLocation = function getLocation() {
             };
 
             try {
-                // Attempt 1: High Accuracy (GPS)
-                console.log("Requesting Location: High Accuracy (GPS)...");
-                const p = await getPosition({
-                    enableHighAccuracy: true,
-                    timeout: 10000,
-                    maximumAge: 5000
+                // Attempt 1: Balanced quick lookup (usually much faster than strict GPS).
+                console.log("Requesting Location: Quick/Low Accuracy...");
+                const pQuick = await getPosition({
+                    enableHighAccuracy: false,
+                    timeout: 5000,
+                    maximumAge: 120000
                 });
-                const pos = { lat: p.coords.latitude, lng: p.coords.longitude };
-                cachedLocation = pos;
+                const posQuick = { lat: pQuick.coords.latitude, lng: pQuick.coords.longitude };
+                cachedLocation = posQuick;
                 lastLocationFetch = Date.now();
-                resolve(pos);
-            } catch (err) {
-                console.warn("High Accuracy Failed:", err.message);
-
-                // Attempt 2: Low Accuracy - Fallback
-                try {
-                    console.log("Requesting Location: Low Accuracy (Fallback)...");
-                    const p2 = await getPosition({
-                        enableHighAccuracy: false,
-                        timeout: 15000,
-                        maximumAge: 10000
-                    });
-                    const pos2 = { lat: p2.coords.latitude, lng: p2.coords.longitude };
-                    cachedLocation = pos2;
-                    lastLocationFetch = Date.now();
-                    resolve(pos2);
-                } catch (err2) {
-                    console.error("Low Accuracy Failed:", err2.message);
-                    let msg = 'Unable to retrieve location.';
-                    if (err2.code === 1) msg = 'Location permission denied.';
-                    else if (err2.code === 2) msg = 'Location unavailable. Ensure GPS/Location Services are turned on.';
-                    else if (err2.code === 3) msg = 'Location request timed out. Move to open sky or better network and try again.';
-                    reject(msg);
-                }
+                resolve(posQuick);
+                return;
+            } catch (quickErr) {
+                console.warn("Quick location attempt failed:", quickErr.message);
             }
+
+            try {
+                // Attempt 2: High accuracy fallback (keep timeout moderate to avoid long UI stalls).
+                console.log("Requesting Location: High Accuracy (GPS fallback)...");
+                const pAccurate = await getPosition({
+                    enableHighAccuracy: true,
+                    timeout: 8000,
+                    maximumAge: 10000
+                });
+                const posAccurate = { lat: pAccurate.coords.latitude, lng: pAccurate.coords.longitude };
+                cachedLocation = posAccurate;
+                lastLocationFetch = Date.now();
+                resolve(posAccurate);
+                return;
+            } catch (accurateErr) {
+                console.warn("High accuracy fallback failed:", accurateErr.message);
+            }
+
+            // Final fallback: if we have a not-too-old cached location, use it rather than blocking action.
+            if (cachedLocation && (Date.now() - lastLocationFetch < LOCATION_STALE_FALLBACK_TIME)) {
+                console.warn("Using stale cached location fallback.");
+                resolve(cachedLocation);
+                return;
+            }
+
+            reject('Location request timed out. Move to open sky or better network and try again.');
         })().catch((err) => {
             reject(err && err.message ? err.message : 'Unable to retrieve location.');
         });

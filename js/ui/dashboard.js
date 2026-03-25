@@ -1289,20 +1289,39 @@ function buildStaffActivityMonthOptions(count = 8) {
 }
 
 function normalizeStaffActivityLogs(allLogs) {
-    const deduped = [];
+    const statusRank = {
+        completed: 0,
+        'in-process': 1,
+        'to-be-started': 2,
+        overdue: 3,
+        'not-completed': 4
+    };
+    const normalizeStatus = (log) => (
+        window.AppCalendar
+            ? window.AppCalendar.getSmartTaskStatus(log.date, log.status || '')
+            : (log.status || 'to-be-started')
+    );
+
     const seen = new Map();
-    (allLogs || []).forEach(log => {
+    (allLogs || []).forEach((log) => {
         const desc = (log._displayDesc || '').trim();
         const key = `${log.staffName || ''}|${log.date || ''}|${desc}`;
-        if (!seen.has(key)) {
-            seen.set(key, log);
-            deduped.push(log);
+        const taskStatus = normalizeStatus(log);
+        const candidate = { ...log, _taskStatus: taskStatus, _taskGroup: taskStatus === 'completed' ? 'completed' : 'incomplete' };
+        const existing = seen.get(key);
+        if (!existing) {
+            seen.set(key, candidate);
+            return;
+        }
+
+        const existingRank = statusRank[existing._taskStatus] ?? 99;
+        const candidateRank = statusRank[candidate._taskStatus] ?? 99;
+        if (candidateRank < existingRank) {
+            seen.set(key, candidate);
         }
     });
-    return deduped.map(log => {
-        const taskStatus = window.AppCalendar ? window.AppCalendar.getSmartTaskStatus(log.date, log.status || '') : (log.status || 'to-be-started');
-        return { ...log, _taskStatus: taskStatus, _taskGroup: taskStatus === 'completed' ? 'completed' : 'incomplete' };
-    });
+
+    return Array.from(seen.values());
 }
 
 function sortStaffActivityLogs(logs, sortKey) {
