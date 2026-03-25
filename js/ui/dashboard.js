@@ -747,53 +747,8 @@ export function renderNotificationPanel(_notifications, _history) {
 }
 
 export function renderTaggedItems(notifications) {
-    const taggedRaw = (notifications || []).filter(n => {
-        if (!(n.type === 'tag' || n.type === 'task' || n.type === 'mention')) return false;
-        if (n.dismissedAt || n.read) return false;
-        const status = String(n.status || 'pending').toLowerCase();
-        return status === 'pending';
-    });
-    const seen = new Set();
-    const tagged = [...taggedRaw].reverse().filter((n) => {
-        const hasPlanRef = n && n.planId && Number.isFinite(Number(n.taskIndex));
-        const key = hasPlanRef
-            ? `plan:${String(n.planId)}:${Number(n.taskIndex)}:${String(n.taggedById || '')}:${String(n.type || '')}`
-            : `generic:${String(n.id || '')}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-    }).reverse();
-    if (tagged.length === 0) return '';
-    return `
-        <div class="card full-width dashboard-tagged-card">
-            <div class="dashboard-tagged-head"><h4>Tagged Items</h4><span>Pending approvals</span></div>
-            <div class="dashboard-tagged-list">
-                ${tagged.map(n => `
-                    <div class="dashboard-tagged-item">
-                        <div class="dashboard-tagged-main">
-                            <div class="dashboard-tagged-title">${safeHtml(n.title || 'Tagged item')}</div>
-                            <div class="dashboard-tagged-desc">${safeHtml(n.description || n.message || '')}</div>
-                            <div class="dashboard-tagged-meta">Tagged by ${safeHtml(n.taggedByName || 'Staff')} • ${timeAgo(n.taggedAt || n.date)}</div>
-                        </div>
-                        <div class="dashboard-tagged-status">
-                            <span class="dashboard-tagged-pill ${n.status || 'pending'}">${(n.status || 'pending').toUpperCase()}</span>
-                            ${n.status === 'pending' ? `
-                                <div class="dashboard-tagged-actions">
-                                    ${n.planId ? `
-                                        <button class="dashboard-tagged-btn accept" onclick="window.app_handleTagResponse('${n.planId}', ${n.taskIndex}, 'accepted', ${notifications.indexOf(n)})">Approve</button>
-                                        <button class="dashboard-tagged-btn reject" onclick="window.app_handleTagResponse('${n.planId}', ${n.taskIndex}, 'rejected', ${notifications.indexOf(n)})">Reject</button>
-                                    ` : `
-                                        <button class="dashboard-tagged-btn accept" onclick="window.app_handleTagDecision('${n.id}', 'accepted')">Approve</button>
-                                        <button class="dashboard-tagged-btn reject" onclick="window.app_handleTagDecision('${n.id}', 'rejected')">Reject</button>
-                                    `}
-                                </div>
-                            ` : ''}
-                        </div>
-                    </div>
-                `).join('')}
-            </div>
-        </div>
-    `;
+    // Tagged items are intentionally shown only in the notification drawer.
+    return '';
 }
 
 export function renderStaffDirectory(allUsers, notifications, currentUser) {

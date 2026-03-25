@@ -1717,12 +1717,27 @@ window.app_syncBirthdayReminders = async () => {
     const currentUser = window.AppAuth?.getUser?.();
     if (!window.app_canManageBirthdays(currentUser)) return;
 
-    const allUsers = await window.AppDB.getAll('users').catch(() => []);
-    if (!Array.isArray(allUsers) || !allUsers.length) return;
-
     const today = app_getISTNowDate();
     today.setHours(0, 0, 0, 0);
     const todayKey = app_toDateKey(today);
+    const syncCacheKey = `birthday_sync_${String(currentUser?.id || 'unknown')}`;
+
+    if (window._birthdaySyncDoneForKey === syncCacheKey && window._birthdaySyncDayKey === todayKey) {
+        return;
+    }
+    try {
+        if (localStorage.getItem(syncCacheKey) === todayKey) {
+            window._birthdaySyncDoneForKey = syncCacheKey;
+            window._birthdaySyncDayKey = todayKey;
+            return;
+        }
+    } catch {
+        // Ignore storage access issues and continue with sync.
+    }
+
+    const allUsers = await window.AppDB.getAll('users').catch(() => []);
+    if (!Array.isArray(allUsers) || !allUsers.length) return;
+
     const recipients = allUsers.filter((user) => window.app_canManageBirthdays(user));
     if (!recipients.length) return;
 
@@ -1783,6 +1798,14 @@ window.app_syncBirthdayReminders = async () => {
 
     if (currentUser && Array.isArray(currentUserNotifications)) {
         currentUser.notifications = currentUserNotifications;
+    }
+
+    window._birthdaySyncDoneForKey = syncCacheKey;
+    window._birthdaySyncDayKey = todayKey;
+    try {
+        localStorage.setItem(syncCacheKey, todayKey);
+    } catch {
+        // Ignore storage write issues.
     }
 };
 
