@@ -31,6 +31,15 @@ function getTeamActivitiesState() {
             sortKey: 'date-desc',
             page: 1,
             pageSize: DEFAULT_PAGE_SIZE,
+            columnFilters: {
+                date: '',
+                staff: '',
+                description: '',
+                time: '',
+                type: '',
+                status: ''
+            },
+            selectedKeys: [],
             columnVisibility: {
                 type: true,
                 status: true,
@@ -156,6 +165,13 @@ function applyFilters(state) {
     const staffIds = new Set(state.staffIds || []);
     const status = state.status;
     const type = state.type;
+    const col = state.columnFilters || {};
+    const colDate = String(col.date || '').trim();
+    const colStaff = String(col.staff || '').trim().toLowerCase();
+    const colDesc = String(col.description || '').trim().toLowerCase();
+    const colTime = String(col.time || '').trim().toLowerCase();
+    const colType = String(col.type || '').trim().toLowerCase();
+    const colStatus = String(col.status || '').trim().toLowerCase();
 
     let filtered = state.data.filter(row => {
         if (staffIds.size && !staffIds.has(row.userId)) return false;
@@ -165,6 +181,12 @@ function applyFilters(state) {
             const hay = `${row.date} ${row.staffName} ${row.description} ${row.status} ${row.type}`.toLowerCase();
             if (!hay.includes(search)) return false;
         }
+        if (colDate && String(row.date || '') !== colDate) return false;
+        if (colStaff && !String(row.staffName || '').toLowerCase().includes(colStaff)) return false;
+        if (colDesc && !String(row.description || '').toLowerCase().includes(colDesc)) return false;
+        if (colTime && !String(row.sourceTime || '').toLowerCase().includes(colTime)) return false;
+        if (colType && !String(row.type || '').toLowerCase().includes(colType)) return false;
+        if (colStatus && !String(row.status || '').toLowerCase().includes(colStatus)) return false;
         return true;
     });
 
@@ -179,12 +201,21 @@ function sortRows(rows, sortKey) {
         const dateDiff = new Date(b.date) - new Date(a.date);
         const timeDiff = String(b.sourceTime || '').localeCompare(String(a.sourceTime || ''));
         const nameCmp = String(a.staffName || '').localeCompare(String(b.staffName || ''));
+        const hasActions = (row) => row.type === 'work' && row.planId && Number.isInteger(row.taskIndex);
+        if (sortKey === 'date-desc') return dateDiff || timeDiff;
         if (sortKey === 'date-asc') return (new Date(a.date) - new Date(b.date)) || timeDiff;
         if (sortKey === 'staff-asc') return nameCmp || dateDiff;
         if (sortKey === 'staff-desc') return (-nameCmp) || dateDiff;
         if (sortKey === 'status') return String(a.status || '').localeCompare(String(b.status || '')) || dateDiff;
+        if (sortKey === 'status-desc') return String(b.status || '').localeCompare(String(a.status || '')) || dateDiff;
         if (sortKey === 'type') return String(a.type || '').localeCompare(String(b.type || '')) || dateDiff;
+        if (sortKey === 'type-desc') return String(b.type || '').localeCompare(String(a.type || '')) || dateDiff;
+        if (sortKey === 'description') return String(a.description || '').localeCompare(String(b.description || '')) || dateDiff;
+        if (sortKey === 'description-desc') return String(b.description || '').localeCompare(String(a.description || '')) || dateDiff;
         if (sortKey === 'time') return String(a.sourceTime || '').localeCompare(String(b.sourceTime || '')) || dateDiff;
+        if (sortKey === 'time-desc') return String(b.sourceTime || '').localeCompare(String(a.sourceTime || '')) || dateDiff;
+        if (sortKey === 'actions') return Number(hasActions(b)) - Number(hasActions(a)) || dateDiff;
+        if (sortKey === 'actions-desc') return Number(hasActions(a)) - Number(hasActions(b)) || dateDiff;
         return dateDiff || timeDiff;
     });
     return copy;
@@ -260,6 +291,13 @@ function renderColumnsPanel(state) {
     `;
 }
 
+function renderSortLabel(label, primary, alt, state) {
+    const dir = state.sortKey === primary ? '▼'
+        : state.sortKey === alt ? '▲'
+        : '⇅';
+    return `${safeHtml(label)} <span class="team-activities-sort">${dir}</span>`;
+}
+
 function renderTable(state) {
     const vis = state.columnVisibility;
     const rows = paginate(state.filtered, state.page, state.pageSize);
@@ -267,33 +305,44 @@ function renderTable(state) {
         return `<div class="team-activities-empty">No activities found for the selected filters.</div>`;
     }
 
-    const headCols = `
-        <th data-sort="date-desc">Date</th>
-        <th data-sort="staff-asc">Staff</th>
-        ${vis.type ? '<th data-sort="type">Type</th>' : ''}
-        ${vis.status ? '<th data-sort="status">Status</th>' : ''}
-        <th>Description</th>
-        ${vis.sourceTime ? '<th data-sort="time">Time</th>' : ''}
-        <th>Actions</th>
-    `;
-
+    const selected = new Set(state.selectedKeys || []);
     const currentUserId = window.AppAuth?.getUser ? window.AppAuth.getUser()?.id : null;
     const currentUser = window.AppAuth?.getUser ? window.AppAuth.getUser() : null;
     const canAdminDelete = !!(currentUser && (currentUser.role === 'Administrator' || currentUser.isAdmin));
+
+    const headCols = `
+        <th data-sort="date-desc" data-sort-alt="date-asc">${renderSortLabel('Date', 'date-desc', 'date-asc', state)}</th>
+        <th data-sort="staff-asc" data-sort-alt="staff-desc">${renderSortLabel('Staff', 'staff-asc', 'staff-desc', state)}</th>
+        ${vis.type ? `<th data-sort="type" data-sort-alt="type-desc">${renderSortLabel('Type', 'type', 'type-desc', state)}</th>` : ''}
+        ${vis.status ? `<th data-sort="status" data-sort-alt="status-desc">${renderSortLabel('Status', 'status', 'status-desc', state)}</th>` : ''}
+        <th data-sort="description" data-sort-alt="description-desc">${renderSortLabel('Description', 'description', 'description-desc', state)}</th>
+        ${vis.sourceTime ? `<th data-sort="time" data-sort-alt="time-desc">${renderSortLabel('Time', 'time', 'time-desc', state)}</th>` : ''}
+        <th data-sort="actions" data-sort-alt="actions-desc">${renderSortLabel('Actions', 'actions', 'actions-desc', state)}</th>
+    `;
+
+    const selectableRows = [];
     const body = rows.map(row => {
         const statusClass = String(row.status || '').toLowerCase().replace(/\s+/g, '-');
         const isOwner = currentUserId && row.userId && currentUserId === row.userId;
         const canRemove = row.type === 'work' && row.planId && Number.isInteger(row.taskIndex) && (isOwner || canAdminDelete);
+        const rowKey = `${row.planId || ''}__${Number.isInteger(row.taskIndex) ? row.taskIndex : ''}`;
+        if (canRemove) selectableRows.push(rowKey);
         const hasProgress = row.type === 'work' && (row.progressPercent !== null || row.progressStatus || row.progressNote);
         const statusLabel = row.progressStatus ? String(row.progressStatus).replace(/_/g, ' ') : '';
         const progressLabel = row.progressPercent !== null ? `${row.progressPercent}%` : '';
         const noteText = String(row.progressNote || '').trim();
         const tooltip = noteText ? ` title="${safeHtml(noteText)}"` : '';
         const progressBadge = hasProgress
-            ? `<div class="team-activities-progress"${tooltip}>${safeHtml(progressLabel)}${progressLabel && statusLabel ? ' • ' : ''}${safeHtml(statusLabel)}</div>`
+            ? `<div class="team-activities-progress"${tooltip}>${safeHtml(progressLabel)}${progressLabel && statusLabel ? ' &bull; ' : ''}${safeHtml(statusLabel)}</div>`
             : '';
+        const selectCell = canAdminDelete ? `
+            <td class="team-activities-select-col">
+                ${canRemove ? `<input type="checkbox" class="team-activities-row-select" data-row-key="${safeHtml(rowKey)}" ${selected.has(rowKey) ? 'checked' : ''}>` : ''}
+            </td>
+        ` : '<td class="team-activities-select-col"></td>';
         return `
         <tr>
+            ${selectCell}
             <td>${safeHtml(row.date)}</td>
             <td>${safeHtml(row.staffName)}</td>
             ${vis.type ? `<td class="team-activities-type">${safeHtml(row.type)}</td>` : ''}
@@ -323,10 +372,39 @@ function renderTable(state) {
         </tr>
     `; }).join('');
 
+    const allVisibleSelected = selectableRows.length > 0 && selectableRows.every(k => selected.has(k));
+    const bulkBar = canAdminDelete ? `
+        <div class="team-activities-bulk-bar">
+            <div><strong>${selected.size}</strong> selected</div>
+            <div class="team-activities-bulk-actions">
+                <button type="button" class="team-activities-row-btn secondary" data-bulk-clear ${selected.size ? '' : 'disabled'}>Clear</button>
+                <button type="button" class="team-activities-row-btn danger" data-bulk-remove ${selected.size ? '' : 'disabled'}>Bulk Remove</button>
+            </div>
+        </div>
+    ` : '';
+
+    const selectHead = canAdminDelete
+        ? `<th class="team-activities-select-col"><input type="checkbox" data-select-visible ${selectableRows.length ? '' : 'disabled'} ${allVisibleSelected ? 'checked' : ''}></th>`
+        : '<th class="team-activities-select-col"></th>';
+
+    const filterRow = `
+        <tr class="team-activities-filter-row">
+            ${canAdminDelete ? '<td></td>' : '<td></td>'}
+            <td><input type="date" id="team-activities-filter-date" value="${safeHtml(state.columnFilters.date || '')}"></td>
+            <td><input type="text" id="team-activities-filter-staff" placeholder="Filter staff" value="${safeHtml(state.columnFilters.staff || '')}"></td>
+            ${vis.type ? `<td><input type="text" id="team-activities-filter-type" placeholder="Filter type" value="${safeHtml(state.columnFilters.type || '')}"></td>` : ''}
+            ${vis.status ? `<td><input type="text" id="team-activities-filter-status" placeholder="Filter status" value="${safeHtml(state.columnFilters.status || '')}"></td>` : ''}
+            <td><input type="text" id="team-activities-filter-desc" placeholder="Filter description" value="${safeHtml(state.columnFilters.description || '')}"></td>
+            ${vis.sourceTime ? `<td><input type="text" id="team-activities-filter-time" placeholder="HH:MM" value="${safeHtml(state.columnFilters.time || '')}"></td>` : ''}
+            <td></td>
+        </tr>
+    `;
+
     return `
+        ${bulkBar}
         <table class="team-activities-table">
-            <thead><tr>${headCols}</tr></thead>
-            <tbody>${body}</tbody>
+            <thead><tr>${selectHead}${headCols}</tr></thead>
+            <tbody>${filterRow}${body}</tbody>
         </table>
     `;
 }
@@ -346,6 +424,8 @@ function renderPagination(state) {
 
 function updateUI() {
     const state = getTeamActivitiesState();
+    // Ensure time column stays visible for filtering
+    state.columnVisibility.sourceTime = true;
     applyFilters(state);
     const totalPages = Math.max(1, Math.ceil(state.filtered.length / state.pageSize));
     if (state.page > totalPages) state.page = totalPages;
@@ -365,6 +445,13 @@ function updateUI() {
     if (lastRef && state.lastRefreshed) {
         lastRef.textContent = new Date(state.lastRefreshed).toLocaleString();
     }
+
+    const selectVisible = tableWrap?.querySelector('[data-select-visible]');
+    if (selectVisible) {
+        const selectable = Array.from(tableWrap.querySelectorAll('input[data-row-key]'));
+        const checkedCount = selectable.filter(cb => cb.checked).length;
+        selectVisible.indeterminate = checkedCount > 0 && checkedCount < selectable.length;
+    }
 }
 
 async function refreshData() {
@@ -382,6 +469,7 @@ async function refreshData() {
         state.data = normalizeActivityRows(rows);
         state.lastRefreshed = Date.now();
         state.page = 1;
+        state.selectedKeys = [];
     } catch (err) {
         console.error('Team Activities fetch failed', err);
     } finally {
@@ -470,7 +558,11 @@ function bindEvents() {
 
         const tableHead = target.closest('th[data-sort]');
         if (tableHead) {
-            const key = tableHead.dataset.sort;
+            const primary = tableHead.dataset.sort;
+            const alt = tableHead.dataset.sortAlt;
+            let key = primary;
+            if (state.sortKey === primary && alt) key = alt;
+            else if (state.sortKey === alt && primary) key = primary;
             if (key) {
                 state.sortKey = key;
                 updateUI();
@@ -486,6 +578,17 @@ function bindEvents() {
         if (clear) {
             state.staffIds = [];
             updateUI();
+        }
+
+        const bulkClear = target.closest('[data-bulk-clear]');
+        if (bulkClear) {
+            state.selectedKeys = [];
+            updateUI();
+        }
+
+        const bulkRemoveBtn = target.closest('[data-bulk-remove]');
+        if (bulkRemoveBtn && window.app_teamActivitiesBulkRemove) {
+            await window.app_teamActivitiesBulkRemove();
         }
     });
 
@@ -510,6 +613,53 @@ function bindEvents() {
             } else {
                 state.staffIds = state.staffIds.filter(x => x !== id);
             }
+            updateUI();
+        }
+        if (target.matches('#team-activities-filter-date')) {
+            state.columnFilters.date = target.value || '';
+            updateUI();
+        }
+        if (target.matches('#team-activities-filter-staff')) {
+            state.columnFilters.staff = target.value || '';
+            updateUI();
+        }
+        if (target.matches('#team-activities-filter-desc')) {
+            state.columnFilters.description = target.value || '';
+            updateUI();
+        }
+        if (target.matches('#team-activities-filter-time')) {
+            state.columnFilters.time = target.value || '';
+            updateUI();
+        }
+        if (target.matches('#team-activities-filter-type')) {
+            state.columnFilters.type = target.value || '';
+            updateUI();
+        }
+        if (target.matches('#team-activities-filter-status')) {
+            state.columnFilters.status = target.value || '';
+            updateUI();
+        }
+        if (target.matches('input[data-row-key]')) {
+            const key = target.getAttribute('data-row-key');
+            if (!key) return;
+            const selected = new Set(state.selectedKeys || []);
+            if (target.checked) selected.add(key);
+            else selected.delete(key);
+            state.selectedKeys = Array.from(selected);
+            updateUI();
+        }
+        if (target.matches('[data-select-visible]')) {
+            const tableWrap = document.getElementById('team-activities-table-wrap');
+            const boxes = Array.from(tableWrap?.querySelectorAll('input[data-row-key]') || []);
+            const selected = new Set(state.selectedKeys || []);
+            boxes.forEach(cb => {
+                const key = cb.getAttribute('data-row-key');
+                if (!key) return;
+                cb.checked = target.checked;
+                if (target.checked) selected.add(key);
+                else selected.delete(key);
+            });
+            state.selectedKeys = Array.from(selected);
             updateUI();
         }
     });
@@ -559,9 +709,11 @@ if (typeof window !== 'undefined') {
         state.status = 'all';
         state.type = 'all';
         state.search = '';
+        state.columnFilters = { date: '', staff: '', description: '', time: '', type: '', status: '' };
         state.sortKey = 'date-desc';
         state.page = 1;
         state.pageSize = DEFAULT_PAGE_SIZE;
+        state.selectedKeys = [];
         const startInput = document.getElementById('team-activities-start');
         const endInput = document.getElementById('team-activities-end');
         const typeSelect = document.getElementById('team-activities-type');
@@ -692,6 +844,49 @@ if (typeof window !== 'undefined') {
         } catch (err) {
             console.error('Postpone task failed', err);
             alert('Failed to postpone task.');
+        }
+    };
+
+    window.app_teamActivitiesBulkRemove = async function () {
+        try {
+            const state = getTeamActivitiesState();
+            const currentUser = window.AppAuth?.getUser ? window.AppAuth.getUser() : null;
+            const isAdmin = !!(currentUser && (currentUser.role === 'Administrator' || currentUser.isAdmin));
+            if (!isAdmin) {
+                alert('Only admins can bulk remove tasks.');
+                return;
+            }
+            if (!window.AppCalendar?.removeTask) {
+                alert('Remove action is not available.');
+                return;
+            }
+            const selected = new Set(state.selectedKeys || []);
+            if (!selected.size) {
+                alert('Select at least one removable task.');
+                return;
+            }
+            const removable = state.filtered.filter(row => {
+                const key = `${row.planId || ''}__${Number.isInteger(row.taskIndex) ? row.taskIndex : ''}`;
+                return selected.has(key) && row.type === 'work' && row.planId && Number.isInteger(row.taskIndex);
+            });
+            if (!removable.length) {
+                alert('No removable tasks in selection.');
+                return;
+            }
+            if (!window.appConfirm || !await window.appConfirm(`Remove ${removable.length} selected task(s) so they stop carrying forward?`)) {
+                return;
+            }
+            for (const row of removable) {
+                await window.AppCalendar.removeTask(row.planId, row.taskIndex);
+            }
+            state.selectedKeys = [];
+            await refreshData();
+            if (window.app_showSyncToast) {
+                window.app_showSyncToast(`${removable.length} task(s) removed.`);
+            }
+        } catch (err) {
+            console.error('Bulk remove failed', err);
+            alert('Failed to bulk remove tasks.');
         }
     };
 

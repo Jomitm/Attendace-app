@@ -381,6 +381,187 @@ export class Calendar {
         return await this.db.put('work_plans', workPlan);
     }
 
+    extractDateFromPlanToken(token = '') {
+        const raw = String(token || '').trim();
+        const match = raw.match(/(\d{4}-\d{2}-\d{2})/);
+        return match ? match[1] : '';
+    }
+
+    resolveTaskOriginDate(task = {}) {
+        const direct = String(task.carriedForwardFromDate || '').trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(direct)) return direct;
+
+        const fromRoot = this.extractDateFromPlanToken(task.carryForwardRootId);
+        if (fromRoot) return fromRoot;
+
+        const fromCarryPlan = this.extractDateFromPlanToken(task.carriedForwardFromPlanId);
+        if (fromCarryPlan) return fromCarryPlan;
+
+        const fromSource = this.extractDateFromPlanToken(task.sourcePlanId);
+        if (fromSource) return fromSource;
+
+        const start = String(task.startDate || '').trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(start)) return start;
+
+        const end = String(task.endDate || '').trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(end)) return end;
+
+        return '';
+    }
+
+    isTaggedCopyOriginTask(task = {}) {
+        const addedFrom = String(task.addedFrom || '').toLowerCase().trim();
+        const fromTaggedSource = addedFrom === 'tag' || addedFrom === 'delegated' || addedFrom === 'staff';
+        const hasSourceReference = !!task.sourcePlanId
+            || Number.isInteger(task.sourceTaskIndex)
+            || Number.isFinite(Number(task.sourceTaskIndex));
+        return fromTaggedSource || hasSourceReference;
+    }
+
+    hasLegacyTaggedTextPattern(task = {}) {
+        const text = String(task.task || '');
+        if (!text) return false;
+        const repeatedResponsible = (text.match(/\(Responsible:/gi) || []).length > 1;
+        return repeatedResponsible;
+    }
+
+    hasResponsibleMarker(task = {}) {
+        const text = String(task.task || '');
+        return /\((Responsible|Assigned to):/i.test(text);
+    }
+
+    normalizeTaskForStaleCompare(taskText = '') {
+        return String(taskText || '')
+            .replace(/\s*\((Responsible|Assigned to):[^)]*\)\s*/gi, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toLowerCase();
+    }
+
+    hasCarryForwardLineage(task = {}) {
+        return !!(
+            task.carryForwardRootId
+            || task.isAutoForwarded === true
+            || task.carriedForwardFromDate
+            || task.carriedForwardFromPlanId
+        );
+    }
+
+    async cleanupOldCarryForwardTaggedTasks(userId, date, options = {}) {
+        const targetUserId = String(userId || '').trim();
+        const targetDate = String(date || '').trim();
+        if (!targetUserId || !targetDate) {
+            return { ok: false, removed: 0, reason: 'invalid_input' };
+        }
+
+        const onlyToday = options.onlyToday !== false;
+        const todayKey = this.getTodayKey();
+        if (onlyToday && targetDate !== todayKey) {
+            return { ok: true, removed: 0, reason: 'not_today' };
+        }
+
+        const personalPlan = await this.getWorkPlan(targetUserId, targetDate, { planScope: 'personal' });
+        if (!personalPlan || !Array.isArray(personalPlan.plans) || personalPlan.plans.length === 0) {
+            return { ok: true, removed: 0, reason: 'no_plan' };
+        }
+
+        const priorPlansRaw = this.db.queryMany
+            ? await this.db.queryMany('work_plans', [
+                { field: 'userId', operator: '==', value: targetUserId },
+                { field: 'date', operator: '<', value: targetDate }
+            ]).catch(() => this.db.getAll('work_plans'))
+            : await this.db.getAll('work_plans');
+        const priorPlans = (priorPlansRaw || []).filter((p) =>
+            p
+            && String(p.userId || '') === targetUserId
+            && String(p.date || '') < targetDate
+            && this.normalizePlanScope(p.planScope) === 'personal'
+            && Array.isArray(p.plans)
+        );
+        const priorTaskSet = new Set();
+        priorPlans.forEach((p) => {
+            (p.plans || []).forEach((t) => {
+                if (!t || t.isRemoved === true) return;
+                const normalized = this.normalizeTaskForStaleCompare(t.task || '');
+                if (normalized) priorTaskSet.add(normalized);
+            });
+        });
+
+        const kept = [];
+        const removedTasks = [];
+
+        for (const task of personalPlan.plans) {
+            if (!task || task.isRemoved === true) {
+                kept.push(task);
+                continue;
+            }
+
+            const isCopyOrigin = this.isTaggedCopyOriginTask(task);
+            if (!isCopyOrigin) {
+                kept.push(task);
+                continue;
+            }
+
+            const originDate = this.resolveTaskOriginDate(task);
+            const isOlderOrigin = !!originDate && originDate < targetDate;
+            const legacyStaleWithoutOrigin = this.hasLegacyTaggedTextPattern(task);
+            const normalizedCurrent = this.normalizeTaskForStaleCompare(task.task || '');
+            const legacyOldByHistory = this.hasResponsibleMarker(task) && !!normalizedCurrent && priorTaskSet.has(normalizedCurrent);
+            if (!isOlderOrigin && !legacyStaleWithoutOrigin && !legacyOldByHistory) {
+                kept.push(task);
+                continue;
+            }
+
+            removedTasks.push(task);
+        }
+
+        if (removedTasks.length === 0) {
+            return { ok: true, removed: 0, reason: 'no_matches' };
+        }
+
+        personalPlan.plans = kept;
+        personalPlan.updatedAt = new Date().toISOString();
+        await this.db.put('work_plans', personalPlan);
+
+        return {
+            ok: true,
+            removed: removedTasks.length,
+            planId: personalPlan.id,
+            date: targetDate
+        };
+    }
+
+    async cleanupOldCarryForwardTaggedTasksForDate(date, options = {}) {
+        const targetDate = String(date || '').trim();
+        if (!targetDate) return { ok: false, removed: 0, scannedPlans: 0, reason: 'invalid_date' };
+        const onlyToday = options.onlyToday !== false;
+        const todayKey = this.getTodayKey();
+        if (onlyToday && targetDate !== todayKey) {
+            return { ok: true, removed: 0, scannedPlans: 0, reason: 'not_today' };
+        }
+
+        const plans = this.db.queryMany
+            ? await this.db.queryMany('work_plans', [{ field: 'date', operator: '==', value: targetDate }]).catch(() => this.db.getAll('work_plans'))
+            : await this.db.getAll('work_plans');
+        const dayPlans = (plans || []).filter((p) =>
+            p
+            && String(p.date || '') === targetDate
+            && this.normalizePlanScope(p.planScope) === 'personal'
+            && Array.isArray(p.plans)
+            && p.plans.length > 0
+        );
+
+        let removed = 0;
+        for (const plan of dayPlans) {
+            const userId = String(plan.userId || '').trim();
+            if (!userId) continue;
+            const result = await this.cleanupOldCarryForwardTaggedTasks(userId, targetDate, { onlyToday });
+            removed += Number(result?.removed || 0);
+        }
+
+        return { ok: true, removed, scannedPlans: dayPlans.length, date: targetDate };
+    }
+
     /**
      * Delete a work plan for a specific day
      */

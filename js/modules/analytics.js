@@ -1179,6 +1179,29 @@ export class Analytics {
             if (window.AppCalendar?.ensureCarryForwardForRange) {
                 await window.AppCalendar.ensureCarryForwardForRange(startIso, endIso);
             }
+            if (window.AppCalendar?.cleanupOldCarryForwardTaggedTasksForDate) {
+                const todayKey = window.AppCalendar.getTodayKey ? window.AppCalendar.getTodayKey() : '';
+                if (todayKey && todayKey >= startIso && todayKey <= endIso) {
+                    const cleanupKey = `cleanup_old_tagged_global_v5_${todayKey}`;
+                    let shouldRunCleanup = true;
+                    try {
+                        shouldRunCleanup = localStorage.getItem(cleanupKey) !== '1';
+                    } catch {
+                        shouldRunCleanup = true;
+                    }
+                    if (shouldRunCleanup) {
+                        try {
+                            const cleanupRes = await window.AppCalendar.cleanupOldCarryForwardTaggedTasksForDate(todayKey, { onlyToday: true });
+                            if ((cleanupRes?.removed || 0) > 0) {
+                                console.log(`Team activity global cleanup removed ${cleanupRes.removed} stale tagged task(s) for ${todayKey}.`);
+                            }
+                            try { localStorage.setItem(cleanupKey, '1'); } catch { /* ignore */ }
+                        } catch (cleanupErr) {
+                            console.warn('Global stale tagged cleanup failed:', cleanupErr);
+                        }
+                    }
+                }
+            }
 
             const shouldFetchAttendance = scope !== 'work';
             const [attendanceLogs, workPlans, users] = await Promise.all([
@@ -1201,6 +1224,49 @@ export class Analytics {
 
             const mergedActivities = [];
             const attendanceContentByDay = {}; // Map of "userId:date" -> [arrayOfWorkDescriptions]
+            const isTaggedCopyOriginTask = (task = {}) => {
+                if (window.AppCalendar?.isTaggedCopyOriginTask) {
+                    return window.AppCalendar.isTaggedCopyOriginTask(task);
+                }
+                const addedFrom = String(task.addedFrom || '').toLowerCase().trim();
+                const fromTaggedSource = addedFrom === 'tag' || addedFrom === 'delegated' || addedFrom === 'staff';
+                const hasSourceReference = !!task.sourcePlanId
+                    || Number.isInteger(task.sourceTaskIndex)
+                    || Number.isFinite(Number(task.sourceTaskIndex));
+                return fromTaggedSource || hasSourceReference;
+            };
+            const hasCarryForwardLineage = (task = {}) => {
+                if (window.AppCalendar?.hasCarryForwardLineage) {
+                    return window.AppCalendar.hasCarryForwardLineage(task);
+                }
+                return !!(
+                    task.carryForwardRootId
+                    || task.isAutoForwarded === true
+                    || task.carriedForwardFromDate
+                    || task.carriedForwardFromPlanId
+                );
+            };
+            const resolveOriginDate = (task = {}) => {
+                if (window.AppCalendar?.resolveTaskOriginDate) {
+                    return String(window.AppCalendar.resolveTaskOriginDate(task) || '');
+                }
+                const direct = String(task.carriedForwardFromDate || '').trim();
+                if (/^\d{4}-\d{2}-\d{2}$/.test(direct)) return direct;
+                const src = String(task.sourcePlanId || '').match(/(\d{4}-\d{2}-\d{2})/);
+                if (src) return src[1];
+                const root = String(task.carryForwardRootId || '').match(/(\d{4}-\d{2}-\d{2})/);
+                if (root) return root[1];
+                return '';
+            };
+            const hasLegacyTaggedTextPattern = (task = {}) => {
+                if (window.AppCalendar?.hasLegacyTaggedTextPattern) {
+                    return !!window.AppCalendar.hasLegacyTaggedTextPattern(task);
+                }
+                const text = String(task.task || '');
+                if (!text) return false;
+                const repeatedResponsible = (text.match(/\(Responsible:/gi) || []).length > 1;
+                return repeatedResponsible;
+            };
 
             if (shouldFetchAttendance) {
                 attendanceLogs.forEach(log => {
@@ -1231,6 +1297,14 @@ export class Analytics {
 
                     wp.plans.forEach((plan, idx) => {
                         if (plan?.isRemoved === true) return;
+                        const isOldCarryForwardTask = (() => {
+                            const originDate = resolveOriginDate(plan);
+                            if (originDate && originDate < String(wp.date || '')) return true;
+                            if (hasCarryForwardLineage(plan) && !originDate) return true;
+                            if (isTaggedCopyOriginTask(plan) && hasLegacyTaggedTextPattern(plan)) return true;
+                            return false;
+                        })();
+                        if (isOldCarryForwardTask) return;
                         // Deduplication Logic:
                         // If this task text is found as a substring within any associated attendance log's description 
                         // (which often happens at checkout when tasks are auto-appended to summary), we skip it here.

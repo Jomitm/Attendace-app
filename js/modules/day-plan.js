@@ -622,6 +622,33 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null)
         await AppCalendar.ensureCarryForwardForDate(date, { userIds: [targetId] });
     }
 
+    const todayKey = AppCalendar?.getTodayKey ? AppCalendar.getTodayKey() : '';
+    if (AppCalendar?.cleanupOldCarryForwardTaggedTasks && date === todayKey) {
+        const cleanupKey = `cleanup_old_tagged_v5_${targetId}_${date}`;
+        let shouldRunCleanup = true;
+        try {
+            shouldRunCleanup = localStorage.getItem(cleanupKey) !== '1';
+        } catch {
+            shouldRunCleanup = true;
+        }
+
+        if (shouldRunCleanup) {
+            try {
+                const cleanupResult = await AppCalendar.cleanupOldCarryForwardTaggedTasks(targetId, date, { onlyToday: true });
+                if ((cleanupResult?.removed || 0) > 0) {
+                    console.log(`Day plan cleanup removed ${cleanupResult.removed} old tagged carry-forward task(s) for ${targetId} on ${date}.`);
+                }
+                try {
+                    localStorage.setItem(cleanupKey, '1');
+                } catch {
+                    // Ignore storage write failures.
+                }
+            } catch (cleanupErr) {
+                console.warn('Failed to cleanup old tagged carry-forward tasks:', cleanupErr);
+            }
+        }
+    }
+
     const [personalWorkPlan, annualWorkPlan, allDayPlans] = await Promise.all([
         AppCalendar.getWorkPlan(targetId, date, { planScope: 'personal' }),
         AppCalendar.getWorkPlan(targetId, date, { planScope: 'annual' }),
