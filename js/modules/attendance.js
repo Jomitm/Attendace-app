@@ -54,72 +54,82 @@ export class Attendance {
             const todayLocalDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
             if (priorLocalDate < todayLocalDate) {
-                const fixedDurationMs = 4 * 60 * 60 * 1000;
-                const priorCheckOutTime = new Date(priorCheckInTime.getTime() + fixedDurationMs);
-                const statusMeta = {
-                    status: 'Half Day',
-                    dayCredit: this.getDayCredit('Half Day'),
-                    lateCountable: false,
-                    extraWorkedMs: 0
-                };
-                const priorLocation = user.currentLocation || user.lastLocation || null;
-                const closureTimestamp = new Date().toISOString();
+                const priorSessionCheckoutLogged = await this.hasRecordedCheckoutForSession(user.id, priorCheckInTime, now);
+                if (priorSessionCheckoutLogged) {
+                    // Self-heal stale "in" state without creating a missed-checkout half-day entry.
+                    user.status = 'out';
+                    user.lastCheckIn = null;
+                    user.currentLocation = null;
+                    user.locationMismatched = false;
+                    noticeMessage = 'Recovered previous checkout record and cleared stale session status.';
+                } else {
+                    const fixedDurationMs = 4 * 60 * 60 * 1000;
+                    const priorCheckOutTime = new Date(priorCheckInTime.getTime() + fixedDurationMs);
+                    const statusMeta = {
+                        status: 'Half Day',
+                        dayCredit: this.getDayCredit('Half Day'),
+                        lateCountable: false,
+                        extraWorkedMs: 0
+                    };
+                    const priorLocation = user.currentLocation || user.lastLocation || null;
+                    const closureTimestamp = new Date().toISOString();
 
-                const missedLog = {
-                    id: String(Date.now()),
-                    user_id: user.id,
-                    date: priorCheckOutTime.toISOString().split('T')[0],
-                    checkIn: priorCheckInTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    checkOut: priorCheckOutTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    duration: this.msToTime(fixedDurationMs),
-                    durationMs: fixedDurationMs,
-                    type: statusMeta.status,
-                    dayCredit: statusMeta.dayCredit,
-                    lateCountable: statusMeta.lateCountable,
-                    extraWorkedMs: statusMeta.extraWorkedMs || 0,
-                    policyVersion: 'v2',
-                    location: priorLocation?.address || 'Missed checkout session',
-                    lat: priorLocation?.lat ?? null,
-                    lng: priorLocation?.lng ?? null,
-                    checkOutLocation: 'System closure on next check-in',
-                    outLat: null,
-                    outLng: null,
-                    workDescription: 'System closure: missed checkout auto-closed as half day. Reason required on next login.',
-                    locationMismatched: false,
-                    locationExplanation: '',
-                    activityScore: 0,
-                    autoCheckout: true,
-                    autoCheckoutReason: 'missed_checkout_next_login',
-                    autoCheckoutAt: closureTimestamp,
-                    autoCheckoutRequiresApproval: false,
-                    autoCheckoutExtraApproved: null,
-                    missedCheckoutResolved: true,
-                    missedCheckoutPolicy: 'half_day_on_missed_checkout',
-                    missedCheckoutReasonRequired: true,
-                    missedCheckoutReasonStatus: 'pending',
-                    missedCheckoutReason: '',
-                    missedCheckoutReasonSubmittedAt: null,
-                    missedCheckoutReviewedBy: '',
-                    missedCheckoutReviewedAt: '',
-                    missedCheckoutReviewNote: '',
-                    systemClosedAt: closureTimestamp,
-                    synced: false
-                };
+                    const missedLog = {
+                        id: String(Date.now()),
+                        user_id: user.id,
+                        date: priorCheckOutTime.toISOString().split('T')[0],
+                        checkIn: priorCheckInTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                        checkOut: priorCheckOutTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                        duration: this.msToTime(fixedDurationMs),
+                        durationMs: fixedDurationMs,
+                        type: statusMeta.status,
+                        dayCredit: statusMeta.dayCredit,
+                        lateCountable: statusMeta.lateCountable,
+                        extraWorkedMs: statusMeta.extraWorkedMs || 0,
+                        policyVersion: 'v2',
+                        location: priorLocation?.address || 'Missed checkout session',
+                        lat: priorLocation?.lat ?? null,
+                        lng: priorLocation?.lng ?? null,
+                        checkOutLocation: 'System closure on next check-in',
+                        outLat: null,
+                        outLng: null,
+                        workDescription: 'System closure: missed checkout auto-closed as half day. Reason required on next login.',
+                        locationMismatched: false,
+                        locationExplanation: '',
+                        activityScore: 0,
+                        autoCheckout: true,
+                        autoCheckoutReason: 'missed_checkout_next_login',
+                        autoCheckoutAt: closureTimestamp,
+                        autoCheckoutRequiresApproval: false,
+                        autoCheckoutExtraApproved: null,
+                        missedCheckoutResolved: true,
+                        missedCheckoutPolicy: 'half_day_on_missed_checkout',
+                        missedCheckoutReasonRequired: true,
+                        missedCheckoutReasonStatus: 'pending',
+                        missedCheckoutReason: '',
+                        missedCheckoutReasonSubmittedAt: null,
+                        missedCheckoutReviewedBy: '',
+                        missedCheckoutReviewedAt: '',
+                        missedCheckoutReviewNote: '',
+                        systemClosedAt: closureTimestamp,
+                        synced: false
+                    };
 
-                await AppDB.add('attendance', missedLog);
-                missedCheckoutLogId = missedLog.id;
-                missedCheckoutDate = missedLog.date;
+                    await AppDB.add('attendance', missedLog);
+                    missedCheckoutLogId = missedLog.id;
+                    missedCheckoutDate = missedLog.date;
 
-                user.status = 'out';
-                user.lastCheckOut = priorCheckOutTime.getTime();
-                user.lastLocation = priorLocation;
-                user.lastCheckOutLocation = { lat: null, lng: null, address: 'System closure on next check-in' };
-                user.locationMismatched = false;
-                user.lastCheckIn = null;
-                user.currentLocation = null;
+                    user.status = 'out';
+                    user.lastCheckOut = priorCheckOutTime.getTime();
+                    user.lastLocation = priorLocation;
+                    user.lastCheckOutLocation = { lat: null, lng: null, address: 'System closure on next check-in' };
+                    user.locationMismatched = false;
+                    user.lastCheckIn = null;
+                    user.currentLocation = null;
 
-                resolvedMissedCheckout = true;
-                noticeMessage = 'Previous open session was closed as half day because checkout was missed. Please submit a reason for admin verification.';
+                    resolvedMissedCheckout = true;
+                    noticeMessage = 'Previous open session was closed as half day because checkout was missed. Please submit a reason for admin verification.';
+                }
             } else {
                 return {
                     ok: false,
@@ -386,11 +396,76 @@ export class Attendance {
         return `${hours}h ${minutes}m`;
     }
 
+    async hasRecordedCheckoutForSession(userId, sessionStart, sessionEnd = new Date()) {
+        if (!userId || !(sessionStart instanceof Date) || Number.isNaN(sessionStart.getTime())) return false;
+
+        try {
+            const logs = await AppDB.query('attendance', 'user_id', '==', userId);
+            if (!Array.isArray(logs) || logs.length === 0) return false;
+
+            const toleranceMs = 5 * 60 * 1000;
+            const checkInAnchor = new Date(sessionStart);
+            checkInAnchor.setSeconds(0, 0);
+            const maxEnd = (sessionEnd instanceof Date && !Number.isNaN(sessionEnd.getTime()))
+                ? sessionEnd.getTime() + toleranceMs
+                : Date.now() + toleranceMs;
+
+            return logs.some((log) => {
+                if (!log || !log.checkOut || log.checkOut === 'Active Now') return false;
+                if (log.autoCheckout && log.autoCheckoutReason === 'missed_checkout_next_login') return false;
+
+                const logCheckIn = this.buildDateTime(log.date, log.checkIn);
+                const logCheckOut = this.buildDateTime(log.date, log.checkOut);
+                if (!logCheckIn || !logCheckOut) return false;
+                if (logCheckOut.getTime() < logCheckIn.getTime()) return false;
+
+                const logCheckInAnchor = new Date(logCheckIn);
+                logCheckInAnchor.setSeconds(0, 0);
+                const sameSessionStart = Math.abs(logCheckInAnchor.getTime() - checkInAnchor.getTime()) <= toleranceMs;
+                if (!sameSessionStart) return false;
+
+                const checkOutTime = logCheckOut.getTime();
+                return checkOutTime >= sessionStart.getTime() && checkOutTime <= maxEnd;
+            });
+        } catch (error) {
+            console.warn('Failed to verify prior checkout record before auto-closing session:', error);
+            return false;
+        }
+    }
+
     buildDateTime(dateStr, timeStr) {
         if (!dateStr || !timeStr) return null;
-        const iso = `${dateStr}T${timeStr}:00`;
-        const dt = new Date(iso);
-        return Number.isNaN(dt.getTime()) ? null : dt;
+
+        const dateValue = String(dateStr).trim();
+        const timeValue = String(timeStr).trim();
+        const dateOnly = new Date(`${dateValue}T00:00:00`);
+        if (Number.isNaN(dateOnly.getTime())) return null;
+
+        const time24 = timeValue.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+        if (time24) {
+            const hours = Number(time24[1]);
+            const minutes = Number(time24[2]);
+            const seconds = Number(time24[3] || 0);
+            if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59 || seconds < 0 || seconds > 59) return null;
+            dateOnly.setHours(hours, minutes, seconds, 0);
+            return dateOnly;
+        }
+
+        const time12 = timeValue.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AP]M)$/i);
+        if (time12) {
+            let hours = Number(time12[1]);
+            const minutes = Number(time12[2]);
+            const seconds = Number(time12[3] || 0);
+            const meridiem = String(time12[4] || '').toUpperCase();
+            if (hours < 1 || hours > 12 || minutes < 0 || minutes > 59 || seconds < 0 || seconds > 59) return null;
+            if (hours === 12) hours = 0;
+            if (meridiem === 'PM') hours += 12;
+            dateOnly.setHours(hours, minutes, seconds, 0);
+            return dateOnly;
+        }
+
+        const fallback = new Date(`${dateValue}T${timeValue}`);
+        return Number.isNaN(fallback.getTime()) ? null : fallback;
     }
 
     normalizeType(rawType) {

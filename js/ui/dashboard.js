@@ -295,7 +295,7 @@ export function renderActivityList(allLogs, startStr, endStr, targetStaffId, col
             statusBadge = `
                 <div class="dashboard-activity-status-row">
                     ${renderTaskStatusBadge(status)}
-                    ${isAdminUser || log._isMinute ? `<div class="dashboard-activity-edit-wrap"><button onclick="${log._isMinute ? `window.app_openMinuteDetails('${log._meetingId}')` : `window.app_openDayPlan('${log.date}', '${targetStaffId}')`}" class="dashboard-activity-edit-btn" title="View/Edit"><i class="fa-solid fa-${log._isMinute ? 'eye' : 'pen-to-square'}"></i></button></div>` : ''}
+                    ${isAdminUser || log._isMinute ? `<div class="dashboard-activity-edit-wrap"><button onclick="${log._isMinute ? `(window.app_openMinuteDetails ? window.app_openMinuteDetails('${log._meetingId}') : (window.location.hash = 'minutes'))` : `window.app_openDayPlan('${log.date}', '${targetStaffId}')`}" class="dashboard-activity-edit-btn" title="View/Edit"><i class="fa-solid fa-${log._isMinute ? 'eye' : 'pen-to-square'}"></i></button></div>` : ''}
                 </div>`;
         }
         html += `<div class="dashboard-activity-item ${collabClass}" style="border-left-color:${borderColor};"><div class="dashboard-activity-desc">${safeHtml(log._displayDesc)}</div>${progressMeta}${statusBadge}<div class="dashboard-activity-meta">${safeHtml(log.checkOut || (log.status === 'completed' ? 'Completed' : 'Planned Activity'))}</div></div>`;
@@ -747,12 +747,22 @@ export function renderNotificationPanel(_notifications, _history) {
 }
 
 export function renderTaggedItems(notifications) {
-    const tagged = (notifications || []).filter(n => {
+    const taggedRaw = (notifications || []).filter(n => {
         if (!(n.type === 'tag' || n.type === 'task' || n.type === 'mention')) return false;
         if (n.dismissedAt || n.read) return false;
         const status = String(n.status || 'pending').toLowerCase();
         return status === 'pending';
     });
+    const seen = new Set();
+    const tagged = [...taggedRaw].reverse().filter((n) => {
+        const hasPlanRef = n && n.planId && Number.isFinite(Number(n.taskIndex));
+        const key = hasPlanRef
+            ? `plan:${String(n.planId)}:${Number(n.taskIndex)}:${String(n.taggedById || '')}:${String(n.type || '')}`
+            : `generic:${String(n.id || '')}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    }).reverse();
     if (tagged.length === 0) return '';
     return `
         <div class="card full-width dashboard-tagged-card">

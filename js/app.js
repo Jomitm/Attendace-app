@@ -4454,9 +4454,14 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
                         if (p.tags && p.tags.some(t => t.id === uid)) {
                             const scopeKey = p.planScope === 'annual' ? 'annual' : 'personal';
                             const scopedPlanId = planIdsByScope[scopeKey] || window.AppCalendar.getWorkPlanId(date, targetId, scopeKey);
-                            const alreadyNotified = targetUser.notifications.some(n =>
-                                n.type === 'mention' && n.planId === scopedPlanId && n.taskIndex === idx
-                            );
+                            const alreadyNotified = targetUser.notifications.some((n) => {
+                                const notifType = String(n?.type || '').toLowerCase();
+                                const isTagNotification = notifType === 'tag' || notifType === 'mention';
+                                return isTagNotification
+                                    && String(n.planId || '') === String(scopedPlanId || '')
+                                    && Number(n.taskIndex) === Number(idx)
+                                    && String(n.taggedById || '') === String(currentUser.id || '');
+                            });
                             if (!alreadyNotified) {
                                 targetUser.notifications.push({
                                     id: `tag_${Date.now()}_${uid}_${idx}`,
@@ -5917,6 +5922,9 @@ window.app_refreshDashboard = refreshDashboardAfterAttendance;
 document.addEventListener('submit', (e) => {
     // Force prevent default for ALL forms in this app to prevent query param reloads
     e.preventDefault();
+
+    // Day-plan modal form is handled by its own module-level submit listener.
+    if (e.target?.classList?.contains('day-plan-form')) return;
 
     // Use getAttribute('id') because elements with name="id" shadow the form.id property!
     const id = String(e.target.getAttribute('id') || '');

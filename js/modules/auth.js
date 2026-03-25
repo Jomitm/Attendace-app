@@ -70,7 +70,36 @@ export class Auth {
         return false;
     }
 
-    logout() {
+    async logout() {
+        // Safety net: if user signs out while still checked in, save a checkout first
+        // so the next login does not auto-close the previous day as missed checkout.
+        if (this.currentUser?.status === 'in' && window.AppAttendance?.checkOut) {
+            try {
+                const result = await window.AppAttendance.checkOut(
+                    'System checkout on sign out',
+                    null,
+                    null,
+                    'System checkout on sign out',
+                    false,
+                    '',
+                    {
+                        autoCheckout: true,
+                        autoCheckoutReason: 'sign_out'
+                    }
+                );
+
+                if (result && result.conflict) {
+                    // State already changed elsewhere; allow sign out to continue.
+                    console.warn('Logout checkout conflict:', result.message || 'state already updated');
+                }
+            } catch (err) {
+                const shouldContinue = typeof window.confirm === 'function'
+                    ? window.confirm('Unable to save checkout during sign out. Continue sign out anyway?')
+                    : false;
+                if (!shouldContinue) return;
+            }
+        }
+
         this.stopHeartbeat();
         this.stopCurrentUserSync();
         this.currentUser = null;
