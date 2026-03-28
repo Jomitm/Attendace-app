@@ -10,8 +10,12 @@ const SEARCH_DEBOUNCE_MS = 250;
 
 function getDefaultRange() {
     const end = new Date();
-    const start = new Date();
-    start.setDate(end.getDate() - 30);
+    const start = new Date(end);
+    // Default to current week (Monday to today) for IST locale.
+    const day = start.getDay(); // 0=Sun, 1=Mon, ...
+    const diffToMonday = (day + 6) % 7;
+    start.setDate(start.getDate() - diffToMonday);
+    start.setHours(0, 0, 0, 0);
     return {
         startIso: start.toISOString().split('T')[0],
         endIso: end.toISOString().split('T')[0]
@@ -24,6 +28,7 @@ function getTeamActivitiesState() {
         window.app_teamActivitiesState = {
             startIso: range.startIso,
             endIso: range.endIso,
+            weeksLoaded: 1,
             staffIds: [],
             status: 'all',
             type: 'all',
@@ -325,6 +330,7 @@ function renderTable(state) {
         const statusClass = String(row.status || '').toLowerCase().replace(/\s+/g, '-');
         const isOwner = currentUserId && row.userId && currentUserId === row.userId;
         const canRemove = row.type === 'work' && row.planId && Number.isInteger(row.taskIndex) && (isOwner || canAdminDelete);
+        const canComplete = row.type === 'work' && isIncompleteStatus(row.status) && row.planId && Number.isInteger(row.taskIndex) && (isOwner || canAdminDelete);
         const rowKey = `${row.planId || ''}__${Number.isInteger(row.taskIndex) ? row.taskIndex : ''}`;
         if (canRemove) selectableRows.push(rowKey);
         const hasProgress = row.type === 'work' && (row.progressPercent !== null || row.progressStatus || row.progressNote);
@@ -358,7 +364,9 @@ function renderTable(state) {
                         <button class="team-activities-row-btn warn" data-action="postpone" data-plan-id="${safeHtml(row.planId)}" data-task-index="${row.taskIndex}" data-plan-scope="${safeHtml(row.planScope)}" data-user-id="${safeHtml(row.userId)}" data-date="${safeHtml(row.date)}">
                             <i class="fa-solid fa-clock"></i> Postpone
                         </button>
-                        <button class="team-activities-row-btn success" data-action="complete" data-plan-id="${safeHtml(row.planId)}" data-task-index="${row.taskIndex}" data-user-id="${safeHtml(row.userId)}">
+                    ` : ''}
+                    ${canComplete ? `
+                        <button class="team-activities-row-btn success" data-action="complete" data-plan-id="${safeHtml(row.planId)}" data-task-index="${row.taskIndex}" data-user-id="${safeHtml(row.userId)}" onclick="window.app_teamActivitiesCompleteTask(this)">
                             <i class="fa-solid fa-check"></i> Complete
                         </button>
                     ` : ''}
@@ -387,26 +395,34 @@ function renderTable(state) {
         ? `<th class="team-activities-select-col"><input type="checkbox" data-select-visible ${selectableRows.length ? '' : 'disabled'} ${allVisibleSelected ? 'checked' : ''}></th>`
         : '<th class="team-activities-select-col"></th>';
 
-    const filterRow = `
-        <tr class="team-activities-filter-row">
-            ${canAdminDelete ? '<td></td>' : '<td></td>'}
-            <td><input type="date" id="team-activities-filter-date" value="${safeHtml(state.columnFilters.date || '')}"></td>
-            <td><input type="text" id="team-activities-filter-staff" placeholder="Filter staff" value="${safeHtml(state.columnFilters.staff || '')}"></td>
-            ${vis.type ? `<td><input type="text" id="team-activities-filter-type" placeholder="Filter type" value="${safeHtml(state.columnFilters.type || '')}"></td>` : ''}
-            ${vis.status ? `<td><input type="text" id="team-activities-filter-status" placeholder="Filter status" value="${safeHtml(state.columnFilters.status || '')}"></td>` : ''}
-            <td><input type="text" id="team-activities-filter-desc" placeholder="Filter description" value="${safeHtml(state.columnFilters.description || '')}"></td>
-            ${vis.sourceTime ? `<td><input type="text" id="team-activities-filter-time" placeholder="HH:MM" value="${safeHtml(state.columnFilters.time || '')}"></td>` : ''}
-            <td></td>
-        </tr>
-    `;
+    const filterRow = '';
 
     return `
         ${bulkBar}
         <table class="team-activities-table">
             <thead><tr>${selectHead}${headCols}</tr></thead>
-            <tbody>${filterRow}${body}</tbody>
+            <tbody>${body}</tbody>
         </table>
     `;
+}
+
+function showInlineActionToast(anchorEl, message) {
+    if (!anchorEl) return;
+    const row = anchorEl.closest('tr');
+    const actions = row ? row.querySelector('.team-activities-row-actions') : null;
+    if (!actions) return;
+    let toast = actions.querySelector('.team-activities-inline-toast');
+    if (!toast) {
+        toast = document.createElement('span');
+        toast.className = 'team-activities-inline-toast';
+        actions.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.classList.add('show');
+    clearTimeout(toast._hideTimer);
+    toast._hideTimer = setTimeout(() => {
+        toast.classList.remove('show');
+    }, 2000);
 }
 
 function renderPagination(state) {
@@ -454,6 +470,14 @@ function updateUI() {
     }
 }
 
+function extendRangeByWeeks(state, weeks = 1) {
+    if (!state) return;
+    const start = new Date(`${state.startIso}T00:00:00`);
+    if (Number.isNaN(start.getTime())) return;
+    start.setDate(start.getDate() - (7 * Math.max(1, Number(weeks) || 1)));
+    state.startIso = start.toISOString().split('T')[0];
+}
+
 async function refreshData() {
     const state = getTeamActivitiesState();
     const loading = document.getElementById('team-activities-loading');
@@ -464,7 +488,8 @@ async function refreshData() {
             mode: 'range',
             startIso: state.startIso,
             endIso: state.endIso,
-            scope: 'all'
+            scope: 'work',
+            sideEffects: false
         });
         state.data = normalizeActivityRows(rows);
         state.lastRefreshed = Date.now();
@@ -590,11 +615,20 @@ function bindEvents() {
         if (bulkRemoveBtn && window.app_teamActivitiesBulkRemove) {
             await window.app_teamActivitiesBulkRemove();
         }
+
+        const loadMore = target.closest('[data-load-more-week]');
+        if (loadMore) {
+            extendRangeByWeeks(state, 1);
+            state.weeksLoaded = Math.max(1, Number(state.weeksLoaded || 1) + 1);
+            updateUI();
+            await refreshData();
+        }
     });
 
     document.addEventListener('change', (event) => {
         const target = event.target;
         if (target.matches('#team-activities-start, #team-activities-end')) {
+            state.weeksLoaded = 1;
             updateStateFromFilters();
             refreshData();
         } else if (target.matches('#team-activities-type, #team-activities-status, #team-activities-page-size')) {
@@ -690,6 +724,18 @@ if (typeof window !== 'undefined') {
         const state = getTeamActivitiesState();
         const users = await window.AppAnalytics.getUsersCached();
         state.users = users || [];
+        try {
+            const purgeKey = 'purge_carried_2026-03-25';
+            if (localStorage.getItem(purgeKey) !== '1' && window.AppCalendar?.purgeCarriedForwardTasksByDate) {
+                const purgeRes = await window.AppCalendar.purgeCarriedForwardTasksByDate('2026-03-25', { scopes: ['personal', 'annual'] });
+                if ((purgeRes?.removedTasks || 0) > 0) {
+                    console.log(`Purged ${purgeRes.removedTasks} carried-forward task(s) on 2026-03-25.`);
+                }
+                localStorage.setItem(purgeKey, '1');
+            }
+        } catch (err) {
+            console.warn('Purge 2026-03-25 failed:', err);
+        }
         bindEvents();
         updateUI();
         await refreshData();
@@ -705,6 +751,7 @@ if (typeof window !== 'undefined') {
         const range = getDefaultRange();
         state.startIso = range.startIso;
         state.endIso = range.endIso;
+        state.weeksLoaded = 1;
         state.staffIds = [];
         state.status = 'all';
         state.type = 'all';
@@ -756,18 +803,31 @@ if (typeof window !== 'undefined') {
 
     window.app_teamActivitiesCompleteTask = async function (btn) {
         try {
-            const currentUserId = window.AppAuth?.getUser ? window.AppAuth.getUser()?.id : null;
+            const currentUser = window.AppAuth?.getUser ? window.AppAuth.getUser() : null;
+            const currentUserId = currentUser?.id || null;
+            const isAdmin = !!(currentUser && (currentUser.role === 'Administrator' || currentUser.isAdmin));
             const planId = btn.getAttribute('data-plan-id');
             const taskIndex = Number(btn.getAttribute('data-task-index'));
             const ownerId = btn.getAttribute('data-user-id') || '';
-            if (!currentUserId || currentUserId !== ownerId) {
-                alert('Only the assigned staff member can complete this task.');
+            if (!isAdmin && (!currentUserId || currentUserId !== ownerId)) {
+                alert('Only the assigned staff member or an admin can complete this task.');
                 return;
             }
             if (!planId || !Number.isInteger(taskIndex) || !window.AppCalendar?.updateTaskStatus) return;
             btn.disabled = true;
             await window.AppCalendar.updateTaskStatus(planId, taskIndex, 'completed');
-            await refreshData();
+            const state = getTeamActivitiesState();
+            if (Array.isArray(state.data)) {
+                state.data = state.data.map((row) => {
+                    if (row.planId === planId && row.taskIndex === taskIndex) {
+                        return { ...row, status: 'completed' };
+                    }
+                    return row;
+                });
+                updateUI();
+            }
+            showInlineActionToast(btn, 'Marked completed');
+            setTimeout(() => refreshData(), 400);
             if (window.app_showSyncToast) {
                 window.app_showSyncToast('Task marked as completed.');
             }
@@ -931,16 +991,12 @@ export async function renderTeamActivitiesPage() {
                 <div class="team-activities-actions">
                     <button class="action-btn" onclick="window.app_teamActivitiesRefresh()"><i class="fa-solid fa-rotate"></i> Refresh</button>
                     <button class="action-btn secondary" onclick="window.app_teamActivitiesResetFilters()"><i class="fa-solid fa-filter-circle-xmark"></i> Reset</button>
-                    <button class="action-btn secondary" onclick="window.app_teamActivitiesCopyCSV()"><i class="fa-solid fa-copy"></i> Copy</button>
-                    <button class="action-btn secondary" onclick="window.app_teamActivitiesExportXLSX()"><i class="fa-solid fa-file-excel"></i> Export Excel</button>
-                    <div class="team-activities-columns">
-                        <button class="action-btn secondary" data-team-activities-columns-toggle><i class="fa-solid fa-table-columns"></i> Columns</button>
-                        <div id="team-activities-columns-wrap">${renderColumnsPanel(state)}</div>
-                    </div>
+                    <button class="action-btn secondary" onclick="window.app_findCarryForwardIssues && window.app_findCarryForwardIssues()"><i class="fa-solid fa-triangle-exclamation"></i> Find Auto-Forward Issues</button>
+                    <button class="action-btn danger" onclick="window.app_openForwardCleanupModal && window.app_openForwardCleanupModal()"><i class="fa-solid fa-broom"></i> Forward Cleanup</button>
                 </div>
             </div>
             <div class="team-activities-summary" id="team-activities-summary">${renderSummary(state)}</div>
-            <div class="team-activities-filters">
+            <div class="team-activities-filters compact" aria-label="Activity filters">
                 <div class="team-activities-filter-group">
                     <label>Date range</label>
                     <div class="team-activities-date-range">
@@ -949,44 +1005,17 @@ export async function renderTeamActivitiesPage() {
                         <input type="date" id="team-activities-end" value="${state.endIso}">
                     </div>
                 </div>
-                <div class="team-activities-filter-group" id="team-activities-staff-wrap">
-                    ${renderStaffFilter(state)}
-                </div>
-                <div class="team-activities-filter-group">
-                    <label>Type</label>
-                    <select id="team-activities-type">
-                        <option value="all" ${state.type === 'all' ? 'selected' : ''}>All</option>
-                        <option value="attendance" ${state.type === 'attendance' ? 'selected' : ''}>Attendance</option>
-                        <option value="work" ${state.type === 'work' ? 'selected' : ''}>Work Plan</option>
-                    </select>
-                </div>
-                <div class="team-activities-filter-group">
-                    <label>Status</label>
-                    <select id="team-activities-status">
-                        <option value="all" ${state.status === 'all' ? 'selected' : ''}>All</option>
-                        <option value="completed" ${state.status === 'completed' ? 'selected' : ''}>Completed</option>
-                        <option value="in-process" ${state.status === 'in-process' ? 'selected' : ''}>In Process</option>
-                        <option value="overdue" ${state.status === 'overdue' ? 'selected' : ''}>Overdue</option>
-                        <option value="not-completed" ${state.status === 'not-completed' ? 'selected' : ''}>Not Completed</option>
-                        <option value="to-be-started" ${state.status === 'to-be-started' ? 'selected' : ''}>To Be Started</option>
-                    </select>
-                </div>
                 <div class="team-activities-filter-group">
                     <label>Search</label>
                     <input type="text" id="team-activities-search" placeholder="Search by staff, description, date...">
-                </div>
-                <div class="team-activities-filter-group">
-                    <label>Page size</label>
-                    <select id="team-activities-page-size">
-                        <option value="25" ${state.pageSize === 25 ? 'selected' : ''}>25</option>
-                        <option value="50" ${state.pageSize === 50 ? 'selected' : ''}>50</option>
-                        <option value="100" ${state.pageSize === 100 ? 'selected' : ''}>100</option>
-                    </select>
                 </div>
             </div>
             <div id="team-activities-loading" class="team-activities-loading">Loading data...</div>
             <div class="team-activities-table-wrap" id="team-activities-table-wrap"></div>
             <div id="team-activities-pagination-wrap"></div>
+            <div class="team-activities-load-more">
+                <button class="action-btn secondary" data-load-more-week>Load 1 more week</button>
+            </div>
         </div>
     `;
 }

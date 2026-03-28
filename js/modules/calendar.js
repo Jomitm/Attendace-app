@@ -56,7 +56,9 @@ export class Calendar {
             carriedForwardFromDate: sourcePlan.date || task.startDate || '',
             carriedForwardFromPlanId: sourcePlan.id || task.carriedForwardFromPlanId || null,
             autoForwardedAt: new Date().toISOString(),
-            isAutoForwarded: true
+            isAutoForwarded: true,
+            carryForwardPolicy: 'next_day_only',
+            carryForwardReason: sourcePlan.carryForwardReason || task.carryForwardReason || ''
         };
         if (this.normalizeTaskStatus(cloned.status) !== 'in-process') {
             cloned.status = '';
@@ -90,6 +92,80 @@ export class Calendar {
         return dates;
     }
 
+    getPreviousDateKey(dateStr) {
+        const date = new Date(`${String(dateStr || '').trim()}T00:00:00`);
+        if (Number.isNaN(date.getTime())) return '';
+        date.setDate(date.getDate() - 1);
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    }
+
+    isImmediateNextDay(fromDate, toDate) {
+        const safeFromDate = String(fromDate || '').trim();
+        const safeToDate = String(toDate || '').trim();
+        if (!safeFromDate || !safeToDate) return false;
+        return this.getPreviousDateKey(safeToDate) === safeFromDate;
+    }
+
+    async getCarryForwardExceptionReason(userId, date) {
+        const safeUserId = String(userId || '').trim();
+        const safeDate = String(date || '').trim();
+        if (!safeUserId || !safeDate) return '';
+
+        if (!this._carryForwardExceptionCache) this._carryForwardExceptionCache = new Map();
+        const cacheKey = `${safeUserId}::${safeDate}`;
+        if (this._carryForwardExceptionCache.has(cacheKey)) {
+            return this._carryForwardExceptionCache.get(cacheKey);
+        }
+
+        let reason = '';
+
+        const attendanceRaw = this.db.queryMany
+            ? await this.db.queryMany('attendance', [
+                { field: 'date', operator: '==', value: safeDate }
+            ]).catch(() => this.db.getAll('attendance'))
+            : await this.db.getAll('attendance');
+        const dayAttendance = (attendanceRaw || []).filter((row) => {
+            const rowUserId = String(row?.user_id || row?.userId || '').trim();
+            return row && rowUserId === safeUserId && String(row.date || '') === safeDate;
+        });
+        if (dayAttendance.some((row) => String(row.autoCheckoutReason || '').trim() === 'missed_checkout_next_login')) {
+            reason = 'missed_checkout';
+        }
+
+        if (!reason) {
+            const leavesRaw = this.db.queryMany
+                ? await this.db.queryMany('leaves', [
+                    { field: 'status', operator: '==', value: 'Approved' }
+                ]).catch(() => this.db.getAll('leaves'))
+                : await this.db.getAll('leaves');
+            const hasApprovedLeave = (leavesRaw || []).some((leave) => {
+                if (!leave) return false;
+                const leaveUserId = String(leave.userId || leave.user_id || '').trim();
+                if (leaveUserId !== safeUserId) return false;
+                if (String(leave.status || '') !== 'Approved') return false;
+                const start = String(leave.startDate || '').trim();
+                const end = String(leave.endDate || '').trim();
+                if (!start || !end) return false;
+                return start <= safeDate && safeDate <= end;
+            });
+            if (hasApprovedLeave) reason = 'leave_day';
+        }
+
+        this._carryForwardExceptionCache.set(cacheKey, reason);
+        return reason;
+    }
+
+    async isCarryForwardExceptionDay(userId, date) {
+        return !!(await this.getCarryForwardExceptionReason(userId, date));
+    }
+
+    async isEligibleNextDayCarryTask(task = {}, fromDate, toDate, userId) {
+        if (!task || task.isRemoved === true) return false;
+        if (!this.isImmediateNextDay(fromDate, toDate)) return false;
+        if (this.isTaskClosed(task, fromDate)) return false;
+        return this.isCarryForwardExceptionDay(userId, fromDate);
+    }
+
     async ensureCarryForwardForRange(startDate, endDate, options = {}) {
         const safeEndDate = String(endDate || '').trim();
         if (!safeEndDate) return { created: 0, updatedPlans: [] };
@@ -101,6 +177,8 @@ export class Calendar {
         const targetUserIds = Array.isArray(options.userIds)
             ? options.userIds.map(v => String(v || '').trim()).filter(Boolean)
             : null;
+        this._carryForwardExceptionCache = new Map();
+
         const allPlans = (await this.getAllWorkPlansUntil(effectiveEndDate))
             .filter(plan => !!plan && !!plan.date && plan.date <= effectiveEndDate);
 
@@ -117,14 +195,11 @@ export class Calendar {
 
         allPlans.forEach((plan) => {
             const scope = this.normalizePlanScope(plan.planScope);
-            if (scope === 'personal') {
-                const ownerKey = String(plan.userId || '').trim();
-                if (!ownerKey || ownerKey === 'annual_shared') return;
-                if (targetUserIds && !targetUserIds.includes(ownerKey)) return;
-                upsertGroupPlan(plan, 'personal', ownerKey);
-                return;
-            }
-            upsertGroupPlan(plan, 'annual', 'annual_shared');
+            if (scope !== 'personal') return;
+            const ownerKey = String(plan.userId || '').trim();
+            if (!ownerKey || ownerKey === 'annual_shared') return;
+            if (targetUserIds && !targetUserIds.includes(ownerKey)) return;
+            upsertGroupPlan(plan, 'personal', ownerKey);
         });
 
         const updatedPlans = [];
@@ -132,21 +207,6 @@ export class Calendar {
         for (const [groupKey, plansByDate] of groups.entries()) {
             const [scope, ownerKey] = groupKey.split('::');
             const dateKeys = this.buildDateRange(safeStartDate, effectiveEndDate);
-            const priorDates = Array.from(plansByDate.keys()).filter(date => date < safeStartDate).sort();
-            const rootsState = new Map();
-
-            priorDates.forEach((dateKey) => {
-                const existingPlan = plansByDate.get(dateKey);
-                if (!existingPlan) return;
-                (Array.isArray(existingPlan.plans) ? existingPlan.plans : []).forEach((task, idx) => {
-                    const rootId = this.getTaskRootId(task, existingPlan.id, idx);
-                    if (this.isTaskClosed(task, existingPlan.date)) {
-                        rootsState.delete(rootId);
-                        return;
-                    }
-                    rootsState.set(rootId, { task, plan: existingPlan, index: idx });
-                });
-            });
 
             for (const dateKey of dateKeys) {
                 let dayPlan = plansByDate.get(dateKey) || null;
@@ -158,24 +218,35 @@ export class Calendar {
                 });
 
                 const carryTasks = [];
-                rootsState.forEach(({ task, plan, index }, rootId) => {
-                    if (rootsInCurrentPlan.has(rootId)) return;
-                    carryTasks.push(this.cloneTaskForDate(task, dateKey, rootId, {
-                        id: plan.id,
-                        date: plan.date,
-                        sourceTaskIndex: index
-                    }));
-                });
+                const previousDate = this.getPreviousDateKey(dateKey);
+                const previousPlan = previousDate ? plansByDate.get(previousDate) : null;
+                const carryReason = previousDate
+                    ? await this.getCarryForwardExceptionReason(ownerKey, previousDate)
+                    : '';
+                const previousTasks = previousPlan && Array.isArray(previousPlan.plans) ? previousPlan.plans : [];
+                if (carryReason && previousPlan && previousTasks.length > 0) {
+                    for (let idx = 0; idx < previousTasks.length; idx += 1) {
+                        const task = previousTasks[idx];
+                        if (!await this.isEligibleNextDayCarryTask(task, previousDate, dateKey, ownerKey)) continue;
+                        const rootId = this.getTaskRootId(task, previousPlan.id, idx);
+                        if (rootsInCurrentPlan.has(rootId)) continue;
+                        carryTasks.push(this.cloneTaskForDate(task, dateKey, rootId, {
+                            id: previousPlan.id,
+                            date: previousPlan.date,
+                            sourceTaskIndex: idx,
+                            carryForwardReason: carryReason
+                        }));
+                        rootsInCurrentPlan.add(rootId);
+                    }
+                }
 
                 if (carryTasks.length > 0) {
                     const firstCarrySource = carryTasks[0];
-                    const fallbackName = scope === 'annual'
-                        ? 'All Staff'
-                        : (firstCarrySource?.assignedToName || Array.from(rootsState.values())[0]?.plan?.userName || '');
+                    const fallbackName = firstCarrySource?.assignedToName || previousPlan?.userName || '';
                     if (!dayPlan) {
                         dayPlan = {
                             id: this.getWorkPlanId(dateKey, ownerKey, scope),
-                            userId: scope === 'annual' ? 'annual_shared' : ownerKey,
+                            userId: ownerKey,
                             userName: fallbackName,
                             date: dateKey,
                             plans: [],
@@ -188,17 +259,6 @@ export class Calendar {
                     plansByDate.set(dateKey, dayPlan);
                     updatedPlans.push(dayPlan.id);
                 }
-
-                const latestPlan = plansByDate.get(dateKey);
-                const latestTasks = latestPlan && Array.isArray(latestPlan.plans) ? latestPlan.plans : [];
-                latestTasks.forEach((task, idx) => {
-                    const rootId = this.getTaskRootId(task, latestPlan.id, idx);
-                    if (this.isTaskClosed(task, latestPlan.date)) {
-                        rootsState.delete(rootId);
-                        return;
-                    }
-                    rootsState.set(rootId, { task, plan: latestPlan, index: idx });
-                });
             }
         }
 
@@ -387,6 +447,14 @@ export class Calendar {
         return match ? match[1] : '';
     }
 
+    extractOwnerFromPlanToken(token = '') {
+        const raw = String(token || '').trim();
+        if (!raw) return '';
+        if (raw.startsWith('plan_annual_')) return 'annual_shared';
+        const match = raw.match(/^plan_([^_]+)_\d{4}-\d{2}-\d{2}/);
+        return match ? match[1] : '';
+    }
+
     resolveTaskOriginDate(task = {}) {
         const direct = String(task.carriedForwardFromDate || '').trim();
         if (/^\d{4}-\d{2}-\d{2}$/.test(direct)) return direct;
@@ -447,7 +515,62 @@ export class Calendar {
         );
     }
 
-    async cleanupOldCarryForwardTaggedTasks(userId, date, options = {}) {
+    async findCarryForwardIssues(options = {}) {
+        const includeAssignedMismatch = options.includeAssignedMismatch === true;
+        const plans = await this.db.getAll('work_plans');
+        const issues = [];
+
+        (plans || []).forEach((plan) => {
+            if (!plan || this.normalizePlanScope(plan.planScope) !== 'personal') return;
+            const planOwner = String(plan.userId || '').trim();
+            if (!planOwner || !Array.isArray(plan.plans) || plan.plans.length === 0) return;
+
+            plan.plans.forEach((task, idx) => {
+                if (!task || task.isRemoved === true) return;
+                if (!this.hasCarryForwardLineage(task)) return;
+
+                const rootToken = String(
+                    task.carryForwardRootId
+                    || task.carriedForwardFromPlanId
+                    || task.sourcePlanId
+                    || ''
+                ).trim();
+                const rootOwner = this.extractOwnerFromPlanToken(rootToken);
+                const assignedTo = String(task.assignedTo || '').trim();
+                const ownerMismatch = !!(rootOwner && planOwner && rootOwner !== planOwner);
+                const assignedMismatch = !!(assignedTo && planOwner && assignedTo !== planOwner);
+
+                if (!ownerMismatch && !(includeAssignedMismatch && assignedMismatch)) return;
+
+                issues.push({
+                    planId: plan.id || '',
+                    planDate: plan.date || '',
+                    planUserId: planOwner,
+                    planUserName: plan.userName || '',
+                    taskIndex: idx,
+                    taskText: task.task || '',
+                    originDate: this.resolveTaskOriginDate(task),
+                    rootToken,
+                    rootOwner,
+                    assignedTo,
+                    isAutoForwarded: task.isAutoForwarded === true,
+                    carryForwardReason: String(task.carryForwardReason || '').trim(),
+                    ownerMismatch,
+                    assignedMismatch
+                });
+            });
+        });
+
+        issues.sort((a, b) => {
+            const dateDiff = String(b.planDate || '').localeCompare(String(a.planDate || ''));
+            if (dateDiff) return dateDiff;
+            return String(a.planUserName || '').localeCompare(String(b.planUserName || ''));
+        });
+
+        return issues;
+    }
+
+    async cleanupInvalidTodayCarryForward(userId, date, options = {}) {
         const targetUserId = String(userId || '').trim();
         const targetDate = String(date || '').trim();
         if (!targetUserId || !targetDate) {
@@ -460,78 +583,62 @@ export class Calendar {
             return { ok: true, removed: 0, reason: 'not_today' };
         }
 
+        const previousDate = this.getPreviousDateKey(targetDate);
         const personalPlan = await this.getWorkPlan(targetUserId, targetDate, { planScope: 'personal' });
         if (!personalPlan || !Array.isArray(personalPlan.plans) || personalPlan.plans.length === 0) {
             return { ok: true, removed: 0, reason: 'no_plan' };
         }
 
-        const priorPlansRaw = this.db.queryMany
-            ? await this.db.queryMany('work_plans', [
-                { field: 'userId', operator: '==', value: targetUserId },
-                { field: 'date', operator: '<', value: targetDate }
-            ]).catch(() => this.db.getAll('work_plans'))
-            : await this.db.getAll('work_plans');
-        const priorPlans = (priorPlansRaw || []).filter((p) =>
-            p
-            && String(p.userId || '') === targetUserId
-            && String(p.date || '') < targetDate
-            && this.normalizePlanScope(p.planScope) === 'personal'
-            && Array.isArray(p.plans)
-        );
-        const priorTaskSet = new Set();
-        priorPlans.forEach((p) => {
-            (p.plans || []).forEach((t) => {
-                if (!t || t.isRemoved === true) return;
-                const normalized = this.normalizeTaskForStaleCompare(t.task || '');
-                if (normalized) priorTaskSet.add(normalized);
-            });
-        });
-
         const kept = [];
-        const removedTasks = [];
-
+        let removed = 0;
         for (const task of personalPlan.plans) {
             if (!task || task.isRemoved === true) {
                 kept.push(task);
                 continue;
             }
-
-            const isCopyOrigin = this.isTaggedCopyOriginTask(task);
-            if (!isCopyOrigin) {
+            if (this.isTaskClosed(task, targetDate)) {
                 kept.push(task);
                 continue;
             }
 
+            const hasLineage = this.hasCarryForwardLineage(task);
             const originDate = this.resolveTaskOriginDate(task);
-            const isOlderOrigin = !!originDate && originDate < targetDate;
-            const legacyStaleWithoutOrigin = this.hasLegacyTaggedTextPattern(task);
-            const normalizedCurrent = this.normalizeTaskForStaleCompare(task.task || '');
-            const legacyOldByHistory = this.hasResponsibleMarker(task) && !!normalizedCurrent && priorTaskSet.has(normalizedCurrent);
-            if (!isOlderOrigin && !legacyStaleWithoutOrigin && !legacyOldByHistory) {
-                kept.push(task);
-                continue;
+            let invalid = false;
+
+            if (originDate && originDate < previousDate) {
+                invalid = true;
+            } else if (hasLineage) {
+                if (!originDate || originDate !== previousDate) {
+                    invalid = true;
+                } else {
+                    const eligible = await this.isEligibleNextDayCarryTask(task, originDate, targetDate, targetUserId);
+                    const reason = await this.getCarryForwardExceptionReason(targetUserId, originDate);
+                    const taskReason = String(task.carryForwardReason || '').trim();
+                    const policy = String(task.carryForwardPolicy || '').trim();
+                    if (!eligible) invalid = true;
+                    if (!invalid && policy && policy !== 'next_day_only') invalid = true;
+                    if (!invalid && reason && taskReason && taskReason !== reason) invalid = true;
+                }
             }
 
-            removedTasks.push(task);
+            if (invalid) {
+                removed += 1;
+                continue;
+            }
+            kept.push(task);
         }
 
-        if (removedTasks.length === 0) {
+        if (removed === 0) {
             return { ok: true, removed: 0, reason: 'no_matches' };
         }
 
         personalPlan.plans = kept;
         personalPlan.updatedAt = new Date().toISOString();
         await this.db.put('work_plans', personalPlan);
-
-        return {
-            ok: true,
-            removed: removedTasks.length,
-            planId: personalPlan.id,
-            date: targetDate
-        };
+        return { ok: true, removed, planId: personalPlan.id, date: targetDate };
     }
 
-    async cleanupOldCarryForwardTaggedTasksForDate(date, options = {}) {
+    async cleanupInvalidTodayCarryForwardForDate(date, options = {}) {
         const targetDate = String(date || '').trim();
         if (!targetDate) return { ok: false, removed: 0, scannedPlans: 0, reason: 'invalid_date' };
         const onlyToday = options.onlyToday !== false;
@@ -553,13 +660,21 @@ export class Calendar {
 
         let removed = 0;
         for (const plan of dayPlans) {
-            const userId = String(plan.userId || '').trim();
-            if (!userId) continue;
-            const result = await this.cleanupOldCarryForwardTaggedTasks(userId, targetDate, { onlyToday });
+            const uid = String(plan.userId || '').trim();
+            if (!uid) continue;
+            const result = await this.cleanupInvalidTodayCarryForward(uid, targetDate, { onlyToday });
             removed += Number(result?.removed || 0);
         }
-
         return { ok: true, removed, scannedPlans: dayPlans.length, date: targetDate };
+    }
+
+    // Backward-compatible wrappers for existing callers.
+    async cleanupOldCarryForwardTaggedTasks(userId, date, options = {}) {
+        return this.cleanupInvalidTodayCarryForward(userId, date, options);
+    }
+
+    async cleanupOldCarryForwardTaggedTasksForDate(date, options = {}) {
+        return this.cleanupInvalidTodayCarryForwardForDate(date, options);
     }
 
     /**
@@ -571,6 +686,172 @@ export class Calendar {
         const planScope = this.normalizePlanScope(options.planScope);
         const targetId = targetUserId || currentUser.id;
         return await this.db.delete('work_plans', this.getWorkPlanId(date, targetId, planScope));
+    }
+
+    async purgeWorkPlansByDate(date, options = {}) {
+        const targetDate = String(date || '').trim();
+        if (!targetDate) return { ok: false, removedPlans: 0, reason: 'invalid_date' };
+        const scopes = Array.isArray(options.scopes) && options.scopes.length
+            ? options.scopes.map(s => this.normalizePlanScope(s))
+            : ['personal', 'annual'];
+        const plans = this.db.queryMany
+            ? await this.db.queryMany('work_plans', [{ field: 'date', operator: '==', value: targetDate }]).catch(() => this.db.getAll('work_plans'))
+            : await this.db.getAll('work_plans');
+        const dayPlans = (plans || []).filter((p) =>
+            p
+            && String(p.date || '') === targetDate
+            && scopes.includes(this.normalizePlanScope(p.planScope))
+            && Array.isArray(p.plans)
+            && p.plans.length > 0
+        );
+
+        for (const plan of dayPlans) {
+            plan.plans = [];
+            plan.updatedAt = new Date().toISOString();
+            await this.db.put('work_plans', plan);
+        }
+
+        return { ok: true, removedPlans: dayPlans.length, date: targetDate };
+    }
+
+    async purgeCarriedForwardTasksByDate(date, options = {}) {
+        const targetDate = String(date || '').trim();
+        if (!targetDate) return { ok: false, removedTasks: 0, touchedPlans: 0, reason: 'invalid_date' };
+        const scopes = Array.isArray(options.scopes) && options.scopes.length
+            ? options.scopes.map(s => this.normalizePlanScope(s))
+            : ['personal', 'annual'];
+        const plans = this.db.queryMany
+            ? await this.db.queryMany('work_plans', [{ field: 'date', operator: '==', value: targetDate }]).catch(() => this.db.getAll('work_plans'))
+            : await this.db.getAll('work_plans');
+        const dayPlans = (plans || []).filter((p) =>
+            p
+            && String(p.date || '') === targetDate
+            && scopes.includes(this.normalizePlanScope(p.planScope))
+            && Array.isArray(p.plans)
+            && p.plans.length > 0
+        );
+
+        let removedTasks = 0;
+        let touchedPlans = 0;
+        for (const plan of dayPlans) {
+            const before = plan.plans.length;
+            plan.plans = plan.plans.filter((t) => !this.hasCarryForwardLineage(t));
+            const after = plan.plans.length;
+            if (after !== before) {
+                removedTasks += (before - after);
+                touchedPlans += 1;
+                plan.updatedAt = new Date().toISOString();
+                await this.db.put('work_plans', plan);
+            }
+        }
+
+        return { ok: true, removedTasks, touchedPlans, date: targetDate };
+    }
+
+    async purgeAllCarriedForwardTasksAllTime(options = {}) {
+        const scopes = Array.isArray(options.scopes) && options.scopes.length
+            ? options.scopes.map(s => this.normalizePlanScope(s))
+            : ['personal', 'annual'];
+        const plans = await this.db.getAll('work_plans');
+        const dayPlans = (plans || []).filter((p) =>
+            p
+            && scopes.includes(this.normalizePlanScope(p.planScope))
+            && Array.isArray(p.plans)
+            && p.plans.length > 0
+        );
+
+        let removedTasks = 0;
+        let touchedPlans = 0;
+        for (const plan of dayPlans) {
+            const before = plan.plans.length;
+            plan.plans = plan.plans.filter((t) => !this.hasCarryForwardLineage(t));
+            const after = plan.plans.length;
+            if (after !== before) {
+                removedTasks += (before - after);
+                touchedPlans += 1;
+                plan.updatedAt = new Date().toISOString();
+                await this.db.put('work_plans', plan);
+            }
+        }
+
+        return { ok: true, removedTasks, touchedPlans };
+    }
+
+    async purgeCarriedForwardTasksForUserAllTime(userId, options = {}) {
+        const targetUserId = String(userId || '').trim();
+        if (!targetUserId) return { ok: false, removedTasks: 0, touchedPlans: 0, reason: 'invalid_user' };
+        const scopes = Array.isArray(options.scopes) && options.scopes.length
+            ? options.scopes.map(s => this.normalizePlanScope(s))
+            : ['personal'];
+
+        const plans = this.db.queryMany
+            ? await this.db.queryMany('work_plans', [{ field: 'userId', operator: '==', value: targetUserId }]).catch(() => this.db.getAll('work_plans'))
+            : await this.db.getAll('work_plans');
+        const dayPlans = (plans || []).filter((p) =>
+            p
+            && String(p.userId || '').trim() === targetUserId
+            && scopes.includes(this.normalizePlanScope(p.planScope))
+            && Array.isArray(p.plans)
+            && p.plans.length > 0
+        );
+
+        let removedTasks = 0;
+        let touchedPlans = 0;
+        for (const plan of dayPlans) {
+            const before = plan.plans.length;
+            plan.plans = plan.plans.filter((t) => !this.hasCarryForwardLineage(t));
+            const after = plan.plans.length;
+            if (after !== before) {
+                removedTasks += (before - after);
+                touchedPlans += 1;
+                plan.updatedAt = new Date().toISOString();
+                await this.db.put('work_plans', plan);
+            }
+        }
+
+        return { ok: true, removedTasks, touchedPlans };
+    }
+
+    async getForwardCleanupItemsAllTime(options = {}) {
+        const includePersonal = options.includePersonal !== false;
+        const includeAnnual = options.includeAnnual === true;
+        const scopes = [];
+        if (includePersonal) scopes.push('personal');
+        if (includeAnnual) scopes.push('annual');
+
+        const plans = await this.db.getAll('work_plans');
+        const items = [];
+
+        (plans || []).forEach((plan) => {
+            if (!plan || !Array.isArray(plan.plans) || plan.plans.length === 0) return;
+            const scope = this.normalizePlanScope(plan.planScope);
+            if (!scopes.includes(scope)) return;
+            plan.plans.forEach((task, idx) => {
+                if (!task || task.isRemoved === true) return;
+
+                const addedFrom = String(task.addedFrom || '').toLowerCase().trim();
+                const isManualPostponed = addedFrom === 'postponed'
+                    || !!task.postponedFromDate
+                    || /postponed from/i.test(String(task.task || ''));
+                const isSystemForwarded = this.hasCarryForwardLineage(task) || task.isAutoForwarded === true;
+
+                if (!isManualPostponed && !isSystemForwarded) return;
+
+                const type = isSystemForwarded ? 'system' : 'manual';
+                items.push({
+                    type,
+                    planId: plan.id || '',
+                    planDate: plan.date || '',
+                    planUserId: plan.userId || '',
+                    planUserName: plan.userName || '',
+                    taskIndex: idx,
+                    taskText: task.task || ''
+                });
+            });
+        });
+
+        items.sort((a, b) => String(b.planDate || '').localeCompare(String(a.planDate || '')));
+        return items;
     }
 
     /**

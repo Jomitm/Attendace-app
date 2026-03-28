@@ -147,6 +147,7 @@ const clearReleaseUpdateState = (markSeen = false) => {
     releaseUpdateState.notes = '';
     releaseUpdateState.source = '';
     releaseUpdateState.popupDismissed = false;
+    releaseUpdateState.lastPopupReleaseId = '';
     if (markSeen && currentRelease) setStoredSeenReleaseId(currentRelease);
     broadcastReleaseUpdateState();
 };
@@ -190,7 +191,8 @@ const activateReleaseUpdatePrompt = (payload, options = {}) => {
     }
     broadcastReleaseUpdateState();
 
-    if (forcePopup || !releaseUpdateState.popupDismissed) {
+    const alreadyPopped = releaseUpdateState.lastPopupReleaseId === normalized.releaseId;
+    if (!alreadyPopped && (forcePopup || !releaseUpdateState.popupDismissed)) {
         releaseUpdateState.popupDismissed = false;
         window.app_showSystemUpdatePopup();
     }
@@ -431,6 +433,11 @@ function updateThemeIcons(theme) {
         }
     });
 }
+
+// Show last notification error if any (persisted across refresh)
+window.addEventListener('load', () => {
+    if (window.app_showLastNotifError) window.app_showLastNotifError();
+}, { once: true });
 
 function registerSW() {
     if (!('serviceWorker' in navigator)) return;
@@ -1207,6 +1214,379 @@ window.app_showModal = (html, id) => {
     }
 };
 
+window.app_renderCarryForwardIssues = function (sortKey = 'date-desc') {
+    const issues = Array.isArray(window.app_carryForwardIssues) ? window.app_carryForwardIssues : [];
+    const maxRows = 200;
+    const safeSortKey = String(sortKey || 'date-desc');
+
+    const sorted = [...issues].sort((a, b) => {
+        if (safeSortKey === 'date-asc') return String(a.planDate || '').localeCompare(String(b.planDate || ''));
+        if (safeSortKey === 'owner-asc') return String(a.planUserName || '').localeCompare(String(b.planUserName || '')) || String(b.planDate || '').localeCompare(String(a.planDate || ''));
+        if (safeSortKey === 'owner-desc') return String(b.planUserName || '').localeCompare(String(a.planUserName || '')) || String(b.planDate || '').localeCompare(String(a.planDate || ''));
+        if (safeSortKey === 'origin-asc') return String(a.originDate || '').localeCompare(String(b.originDate || ''));
+        if (safeSortKey === 'origin-desc') return String(b.originDate || '').localeCompare(String(a.originDate || ''));
+        return String(b.planDate || '').localeCompare(String(a.planDate || ''));
+    });
+
+    const rows = sorted.slice(0, maxRows).map((issue) => {
+        const flags = [
+            issue.ownerMismatch ? 'Owner mismatch' : '',
+            issue.assignedMismatch ? 'Assigned mismatch' : '',
+            issue.isAutoForwarded ? 'Auto-forwarded' : ''
+        ].filter(Boolean).join(', ') || '—';
+        return `
+            <tr>
+                <td style="padding:6px 8px; border-bottom:1px solid #e2e8f0;">${app_escapeHtml(issue.planDate || '')}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e2e8f0;">${app_escapeHtml(issue.planUserName || issue.planUserId || '')}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e2e8f0;">${app_escapeHtml(issue.taskText || '')}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e2e8f0;">${app_escapeHtml(issue.originDate || '')}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e2e8f0;">${app_escapeHtml(issue.rootToken || '')}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e2e8f0;">${app_escapeHtml(flags)}</td>
+            </tr>
+        `;
+    }).join('');
+
+    const summaryNote = issues.length > maxRows
+        ? `<div style="font-size:0.8rem; color:#94a3b8;">Showing first ${maxRows} of ${issues.length} items.</div>`
+        : `<div style="font-size:0.8rem; color:#94a3b8;">Total items: ${issues.length}.</div>`;
+
+    const html = `
+        <div class="modal-overlay" id="carryforward-issues-modal" style="display:flex;">
+            <div class="modal-content" style="max-width:960px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem;">
+                    <h3 style="margin:0;">Auto-Forward Issues</h3>
+                    <button type="button" onclick="window.app_closeModal(this)" class="day-plan-close-btn" title="Close">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <div style="font-size:0.85rem; color:#64748b; margin-bottom:0.6rem;">
+                    These are carry-forward tasks that look assigned to the wrong staff or plan owner.
+                </div>
+                <div style="display:flex; flex-wrap:wrap; gap:0.6rem; align-items:center; margin-bottom:0.6rem;">
+                    <label style="font-size:0.8rem; color:#64748b;">Sort by</label>
+                    <select id="carryforward-issues-sort" class="app-select" style="padding:6px 8px; border-radius:8px; border:1px solid #e2e8f0;">
+                        <option value="date-desc" ${safeSortKey === 'date-desc' ? 'selected' : ''}>Date (Newest)</option>
+                        <option value="date-asc" ${safeSortKey === 'date-asc' ? 'selected' : ''}>Date (Oldest)</option>
+                        <option value="owner-asc" ${safeSortKey === 'owner-asc' ? 'selected' : ''}>Owner (A-Z)</option>
+                        <option value="owner-desc" ${safeSortKey === 'owner-desc' ? 'selected' : ''}>Owner (Z-A)</option>
+                        <option value="origin-desc" ${safeSortKey === 'origin-desc' ? 'selected' : ''}>Origin (Newest)</option>
+                        <option value="origin-asc" ${safeSortKey === 'origin-asc' ? 'selected' : ''}>Origin (Oldest)</option>
+                    </select>
+                    <button type="button" class="action-btn danger" onclick="window.app_removeCarryForwardIssues && window.app_removeCarryForwardIssues()">
+                        <i class="fa-solid fa-trash"></i> Delete All Listed
+                    </button>
+                </div>
+                ${summaryNote}
+                <div style="margin-top:0.6rem; border:1px solid #e2e8f0; border-radius:10px; overflow:auto; max-height:60vh;">
+                    <table style="width:100%; border-collapse:collapse; font-size:0.82rem;">
+                        <thead style="background:#f8fafc; position:sticky; top:0;">
+                            <tr>
+                                <th style="text-align:left; padding:8px; border-bottom:1px solid #e2e8f0;">Date</th>
+                                <th style="text-align:left; padding:8px; border-bottom:1px solid #e2e8f0;">Plan Owner</th>
+                                <th style="text-align:left; padding:8px; border-bottom:1px solid #e2e8f0;">Task</th>
+                                <th style="text-align:left; padding:8px; border-bottom:1px solid #e2e8f0;">Origin Date</th>
+                                <th style="text-align:left; padding:8px; border-bottom:1px solid #e2e8f0;">Root Token</th>
+                                <th style="text-align:left; padding:8px; border-bottom:1px solid #e2e8f0;">Flags</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    `;
+    window.app_showModal(html, 'carryforward-issues-modal');
+
+    const sortSelect = document.getElementById('carryforward-issues-sort');
+    if (sortSelect) {
+        sortSelect.addEventListener('change', (e) => {
+            const value = e.target?.value || 'date-desc';
+            window.app_renderCarryForwardIssues(value);
+        }, { once: true });
+    }
+};
+
+window.app_removeCarryForwardIssues = async function () {
+    try {
+        const issues = Array.isArray(window.app_carryForwardIssues) ? window.app_carryForwardIssues : [];
+        if (!issues.length) {
+            alert('No items to remove.');
+            return;
+        }
+        const confirmText = `Remove ${issues.length} task(s) so they stop carrying forward?`;
+        const approved = window.appConfirm
+            ? await window.appConfirm(confirmText)
+            : window.confirm(confirmText);
+        if (!approved) return;
+        if (!window.AppCalendar?.removeTask) {
+            alert('Remove action is not available.');
+            return;
+        }
+        let removed = 0;
+        let skipped = 0;
+        let failed = 0;
+        const currentUser = window.AppAuth?.getUser ? window.AppAuth.getUser() : null;
+        for (const issue of issues) {
+            if (!issue.planId) {
+                skipped += 1;
+                continue;
+            }
+            try {
+                const plan = await window.AppDB.get('work_plans', issue.planId);
+                if (!plan || !Array.isArray(plan.plans) || plan.plans.length === 0) {
+                    skipped += 1;
+                    continue;
+                }
+                let targetIndex = -1;
+                const rootToken = String(issue.rootToken || '').trim();
+                if (rootToken) {
+                    targetIndex = plan.plans.findIndex(t =>
+                        t
+                        && (String(t.carryForwardRootId || '') === rootToken
+                            || String(t.carriedForwardFromPlanId || '') === rootToken
+                            || String(t.sourcePlanId || '') === rootToken)
+                    );
+                }
+                if (targetIndex < 0 && Number.isInteger(issue.taskIndex)) {
+                    targetIndex = issue.taskIndex;
+                }
+                if (targetIndex < 0 || !plan.plans[targetIndex]) {
+                    skipped += 1;
+                    continue;
+                }
+                plan.plans[targetIndex] = {
+                    ...plan.plans[targetIndex],
+                    status: 'not-completed',
+                    isRemoved: true,
+                    removedAt: new Date().toISOString(),
+                    removedBy: currentUser?.id || ''
+                };
+                plan.updatedAt = new Date().toISOString();
+                await window.AppDB.put('work_plans', plan);
+                removed += 1;
+            } catch (err) {
+                failed += 1;
+                console.warn('Carry-forward remove failed', { issue, err });
+            }
+        }
+        const summary = `Removed: ${removed}. Skipped: ${skipped}. Failed: ${failed}.`;
+        if (window.app_showSyncToast) {
+            window.app_showSyncToast(summary);
+        } else {
+            alert(summary);
+        }
+        const refreshed = window.AppCalendar?.findCarryForwardIssues
+            ? await window.AppCalendar.findCarryForwardIssues({ includeAssignedMismatch: true })
+            : [];
+        window.app_carryForwardIssues = refreshed;
+        if (!refreshed.length) {
+            window.app_renderCarryForwardIssues('date-desc');
+            return;
+        }
+        window.app_renderCarryForwardIssues('date-desc');
+    } catch (err) {
+        console.error('Bulk remove carry-forward issues failed:', err);
+        alert('Failed to remove carry-forward issues.');
+    }
+};
+
+window.app_findCarryForwardIssues = async function () {
+    try {
+        if (!window.AppCalendar?.findCarryForwardIssues) {
+            alert('Carry-forward scan is not available in this build.');
+            return;
+        }
+        const issues = await window.AppCalendar.findCarryForwardIssues({ includeAssignedMismatch: true });
+        if (!issues.length) {
+            alert('No auto-forwarded tasks assigned to other staff were found.');
+            return;
+        }
+        window.app_carryForwardIssues = issues;
+        window.app_renderCarryForwardIssues('date-desc');
+    } catch (err) {
+        console.error('Carry-forward scan failed:', err);
+        alert('Failed to scan carry-forward tasks. Please try again.');
+    }
+};
+
+window.app_purgeAllAutoForwardedTasks = async function () {
+    try {
+        if (!window.AppCalendar?.purgeAllCarriedForwardTasksAllTime) {
+            alert('Auto-forward purge is not available in this build.');
+            return;
+        }
+        const currentUser = window.AppAuth?.getUser ? window.AppAuth.getUser() : null;
+        const isAdmin = !!(currentUser && (currentUser.role === 'Administrator' || currentUser.isAdmin));
+        const confirmText = isAdmin
+            ? 'Delete ALL auto-forwarded tasks for ALL staff and ALL dates? This cannot be undone.'
+            : 'Delete ALL of YOUR auto-forwarded tasks for ALL dates? This cannot be undone.';
+        const approved = window.appConfirm
+            ? await window.appConfirm(confirmText)
+            : window.confirm(confirmText);
+        if (!approved) return;
+
+        const result = isAdmin
+            ? await window.AppCalendar.purgeAllCarriedForwardTasksAllTime({ scopes: ['personal', 'annual'] })
+            : await window.AppCalendar.purgeCarriedForwardTasksForUserAllTime(currentUser?.id, { scopes: ['personal'] });
+        const summary = `Removed ${result.removedTasks} auto-forwarded task(s) from ${result.touchedPlans} plan(s).`;
+        if (window.app_showSyncToast) {
+            window.app_showSyncToast(summary);
+        } else {
+            alert(summary);
+        }
+    } catch (err) {
+        console.error('Auto-forward purge failed:', err);
+        alert('Failed to delete auto-forwarded tasks.');
+    }
+};
+
+window.app_openForwardCleanupModal = async function () {
+    try {
+        if (!window.AppCalendar?.getForwardCleanupItemsAllTime) {
+            alert('Forward cleanup is not available in this build.');
+            return;
+        }
+        const items = await window.AppCalendar.getForwardCleanupItemsAllTime({ includePersonal: true, includeAnnual: true });
+        if (!items.length) {
+            alert('No forwarded tasks found.');
+            return;
+        }
+
+        const manual = items.filter(i => i.type === 'manual');
+        const system = items.filter(i => i.type === 'system');
+        window.app_forwardCleanupItems = items;
+
+        const renderRows = (rows) => rows.map((row) => `
+            <tr>
+                <td style="padding:6px 8px; border-bottom:1px solid #e2e8f0;">
+                    <input type="checkbox" class="forward-cleanup-row" data-key="${app_escapeHtml(`${row.planId}__${row.taskIndex}`)}">
+                </td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e2e8f0;">${app_escapeHtml(row.planDate || '')}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e2e8f0;">${app_escapeHtml(row.planUserName || row.planUserId || '')}</td>
+                <td style="padding:6px 8px; border-bottom:1px solid #e2e8f0;">${app_escapeHtml(row.taskText || '')}</td>
+            </tr>
+        `).join('');
+
+        const section = (title, rows, sectionKey) => `
+            <div style="margin-top:0.75rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
+                    <div style="font-weight:700; color:#0f172a;">${title} (${rows.length})</div>
+                    <div style="display:flex; gap:0.4rem;">
+                        <button type="button" class="action-btn secondary" data-forward-select-all="${sectionKey}">Select All</button>
+                        <button type="button" class="action-btn danger" data-forward-delete="${sectionKey}">Delete Selected</button>
+                    </div>
+                </div>
+                <div style="border:1px solid #e2e8f0; border-radius:10px; overflow:auto; max-height:40vh;">
+                    <table style="width:100%; border-collapse:collapse; font-size:0.82rem;">
+                        <thead style="background:#f8fafc; position:sticky; top:0;">
+                            <tr>
+                                <th style="text-align:left; padding:8px; border-bottom:1px solid #e2e8f0; width:36px;"></th>
+                                <th style="text-align:left; padding:8px; border-bottom:1px solid #e2e8f0;">Date</th>
+                                <th style="text-align:left; padding:8px; border-bottom:1px solid #e2e8f0;">Staff</th>
+                                <th style="text-align:left; padding:8px; border-bottom:1px solid #e2e8f0;">Task</th>
+                            </tr>
+                        </thead>
+                        <tbody>${renderRows(rows)}</tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+
+        const html = `
+            <div class="modal-overlay" id="forward-cleanup-modal" style="display:flex;">
+                <div class="modal-content" style="max-width:980px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem;">
+                        <h3 style="margin:0;">Forward Cleanup</h3>
+                        <button type="button" onclick="window.app_closeModal(this)" class="day-plan-close-btn" title="Close">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+                    <div style="font-size:0.85rem; color:#64748b;">
+                        Manual postponed tasks are created by user actions. System postponed tasks are auto-forwarded by the system.
+                    </div>
+                    ${section('Manual Postponed', manual, 'manual')}
+                    ${section('System Postponed', system, 'system')}
+                </div>
+            </div>
+        `;
+        window.app_showModal(html, 'forward-cleanup-modal');
+
+        const modal = document.getElementById('forward-cleanup-modal');
+        if (!modal) return;
+
+        const collectKeys = (sectionKey) => {
+            const rows = sectionKey === 'manual' ? manual : system;
+            const keys = new Set(rows.map(r => `${r.planId}__${r.taskIndex}`));
+            return keys;
+        };
+
+        const selectAll = (sectionKey) => {
+            const keys = collectKeys(sectionKey);
+            const boxes = Array.from(modal.querySelectorAll('.forward-cleanup-row'));
+            boxes.forEach((box) => {
+                const key = box.getAttribute('data-key');
+                if (keys.has(key)) box.checked = true;
+            });
+        };
+
+        const deleteSelected = async (sectionKey) => {
+            const keys = collectKeys(sectionKey);
+            const boxes = Array.from(modal.querySelectorAll('.forward-cleanup-row'))
+                .filter(b => b.checked && keys.has(b.getAttribute('data-key')));
+            if (!boxes.length) {
+                alert('Select at least one task.');
+                return;
+            }
+            const confirmText = `Delete ${boxes.length} selected task(s)? This cannot be undone.`;
+            const approved = window.appConfirm ? await window.appConfirm(confirmText) : window.confirm(confirmText);
+            if (!approved) return;
+
+            const currentUser = window.AppAuth?.getUser ? window.AppAuth.getUser() : null;
+            let removed = 0;
+            for (const box of boxes) {
+                const key = box.getAttribute('data-key') || '';
+                const [planId, idxRaw] = key.split('__');
+                const taskIndex = Number(idxRaw);
+                if (!planId || !Number.isInteger(taskIndex)) continue;
+                const plan = await window.AppDB.get('work_plans', planId);
+                if (!plan || !Array.isArray(plan.plans) || !plan.plans[taskIndex]) continue;
+                plan.plans[taskIndex] = {
+                    ...plan.plans[taskIndex],
+                    status: 'not-completed',
+                    isRemoved: true,
+                    removedAt: new Date().toISOString(),
+                    removedBy: currentUser?.id || ''
+                };
+                plan.updatedAt = new Date().toISOString();
+                await window.AppDB.put('work_plans', plan);
+                removed += 1;
+            }
+            if (window.app_showSyncToast) {
+                window.app_showSyncToast(`Removed ${removed} task(s).`);
+            } else {
+                alert(`Removed ${removed} task(s).`);
+            }
+            window.app_closeModal(modal.querySelector('.day-plan-close-btn'));
+            window.app_openForwardCleanupModal();
+        };
+
+        modal.addEventListener('click', (event) => {
+            const target = event.target;
+            const selectAllBtn = target.closest('[data-forward-select-all]');
+            const deleteBtn = target.closest('[data-forward-delete]');
+            if (selectAllBtn) {
+                selectAll(selectAllBtn.getAttribute('data-forward-select-all'));
+            }
+            if (deleteBtn) {
+                deleteSelected(deleteBtn.getAttribute('data-forward-delete'));
+            }
+        });
+    } catch (err) {
+        console.error('Forward cleanup failed:', err);
+        alert('Failed to load forward cleanup.');
+    }
+};
+
 const escapeDialogHtml = (value) => {
     return String(value ?? '')
         .replace(/&/g, '&amp;')
@@ -1226,6 +1606,15 @@ const isPendingNotif = (notif) => {
         return notif?.read !== true;
     }
     return toSafeNotifStatus(notif) === 'pending';
+};
+
+const isAutoSystemPostponedNotification = (notif) => {
+    if (!notif) return false;
+    if (notif.autoPostponed === true || notif.isAutoForwarded === true) return true;
+    const type = String(notif.type || '').toLowerCase();
+    if (type.includes('auto-forward') || type.includes('carry-forward') || type.includes('system-postponed')) return true;
+    const hay = `${notif.title || ''} ${notif.message || ''} ${notif.description || ''}`.toLowerCase();
+    return /postponed from|auto[- ]?forward|carried forward|carry forward|system postponed/.test(hay);
 };
 
 const getNotifSource = (notif) => {
@@ -1274,8 +1663,21 @@ window.app_refreshNotificationBell = async () => {
     if (!buttons.length) return;
 
     const user = window.AppAuth.getUser();
-    const notifications = Array.isArray(user?.notifications) ? user.notifications : [];
+    const notificationsRaw = Array.isArray(user?.notifications) ? user.notifications : [];
+    const notifications = notificationsRaw.filter(n => !isAutoSystemPostponedNotification(n));
     const pendingCount = notifications.filter(isPendingNotif).length;
+    if (user && notifications.length !== notificationsRaw.length) {
+        try {
+            const updatedUser = await window.AppDB.get('users', user.id).catch(() => null);
+            if (updatedUser && Array.isArray(updatedUser.notifications)) {
+                updatedUser.notifications = updatedUser.notifications.filter(n => !isAutoSystemPostponedNotification(n));
+                await window.AppDB.put('users', updatedUser);
+                Object.assign(user, { notifications: updatedUser.notifications });
+            }
+        } catch (err) {
+            console.warn('Failed to clean postponed notifications during bell refresh:', err);
+        }
+    }
 
     buttons.forEach((btn) => {
         const badge = btn.querySelector('.top-notification-badge');
@@ -1305,6 +1707,74 @@ window.app_closeNotificationHistory = () => {
     if (drawer) drawer.classList.remove('notif-drawer-open');
     if (backdrop) backdrop.classList.remove('notif-drawer-backdrop-visible');
     setTimeout(() => document.getElementById('notif-drawer-root')?.remove(), 320);
+};
+
+window.app_recordNotifError = (err, context = {}) => {
+    try {
+        const payload = {
+            message: String(err?.message || err || 'Unknown error'),
+            time: new Date().toISOString(),
+            context
+        };
+        localStorage.setItem('notif_last_error', JSON.stringify(payload));
+    } catch {
+        // no-op
+    }
+};
+
+window.app_showLastNotifError = () => {
+    try {
+        const raw = localStorage.getItem('notif_last_error');
+        if (!raw) return;
+        localStorage.removeItem('notif_last_error');
+        const data = JSON.parse(raw);
+        const html = `
+            <div class="modal-overlay" id="notif-error-modal" style="display:flex;">
+                <div class="modal-content" style="max-width:560px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem;">
+                        <h3 style="margin:0;">Notification Error</h3>
+                        <button type="button" onclick="window.app_closeModal(this)" class="day-plan-close-btn" title="Close">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+                    <div style="font-size:0.85rem; color:#64748b; margin-bottom:0.6rem;">
+                        The last notification action failed. Details below:
+                    </div>
+                    <div style="background:#fef2f2; border:1px solid #fecaca; color:#991b1b; padding:0.65rem; border-radius:8px; font-size:0.85rem;">
+                        ${escapeDialogHtml(data?.message || 'Unknown error')}
+                    </div>
+                    <div style="margin-top:0.6rem; font-size:0.78rem; color:#64748b;">
+                        Time: ${escapeDialogHtml(data?.time || '')}
+                    </div>
+                </div>
+            </div>
+        `;
+        window.app_showModal(html, 'notif-error-modal');
+    } catch {
+        // no-op
+    }
+};
+
+window.app_markNotificationResponded = async (notifId, notifIndex, response) => {
+    const user = window.AppAuth.getUser();
+    if (!user) return false;
+    const updatedUser = await window.AppDB.get('users', user.id).catch(() => null);
+    if (!updatedUser || !Array.isArray(updatedUser.notifications)) return false;
+    let notif = null;
+    if (Number.isInteger(notifIndex) && notifIndex >= 0 && updatedUser.notifications[notifIndex]) {
+        notif = updatedUser.notifications[notifIndex];
+    } else if (notifId) {
+        notif = updatedUser.notifications.find(n => String(n.id || '') === String(notifId));
+    }
+    if (!notif) return false;
+    const nowIso = new Date().toISOString();
+    notif.status = response;
+    notif.respondedAt = nowIso;
+    notif.read = true;
+    notif.dismissedAt = nowIso;
+    await window.AppDB.put('users', updatedUser);
+    await window.app_refreshNotificationBell?.();
+    return true;
 };
 
 window.app_respondNotificationFromHistory = async (notifIndex, notifId, action) => {
@@ -1361,9 +1831,18 @@ window.app_respondNotificationFromHistory = async (notifIndex, notifId, action) 
             return;
         }
 
-        alert('This notification cannot be approved or rejected from history.');
+        const fallbackUpdated = await window.app_markNotificationResponded(notif.id, resolvedIndex, decision === 'approve' ? 'accepted' : 'rejected');
+        if (!fallbackUpdated) {
+            alert('This notification cannot be approved or rejected from history.');
+        }
     } catch (err) {
         console.error('Notification response error:', err);
+        window.app_recordNotifError(err, { notifId: notif?.id || '', action: decision });
+        const fallbackUpdated = await window.app_markNotificationResponded(notif?.id, resolvedIndex, decision === 'approve' ? 'accepted' : 'rejected');
+        if (fallbackUpdated) {
+            alert('Action recorded in notifications, but the full workflow failed. Please refresh.');
+            return;
+        }
         alert('Failed to process notification: ' + err.message);
     }
 };
@@ -1373,7 +1852,19 @@ window.app_openNotificationHistory = async () => {
     if (!currentUser) return;
 
     const freshUser = await window.AppDB.get('users', currentUser.id).catch(() => currentUser);
-    const notifications = Array.isArray(freshUser?.notifications) ? freshUser.notifications : [];
+    const notificationsRaw = Array.isArray(freshUser?.notifications) ? freshUser.notifications : [];
+    const cleanedNotifications = notificationsRaw.filter(n => !isAutoSystemPostponedNotification(n));
+    if (cleanedNotifications.length !== notificationsRaw.length && freshUser) {
+        try {
+            freshUser.notifications = cleanedNotifications;
+            await window.AppDB.put('users', freshUser);
+            if (window.AppAuth?.getUser) Object.assign(window.AppAuth.getUser(), { notifications: cleanedNotifications });
+            if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
+        } catch (err) {
+            console.warn('Failed to clean postponed notifications:', err);
+        }
+    }
+    const notifications = cleanedNotifications;
     const tagHistory = Array.isArray(freshUser?.tagHistory) ? freshUser.tagHistory : [];
     const isAdmin = currentUser.isAdmin || currentUser.role === 'Administrator';
 
@@ -1401,7 +1892,7 @@ window.app_openNotificationHistory = async () => {
         const sender = row.taggedByName || 'System';
         const title = row.title || `${source} from ${sender}`;
         const summary = getNotifPreview(row);
-        const notifIdArg = JSON.stringify(String(row.id || ''));
+        const notifIdArg = app_escapeJsSingleQuote(String(row.id || ''));
         const statusColors = {
             pending: { bg: '#fff7ed', border: '#fdba74', badge: '#f97316' },
             accepted: { bg: '#f0fdf4', border: '#86efac', badge: '#16a34a' },
@@ -1412,10 +1903,10 @@ window.app_openNotificationHistory = async () => {
 
         const approveRejectBtns = ((isPending && canRespondToNotification(row)) || (isAdmin && row.type === 'minute-access-request')) ? `
             <div class="notif-drawer-actions">
-                <button type="button" class="notif-drawer-btn approve" onclick="window.app_respondNotificationFromHistory(${Number(row._index)}, ${notifIdArg}, 'approve')">
+                <button type="button" class="notif-drawer-btn approve" onclick="window.app_respondNotificationFromHistory(${Number(row._index)}, '${notifIdArg}', 'approve')">
                     <i class="fa-solid fa-check"></i> Approve
                 </button>
-                <button type="button" class="notif-drawer-btn reject" onclick="window.app_respondNotificationFromHistory(${Number(row._index)}, ${notifIdArg}, 'reject')">
+                <button type="button" class="notif-drawer-btn reject" onclick="window.app_respondNotificationFromHistory(${Number(row._index)}, '${notifIdArg}', 'reject')">
                     <i class="fa-solid fa-xmark"></i> Reject
                 </button>
             </div>` : '';
@@ -5507,7 +5998,11 @@ window.app_submitCheckOut = async function (event) {
         let pos = null;
         let locationError = null;
         try {
-            pos = await window.getLocation();
+            const locationTimeoutMs = 9000;
+            pos = await Promise.race([
+                window.getLocation(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Location request timed out.')), locationTimeoutMs))
+            ]);
         } catch (err) {
             locationError = err;
         }
@@ -5531,7 +6026,7 @@ window.app_submitCheckOut = async function (event) {
             }
         }
 
-        const explanation = form.locationExplanation ? form.locationExplanation.value.trim() : '';
+        let explanation = form.locationExplanation ? form.locationExplanation.value.trim() : '';
         const overtimeState = window.app_checkoutOvertimeState || {};
         const overtimeExplanation = form.overtimeExplanation ? form.overtimeExplanation.value.trim() : '';
         const overtimeMode = form.overtimeMode ? String(form.overtimeMode.value || 'overtime_work') : 'overtime_work';
@@ -5570,10 +6065,10 @@ window.app_submitCheckOut = async function (event) {
             }));
         }
 
-        if (!pos && !explanation) {
+        if (!pos) {
             const mismatchDiv = document.getElementById('checkout-location-mismatch');
             if (mismatchDiv) mismatchDiv.style.display = 'block';
-            alert("Location unavailable. Please provide a reason for checking out from a different location.");
+            alert("Location unavailable. Please enable location and try again.");
             submitBtn.disabled = false;
             submitBtn.textContent = 'Complete Check-Out';
             return;
@@ -8572,8 +9067,10 @@ window.app_getSystemUpdateNotes = () => ([
 ]);
 
 window.app_showSystemUpdatePopup = () => {
+    if (document.getElementById('system-update-modal')) return;
     const modalId = 'system-update-modal';
     const state = getReleaseUpdateSnapshot();
+    releaseUpdateState.lastPopupReleaseId = state.releaseId || '';
     const isUpdateReady = state.active && state.buildId && state.buildId !== state.currentBuildId;
     const notes = (window.app_getSystemUpdateNotes() || []).slice(0, 5);
     const listHtml = notes.length

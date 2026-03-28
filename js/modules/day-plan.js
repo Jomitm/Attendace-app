@@ -623,29 +623,14 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null)
     }
 
     const todayKey = AppCalendar?.getTodayKey ? AppCalendar.getTodayKey() : '';
-    if (AppCalendar?.cleanupOldCarryForwardTaggedTasks && date === todayKey) {
-        const cleanupKey = `cleanup_old_tagged_v5_${targetId}_${date}`;
-        let shouldRunCleanup = true;
+    if (AppCalendar?.cleanupInvalidTodayCarryForward && date === todayKey) {
         try {
-            shouldRunCleanup = localStorage.getItem(cleanupKey) !== '1';
-        } catch {
-            shouldRunCleanup = true;
-        }
-
-        if (shouldRunCleanup) {
-            try {
-                const cleanupResult = await AppCalendar.cleanupOldCarryForwardTaggedTasks(targetId, date, { onlyToday: true });
-                if ((cleanupResult?.removed || 0) > 0) {
-                    console.log(`Day plan cleanup removed ${cleanupResult.removed} old tagged carry-forward task(s) for ${targetId} on ${date}.`);
-                }
-                try {
-                    localStorage.setItem(cleanupKey, '1');
-                } catch {
-                    // Ignore storage write failures.
-                }
-            } catch (cleanupErr) {
-                console.warn('Failed to cleanup old tagged carry-forward tasks:', cleanupErr);
+            const cleanupResult = await AppCalendar.cleanupInvalidTodayCarryForward(targetId, date, { onlyToday: true });
+            if ((cleanupResult?.removed || 0) > 0) {
+                console.log(`Day plan cleanup removed ${cleanupResult.removed} invalid carry-forward task(s) for ${targetId} on ${date}.`);
             }
+        } catch (cleanupErr) {
+            console.warn('Failed to cleanup invalid today carry-forward tasks:', cleanupErr);
         }
     }
 

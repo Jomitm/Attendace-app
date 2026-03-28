@@ -1105,7 +1105,7 @@ export class Analytics {
 
         const [hero, teamActivities] = await Promise.all([
             this.getHeroOfTheWeek({ source: 'shared_summary' }),
-            this.getAllStaffActivities({ mode: 'month', month: monthKey, scope: 'work' })
+            this.getAllStaffActivities({ mode: 'month', month: monthKey, scope: 'all', sideEffects: false })
         ]);
 
         return {
@@ -1131,6 +1131,28 @@ export class Analytics {
             const normalized = options || {};
             const mode = normalized.mode || 'month';
             const scope = normalized.scope || 'all';
+            const sideEffects = normalized.sideEffects !== false;
+
+            const normalizeDateInput = (value) => {
+                const raw = String(value || '').trim();
+                if (!raw) return '';
+                const cleaned = raw.replace(/\s+/g, '');
+                if (/^\d{4}-\d{2}-\d{2}$/.test(cleaned)) return cleaned;
+                if (/^\d{2}-\d{2}-\d{4}$/.test(cleaned)) {
+                    const [d, m, y] = cleaned.split('-');
+                    return `${y}-${m}-${d}`;
+                }
+                if (/^\d{4}\/\d{2}\/\d{2}$/.test(cleaned)) return cleaned.replace(/\//g, '-');
+                if (/^\d{2}\/\d{2}\/\d{4}$/.test(cleaned)) {
+                    const [d, m, y] = cleaned.split('/');
+                    return `${y}-${m}-${d}`;
+                }
+                const parsed = new Date(raw);
+                if (!Number.isNaN(parsed.getTime())) {
+                    return parsed.toISOString().split('T')[0];
+                }
+                return '';
+            };
 
             const endDate = new Date();
             const startDate = new Date();
@@ -1138,14 +1160,23 @@ export class Analytics {
             if (mode === 'range') {
                 const startIsoRaw = String(normalized.startIso || '');
                 const endIsoRaw = String(normalized.endIso || '');
-                if (!startIsoRaw || !endIsoRaw) {
-                    throw new Error('Range mode requires startIso and endIso.');
+                let startIsoNormalized = normalizeDateInput(startIsoRaw);
+                let endIsoNormalized = normalizeDateInput(endIsoRaw);
+                if (!startIsoNormalized || !endIsoNormalized) {
+                    console.warn('Invalid range dates, falling back to last 30 days:', startIsoRaw, endIsoRaw);
+                    const fallbackEnd = new Date();
+                    const fallbackStart = new Date();
+                    fallbackStart.setDate(fallbackEnd.getDate() - 30);
+                    startIsoNormalized = fallbackStart.toISOString().split('T')[0];
+                    endIsoNormalized = fallbackEnd.toISOString().split('T')[0];
                 }
-                const rangeStart = new Date(startIsoRaw);
-                const rangeEnd = new Date(endIsoRaw);
-                if (Number.isNaN(rangeStart.getTime()) || Number.isNaN(rangeEnd.getTime())) {
-                    throw new Error(`Invalid range dates: ${startIsoRaw} to ${endIsoRaw}`);
+                if (startIsoNormalized > endIsoNormalized) {
+                    const tmp = startIsoNormalized;
+                    startIsoNormalized = endIsoNormalized;
+                    endIsoNormalized = tmp;
                 }
+                const rangeStart = new Date(startIsoNormalized);
+                const rangeEnd = new Date(endIsoNormalized);
                 startDate.setTime(rangeStart.getTime());
                 endDate.setTime(rangeEnd.getTime());
                 startDate.setHours(0, 0, 0, 0);
@@ -1176,29 +1207,19 @@ export class Analytics {
             const startIso = startDate.toISOString().split('T')[0];
             const endIso = endDate.toISOString().split('T')[0];
 
-            if (window.AppCalendar?.ensureCarryForwardForRange) {
+            if (sideEffects && window.AppCalendar?.ensureCarryForwardForRange) {
                 await window.AppCalendar.ensureCarryForwardForRange(startIso, endIso);
             }
-            if (window.AppCalendar?.cleanupOldCarryForwardTaggedTasksForDate) {
+            if (sideEffects && window.AppCalendar?.cleanupInvalidTodayCarryForwardForDate) {
                 const todayKey = window.AppCalendar.getTodayKey ? window.AppCalendar.getTodayKey() : '';
                 if (todayKey && todayKey >= startIso && todayKey <= endIso) {
-                    const cleanupKey = `cleanup_old_tagged_global_v5_${todayKey}`;
-                    let shouldRunCleanup = true;
                     try {
-                        shouldRunCleanup = localStorage.getItem(cleanupKey) !== '1';
-                    } catch {
-                        shouldRunCleanup = true;
-                    }
-                    if (shouldRunCleanup) {
-                        try {
-                            const cleanupRes = await window.AppCalendar.cleanupOldCarryForwardTaggedTasksForDate(todayKey, { onlyToday: true });
-                            if ((cleanupRes?.removed || 0) > 0) {
-                                console.log(`Team activity global cleanup removed ${cleanupRes.removed} stale tagged task(s) for ${todayKey}.`);
-                            }
-                            try { localStorage.setItem(cleanupKey, '1'); } catch { /* ignore */ }
-                        } catch (cleanupErr) {
-                            console.warn('Global stale tagged cleanup failed:', cleanupErr);
+                        const cleanupRes = await window.AppCalendar.cleanupInvalidTodayCarryForwardForDate(todayKey, { onlyToday: true });
+                        if ((cleanupRes?.removed || 0) > 0) {
+                            console.log(`Team activity global cleanup removed ${cleanupRes.removed} invalid carry task(s) for ${todayKey}.`);
                         }
+                    } catch (cleanupErr) {
+                        console.warn('Global invalid carry cleanup failed:', cleanupErr);
                     }
                 }
             }
@@ -1267,13 +1288,22 @@ export class Analytics {
                 const repeatedResponsible = (text.match(/\(Responsible:/gi) || []).length > 1;
                 return repeatedResponsible;
             };
+            const normalizePlanStatus = (plan = {}) => {
+                const raw = String(plan.status || '').trim().toLowerCase();
+                if (['completed', 'complete', 'done', 'finished', 'closed'].includes(raw)) return 'completed';
+                if (['not-completed', 'not completed', 'cancelled', 'canceled', 'removed'].includes(raw)) return 'not-completed';
+                if (['in-process', 'in process', 'working', 'started'].includes(raw)) return 'in-process';
+                if (['to-be-started', 'to be started', 'pending', 'planned'].includes(raw)) return 'to-be-started';
+                if (plan.completedDate || plan.completedAt || plan.completed_on) return 'completed';
+                return '';
+            };
 
             if (shouldFetchAttendance) {
                 attendanceLogs.forEach(log => {
-                    const logDate = new Date(log.date);
-                    if (logDate >= startDate && logDate <= endDate && log.workDescription) {
+                    const logDateKey = normalizeDateInput(log.date);
+                    if (logDateKey && logDateKey >= startIso && logDateKey <= endIso && log.workDescription) {
                         const userKey = log.user_id || log.userId;
-                        const dayKey = `${userKey}:${log.date}`;
+                        const dayKey = `${userKey}:${logDateKey}`;
                         if (!attendanceContentByDay[dayKey]) attendanceContentByDay[dayKey] = [];
                         attendanceContentByDay[dayKey].push(log.workDescription.toLowerCase().trim());
 
@@ -1282,7 +1312,9 @@ export class Analytics {
                             type: 'attendance',
                             staffName: usersMap[userKey] || log.userName || 'Unknown Staff',
                             _displayDesc: log.workDescription,
-                            _sortTime: log.checkOut || '00:00'
+                            _sortTime: log.checkOut || '00:00',
+                            status: 'completed',
+                            date: logDateKey
                         });
                     }
                 });
@@ -1290,17 +1322,36 @@ export class Analytics {
 
             // Process Work Plans
             workPlans.forEach(wp => {
-                const wpDate = new Date(wp.date);
-                if (wpDate >= startDate && wpDate <= endDate && wp.plans) {
-                    const dayKey = `${wp.userId}:${wp.date}`;
+                const wpDateKey = normalizeDateInput(wp.date);
+                if (wpDateKey && wpDateKey >= startIso && wpDateKey <= endIso && wp.plans) {
+                    const dayKey = `${wp.userId}:${wpDateKey}`;
                     const dayAttendanceContent = attendanceContentByDay[dayKey] || [];
 
                     wp.plans.forEach((plan, idx) => {
                         if (plan?.isRemoved === true) return;
                         const isOldCarryForwardTask = (() => {
+                            const normalizedStatus = String(plan?.status || '').trim().toLowerCase();
+                            const isClosed = normalizedStatus === 'completed'
+                                || normalizedStatus === 'not-completed'
+                                || normalizedStatus === 'cancelled';
+                            if (isClosed) return false;
+                            const lineage = hasCarryForwardLineage(plan);
                             const originDate = resolveOriginDate(plan);
-                            if (originDate && originDate < String(wp.date || '')) return true;
-                            if (hasCarryForwardLineage(plan) && !originDate) return true;
+                            const previousDate = window.AppCalendar?.getPreviousDateKey
+                                ? window.AppCalendar.getPreviousDateKey(wpDateKey)
+                                : (() => {
+                                    const d = new Date(`${wpDateKey}T00:00:00`);
+                                    if (Number.isNaN(d.getTime())) return '';
+                                    d.setDate(d.getDate() - 1);
+                                    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                                })();
+                            if (lineage) {
+                                if (originDate && previousDate && originDate < previousDate) return true;
+                                if (originDate && previousDate && originDate > previousDate) return true;
+                                if (!originDate) return true;
+                                if (previousDate && originDate && originDate !== previousDate) return true;
+                                if (String(plan.carryForwardPolicy || '') && String(plan.carryForwardPolicy) !== 'next_day_only') return true;
+                            }
                             if (isTaggedCopyOriginTask(plan) && hasLegacyTaggedTextPattern(plan)) return true;
                             return false;
                         })();
@@ -1320,9 +1371,10 @@ export class Analytics {
                             staffName = (wpUserId === 'annual_shared') ? 'All Staff' : 'Unknown Staff';
                         }
 
+                        const effectiveStatus = normalizePlanStatus(plan);
                         mergedActivities.push({
                             ...plan,
-                            date: wp.date,
+                            date: wpDateKey,
                             id: wp.id, // work_plan document id
                             planId: wp.id,
                             taskIndex: idx,
@@ -1330,6 +1382,7 @@ export class Analytics {
                             userId: wpUserId,
                             type: 'work',
                             staffName: staffName,
+                            status: effectiveStatus,
                             _displayDesc: plan.task,
                             _sortTime: '09:00' // Default sort time for plans
                         });

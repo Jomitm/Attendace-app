@@ -845,8 +845,8 @@ export async function renderDashboard() {
     const staffActivityPromise = sharedSummaryEnabled
         ? Promise.resolve([])
         : window.AppDB.getOrGenerateSummary(
-            `team_activity_${selectedMonth}_${todayStr}`,
-            () => window.AppAnalytics.getAllStaffActivities({ mode: 'month', month: selectedMonth, scope: 'work' })
+            `team_activity_${selectedMonth}_${todayStr}_all_v2`,
+            () => window.AppAnalytics.getAllStaffActivities({ mode: 'month', month: selectedMonth, scope: 'all', sideEffects: false })
         );
 
     const sharedSummaryTask = sharedSummaryEnabled && window.AppDB.getOrCreateDailySummary
@@ -1402,7 +1402,7 @@ const refreshStaffActivityWidget = async (fetchLogs = true) => {
     disposeTeamActivityAutoScroll();
     if (fetchLogs) {
         if (window.AppAnalytics) {
-            state.logs = await window.AppAnalytics.getAllStaffActivities({ mode: 'month', month: state.selectedMonth, scope: 'work' });
+            state.logs = await window.AppAnalytics.getAllStaffActivities({ mode: 'month', month: state.selectedMonth, scope: 'all', sideEffects: false });
         }
     }
     const html = renderStaffActivityListSplit(state.logs, state.sortKey);
@@ -1414,6 +1414,21 @@ const refreshStaffActivityWidget = async (fetchLogs = true) => {
 
 // --- Export to Window (Global) ---
 if (typeof window !== 'undefined') {
+    window.app_setStaffActivityMonth = async function (value) {
+        const state = getStaffActivityState();
+        const normalized = String(value || '').trim();
+        if (!/^\d{4}-\d{2}$/.test(normalized)) return;
+        state.selectedMonth = normalized;
+        await refreshStaffActivityWidget(true);
+    };
+
+    window.app_setStaffActivitySort = async function (value) {
+        const state = getStaffActivityState();
+        const nextSort = String(value || '').trim() || 'date-newest';
+        state.sortKey = nextSort;
+        await refreshStaffActivityWidget(false);
+    };
+
     window.app_setDashboardLeaveHistoryDate = async function (value) {
         const state = getStaffActivityState();
         state.leaveHistoryDate = value || new Date().toISOString().slice(0, 10);
