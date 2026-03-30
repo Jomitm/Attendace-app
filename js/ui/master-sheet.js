@@ -201,6 +201,7 @@ export async function renderMasterSheet(month = null, year = null) {
                 else if (type === 'Late') { cellStyle = 'color: #f59e0b; font-weight: bold;'; cellContent = 'L'; }
                 else if (type === 'Half Day') { cellStyle = 'color: #c2410c; font-weight: bold;'; cellContent = 'HD'; }
                 else if (type === 'Absent') { cellStyle = 'color: #ef4444; font-weight: bold;'; cellContent = 'A'; }
+                else if (type.includes('Leave') && type.includes('Half Day')) { cellStyle = 'color: #7c3aed; font-weight: bold;'; cellContent = 'HD'; }
                 else if (type.includes('Leave')) { cellStyle = 'color: #8b5cf6; font-weight: bold;'; cellContent = 'C'; }
                 else if (type === 'Work - Home') { cellStyle = 'color: #0ea5e9; font-weight: bold;'; cellContent = 'W'; }
                 else if (type === 'On Duty') { cellStyle = 'color: #0369a1; font-weight: bold;'; cellContent = 'D'; }

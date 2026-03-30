@@ -246,19 +246,6 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
             </div>
             ` : ''}
 
-            <div class="card admin-performance-card">
-                <div class="admin-performance-head">
-                    <div>
-                        <h4 class="admin-performance-title">System Performance</h4>
-                        <p class="text-muted">Avg. Activity: ${performance.avgScore}%</p>
-                    </div>
-                    <div class="admin-performance-status" style="background:${perfBg}; color:${perfColor};">${perfStatus}</div>
-                </div>
-                <div class="admin-performance-bars">
-                    ${performance.trendData.map(h => `<div class="admin-performance-bar-item"><div class="admin-performance-bar-fill" style="height:${Math.max(h, 5)}%;"></div></div>`).join('')}
-                </div>
-            </div>
-
             ${(window.app_isAdminUser?.() || window.app_canManageBirthdays?.()) ? `
             <div class="card admin-performance-card" style="background:linear-gradient(135deg, #fff7ed, #fffbeb); border:1px solid #fed7aa;">
                 <div class="admin-performance-head">

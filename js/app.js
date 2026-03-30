@@ -7685,6 +7685,42 @@ window.app_openCellOverride = async (userId, dateStr) => {
         .filter(l => (l.userId === userId || l.user_id === userId) && l.date === dateStr && isAttendanceEligibleLog(l))
         .sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0];
 
+    const baseOverrideTypes = [
+        'Present',
+        'Half Day',
+        'Late',
+        'Present (Late Waived)',
+        'Work - Home',
+        'On Duty',
+        'Absent',
+        'Half Day Leave',
+        'Short Leave',
+        'Casual Leave',
+        'Sick Leave',
+        'Medical Leave',
+        'Annual Leave',
+        'Earned Leave',
+        'Paid Leave',
+        'Maternity Leave',
+        'Paternity Leave',
+        'Study Leave',
+        'Compassionate Leave',
+        'Regional Holidays',
+        'National Holiday',
+        'Holiday'
+    ];
+    const overrideTypeLabels = {
+        'Work - Home': 'WFH'
+    };
+    const existingType = String(existingLog?.type || '').trim();
+    if (existingType && !baseOverrideTypes.includes(existingType)) {
+        baseOverrideTypes.unshift(existingType);
+    }
+    const overrideTypeOptions = baseOverrideTypes.map((type) => {
+        const label = overrideTypeLabels[type] || type;
+        return `<option value="${type}" ${existingType === type ? 'selected' : ''}>${label}</option>`;
+    }).join('');
+
     const html = `
             <div class="modal-overlay" id="cell-override-modal" style="display:flex;">
                 <div class="modal-content">
@@ -7710,11 +7746,7 @@ window.app_openCellOverride = async (userId, dateStr) => {
                             <div>
                                 <label style="display:block; font-size:0.85rem; margin-bottom:0.25rem;">Entry Type</label>
                                 <select name="type" required style="width:100%; padding:0.75rem; border:1px solid #ddd; border-radius:8px;">
-                                    <option value="Present" ${existingLog?.type === 'Present' ? 'selected' : ''}>Present</option>
-                                    <option value="Work - Home" ${existingLog?.type === 'Work - Home' ? 'selected' : ''}>WFH</option>
-                                    <option value="Late" ${existingLog?.type === 'Late' ? 'selected' : ''}>Late</option>
-                                    <option value="Absent" ${existingLog?.type === 'Absent' ? 'selected' : ''}>Absent</option>
-                                    <option value="Casual Leave" ${existingLog?.type === 'Casual Leave' ? 'selected' : ''}>Leave</option>
+                                    ${overrideTypeOptions}
                                 </select>
                             </div>
                             <div>
