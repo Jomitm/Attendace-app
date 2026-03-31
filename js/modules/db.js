@@ -457,6 +457,40 @@ export class Database {
         }
     }
 
+    async deleteMany(collectionName, ids = [], options = {}) {
+        const uniqueIds = Array.from(new Set((ids || []).filter(Boolean).map((id) => String(id))));
+        if (!uniqueIds.length) return 0;
+        const chunkSize = Math.max(1, Math.min(450, Number(options.chunkSize) || 400));
+        let deletedCount = 0;
+
+        try {
+            for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+                const chunk = uniqueIds.slice(i, i + chunkSize);
+                const batch = this.db.batch();
+                chunk.forEach((docId) => {
+                    const ref = this.db.collection(collectionName).doc(docId);
+                    batch.delete(ref);
+                });
+                await batch.commit();
+                deletedCount += chunk.length;
+            }
+            this.telemetry.writes += deletedCount;
+            this.invalidateCollectionCache(collectionName);
+            if (window.dispatchEvent) window.dispatchEvent(new CustomEvent('app:db-write', { detail: { collection: collectionName, op: 'deleteMany', count: deletedCount } }));
+            return deletedCount;
+        } catch (error) {
+            console.error(`Error deleting many from ${collectionName}:`, error);
+            throw error;
+        }
+    }
+
+    async deleteAllInCollection(collectionName, options = {}) {
+        const rows = await this.getAll(collectionName, options);
+        const ids = (rows || []).map((row) => row?.id).filter(Boolean);
+        if (!ids.length) return 0;
+        return this.deleteMany(collectionName, ids, options);
+    }
+
     async query(collectionName, field, operator, value) {
         try {
             const snapshot = await this.db.collection(collectionName).where(field, operator, value).get();

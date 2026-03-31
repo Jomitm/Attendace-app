@@ -179,6 +179,31 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                 </div>
             </div>
 
+            ${window.app_hasPerm('users', 'admin') ? `
+            <div class="card admin-performance-card" style="background:linear-gradient(135deg, #eff6ff, #f8fafc); border:1px solid #bfdbfe;">
+                <div class="admin-performance-head">
+                    <div>
+                        <h4 class="admin-performance-title">Data Management</h4>
+                        <p class="text-muted">Create a full backup before running a staff activity reset.</p>
+                    </div>
+                </div>
+                <div style="display:flex; flex-wrap:wrap; gap:0.7rem; margin-top:0.8rem;">
+                    <button class="action-btn secondary" onclick="(typeof window.app_backupStaffData === 'function') ? window.app_backupStaffData() : alert('Backup tools are not loaded yet. Please refresh this page.')">
+                        <i class="fa-solid fa-download"></i> Backup Staff Data
+                    </button>
+                    <button class="action-btn secondary" onclick="(typeof window.app_backupStaffDataCSV === 'function') ? window.app_backupStaffDataCSV() : alert('Backup tools are not loaded yet. Please refresh this page.')">
+                        <i class="fa-solid fa-file-csv"></i> Backup Staff Data (CSV)
+                    </button>
+                    <button class="action-btn danger" onclick="(typeof window.app_resetStaffData === 'function') ? window.app_resetStaffData() : alert('Reset tools are not loaded yet. Please refresh this page.')">
+                        <i class="fa-solid fa-triangle-exclamation"></i> Reset Staff Data
+                    </button>
+                </div>
+                <div style="margin-top:0.65rem; font-size:0.76rem; color:#475569;">
+                    Reset removes operational history (attendance, leaves, plans, messages, audits, and related records) but keeps user accounts.
+                </div>
+            </div>
+            ` : ''}
+
             ${window.app_hasPerm('leaves', 'view') ? `
             <div class="card full-width admin-section-card">
                  <h3 class="admin-section-title">Pending Leave Requests (${pendingLeaves.length})</h3>

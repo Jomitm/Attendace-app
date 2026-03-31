@@ -5717,7 +5717,11 @@ async function handleAttendance() {
             }
             // Prompt to add plan if missing
             if (window.AppDayPlan && typeof window.AppDayPlan.openDayPlan === 'function') {
-                await window.AppDayPlan.openDayPlan(getLocalISO());
+                await window.AppDayPlan.openDayPlan(getLocalISO(), null, null, {
+                    hideAutoForwardedTasks: true,
+                    skipCarryForwardSync: true,
+                    skipCarryForwardCleanup: true
+                });
             }
         } else {
             // Pre-fill Checkout Description from Work Plan
@@ -8934,6 +8938,302 @@ window.app_exportAudits = async () => {
         console.error("Export failed:", err);
         alert("Export failed: " + err.message);
     }
+};
+
+const APP_STAFF_DATA_RESET_COLLECTIONS = [
+    'attendance',
+    'leaves',
+    'work_plans',
+    'staff_messages',
+    'meetings',
+    'minutes',
+    'salaries',
+    'birthday_people',
+    'location_audits',
+    'system_audit_logs',
+    'system_commands',
+    'daily_summaries',
+    'daily_summaries_meta',
+    'summary_locks'
+];
+
+const app_canManageStaffData = (user = window.AppAuth?.getUser?.()) => {
+    if (!user) return false;
+    if (window.app_hasPerm?.('users', 'admin', user)) return true;
+    return user.isAdmin === true || user.role === 'Administrator';
+};
+
+const app_isPermissionDeniedError = (error) => {
+    try {
+        if (window.AppDB?.isPermissionDenied?.(error)) return true;
+    } catch { /* fallback below */ }
+    const code = String(error?.code || '').toLowerCase();
+    const message = String(error?.message || '').toLowerCase();
+    return code.includes('permission-denied')
+        || message.includes('missing or insufficient permissions');
+};
+
+const app_downloadJsonFile = (payload, fileName) => {
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+};
+
+const app_escapeCsvValue = (value) => {
+    if (value === null || value === undefined) return '';
+    let text = '';
+    if (typeof value === 'object') text = JSON.stringify(value);
+    else text = String(value);
+    text = text.replace(/"/g, '""');
+    if (/[",\n]/.test(text)) return `"${text}"`;
+    return text;
+};
+
+const app_convertRowsToCsv = (rows = []) => {
+    const list = Array.isArray(rows) ? rows : [];
+    const keySet = new Set();
+    list.forEach((row) => {
+        if (!row || typeof row !== 'object') return;
+        Object.keys(row).forEach((key) => keySet.add(String(key)));
+    });
+    const headers = Array.from(keySet);
+    if (!headers.length) return 'id\n';
+
+    const headerRow = headers.map(app_escapeCsvValue).join(',');
+    const dataRows = list.map((row) => headers.map((key) => app_escapeCsvValue(row?.[key])).join(','));
+    return [headerRow, ...dataRows].join('\n');
+};
+
+const app_downloadCsvFile = (content, fileName) => {
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+};
+
+window.app_backupStaffData = async (options = {}) => {
+    const user = window.AppAuth?.getUser?.();
+    if (!app_canManageStaffData(user)) {
+        alert('Only admin users can run staff data backup.');
+        return { success: false, reason: 'not_authorized' };
+    }
+
+    const data = {};
+    const counts = {};
+    const warnings = [];
+    const hardFailures = [];
+    const reads = await Promise.all(APP_STAFF_DATA_RESET_COLLECTIONS.map(async (collection) => {
+        try {
+            const rows = await window.AppDB.getAll(collection);
+            return { collection, rows: rows || [], warning: null };
+        } catch (error) {
+            if (app_isPermissionDeniedError(error)) {
+                return {
+                    collection,
+                    rows: [],
+                    warning: `Permission denied for ${collection}. Backed up as empty.`
+                };
+            }
+            return { collection, rows: [], error };
+        }
+    }));
+
+    reads.forEach((entry) => {
+        const collection = entry.collection;
+        if (entry.error) {
+            hardFailures.push(collection);
+            return;
+        }
+        if (entry.warning) warnings.push(entry.warning);
+        data[collection] = entry.rows || [];
+        counts[collection] = (entry.rows || []).length;
+    });
+
+    if (hardFailures.length) {
+        throw new Error(`Backup failed while reading: ${hardFailures.join(', ')}`);
+    }
+
+    const now = new Date();
+    const isoStamp = now.toISOString();
+    const fileStamp = isoStamp.replace(/[:.]/g, '-');
+    const fileName = `staff_backup_${fileStamp}.json`;
+    const payload = {
+        meta: {
+            generatedAt: isoStamp,
+            generatedById: user?.id || '',
+            generatedByName: user?.name || '',
+            reason: options.reason || 'manual_backup',
+            scope: 'staff_activity_reset',
+            usersRetained: true,
+            collections: [...APP_STAFF_DATA_RESET_COLLECTIONS],
+            warnings
+        },
+        counts,
+        data
+    };
+
+    app_downloadJsonFile(payload, fileName);
+
+    if (options.showSuccess !== false) {
+        alert(`Backup downloaded successfully as ${fileName}.`);
+    }
+    return { success: true, fileName, counts };
+};
+
+window.app_backupStaffDataCSV = async () => {
+    const user = window.AppAuth?.getUser?.();
+    if (!app_canManageStaffData(user)) {
+        alert('Only admin users can run staff data backup.');
+        return { success: false, reason: 'not_authorized' };
+    }
+
+    const isoStamp = new Date().toISOString();
+    const fileStamp = isoStamp.replace(/[:.]/g, '-');
+    const warnings = [];
+    const hardFailures = [];
+    const counts = {};
+    let downloadedFiles = 0;
+
+    const reads = await Promise.all(APP_STAFF_DATA_RESET_COLLECTIONS.map(async (collection) => {
+        try {
+            const rows = await window.AppDB.getAll(collection);
+            return { collection, rows: rows || [], warning: null };
+        } catch (error) {
+            if (app_isPermissionDeniedError(error)) {
+                return {
+                    collection,
+                    rows: [],
+                    warning: `Permission denied for ${collection}. Backed up as empty.`
+                };
+            }
+            return { collection, rows: [], error };
+        }
+    }));
+
+    reads.forEach((entry) => {
+        const collection = entry.collection;
+        if (entry.error) {
+            hardFailures.push(collection);
+            return;
+        }
+        if (entry.warning) warnings.push(entry.warning);
+        counts[collection] = (entry.rows || []).length;
+        const csv = app_convertRowsToCsv(entry.rows || []);
+        app_downloadCsvFile(csv, `staff_backup_${collection}_${fileStamp}.csv`);
+        downloadedFiles += 1;
+    });
+
+    if (hardFailures.length) {
+        throw new Error(`CSV backup failed while reading: ${hardFailures.join(', ')}`);
+    }
+
+    const warningText = warnings.length ? `\nWarnings:\n- ${warnings.join('\n- ')}` : '';
+    alert(`CSV backup downloaded (${downloadedFiles} files).${warningText}`);
+    return { success: true, downloadedFiles, counts, warnings };
+};
+
+window.app_resetStaffData = async () => {
+    const user = window.AppAuth?.getUser?.();
+    if (!app_canManageStaffData(user)) {
+        alert('Only admin users can reset staff data.');
+        return;
+    }
+
+    const confirmed = await window.appConfirm(
+        'This will permanently remove staff activity data (attendance, leaves, plans, messages, audits, minutes, and related records). User accounts will be kept. Continue?'
+    );
+    if (!confirmed) return;
+
+    const confirmPhrase = 'RESET STAFF DATA';
+    const typed = await window.appPrompt(
+        `Type ${confirmPhrase} to continue.`,
+        '',
+        { title: 'Final Confirmation', confirmText: 'Run Reset', placeholder: confirmPhrase }
+    );
+    if (typed === null) return;
+    if (String(typed || '').trim().toUpperCase() !== confirmPhrase) {
+        alert('Confirmation text did not match. Reset cancelled.');
+        return;
+    }
+
+    let backupInfo = null;
+    try {
+        backupInfo = await window.app_backupStaffData({ reason: 'pre_reset_backup', showSuccess: false });
+    } catch (error) {
+        console.error('Pre-reset backup failed:', error);
+        alert(`Reset cancelled because backup failed: ${error.message}`);
+        return;
+    }
+    if (!backupInfo?.success) {
+        alert('Reset cancelled because backup did not complete.');
+        return;
+    }
+
+    const deletedCounts = {};
+    const errors = [];
+
+    for (const collection of APP_STAFF_DATA_RESET_COLLECTIONS) {
+        try {
+            const deleted = window.AppDB.deleteAllInCollection
+                ? await window.AppDB.deleteAllInCollection(collection)
+                : 0;
+            deletedCounts[collection] = Number(deleted || 0);
+        } catch (error) {
+            console.error(`Failed resetting ${collection}:`, error);
+            deletedCounts[collection] = Number(deletedCounts[collection] || 0);
+            errors.push(`${collection}: ${error.message}`);
+        }
+    }
+
+    let usersUpdated = 0;
+    try {
+        const users = await window.AppDB.getAll('users');
+        for (const row of users) {
+            if (!row || !row.id) continue;
+            await window.AppDB.put('users', {
+                id: row.id,
+                status: 'out',
+                lastCheckIn: null,
+                lastCheckOut: null,
+                currentLocation: null,
+                notifications: [],
+                lastSeen: null
+            });
+            usersUpdated += 1;
+        }
+    } catch (error) {
+        console.error('Failed to normalize users after reset:', error);
+        errors.push(`users(normalization): ${error.message}`);
+    }
+
+    const deletedTotal = Object.values(deletedCounts).reduce((sum, n) => sum + Number(n || 0), 0);
+    const summaryText = `Backup: ${backupInfo.fileName}\nDeleted records: ${deletedTotal}\nUsers normalized: ${usersUpdated}`;
+
+    if (window.AppAuth?.refreshCurrentUserFromDB) {
+        try { await window.AppAuth.refreshCurrentUserFromDB(); } catch { /* ignore */ }
+    }
+
+    if (window.location.hash.replace('#', '') === 'admin' && window.app_refreshAdminPage) {
+        await window.app_refreshAdminPage();
+    }
+
+    if (errors.length) {
+        alert(`Reset completed with issues.\n${summaryText}\n\nErrors:\n${errors.join('\n')}`);
+        return;
+    }
+
+    alert(`Staff activity data reset completed.\n${summaryText}`);
 };
 
 window.app_changeAnnualYear = (delta) => {

@@ -608,7 +608,16 @@ export function app_extractBlockData(block) {
     return { task, status, planScope, assignedTo, startDate, endDate, subPlans, tags, carryForwardRootId, isRemoved };
 }
 
-export async function openDayPlan(date, targetUserId = null, forcedScope = null) {
+const isAutoForwardedTask = (task) => {
+    if (!task || typeof task !== 'object') return false;
+    return task.isAutoForwarded === true
+        || !!task.carryForwardRootId
+        || !!task.carriedForwardFromDate
+        || !!task.carriedForwardFromPlanId
+        || !!task.autoForwardedAt;
+};
+
+export async function openDayPlan(date, targetUserId = null, forcedScope = null, options = {}) {
     const currentUser = AppAuth.getUser();
     const targetIdRaw = String(targetUserId ?? '').trim();
     const targetId = (!targetIdRaw || targetIdRaw === 'undefined' || targetIdRaw === 'null') ? currentUser.id : targetIdRaw;
@@ -616,14 +625,17 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null)
     const isAdmin = currentUser.role === 'Administrator' || currentUser.isAdmin;
     const isEditingOther = targetId !== currentUser.id;
     const defaultScope = forcedScope === 'annual' ? 'annual' : 'personal';
+    const hideAutoForwardedTasks = options?.hideAutoForwardedTasks === true;
+    const skipCarryForwardSync = options?.skipCarryForwardSync === true;
+    const skipCarryForwardCleanup = options?.skipCarryForwardCleanup === true;
     window.app_currentDayPlanTargetId = targetId;
 
-    if (AppCalendar?.ensureCarryForwardForDate && date <= AppCalendar.getTodayKey()) {
+    if (!skipCarryForwardSync && AppCalendar?.ensureCarryForwardForDate && date <= AppCalendar.getTodayKey()) {
         await AppCalendar.ensureCarryForwardForDate(date, { userIds: [targetId] });
     }
 
     const todayKey = AppCalendar?.getTodayKey ? AppCalendar.getTodayKey() : '';
-    if (AppCalendar?.cleanupInvalidTodayCarryForward && date === todayKey) {
+    if (!skipCarryForwardCleanup && AppCalendar?.cleanupInvalidTodayCarryForward && date === todayKey) {
         try {
             const cleanupResult = await AppCalendar.cleanupInvalidTodayCarryForward(targetId, date, { onlyToday: true });
             if ((cleanupResult?.removed || 0) > 0) {
@@ -652,7 +664,7 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null)
                 planScope: scope,
                 userName: userName || workPlan.userName,
                 isReference: !!userName
-            })).filter(p => p.isRemoved !== true);
+            })).filter(p => p.isRemoved !== true && (!hideAutoForwardedTasks || !isAutoForwardedTask(p)));
         }
         return [];
     };
