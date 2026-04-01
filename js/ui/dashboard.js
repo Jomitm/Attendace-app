@@ -444,11 +444,9 @@ export function renderHeroCard(heroData, heroMeta = {}) {
 }
 
 export function renderWorkLog(logs, collabs = [], targetStaff = null, minutes = []) {
-    const today = new Date();
-    const startDate = new Date(today);
-    startDate.setDate(startDate.getDate() - 180);
-    const startDefault = startDate.toISOString().split('T')[0];
-    const endDefault = today.toISOString().split('T')[0];
+    const currentWeek = getWeekRange(new Date().toISOString().slice(0, 10));
+    const startDefault = currentWeek.startKey;
+    const endDefault = currentWeek.endKey;
     const targetUserId = targetStaff ? targetStaff.id : window.AppAuth.getUser().id;
     const workLogStaffName = (targetStaff && targetStaff.name) || window.AppAuth.getUser().name;
 
