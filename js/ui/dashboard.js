@@ -493,9 +493,9 @@ export function renderActivityList(allLogs, startStr, endStr, targetStaffId, col
         dailyCollabPlans.forEach(p => {
             collabEntries.push({
                 date: cp.date,
-                workDescription: `🤝 Collaborated with ${cp.userName}: ${p.task}${p.subPlans && p.subPlans.length > 0 ? ` (Sub-tasks: ${p.subPlans.join(', ')})` : ''}`,
+                workDescription: `[Collab] Collaborated with ${cp.userName}: ${p.task}${p.subPlans && p.subPlans.length > 0 ? ` (Sub-tasks: ${p.subPlans.join(', ')})` : ''}`,
                 checkOut: 'Planned / Accepted',
-                _displayDesc: `🤝 Collaborated with ${cp.userName}: ${p.task}${p.subPlans && p.subPlans.length > 0 ? ` (Sub-tasks: ${p.subPlans.join(', ')})` : ''}`,
+                _displayDesc: `[Collab] Collaborated with ${cp.userName}: ${p.task}${p.subPlans && p.subPlans.length > 0 ? ` (Sub-tasks: ${p.subPlans.join(', ')})` : ''}`,
                 _isCollab: true,
                 _sortTime: '23:59'
             });
@@ -512,10 +512,10 @@ export function renderActivityList(allLogs, startStr, endStr, targetStaffId, col
 
             minuteEntries.push({
                 date: aiDate,
-                workDescription: `📋 Meeting Task: ${ai.task} (from ${m.title})`,
+                workDescription: `[Meeting] Task: ${ai.task} (from ${m.title})`,
                 status: ai.status || 'pending',
                 checkOut: 'Action Item',
-                _displayDesc: `📋 Meeting Task: ${ai.task} (from ${m.title})`,
+                _displayDesc: `[Meeting] Task: ${ai.task} (from ${m.title})`,
                 _isCollab: false,
                 _isMinute: true,
                 _meetingId: m.id,
@@ -675,13 +675,13 @@ function renderProgressMeta(log) {
         const derivedNote = String(first.progressNote || '').trim();
         if (!derivedPercent && !derivedStatus && !derivedNote) return '';
         const derivedTitle = derivedNote ? ` title="${safeHtml(derivedNote)}"` : '';
-        const derivedLabel = `${derivedPercent}${derivedPercent && derivedStatus ? ' • ' : ''}${safeHtml(derivedStatus)}`;
+        const derivedLabel = `${derivedPercent}${derivedPercent && derivedStatus ? ' - ' : ''}${safeHtml(derivedStatus)}`;
         return `<div class="dashboard-progress-chip"${derivedTitle}>${derivedLabel}</div>`;
     }
     if (!hasPercent && !status && !note) return '';
     const percent = hasPercent ? `${Number(log.progressPercent)}%` : '';
     const title = note ? ` title="${safeHtml(note)}"` : '';
-    const label = `${percent}${percent && status ? ' • ' : ''}${safeHtml(status)}`;
+    const label = `${percent}${percent && status ? ' - ' : ''}${safeHtml(status)}`;
     return `<div class="dashboard-progress-chip"${title}>${label}</div>`;
 }
 
@@ -929,41 +929,63 @@ function buildStatsDetailBuckets(logs, range) {
     };
 }
 
-export function renderLeaveRequests(leaves) {
-    if (!leaves || leaves.length === 0) {
+export function renderLeaveRequests(leaves, workFromHomeEntries = []) {
+    const hasLeaves = Array.isArray(leaves) && leaves.length > 0;
+    const hasWfh = Array.isArray(workFromHomeEntries) && workFromHomeEntries.length > 0;
+
+    if (!hasLeaves && !hasWfh) {
         return `
             <div class="card dashboard-leave-requests-card">
-                <div class="dashboard-leave-requests-head"><h4>Pending Leaves</h4><span>Review requirements</span></div>
+                <div class="dashboard-leave-requests-head"><h4>Pending Leaves & Work From Home</h4><span>Review requirements</span></div>
                 <div class="dashboard-leave-requests-list">
-                    <div class="dashboard-activity-empty">No pending leave requests.</div>
+                    <div class="dashboard-activity-empty">No pending leave or work from home records.</div>
                 </div>
             </div>`;
     }
 
+    const leaveRows = hasLeaves
+        ? leaves.slice(0, 5).map(l => `
+            <div class="dashboard-leave-row">
+                <div class="dashboard-leave-info">
+                    <div class="dashboard-leave-name">${safeHtml(l.userName || 'Staff')}</div>
+                    <div class="dashboard-leave-type">${safeHtml(l.type)} • ${l.daysCount} days</div>
+                    <div class="dashboard-leave-date">${l.startDate} to ${l.endDate}</div>
+                </div>
+                <div class="dashboard-leave-actions">
+                    <button class="dashboard-leave-btn export" data-action="export" data-leave-id="${l.id}" title="Export PDF"><i class="fa-solid fa-file-pdf"></i></button>
+                    <button class="dashboard-leave-btn comment" data-action="comment" data-leave-id="${l.id}" title="Add Comment"><i class="fa-solid fa-comment-dots"></i></button>
+                    <button class="dashboard-leave-btn approve" data-action="approve" data-leave-id="${l.id}" title="Approve"><i class="fa-solid fa-check"></i></button>
+                    <button class="dashboard-leave-btn reject" data-action="reject" data-leave-id="${l.id}" title="Reject"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+            </div>
+        `).join('')
+        : '';
+
+    const wfhRows = hasWfh
+        ? workFromHomeEntries.slice(0, 5).map((row) => `
+            <div class="dashboard-leave-row">
+                <div class="dashboard-leave-info">
+                    <div class="dashboard-leave-name">${safeHtml(row.userName || 'Staff')}</div>
+                    <div class="dashboard-leave-type">Work From Home • 1 day</div>
+                    <div class="dashboard-leave-date">${safeHtml(row.date || '--')} • ${safeHtml(row.checkIn || '--')} to ${safeHtml(row.checkOut || 'Active')}</div>
+                </div>
+                <div class="dashboard-leave-actions">
+                    <span class="dashboard-tagged-pill accepted">WFH</span>
+                </div>
+            </div>
+        `).join('')
+        : '';
+
     return `
         <div class="card dashboard-leave-requests-card">
-            <div class="dashboard-leave-requests-head"><h4>Pending Leaves</h4><span>Review requirements</span></div>
+            <div class="dashboard-leave-requests-head"><h4>Pending Leaves & Work From Home</h4><span>Review requirements</span></div>
             <div class="dashboard-leave-requests-list">
-                ${leaves.slice(0, 5).map(l => `
-                    <div class="dashboard-leave-row">
-                        <div class="dashboard-leave-info">
-                            <div class="dashboard-leave-name">${safeHtml(l.userName || 'Staff')}</div>
-                            <div class="dashboard-leave-type">${safeHtml(l.type)} • ${l.daysCount} days</div>
-                            <div class="dashboard-leave-date">${l.startDate} to ${l.endDate}</div>
-                        </div>
-                        <div class="dashboard-leave-actions">
-                            <button class="dashboard-leave-btn export" data-action="export" data-leave-id="${l.id}" title="Export PDF"><i class="fa-solid fa-file-pdf"></i></button>
-                            <button class="dashboard-leave-btn comment" data-action="comment" data-leave-id="${l.id}" title="Add Comment"><i class="fa-solid fa-comment-dots"></i></button>
-                            <button class="dashboard-leave-btn approve" data-action="approve" data-leave-id="${l.id}" title="Approve"><i class="fa-solid fa-check"></i></button>
-                            <button class="dashboard-leave-btn reject" data-action="reject" data-leave-id="${l.id}" title="Reject"><i class="fa-solid fa-xmark"></i></button>
-                        </div>
-                    </div>
-                `).join('')}
+                ${leaveRows}
+                ${wfhRows}
             </div>
-            ${leaves.length > 5 ? `<div class="dashboard-leave-footer"><button onclick="window.location.hash = 'leaves'">View all ${leaves.length} requests</button></div>` : ''}
+            ${hasLeaves && leaves.length > 5 ? `<div class="dashboard-leave-footer"><button onclick="window.location.hash = 'leaves'">View all ${leaves.length} leave requests</button></div>` : ''}
         </div>`;
 }
-
 export function renderMissedCheckoutRequests(items) {
     if (!items || items.length === 0) {
         return `
@@ -1040,7 +1062,7 @@ export function renderLeaveHistory(leaves, options = {}) {
                     <div class="dashboard-leave-history-row">
                         <div class="dashboard-leave-history-main">
                             <div class="dashboard-leave-history-user">${safeHtml(l.userName || 'Staff')}</div>
-                            <div class="dashboard-leave-history-type">${safeHtml(l.type)} • ${l.daysCount} days</div>
+                            <div class="dashboard-leave-history-type">${safeHtml(l.type)} - ${l.daysCount} days</div>
                             <div class="dashboard-leave-history-date">${l.startDate} to ${l.endDate}</div>
                         </div>
                         <div class="dashboard-leave-history-status">
@@ -1214,9 +1236,10 @@ export async function renderDashboard() {
     const pendingMissedCheckoutLogIds = Array.from(new Set(
         pendingMissedCheckoutNotifications.map((notif) => String(notif.logId || '')).filter(Boolean)
     ));
+    const currentWeekRange = getWeekRange(leaveHistoryDate);
 
     // Parallel Fetch
-    const [status, logs, monthlyStats, yearlyStats, heroDataRaw, calendarPlans, staffActivitiesRaw, pendingLeaves, allUsers, collaborations, allLeaves, dailySummary, minutesData, attendanceLogs] = await Promise.all([
+    const [status, logs, monthlyStats, yearlyStats, heroDataRaw, calendarPlans, staffActivitiesRaw, pendingLeaves, allUsers, collaborations, allLeaves, dailySummary, minutesData, attendanceLogs, weeklyAttendanceLogs] = await Promise.all([
         window.AppAttendance.getStatus(),
         window.AppAttendance.getLogs(targetStaffId),
         window.AppAnalytics.getUserMonthlyStats(targetStaffId),
@@ -1238,6 +1261,17 @@ export async function renderDashboard() {
             ? (window.AppDB.getManyByIds
                 ? window.AppDB.getManyByIds('attendance', pendingMissedCheckoutLogIds)
                 : Promise.all(pendingMissedCheckoutLogIds.map((id) => window.AppDB.get('attendance', id))).then((rows) => rows.filter(Boolean)))
+            : Promise.resolve([]),
+        (isAdmin && window.app_hasPerm('leaves', 'view'))
+            ? (window.AppDB.queryMany
+                ? window.AppDB.queryMany('attendance', [
+                    { field: 'date', operator: '>=', value: currentWeekRange.startKey },
+                    { field: 'date', operator: '<=', value: currentWeekRange.endKey }
+                ])
+                : window.AppDB.getAll('attendance').then((rows) => (rows || []).filter((row) => {
+                    const d = String(row?.date || '');
+                    return d >= currentWeekRange.startKey && d <= currentWeekRange.endKey;
+                })))
             : Promise.resolve([])
     ]);
     console.timeEnd('DashboardFetch');
@@ -1427,6 +1461,22 @@ export async function renderDashboard() {
             })
             .sort((a, b) => new Date(b.submittedAt || b.date || 0) - new Date(a.submittedAt || a.date || 0))
         : [];
+    const workFromHomeRows = isAdmin
+        ? (weeklyAttendanceLogs || [])
+            .filter((log) => {
+                const normalized = window.AppAttendance?.normalizeType
+                    ? window.AppAttendance.normalizeType(log?.type || '')
+                    : String(log?.type || '');
+                return normalized === 'Work - Home';
+            })
+            .map((log) => ({
+                userName: usersById.get(String(log.user_id || log.userId || ''))?.name || log.userName || 'Staff',
+                date: log.date || '',
+                checkIn: log.checkIn || '',
+                checkOut: log.checkOut || ''
+            }))
+            .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
+        : [];
 
     let timerHTML = '00 : 00 : 00';
     let btnText = 'Check-in';
@@ -1473,7 +1523,7 @@ export async function renderDashboard() {
                         <div class="dashboard-staff-view-copy">
                             <div class="dashboard-staff-view-eyebrow">Currently Viewing</div>
                             <h3 class="dashboard-staff-view-title">${safeHtml(targetStaff.name)}'s Dashboard</h3>
-                            <div class="dashboard-staff-view-meta">${safeHtml(targetStaff.role)} • ${safeHtml(targetStaff.dept || 'General')}</div>
+                            <div class="dashboard-staff-view-meta">${safeHtml(targetStaff.role)} - ${safeHtml(targetStaff.dept || 'General')}</div>
                         </div>
                     </div>
                     <button onclick="window.app_changeSummaryStaff('${user.id}')" class="dashboard-staff-view-back-btn">
@@ -1509,7 +1559,7 @@ export async function renderDashboard() {
 
         summaryHTML = `
             <div class="dashboard-summary-row">
-                <div style="flex: 2; min-width: 350px; display: flex; flex-direction: column;">${renderLeaveRequests(pendingLeaves)}${renderMissedCheckoutRequests(missedCheckoutRequests)}${historyHTML}</div>
+                <div style="flex: 2; min-width: 350px; display: flex; flex-direction: column;">${renderLeaveRequests(pendingLeaves, workFromHomeRows)}${renderMissedCheckoutRequests(missedCheckoutRequests)}${historyHTML}</div>
                 <div style="flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 1rem;">${renderYearlyPlanHTML}${heroHTML}</div>
             </div>
             <div class="dashboard-stats-row">
@@ -1551,7 +1601,7 @@ export async function renderDashboard() {
                 <div class="dashboard-hero-content">
                     <div class="dashboard-hero-row">
                         <div class="dashboard-hero-copy">
-                            <h2 class="dashboard-hero-title">Welcome back, ${user.name.split(' ')[0]}! 👋</h2>
+                            <h2 class="dashboard-hero-title">Welcome back, ${user.name.split(' ')[0]}!</h2>
                             <p class="dashboard-hero-date">${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
                             ${user.rating !== undefined ? `<div class="dashboard-hero-chip-row"><div class="dashboard-hero-chip"><span class="dashboard-hero-chip-label">Your Rating:</span>${renderStarRating(user.rating, true)}</div>${user.completionStats ? `<div class="dashboard-hero-chip"><i class="fa-solid fa-check-circle dashboard-hero-chip-icon"></i><span>${(user.completionStats.completionRate * 100).toFixed(0)}% Complete</span></div>` : ''}</div>` : ''}
                         </div>
@@ -2046,4 +2096,6 @@ if (typeof window !== 'undefined') {
         }
     };
 }
+
+
 

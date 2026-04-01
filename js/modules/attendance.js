@@ -589,6 +589,8 @@ export class Attendance {
         const type = String(rawType || '').trim();
         if (!type || type === 'Manual') return 'Present';
         if (type === 'Manual/WFH') return 'Work - Home';
+        const compact = type.toLowerCase().replace(/\s+/g, '');
+        if (compact === 'wfh' || compact === 'workfromhome' || compact === 'work-home') return 'Work - Home';
         return type;
     }
 

@@ -118,6 +118,7 @@ export const AppPolicies = {
                                 <li><i class="fa-solid fa-caret-right"></i>Late arrival is marked after <strong>9:15 AM</strong>.</li>
                                 <li><i class="fa-solid fa-caret-right"></i>Every <strong>3 Late marks</strong> causes a <strong>0.5 day salary deduction</strong> (mandatory).</li>
                                 <li><i class="fa-solid fa-caret-right"></i>Final status is decided using check-in band and net worked hours.</li>
+                                <li><i class="fa-solid fa-caret-right"></i><strong>Work From Home</strong> can be requested from <strong>Request Leave</strong> and requires approval.</li>
                             </ul>
                         </div>
                         <div class="policies-zero-box">

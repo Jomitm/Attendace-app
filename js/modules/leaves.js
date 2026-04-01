@@ -154,51 +154,60 @@ export class Leaves {
 
     async requestLeave(leaveData) {
         const { userId, startDate, endDate, type, durationHours } = leaveData;
+        const rawType = String(type || '').trim();
+        const compactType = rawType.toLowerCase().replace(/\s+/g, '');
+        const normalizedType = (
+            compactType === 'work-home' ||
+            compactType === 'workfromhome' ||
+            compactType === 'wfh'
+        ) ? 'Work - Home' : rawType;
+        leaveData.type = normalizedType;
         const start = new Date(startDate);
         const end = new Date(endDate);
         let daysRequested = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
 
-        if (daysRequested <= 0 && type !== 'Short Leave') throw new Error("Invalid date range");
+        if (daysRequested <= 0 && normalizedType !== 'Short Leave') throw new Error("Invalid date range");
 
         const fy = await this.getFinancialYear(start);
-        const currentUsage = await this.getLeaveUsage(userId, type, fy);
+        const currentUsage = await this.getLeaveUsage(userId, normalizedType, fy);
 
         const policy = await this.getPolicy();
-        const rule = policy[type];
+        const rule = policy[normalizedType];
         const warnings = [];
 
-        if (type === 'Half Day') {
+        if (normalizedType === 'Half Day') {
             daysRequested = 0.5;
             leaveData.daysCount = 0.5;
-        } else if (type === 'Short Leave') {
+        } else if (normalizedType === 'Short Leave') {
             const usage = await this.getMonthlyShortLeaveUsage(userId, start);
             let requestedHrs = parseFloat(durationHours || 0);
             if (requestedHrs > 2) warnings.push("Short Leave exceeds 2 hours (standard).");
             if (usage + requestedHrs > 4) warnings.push(`Monthly Short Leave limit exceeded (${usage + requestedHrs}/4 hours).`);
             leaveData.daysCount = requestedHrs;
-
-        } else if (type === 'Annual Leave') {
+        } else if (normalizedType === 'Work - Home') {
+            leaveData.daysCount = daysRequested;
+        } else if (normalizedType === 'Annual Leave') {
             if (daysRequested < (rule.minDays || 1)) {
                 warnings.push(`Annual Leave requested is less than required minimum (${rule.minDays || 1} days).`);
             }
             if (currentUsage + daysRequested > rule.total) {
                 warnings.push(`Annual Leave balance exceeded (${currentUsage + daysRequested}/${rule.total}).`);
             }
-        } else if (type === 'Casual Leave') {
+        } else if (normalizedType === 'Casual Leave') {
             if (daysRequested > rule.maxDays) {
                 warnings.push(`Casual Leave exceeds maximum allowed per request (${rule.maxDays} days).`);
             }
             if (currentUsage + daysRequested > rule.total) {
                 warnings.push(`Casual Leave balance exceeded (${currentUsage + daysRequested}/${rule.total}).`);
             }
-        } else if (type === 'Medical Leave') {
+        } else if (normalizedType === 'Medical Leave') {
             if (currentUsage + daysRequested > rule.total) {
                 warnings.push(`Medical Leave balance exceeded (${currentUsage + daysRequested}/${rule.total}).`);
             }
             if (daysRequested > rule.certificateThreshold) {
                 leaveData.requireCertificate = true;
             }
-        } else if (type === 'Paternity Leave') {
+        } else if (normalizedType === 'Paternity Leave') {
             const user = await this.db.get('users', userId);
             const joinDate = new Date(user.joinDate);
             const serviceYears = (start - joinDate) / (1000 * 60 * 60 * 24 * 365.25);
@@ -208,9 +217,9 @@ export class Leaves {
             if (daysRequested > rule.total) {
                 warnings.push(`Paternity Leave exceeds limit of ${rule.total} days.`);
             }
-        } else if (['Study Leave', 'Compassionate Leave'].includes(type) && rule) {
+        } else if (['Study Leave', 'Compassionate Leave'].includes(normalizedType) && rule) {
             if (daysRequested > rule.total) {
-                warnings.push(`${type} exceeds limit of ${rule.total} days.`);
+                warnings.push(`${normalizedType} exceeds limit of ${rule.total} days.`);
             }
         }
 
@@ -248,6 +257,13 @@ export class Leaves {
         if (status === 'Approved') {
             const start = new Date(leave.startDate);
             const end = new Date(leave.endDate);
+            const leaveTypeCompact = String(leave.type || '').toLowerCase().replace(/\s+/g, '');
+            const normalizedType = (
+                leaveTypeCompact === 'workfromhome' ||
+                leaveTypeCompact === 'work-home' ||
+                leaveTypeCompact === 'wfh'
+            ) ? 'Work - Home' : leave.type;
+            const isWorkFromHome = normalizedType === 'Work - Home';
 
             let current = new Date(start);
             while (current <= end) {
@@ -259,8 +275,8 @@ export class Leaves {
                     checkIn: '09:00',
                     checkOut: '17:00',
                     duration: '8h 0m',
-                    location: 'On Leave',
-                    type: leave.type,
+                    location: isWorkFromHome ? 'Work - Home' : 'On Leave',
+                    type: isWorkFromHome ? 'Work - Home' : normalizedType,
                     status: 'in',
                     synced: false
                 };

@@ -157,6 +157,7 @@ export function renderModals() {
                             <option value="National Holiday">National Holiday</option>
                             <option value="Holiday">Holiday</option>
                             <option value="Absent">Absent</option>
+                            <option value="Work - Home">Work from Home</option>
                         </select>
                     </label>
                     <label>Reason

@@ -5644,8 +5644,15 @@ textarea:focus {
     --dashboard-primary-equal-card-h: clamp(240px, 30vh, 290px);
 }
 
+.dashboard-admin-view {
+    --dashboard-primary-equal-card-h: clamp(240px, 30vh, 290px);
+}
+
 @media (max-width: 1024px) {
     .dashboard-staff-view {
+        --dashboard-primary-equal-card-h: clamp(220px, 28vh, 270px);
+    }
+    .dashboard-admin-view {
         --dashboard-primary-equal-card-h: clamp(220px, 28vh, 270px);
     }
 }
@@ -5654,14 +5661,21 @@ textarea:focus {
     .dashboard-staff-view {
         --dashboard-primary-equal-card-h: 280px;
     }
+    .dashboard-admin-view {
+        --dashboard-primary-equal-card-h: 280px;
+    }
 }
 
 .dashboard-primary-row > .dashboard-primary-col {
     display: flex;
 }
 
-.dashboard-primary-row > .dashboard-primary-col > .dashboard-worklog-card,
-.dashboard-primary-row > .dashboard-primary-col > .dashboard-team-schedule-card {
+.dashboard-staff-view .dashboard-primary-row > .dashboard-primary-col > .dashboard-worklog-card,
+.dashboard-staff-view .dashboard-primary-row > .dashboard-primary-col > .dashboard-team-schedule-card,
+.dashboard-staff-view .dashboard-primary-row > .dashboard-primary-col > .dashboard-team-activity-card,
+.dashboard-admin-view .dashboard-primary-row > .dashboard-primary-col > .dashboard-worklog-card,
+.dashboard-admin-view .dashboard-primary-row > .dashboard-primary-col > .dashboard-team-schedule-card,
+.dashboard-admin-view .dashboard-primary-row > .dashboard-primary-col > .dashboard-team-activity-card {
     width: 100%;
     height: var(--dashboard-primary-equal-card-h) !important;
     min-height: var(--dashboard-primary-equal-card-h) !important;
@@ -5670,7 +5684,11 @@ textarea:focus {
 }
 
 .dashboard-staff-view .dashboard-worklog-card.dashboard-card-mode-tile,
-.dashboard-staff-view .dashboard-team-schedule-card.dashboard-card-mode-tile {
+.dashboard-staff-view .dashboard-team-schedule-card.dashboard-card-mode-tile,
+.dashboard-staff-view .dashboard-team-activity-card.dashboard-card-mode-tile,
+.dashboard-admin-view .dashboard-worklog-card.dashboard-card-mode-tile,
+.dashboard-admin-view .dashboard-team-schedule-card.dashboard-card-mode-tile,
+.dashboard-admin-view .dashboard-team-activity-card.dashboard-card-mode-tile {
     height: var(--dashboard-primary-equal-card-h) !important;
     min-height: var(--dashboard-primary-equal-card-h) !important;
     max-height: var(--dashboard-primary-equal-card-h) !important;
@@ -5685,7 +5703,8 @@ textarea:focus {
     overflow-y: auto;
 }
 
-.dashboard-primary-row > .dashboard-primary-col > .dashboard-worklog-card .dashboard-worklog-list {
+.dashboard-staff-view .dashboard-primary-row > .dashboard-primary-col > .dashboard-worklog-card .dashboard-worklog-list,
+.dashboard-admin-view .dashboard-primary-row > .dashboard-primary-col > .dashboard-worklog-card .dashboard-worklog-list {
     flex: 1 1 auto;
     min-height: 0;
     max-height: none;

@@ -125,7 +125,7 @@ export async function renderMasterSheet(month = null, year = null) {
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
                     <div>
                         <h2 style="font-size:1.1rem; margin-bottom:0.1rem;">Attendance Sheet</h2>
-                        <p style="color:var(--text-muted); font-size:0.75rem;">Master grid view for all staff logs.</p>
+                        <p style="color:var(--text-muted); font-size:0.75rem;">Master grid view for all staff logs, including Work From Home (WFH).</p>
                     </div>
                     <div style="display:flex; gap:0.5rem; align-items:center;">
                         <select onchange="window.app_refreshMasterSheet()" id="sheet-month" style="padding:0.4rem; border-radius:6px; border:1px solid #ddd; font-size:0.8rem;">
@@ -203,7 +203,7 @@ export async function renderMasterSheet(month = null, year = null) {
                 else if (type === 'Absent') { cellStyle = 'color: #ef4444; font-weight: bold;'; cellContent = 'A'; }
                 else if (type.includes('Leave') && type.includes('Half Day')) { cellStyle = 'color: #7c3aed; font-weight: bold;'; cellContent = 'HD'; }
                 else if (type.includes('Leave')) { cellStyle = 'color: #8b5cf6; font-weight: bold;'; cellContent = 'C'; }
-                else if (type === 'Work - Home') { cellStyle = 'color: #0ea5e9; font-weight: bold;'; cellContent = 'W'; }
+                else if (type === 'Work - Home' || /work\s*[- ]?\s*from\s*[- ]?\s*home|wfh/i.test(String(type || ''))) { cellStyle = 'color: #0ea5e9; font-weight: bold;'; cellContent = 'W'; }
                 else if (type === 'On Duty') { cellStyle = 'color: #0369a1; font-weight: bold;'; cellContent = 'D'; }
 
                 if (log.isManualOverride) {
