@@ -41,130 +41,6 @@ const esc = (v) => String(v ?? '')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 
-// --- @mention Autocomplete Helpers ---
-
-function getCaretCoordinates(element, position) {
-    const div = document.createElement('div');
-    const style = window.getComputedStyle(element);
-    for (const prop of style) {
-        div.style[prop] = style[prop];
-    }
-    div.style.position = 'absolute';
-    div.style.visibility = 'hidden';
-    div.style.whiteSpace = 'pre-wrap';
-    div.style.width = style.width;
-    div.style.height = 'auto';
-
-    const text = element.value.substring(0, position);
-    div.textContent = text;
-    const span = document.createElement('span');
-    span.textContent = element.value.substring(position) || '.';
-    div.appendChild(span);
-
-    document.body.appendChild(div);
-    const { offsetLeft: spanLeft, offsetTop: spanTop } = span;
-    const rect = element.getBoundingClientRect();
-    document.body.removeChild(div);
-
-    return {
-        top: rect.top + spanTop - element.scrollTop,
-        left: rect.left + spanLeft - element.scrollLeft
-    };
-}
-
-function setupMentionAutocomplete(textarea, allUsers, onSelect) {
-    let dropdown = document.getElementById('mention-dropdown');
-    if (!dropdown) {
-        dropdown = createElement('div', { id: 'mention-dropdown', className: 'mention-dropdown' });
-        document.body.appendChild(dropdown);
-    } else if (dropdown.parentElement !== document.body) {
-        document.body.appendChild(dropdown);
-    }
-
-    let activeIndex = 0;
-    let filteredUsers = [];
-    let mentionStart = -1;
-
-    const closeDropdown = () => {
-        dropdown.style.display = 'none';
-        mentionStart = -1;
-    };
-
-    const renderDropdown = () => {
-        if (filteredUsers.length === 0) return closeDropdown();
-        dropdown.innerHTML = '';
-        filteredUsers.forEach((user, i) => {
-            const item = createElement('div', {
-                className: `mention-item ${i === activeIndex ? 'active' : ''}`,
-                innerHTML: `
-                    <img src="${user.avatar || 'https://via.placeholder.com/32'}" class="mention-item-avatar">
-                    <span class="mention-item-name">${user.name}</span>
-                    <span class="mention-item-role">${user.role || 'Staff'}</span>
-                `
-            });
-            item.addEventListener('click', () => selectUser(user));
-            dropdown.appendChild(item);
-        });
-
-        const coords = getCaretCoordinates(textarea, mentionStart);
-        dropdown.style.top = `${coords.top + 24}px`;
-        dropdown.style.left = `${coords.left}px`;
-        dropdown.style.display = 'block';
-    };
-
-    const selectUser = (user) => {
-        const text = textarea.value;
-        const before = text.substring(0, mentionStart);
-        const after = text.substring(textarea.selectionStart);
-        textarea.value = `${before}@${user.name} ${after}`;
-        textarea.focus();
-        closeDropdown();
-        if (onSelect) onSelect();
-    };
-
-    textarea.addEventListener('input', () => {
-        const text = textarea.value;
-        const pos = textarea.selectionStart;
-        const lastAt = text.lastIndexOf('@', pos - 1);
-
-        if (lastAt !== -1 && (lastAt === 0 || /\s/.test(text[lastAt - 1]))) {
-            const query = text.substring(lastAt + 1, pos).toLowerCase();
-            if (!/\s/.test(query)) {
-                mentionStart = lastAt;
-                filteredUsers = allUsers.filter(u => u.name.toLowerCase().includes(query)).slice(0, 8);
-                activeIndex = 0;
-                renderDropdown();
-                return;
-            }
-        }
-        closeDropdown();
-        if (onSelect) onSelect();
-    });
-
-    textarea.addEventListener('keydown', (e) => {
-        if (dropdown.style.display === 'block') {
-            if (e.key === 'ArrowDown') {
-                e.preventDefault();
-                activeIndex = (activeIndex + 1) % filteredUsers.length;
-                renderDropdown();
-            } else if (e.key === 'ArrowUp') {
-                e.preventDefault();
-                activeIndex = (activeIndex - 1 + filteredUsers.length) % filteredUsers.length;
-                renderDropdown();
-            } else if (e.key === 'Enter' || e.key === 'Tab') {
-                e.preventDefault();
-                selectUser(filteredUsers[activeIndex]);
-            } else if (e.key === 'Escape') {
-                closeDropdown();
-            }
-        }
-    });
-
-    document.addEventListener('click', (e) => {
-        if (!dropdown.contains(e.target) && e.target !== textarea) closeDropdown();
-    });
-}
-
 // --- UI Components ---
 
 function createDayPlanHeader(date, isEditingOther, headerName, hasAnyExistingPlan, targetId) {
@@ -326,43 +202,15 @@ export function openPlanEditor(args) {
 
     const head = createElement('div', {
         className: 'plan-editor-head',
-        innerHTML: `<h4>${existingBlock ? 'Edit' : 'Add'} ${scope === 'annual' ? 'Annual' : 'Personal'} Plan <small style="font-weight:400; opacity:0.7; font-size:0.8em; margin-left:5px;">(Use @ to tag)</small></h4>`
+        innerHTML: `<h4>${existingBlock ? 'Edit' : 'Add'} ${scope === 'annual' ? 'Annual' : 'Personal'} Plan</h4>`
     });
 
     const body = createElement('div', { className: 'plan-editor-body' });
     const textarea = createElement('textarea', {
         className: 'plan-editor-textarea',
         textContent: planData.task,
-        attributes: { placeholder: 'What is the objective or task for today? Use @ to tag colleagues.', required: true }
+        attributes: { placeholder: 'What is the objective or task for today?', required: true }
     });
-
-    const tagsContainer = createElement('div', { className: 'plan-editor-tags-container', attributes: { style: 'display: none;' } });
-    const refreshTagsUI = () => {
-        const text = textarea.value;
-        const extractedTags = [];
-
-        // Improved extraction: search for @Name sequences that match real users
-        allUsers.forEach(u => {
-            const mentionStr = `@${u.name}`;
-            if (text.includes(mentionStr) && !extractedTags.find(t => t.id === u.id)) {
-                extractedTags.push(u);
-            }
-        });
-
-        if (extractedTags.length > 0) {
-            tagsContainer.style.display = 'block';
-            tagsContainer.innerHTML = `<label class="plan-editor-tags-label">Tagged Collaborators:</label>`;
-            const wrapper = createElement('div', { className: 'plan-editor-tags-wrapper' });
-            extractedTags.forEach(u => {
-                const pill = createElement('span', { className: 'day-plan-tag-pill', textContent: `@${u.name}` });
-                wrapper.appendChild(pill);
-            });
-            tagsContainer.appendChild(wrapper);
-        } else {
-            tagsContainer.style.display = 'none';
-            tagsContainer.innerHTML = '';
-        }
-    };
 
     const grid = createElement('div', { className: 'plan-editor-grid' });
 
@@ -393,7 +241,6 @@ export function openPlanEditor(args) {
     }
 
     body.appendChild(textarea);
-    body.appendChild(tagsContainer);
     body.appendChild(grid);
 
     const footer = createElement('div', { className: 'plan-editor-footer' });
@@ -409,24 +256,12 @@ export function openPlanEditor(args) {
             const taskText = textarea.value.trim();
             if (!taskText) return alert('Please enter a task description');
 
-            // Extract tags from @mentions (match against real users to handle spaces)
-            const extractedTags = [];
-            allUsers.forEach(u => {
-                if (taskText.includes(`@${u.name}`) && !extractedTags.find(t => t.id === u.id)) {
-                    extractedTags.push({
-                        id: u.id,
-                        name: u.name,
-                        status: 'pending'
-                    });
-                }
-            });
-
             const updatedPlan = {
                 ...planData,
                 task: taskText,
                 status: statusSelect.value,
                 assignedTo: assignSelect ? assignSelect.value : (planData.assignedTo || targetId),
-                tags: extractedTags.length > 0 ? extractedTags : (planData.tags || [])
+                tags: Array.isArray(planData.tags) ? planData.tags : []
             };
 
             const blockArgs = {
@@ -459,8 +294,6 @@ export function openPlanEditor(args) {
 
     document.getElementById('modal-container').appendChild(overlay);
     textarea.focus();
-    setupMentionAutocomplete(textarea, allUsers, refreshTagsUI);
-    refreshTagsUI();
 }
 
 // --- Main Functions ---
