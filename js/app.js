@@ -9023,7 +9023,6 @@ const APP_STAFF_DATA_RESET_COLLECTIONS = [
     'meetings',
     'minutes',
     'salaries',
-    'birthday_people',
     'location_audits',
     'system_audit_logs',
     'system_commands',
@@ -9046,6 +9045,90 @@ const app_isPermissionDeniedError = (error) => {
     const message = String(error?.message || '').toLowerCase();
     return code.includes('permission-denied')
         || message.includes('missing or insufficient permissions');
+};
+
+const app_normalizeToIsoDate = (value) => {
+    if (value === null || value === undefined) return '';
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return value.toISOString().split('T')[0];
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        const asDate = new Date(value);
+        if (!Number.isNaN(asDate.getTime())) return asDate.toISOString().split('T')[0];
+        return '';
+    }
+
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    if (/^\d{4}-\d{2}$/.test(raw)) return `${raw}-01`;
+    if (/^\d{4}-\d{2}-\d{2}T/i.test(raw)) return raw.slice(0, 10);
+    if (/^\d+$/.test(raw)) {
+        const asDate = new Date(Number(raw));
+        if (!Number.isNaN(asDate.getTime())) return asDate.toISOString().split('T')[0];
+    }
+
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().split('T')[0];
+    return '';
+};
+
+const app_getCollectionDateKeys = (collection) => {
+    switch (collection) {
+    case 'attendance':
+        return ['date', 'createdAt', 'updatedAt'];
+    case 'work_plans':
+        return ['date', 'createdAt', 'updatedAt'];
+    case 'staff_messages':
+        return ['createdAt', 'date', 'updatedAt'];
+    case 'meetings':
+        return ['date', 'timestamp', 'createdAt', 'updatedAt'];
+    case 'minutes':
+        return ['date', 'createdAt', 'updatedAt', 'timestamp'];
+    case 'salaries':
+        return ['payDate', 'processedAt', 'month', 'periodStart', 'periodEnd', 'createdAt', 'updatedAt'];
+    case 'birthday_people':
+        return ['date', 'birthDate', 'dob', 'createdAt', 'updatedAt'];
+    case 'location_audits':
+        return ['timestamp', 'date', 'createdAt', 'updatedAt'];
+    case 'system_audit_logs':
+        return ['createdAt', 'timestamp', 'date', 'updatedAt'];
+    case 'system_commands':
+        return ['timestamp', 'createdAt', 'date', 'updatedAt'];
+    case 'daily_summaries':
+        return ['date', 'summaryDate', 'createdAt', 'updatedAt', 'id'];
+    case 'daily_summaries_meta':
+        return ['date', 'createdAt', 'updatedAt', 'lastSuccessAt', 'id'];
+    case 'summary_locks':
+        return ['date', 'createdAt', 'updatedAt', 'lockedAt', 'expiresAt', 'id'];
+    default:
+        return ['date', 'createdAt', 'updatedAt', 'timestamp', 'id'];
+    }
+};
+
+const app_rowMatchesRange = (collection, row, startIso, endIso) => {
+    if (!startIso || !endIso) return { matches: true, hasDate: true };
+    if (!row || typeof row !== 'object') return { matches: false, hasDate: false };
+
+    if (collection === 'leaves') {
+        const leaveStart = app_normalizeToIsoDate(row.startDate || row.appliedOn || row.createdAt || row.date);
+        const leaveEnd = app_normalizeToIsoDate(row.endDate || row.startDate || row.appliedOn || row.createdAt || row.date);
+        if (!leaveStart && !leaveEnd) return { matches: false, hasDate: false };
+        const resolvedStart = leaveStart || leaveEnd;
+        const resolvedEnd = leaveEnd || leaveStart;
+        const overlap = !(resolvedEnd < startIso || resolvedStart > endIso);
+        return { matches: overlap, hasDate: true };
+    }
+
+    const keys = app_getCollectionDateKeys(collection);
+    for (const key of keys) {
+        const dateValue = app_normalizeToIsoDate(row[key]);
+        if (!dateValue) continue;
+        return { matches: dateValue >= startIso && dateValue <= endIso, hasDate: true };
+    }
+
+    return { matches: false, hasDate: false };
 };
 
 const app_downloadJsonFile = (payload, fileName) => {
@@ -9218,15 +9301,29 @@ window.app_backupStaffDataCSV = async () => {
     return { success: true, downloadedFiles, counts, warnings };
 };
 
-window.app_resetStaffData = async () => {
+window.app_resetStaffData = async (options = {}) => {
     const user = window.AppAuth?.getUser?.();
     if (!app_canManageStaffData(user)) {
         alert('Only admin users can reset staff data.');
         return;
     }
 
+    const startIso = app_normalizeToIsoDate(options.startDate || '');
+    const endIso = app_normalizeToIsoDate(options.endDate || '');
+    const hasRangeFilter = !!(startIso || endIso);
+    if ((startIso && !endIso) || (!startIso && endIso)) {
+        alert('Please select both From Date and To Date for range reset.');
+        return;
+    }
+    if (hasRangeFilter && startIso > endIso) {
+        alert('From Date cannot be after To Date.');
+        return;
+    }
+    const rangeLabel = hasRangeFilter ? `${startIso} to ${endIso}` : 'All dates';
+    const isFullReset = !hasRangeFilter;
+
     const confirmed = await window.appConfirm(
-        'This will permanently remove staff activity data (attendance, leaves, plans, messages, audits, minutes, and related records). User accounts will be kept. Continue?'
+        `This will permanently remove staff activity data (attendance, leaves, plans, messages, audits, minutes, and related records) for: ${rangeLabel}. User accounts will be kept. Continue?`
     );
     if (!confirmed) return;
 
@@ -9244,7 +9341,10 @@ window.app_resetStaffData = async () => {
 
     let backupInfo = null;
     try {
-        backupInfo = await window.app_backupStaffData({ reason: 'pre_reset_backup', showSuccess: false });
+        backupInfo = await window.app_backupStaffData({
+            reason: hasRangeFilter ? `pre_reset_backup_${startIso}_to_${endIso}` : 'pre_reset_backup',
+            showSuccess: false
+        });
     } catch (error) {
         console.error('Pre-reset backup failed:', error);
         alert(`Reset cancelled because backup failed: ${error.message}`);
@@ -9256,44 +9356,109 @@ window.app_resetStaffData = async () => {
     }
 
     const deletedCounts = {};
+    const noDateCounts = {};
+    const permissionSkipped = [];
+    const verificationRemaining = {};
     const errors = [];
 
     for (const collection of APP_STAFF_DATA_RESET_COLLECTIONS) {
         try {
-            const deleted = window.AppDB.deleteAllInCollection
-                ? await window.AppDB.deleteAllInCollection(collection)
+            if (isFullReset) {
+                const deleted = window.AppDB.deleteAllInCollection
+                    ? await window.AppDB.deleteAllInCollection(collection, { source: 'server' })
+                    : 0;
+                deletedCounts[collection] = Number(deleted || 0);
+                continue;
+            }
+
+            const rows = await window.AppDB.getAll(collection, { source: 'server' });
+            const idsToDelete = [];
+            let noDate = 0;
+            for (const row of (rows || [])) {
+                const match = app_rowMatchesRange(collection, row, startIso, endIso);
+                if (!match.hasDate) noDate += 1;
+                if (match.matches && row?.id) idsToDelete.push(String(row.id));
+            }
+
+            const deleted = idsToDelete.length && window.AppDB.deleteMany
+                ? await window.AppDB.deleteMany(collection, idsToDelete)
                 : 0;
+
             deletedCounts[collection] = Number(deleted || 0);
+            if (noDate > 0) noDateCounts[collection] = noDate;
         } catch (error) {
+            if (app_isPermissionDeniedError(error)) {
+                deletedCounts[collection] = Number(deletedCounts[collection] || 0);
+                permissionSkipped.push(collection);
+                continue;
+            }
             console.error(`Failed resetting ${collection}:`, error);
             deletedCounts[collection] = Number(deletedCounts[collection] || 0);
             errors.push(`${collection}: ${error.message}`);
         }
     }
 
-    let usersUpdated = 0;
-    try {
-        const users = await window.AppDB.getAll('users');
-        for (const row of users) {
-            if (!row || !row.id) continue;
-            await window.AppDB.put('users', {
-                id: row.id,
-                status: 'out',
-                lastCheckIn: null,
-                lastCheckOut: null,
-                currentLocation: null,
-                notifications: [],
-                lastSeen: null
-            });
-            usersUpdated += 1;
+    for (const collection of APP_STAFF_DATA_RESET_COLLECTIONS) {
+        try {
+            const rows = await window.AppDB.getAll(collection, { source: 'server', silentPermissionDenied: true });
+            let stillPresent = 0;
+            if (isFullReset) {
+                stillPresent = Number((rows || []).length || 0);
+            } else {
+                stillPresent = Number((rows || []).filter((row) => app_rowMatchesRange(collection, row, startIso, endIso).matches).length || 0);
+            }
+            if (stillPresent > 0) verificationRemaining[collection] = stillPresent;
+        } catch (error) {
+            if (!app_isPermissionDeniedError(error)) {
+                errors.push(`verify(${collection}): ${error.message}`);
+            }
         }
-    } catch (error) {
-        console.error('Failed to normalize users after reset:', error);
-        errors.push(`users(normalization): ${error.message}`);
+    }
+
+    let usersUpdated = 0;
+    if (isFullReset) {
+        try {
+            const users = await window.AppDB.getAll('users');
+            for (const row of users) {
+                if (!row || !row.id) continue;
+                await window.AppDB.put('users', {
+                    id: row.id,
+                    status: 'out',
+                    lastCheckIn: null,
+                    lastCheckOut: null,
+                    currentLocation: null,
+                    notifications: [],
+                    lastSeen: null
+                });
+                usersUpdated += 1;
+            }
+        } catch (error) {
+            console.error('Failed to normalize users after reset:', error);
+            errors.push(`users(normalization): ${error.message}`);
+        }
     }
 
     const deletedTotal = Object.values(deletedCounts).reduce((sum, n) => sum + Number(n || 0), 0);
-    const summaryText = `Backup: ${backupInfo.fileName}\nDeleted records: ${deletedTotal}\nUsers normalized: ${usersUpdated}`;
+    const noDateTotal = Object.values(noDateCounts).reduce((sum, n) => sum + Number(n || 0), 0);
+    const verifyRemainingTotal = Object.values(verificationRemaining).reduce((sum, n) => sum + Number(n || 0), 0);
+    const summaryText = [
+        `Backup: ${backupInfo.fileName}`,
+        `Range: ${rangeLabel}`,
+        `Deleted records: ${deletedTotal}`,
+        `Users normalized: ${usersUpdated}`,
+        noDateTotal > 0 ? `Skipped (no date in selected mode): ${noDateTotal}` : '',
+        permissionSkipped.length ? `Skipped (permission denied): ${permissionSkipped.join(', ')}` : '',
+        verifyRemainingTotal > 0 ? `Still present after reset: ${verifyRemainingTotal}` : 'Verification: no matching records remain on Firestore'
+    ].filter(Boolean).join('\n');
+
+    try {
+        if (window.AppDB?.cache?.clear) window.AppDB.cache.clear();
+        if (window.AppAnalytics?.memo?.clear) window.AppAnalytics.memo.clear();
+        if (window.AppLeaves?.cache && typeof window.AppLeaves.cache === 'object') window.AppLeaves.cache = {};
+        window._currentPlans = null;
+    } catch {
+        // ignore cache reset errors
+    }
 
     if (window.AppAuth?.refreshCurrentUserFromDB) {
         try { await window.AppAuth.refreshCurrentUserFromDB(); } catch { /* ignore */ }

@@ -1384,7 +1384,9 @@ export class Analytics {
                             staffName: staffName,
                             status: effectiveStatus,
                             _displayDesc: plan.task,
-                            _sortTime: '09:00' // Default sort time for plans
+                            // Work plans are date-based tasks and may not have an actual time.
+                            // Keep this empty so UI can show '--' instead of a fake default time.
+                            _sortTime: ''
                         });
                     });
                 }

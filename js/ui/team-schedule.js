@@ -41,7 +41,7 @@ export const renderYearlyPlan = (plans) => {
     window._currentPlans = plans;
 
     return `
-        <div class="card" style="padding: 0.75rem; display:flex; flex-direction:column;">
+        <div class="card dashboard-team-schedule-card" style="padding: 0.75rem; display:flex; flex-direction:column;">
             <div style="margin-bottom:0.75rem; border-bottom:1px solid #f3f4f6; padding-bottom:0.4rem;">
                     <h4 style="margin:0; color:#1f2937; font-size: 1rem;">Team Schedule</h4>
                     <span style="font-size:0.7rem; color:#6b7280;">Planned Leaves & Events</span>

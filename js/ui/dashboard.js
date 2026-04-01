@@ -9,6 +9,255 @@ import { renderYearlyPlan } from './team-schedule.js';
 import { AppConfig } from '../config.js';
 
 const escapeJsSingleQuote = (value) => String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+const DASHBOARD_MAX_OVERLAY_ID = 'dashboard-card-max-overlay';
+const DASHBOARD_MAX_TITLE_ID = 'dashboard-card-max-title';
+const DASHBOARD_MAX_BODY_ID = 'dashboard-card-max-body';
+const DASHBOARD_CARD_MODE_TILE = 'tile';
+const DASHBOARD_CARD_MODE_ORIGINAL = 'original';
+const DASHBOARD_CARD_MODE_FULLSCREEN = 'fullscreen';
+const DASHBOARD_CARD_MODES = new Set([DASHBOARD_CARD_MODE_TILE, DASHBOARD_CARD_MODE_ORIGINAL, DASHBOARD_CARD_MODE_FULLSCREEN]);
+const DASHBOARD_CARD_CONTROL_EXCLUDED_CLASSES = ['dashboard-hero-card'];
+
+const ensureDashboardMaxOverlay = () => {
+    let overlay = document.getElementById(DASHBOARD_MAX_OVERLAY_ID);
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = DASHBOARD_MAX_OVERLAY_ID;
+        overlay.className = 'dashboard-max-overlay';
+        overlay.innerHTML = `
+            <div class="dashboard-max-window" role="dialog" aria-modal="true" aria-labelledby="${DASHBOARD_MAX_TITLE_ID}">
+                <div class="dashboard-max-header">
+                    <h2 id="${DASHBOARD_MAX_TITLE_ID}"></h2>
+                    <button type="button" class="dashboard-max-close" onclick="window.app_closeDashboardCardMaximize?.()" aria-label="Close maximized card">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <div id="${DASHBOARD_MAX_BODY_ID}" class="dashboard-max-body"></div>
+            </div>
+        `;
+        overlay.addEventListener('click', (event) => {
+            if (event.target === overlay) window.app_closeDashboardCardMaximize?.();
+        });
+        document.body.appendChild(overlay);
+    }
+    return overlay;
+};
+
+const setDashboardBodyScrollLock = (locked) => {
+    if (!document?.body) return;
+    document.body.classList.toggle('dashboard-max-open', !!locked);
+};
+
+const closeDashboardMaxOverlay = () => {
+    const closingCardId = window._dashboardMaxCardId ? String(window._dashboardMaxCardId) : '';
+    const overlay = document.getElementById(DASHBOARD_MAX_OVERLAY_ID);
+    if (overlay) {
+        overlay.classList.remove('open');
+        overlay.remove();
+    }
+    const body = document.getElementById(DASHBOARD_MAX_BODY_ID);
+    if (body) body.innerHTML = '';
+    setDashboardBodyScrollLock(false);
+    if (document?.body) document.body.style.overflow = '';
+    const trigger = window._dashboardMaxTriggerEl;
+    window._dashboardMaxTriggerEl = null;
+    window._dashboardMaxCardId = null;
+    if (closingCardId) {
+        const cardEl = getDashboardCardElementById(closingCardId);
+        if (cardEl) {
+            setDashboardCardModeClass(cardEl, DASHBOARD_CARD_MODE_TILE);
+            cardEl.dataset.dashboardCardMode = DASHBOARD_CARD_MODE_TILE;
+        }
+        if (window._dashboardCardModeState) {
+            window._dashboardCardModeState[closingCardId] = DASHBOARD_CARD_MODE_TILE;
+        }
+    }
+    if (trigger && typeof trigger.focus === 'function') {
+        try { trigger.focus(); } catch { /* ignore */ }
+    }
+};
+
+const openDashboardMaxOverlay = (cardId, triggerEl = null) => {
+    closeDashboardMaxOverlay();
+    const template = (window._dashboardCardTemplates || {})[cardId];
+    if (!template) return;
+    const overlay = ensureDashboardMaxOverlay();
+    const title = document.getElementById(DASHBOARD_MAX_TITLE_ID);
+    const body = document.getElementById(DASHBOARD_MAX_BODY_ID);
+    if (!title || !body) return;
+    title.textContent = template.title || 'Dashboard Card';
+    body.innerHTML = `<div class="dashboard-max-card-content">${template.expandedHtml || template.originalHtml || template.tileHtml || ''}</div>`;
+    window._dashboardMaxTriggerEl = triggerEl;
+    window._dashboardMaxCardId = cardId;
+    setDashboardBodyScrollLock(true);
+    overlay.classList.add('open');
+    const closeBtn = overlay.querySelector('.dashboard-max-close');
+    if (closeBtn) {
+        try { closeBtn.focus(); } catch { /* ignore */ }
+    }
+};
+
+const getDashboardCardElementById = (cardId) => {
+    if (!cardId) return null;
+    return document.querySelector(`.dashboard-staff-view .card[data-dashboard-card-id="${cardId}"]`);
+};
+
+const setDashboardCardModeClass = (cardEl, mode) => {
+    if (!cardEl) return;
+    cardEl.classList.remove('dashboard-card-mode-tile', 'dashboard-card-mode-original');
+    if (mode === DASHBOARD_CARD_MODE_ORIGINAL) {
+        cardEl.classList.add('dashboard-card-mode-original');
+        if (cardEl.dataset.dashboardOriginalFullWidth === '1') {
+            cardEl.classList.add('full-width');
+        }
+    } else {
+        cardEl.classList.add('dashboard-card-mode-tile');
+        cardEl.classList.remove('full-width');
+    }
+};
+
+const applyDashboardCardMode = (cardId, mode, triggerEl = null) => {
+    if (!DASHBOARD_CARD_MODES.has(mode)) return;
+    const cards = document.querySelectorAll('.dashboard-staff-view .card[data-dashboard-card-id]');
+    if (!cards.length) return;
+    cards.forEach((card) => {
+        const isTarget = card.dataset.dashboardCardId === String(cardId);
+        const nextMode = isTarget ? mode : DASHBOARD_CARD_MODE_TILE;
+        setDashboardCardModeClass(card, nextMode);
+        card.dataset.dashboardCardMode = nextMode;
+    });
+    window._dashboardCardModeState = window._dashboardCardModeState || {};
+    window._dashboardCardModeState[cardId] = mode;
+    window._dashboardActiveCardModeId = cardId;
+    if (mode === DASHBOARD_CARD_MODE_FULLSCREEN) {
+        openDashboardMaxOverlay(cardId, triggerEl || getDashboardCardElementById(cardId));
+    } else {
+        closeDashboardMaxOverlay();
+    }
+};
+
+const getDashboardCardTitle = (cardEl) => {
+    const heading = cardEl.querySelector('.dashboard-card-title, .dashboard-stats-card-title, .dashboard-worklog-head h4, .dashboard-team-activity-head h4, .dashboard-staff-directory-head h4, .dashboard-tagged-head h4, .dashboard-leave-requests-head h4, .dashboard-leave-history-head h4, h3, h4');
+    const text = String(heading?.textContent || '').trim();
+    return text || 'Dashboard Card';
+};
+
+const getDashboardCardId = (cardEl, index) => {
+    if (cardEl.classList.contains('dashboard-worklog-card')) return 'worklog';
+    if (cardEl.classList.contains('dashboard-team-activity-card')) return 'team-activity';
+    if (cardEl.classList.contains('dashboard-staff-directory-card')) return 'staff-directory';
+    if (cardEl.classList.contains('dashboard-leave-requests-card')) return 'leave-requests';
+    if (cardEl.classList.contains('dashboard-leave-history-card')) return 'leave-history';
+    if (cardEl.classList.contains('dashboard-tagged-card')) return 'missed-checkout';
+    if (cardEl.classList.contains('dashboard-stats-card')) {
+        return `stats-${cardEl.getAttribute('data-stats-type') || index}`;
+    }
+    return `dashboard-card-${index}`;
+};
+
+const buildExpandedCardTemplate = (cardEl) => {
+    let html = cardEl.innerHTML || '';
+    html = html
+        .replace(/<div[^>]*class="[^"]*dashboard-card-mode-controls[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '')
+        .replace(/<button[^>]*class="[^"]*dashboard-card-max-btn[^"]*"[^>]*>[\s\S]*?<\/button>/gi, '')
+        .replace(/<button[^>]*class="[^"]*dashboard-expand-inline-btn[^"]*"[^>]*>[\s\S]*?<\/button>/gi, '');
+    if (cardEl.classList.contains('dashboard-worklog-card')) {
+        html = html
+            .replace(/id="act-start"/g, 'id="act-start-max"')
+            .replace(/id="act-end"/g, 'id="act-end-max"')
+            .replace(/id="activity-list"/g, 'id="activity-list-max"')
+            .replace(/window\.app_filterActivity\(\)/g, "window.app_filterActivity?.('act-start-max','act-end-max','activity-list-max')");
+    }
+    if (cardEl.classList.contains('dashboard-team-activity-card')) {
+        html = html
+            .replace(/id="staff-activity-list"/g, 'id="staff-activity-list-max"')
+            .replace(/id="staff-activity-range-label"/g, 'id="staff-activity-range-label-max"')
+            .replace(/window\.app_setStaffActivityMonth\(this\.value\)/g, "window.app_setStaffActivityMonth(this.value, 'staff-activity-list-max', 'staff-activity-range-label-max')")
+            .replace(/window\.app_setStaffActivitySort\(this\.value\)/g, "window.app_setStaffActivitySort(this.value, 'staff-activity-list-max', 'staff-activity-range-label-max')");
+    }
+    if (cardEl.classList.contains('dashboard-stats-card')) {
+        const statType = String(cardEl.getAttribute('data-stats-type') || '').trim();
+        if (statType) {
+            html += renderStatsDetailInline(statType);
+        }
+    }
+    return html;
+};
+
+const buildOriginalCardTemplate = (cardEl) => {
+    let html = cardEl.innerHTML || '';
+    html = html
+        .replace(/<div[^>]*class="[^"]*dashboard-card-mode-controls[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '')
+        .replace(/<button[^>]*class="[^"]*dashboard-card-max-btn[^"]*"[^>]*>[\s\S]*?<\/button>/gi, '');
+    return html;
+};
+
+const createDashboardModeButton = (cardId, title, mode) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `dashboard-card-mode-btn dashboard-card-mode-btn-${mode}`;
+    btn.setAttribute('data-mode', mode);
+    btn.setAttribute('aria-label', `${mode === DASHBOARD_CARD_MODE_ORIGINAL ? 'Show original size' : 'Show fullscreen'} ${title}`);
+    btn.innerHTML = mode === DASHBOARD_CARD_MODE_ORIGINAL
+        ? '<i class="fa-solid fa-up-right-and-down-left-from-center"></i>'
+        : '<i class="fa-solid fa-expand"></i>';
+    btn.addEventListener('click', () => window.app_toggleDashboardCardMode?.(cardId, mode, btn));
+    return btn;
+};
+
+const ensureDashboardCardControls = (card, cardId, title) => {
+    let controls = card.querySelector('.dashboard-card-mode-controls');
+    if (!controls) {
+        controls = document.createElement('div');
+        controls.className = 'dashboard-card-mode-controls';
+        controls.setAttribute('role', 'group');
+        controls.setAttribute('aria-label', `${title} view controls`);
+        controls.appendChild(createDashboardModeButton(cardId, title, DASHBOARD_CARD_MODE_FULLSCREEN));
+        card.appendChild(controls);
+    } else {
+        controls.innerHTML = '';
+        controls.appendChild(createDashboardModeButton(cardId, title, DASHBOARD_CARD_MODE_FULLSCREEN));
+    }
+};
+
+const initDashboardCardControls = () => {
+    const root = document.querySelector('.dashboard-staff-view');
+    if (!root) return;
+    const cards = root.querySelectorAll('.card');
+    const templates = {};
+
+    Array.from(cards).forEach((card, index) => {
+        if (DASHBOARD_CARD_CONTROL_EXCLUDED_CLASSES.some((cls) => card.classList.contains(cls))) {
+            card.classList.remove('dashboard-card-compact', 'dashboard-card-mode-tile', 'dashboard-card-mode-original', 'dashboard-card-has-controls');
+            card.dataset.dashboardCardId = '';
+            card.dataset.dashboardCardMode = '';
+            const orphanControls = card.querySelector('.dashboard-card-mode-controls');
+            if (orphanControls) orphanControls.remove();
+            return;
+        }
+        const cardId = getDashboardCardId(card, index);
+        const title = getDashboardCardTitle(card);
+
+        card.classList.add('dashboard-card-compact', 'dashboard-card-mode-tile');
+        card.classList.remove('dashboard-card-mode-original');
+        card.dataset.dashboardOriginalFullWidth = card.classList.contains('full-width') ? '1' : '0';
+        card.classList.remove('full-width');
+        card.dataset.dashboardCardId = cardId;
+        card.dataset.dashboardCardMode = DASHBOARD_CARD_MODE_TILE;
+
+        ensureDashboardCardControls(card, cardId, title);
+
+        templates[cardId] = {
+            title,
+            tileHtml: card.innerHTML,
+            originalHtml: buildOriginalCardTemplate(card),
+            expandedHtml: buildExpandedCardTemplate(card)
+        };
+    });
+
+    window._dashboardCardTemplates = templates;
+    window._dashboardCardModeState = {};
+};
 
 // --- Local State for Dashboard ---
 
@@ -335,10 +584,7 @@ export function renderActivityLog(allStaffLogs) {
     return `
         <div class="card dashboard-team-activity-card">
             <div class="dashboard-team-activity-head">
-                <div style="display:flex; align-items:center; gap:0.5rem;">
-                    <h4>Team Activity</h4>
-                    <button onclick="window.app_expandTeamActivity()" title="Expand" style="background:none; border:none; cursor:pointer; color:#6b7280;"><i class="fa-solid fa-expand"></i></button>
-                </div>
+                <div style="display:flex; align-items:center; gap:0.5rem;"><h4>Team Activity</h4></div>
                 <span id="staff-activity-range-label">${safeHtml(selectedMonthLabel)}</span>
             </div>
             <div class="dashboard-team-activity-filters dashboard-team-activity-filters-compact">
@@ -467,6 +713,50 @@ export function renderStatsCard(title, subtitle, statsObj, statType = '') {
     `;
 }
 
+function renderStatsDetailInline(statType) {
+    const type = String(statType || '').trim() === 'yearly' ? 'yearly' : 'monthly';
+    const store = window.app_dashboardStatsStore || {};
+    const stats = type === 'yearly' ? (store.yearly || {}) : (store.monthly || {});
+    const title = type === 'yearly' ? (store.yearlyTitle || 'Yearly Summary') : (store.monthlyTitle || 'Monthly Summary');
+    const subtitle = type === 'yearly' ? (store.yearlySubtitle || '') : (store.monthlySubtitle || '');
+    const breakdown = stats.breakdown || {};
+    const range = store.ranges ? (type === 'yearly' ? store.ranges.yearly : store.ranges.monthly) : null;
+    const buckets = buildStatsDetailBuckets(store.logs || [], range);
+    const details = {
+        late: buckets.late || [],
+        early: buckets.early || [],
+        extra: buckets.extra || []
+    };
+    const section = (label, items) => `
+        <div class="dashboard-inline-stats-section">
+            <div class="dashboard-inline-stats-label">${safeHtml(label)}</div>
+            <div class="dashboard-inline-stats-dates">
+                ${items.length ? items.map((d) => `<span class="dashboard-inline-stats-date">${safeHtml(d)}</span>`).join('') : '<span class="dashboard-inline-stats-empty">No dates</span>'}
+            </div>
+        </div>
+    `;
+    return `
+        <div class="dashboard-inline-stats-detail">
+            <div class="dashboard-inline-stats-head">
+                <h5>${safeHtml(title)}</h5>
+                <span>${safeHtml(subtitle || 'Detailed summary')}</span>
+            </div>
+            <div class="dashboard-inline-stats-grid">
+                <div class="dashboard-inline-stats-tile"><strong>${safeHtml(stats.late ?? 0)}</strong><span>Late Count</span></div>
+                <div class="dashboard-inline-stats-tile"><strong>${safeHtml(stats.totalLateDuration || '0h 0m')}</strong><span>Late Duration</span></div>
+                <div class="dashboard-inline-stats-tile"><strong>${safeHtml(stats.earlyDepartures ?? 0)}</strong><span>Early Exits</span></div>
+                <div class="dashboard-inline-stats-tile"><strong>${safeHtml(stats.extraWorkedHours ?? 0)}h</strong><span>Extra Hours</span></div>
+            </div>
+            ${section('Late Dates', details.late)}
+            ${section('Early Departure Dates', details.early)}
+            ${section('Extra Hours Dates', details.extra)}
+            <div class="dashboard-inline-stats-breakdown">
+                ${Object.entries(breakdown).map(([k, v]) => `<div class="dashboard-inline-stats-breakdown-row"><span>${safeHtml(k)}</span><strong>${safeHtml(v)}</strong></div>`).join('')}
+            </div>
+        </div>
+    `;
+}
+
 export function renderBreakdown(breakdown) {
     const items = Object.entries(breakdown);
     const meta = {
@@ -504,13 +794,14 @@ function attachStatsCardHandlers() {
         if (card.dataset.bound === '1') return;
         card.dataset.bound = '1';
         const type = card.getAttribute('data-stats-type') || '';
-        card.addEventListener('click', () => {
-            if (window.app_openStatsDetailModal) window.app_openStatsDetailModal(type);
+        card.addEventListener('click', (event) => {
+            if (event.target && event.target.closest && event.target.closest('.dashboard-card-mode-controls')) return;
+            window.app_toggleDashboardCardMode?.(`stats-${type}`, DASHBOARD_CARD_MODE_FULLSCREEN, card);
         });
         card.addEventListener('keydown', (event) => {
             if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
-                if (window.app_openStatsDetailModal) window.app_openStatsDetailModal(type);
+                window.app_toggleDashboardCardMode?.(`stats-${type}`, DASHBOARD_CARD_MODE_FULLSCREEN, card);
             }
         });
     });
@@ -818,6 +1109,7 @@ export function renderStaffDirectory(allUsers, notifications, currentUser) {
 }
 
 export async function renderDashboard() {
+    window.app_closeDashboardCardMaximize?.();
     const user = window.AppAuth.getUser();
     const isAdmin = window.app_hasPerm('dashboard', 'view', user);
     const isFullAdmin = window.app_hasPerm('dashboard', 'admin', user);
@@ -1221,7 +1513,7 @@ export async function renderDashboard() {
     } else {
         summaryHTML = `
             <div class="dashboard-summary-row">
-                <div class="dashboard-summary-col dashboard-summary-col-wide">${renderYearlyPlanHTML}</div>
+                <div class="dashboard-summary-col dashboard-summary-col-wide">${renderActivityLog(staffActivities)}</div>
                 <div class="dashboard-summary-col dashboard-summary-col-narrow">${heroHTML}</div>
             </div>
             <div class="dashboard-stats-row">
@@ -1229,9 +1521,17 @@ export async function renderDashboard() {
                 ${renderStatsCard('Yearly Summary', yearlyStats.label, yearlyStats, 'yearly')}
             </div>`;
     }
+    const primaryRowThirdCard = isAdmin ? renderActivityLog(staffActivities) : renderYearlyPlanHTML;
 
     const updateState = (window.app_getReleaseUpdateState && window.app_getReleaseUpdateState()) || { active: false };
     setTimeout(() => ensureDashboardActionDelegates(), 0);
+    window.app_dashboardWorklogContext = {
+        logs: Array.isArray(logs) ? logs : [],
+        collaborations: Array.isArray(collaborations) ? collaborations : [],
+        minutesData: Array.isArray(minutesData) ? minutesData : [],
+        targetStaffId
+    };
+    setTimeout(() => initDashboardCardControls(), 0);
 
     return `
         <div class="dashboard-grid dashboard-modern dashboard-staff-view">
@@ -1291,7 +1591,7 @@ export async function renderDashboard() {
                     <div class="location-text dashboard-checkin-location" id="location-text"><i class="fa-solid fa-location-dot"></i><span>${isCheckedIn && displayUser.currentLocation ? `Lat: ${Number(displayUser.currentLocation.lat).toFixed(4)}, Lng: ${Number(displayUser.currentLocation.lng).toFixed(4)}` : 'Waiting for location...'}</span></div>
                 </div>
                 <div class="dashboard-primary-col ${!isViewingSelf ? 'dashboard-primary-col-highlight' : ''}">${renderWorkLog(logs, collaborations, targetStaff, minutesData)}</div>
-                <div class="dashboard-primary-col">${renderActivityLog(staffActivities)}</div>
+                <div class="dashboard-primary-col">${primaryRowThirdCard}</div>
             </div>
             ${summaryHTML}
         </div>`;
@@ -1396,6 +1696,10 @@ function disposeTeamActivityAutoScroll() {
 function initTeamActivityAutoScroll(container) {
     if (!container) return;
     disposeTeamActivityAutoScroll();
+    const SCROLL_STEP_PX = 1.2;
+    const TICK_MS = 35;
+    const BOTTOM_PAUSE_MS = 1400;
+    const TOP_PAUSE_MS = 900;
     const columns = container.querySelectorAll('.dashboard-team-activity-col-list');
     columns.forEach((el) => {
         const state = { intervalId: null, pauseTimeoutId: null, resumeTimeoutId: null, direction: 1, isPausedByUser: false, isWaitingAtEdge: false };
@@ -1408,9 +1712,9 @@ function initTeamActivityAutoScroll(container) {
             if (state.isPausedByUser || state.isWaitingAtEdge || !el.isConnected) return;
             const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
             if (maxScroll <= 0) return;
-            el.scrollTop += state.direction;
-            if (state.direction === 1 && el.scrollTop >= maxScroll) { el.scrollTop = maxScroll; waitAtEdge(-1, 1500); }
-            else if (state.direction === -1 && el.scrollTop <= 0) { el.scrollTop = 0; waitAtEdge(1, 1000); }
+            el.scrollTop += (SCROLL_STEP_PX * state.direction);
+            if (state.direction === 1 && el.scrollTop >= maxScroll) { el.scrollTop = maxScroll; waitAtEdge(-1, BOTTOM_PAUSE_MS); }
+            else if (state.direction === -1 && el.scrollTop <= 0) { el.scrollTop = 0; waitAtEdge(1, TOP_PAUSE_MS); }
         };
         state.onMouseEnter = () => { state.isPausedByUser = true; };
         state.onMouseLeave = () => { state.isPausedByUser = false; };
@@ -1420,15 +1724,17 @@ function initTeamActivityAutoScroll(container) {
         el.addEventListener('mouseleave', state.onMouseLeave);
         el.addEventListener('touchstart', state.onTouchStart, { passive: true });
         el.addEventListener('touchend', state.onTouchEnd, { passive: true });
-        state.intervalId = setInterval(tick, 50);
+        state.intervalId = setInterval(tick, TICK_MS);
         teamActivityAutoScroll.controllers.set(el, state);
         teamActivityAutoScroll.elements.add(el);
     });
 }
 
-const refreshStaffActivityWidget = async (fetchLogs = true) => {
+const refreshStaffActivityWidget = async (fetchLogs = true, options = {}) => {
     const state = getStaffActivityState();
-    const list = document.getElementById('staff-activity-list');
+    const primaryListId = options.listId || 'staff-activity-list';
+    const primaryLabelId = options.labelId || 'staff-activity-range-label';
+    const list = document.getElementById(primaryListId);
     const modalList = document.getElementById('staff-activity-list-modal');
     if (!list && !modalList) return;
     disposeTeamActivityAutoScroll();
@@ -1440,12 +1746,43 @@ const refreshStaffActivityWidget = async (fetchLogs = true) => {
     const html = renderStaffActivityListSplit(state.logs, state.sortKey);
     if (list) { list.innerHTML = html; initTeamActivityAutoScroll(list); }
     if (modalList) { modalList.innerHTML = html; }
-    const subtitle = document.getElementById('staff-activity-range-label');
+    const subtitle = document.getElementById(primaryLabelId) || document.getElementById('staff-activity-range-label');
     if (subtitle) subtitle.textContent = formatMonthLabel(state.selectedMonth);
 };
 
 // --- Export to Window (Global) ---
 if (typeof window !== 'undefined') {
+    if (!window.__dashboardMaxEscHandlerBound) {
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && document.body.classList.contains('dashboard-max-open')) {
+                window.app_closeDashboardCardMaximize?.();
+            }
+        });
+        window.__dashboardMaxEscHandlerBound = true;
+    }
+
+    window.app_closeDashboardCardFullscreen = closeDashboardMaxOverlay;
+    window.app_closeDashboardCardMaximize = closeDashboardMaxOverlay;
+    window.app_toggleDashboardCardMode = (cardId, mode = DASHBOARD_CARD_MODE_TILE, triggerEl = null) => {
+        if (!cardId) return;
+        const safeMode = DASHBOARD_CARD_MODES.has(mode) ? mode : DASHBOARD_CARD_MODE_TILE;
+        const cardEl = getDashboardCardElementById(cardId);
+        const currentMode = String(cardEl?.dataset?.dashboardCardMode || DASHBOARD_CARD_MODE_TILE);
+        if (currentMode === safeMode && safeMode !== DASHBOARD_CARD_MODE_TILE) {
+            applyDashboardCardMode(cardId, DASHBOARD_CARD_MODE_TILE, triggerEl || null);
+            return;
+        }
+        if (safeMode === DASHBOARD_CARD_MODE_FULLSCREEN && window._dashboardMaxCardId === cardId) {
+            closeDashboardMaxOverlay();
+            applyDashboardCardMode(cardId, DASHBOARD_CARD_MODE_TILE);
+            return;
+        }
+        applyDashboardCardMode(cardId, safeMode, triggerEl || null);
+    };
+    window.app_toggleDashboardCardMaximize = (cardId, triggerEl = null) => {
+        window.app_toggleDashboardCardMode?.(cardId, DASHBOARD_CARD_MODE_FULLSCREEN, triggerEl || null);
+    };
+
     window.app_editDashboardActivity = async function (kind, logId, dateStr, targetStaffId, meetingId) {
         const mode = String(kind || '').trim();
         if (mode === 'minute') {
@@ -1483,212 +1820,68 @@ if (typeof window !== 'undefined') {
         }
     };
 
-    window.app_setStaffActivityMonth = async function (value) {
+    window.app_filterActivity = async function (startId = 'act-start', endId = 'act-end', listId = 'activity-list') {
+        const start = document.getElementById(startId)?.value;
+        const end = document.getElementById(endId)?.value;
+        const list = document.getElementById(listId);
+        const ctx = window.app_dashboardWorklogContext || {};
+        if (!start || !end || !list) return;
+        list.innerHTML = renderActivityList(
+            Array.isArray(ctx.logs) ? ctx.logs : [],
+            start,
+            end,
+            ctx.targetStaffId || window.AppAuth?.getUser?.()?.id || '',
+            Array.isArray(ctx.collaborations) ? ctx.collaborations : [],
+            Array.isArray(ctx.minutesData) ? ctx.minutesData : []
+        );
+    };
+
+    window.app_setStaffActivityMonth = async function (value, listId = 'staff-activity-list', labelId = 'staff-activity-range-label') {
         const state = getStaffActivityState();
         const normalized = String(value || '').trim();
         if (!/^\d{4}-\d{2}$/.test(normalized)) return;
         state.selectedMonth = normalized;
-        await refreshStaffActivityWidget(true);
+        await refreshStaffActivityWidget(true, { listId, labelId });
     };
 
-    window.app_setStaffActivitySort = async function (value) {
+    window.app_setStaffActivitySort = async function (value, listId = 'staff-activity-list', labelId = 'staff-activity-range-label') {
         const state = getStaffActivityState();
         const nextSort = String(value || '').trim() || 'date-newest';
         state.sortKey = nextSort;
-        await refreshStaffActivityWidget(false);
+        await refreshStaffActivityWidget(false, { listId, labelId });
     };
 
     window.app_setDashboardLeaveHistoryDate = async function (value) {
         const state = getStaffActivityState();
         state.leaveHistoryDate = value || new Date().toISOString().slice(0, 10);
         const contentArea = document.getElementById('page-content');
+        window.app_closeDashboardCardFullscreen?.();
         if (contentArea) contentArea.innerHTML = await renderDashboard();
     };
 
     window.app_expandTeamActivity = function () {
-        if (window.app_closeTeamActivityExpanded) {
-            window.app_closeTeamActivityExpanded();
-        }
-        if (window.location) {
-            window.location.hash = '#team-activities';
-        }
+        const card = document.querySelector('.dashboard-staff-view .dashboard-team-activity-card');
+        window.app_toggleDashboardCardMode?.('team-activity', DASHBOARD_CARD_MODE_FULLSCREEN, card || null);
     };
 
     window.app_openStatsDetailModal = function (type) {
-        const store = window.app_dashboardStatsStore || {};
-        const stats = type === 'yearly' ? store.yearly : store.monthly;
-        if (!stats) return;
-        const title = type === 'yearly' ? store.yearlyTitle : store.monthlyTitle;
-        const subtitle = type === 'yearly' ? store.yearlySubtitle : store.monthlySubtitle;
-        const breakdown = stats.breakdown || {};
-        const range = store.ranges ? (type === 'yearly' ? store.ranges.yearly : store.ranges.monthly) : null;
-        const buckets = buildStatsDetailBuckets(store.logs || [], range);
-        const items = Object.entries(breakdown).filter(([, v]) => Number(v || 0) > 0);
-        const existing = document.getElementById('dashboard-stats-modal');
-        if (existing) existing.remove();
-        const modal = document.createElement('div');
-        modal.id = 'dashboard-stats-modal';
-        modal.className = 'modal-overlay dashboard-stats-modal';
-        modal.innerHTML = `
-            <div class="modal-content dashboard-stats-modal-content">
-                <div class="dashboard-stats-modal-head">
-                    <div>
-                        <div class="dashboard-stats-modal-title">${safeHtml(title || 'Attendance Summary')}</div>
-                        <div class="dashboard-stats-modal-sub">${safeHtml(subtitle || '')}</div>
-                    </div>
-                    <button class="dashboard-stats-modal-close" type="button" onclick="window.app_closeStatsDetailModal()"><i class="fa-solid fa-xmark"></i></button>
-                </div>
-                <div class="dashboard-stats-modal-grid">
-                    <div class="dashboard-stats-modal-tile" data-stat-detail="late" role="button" tabindex="0">
-                        <span class="label">Late Count</span>
-                        <span class="value">${safeHtml(stats.late ?? 0)}</span>
-                        <span class="hint">Total late entries</span>
-                    </div>
-                    <div class="dashboard-stats-modal-tile" data-stat-detail="late" role="button" tabindex="0">
-                        <span class="label">Late Duration</span>
-                        <span class="value">${safeHtml(stats.totalLateDuration || '0h 0m')}</span>
-                        <span class="hint">Summed lateness time</span>
-                    </div>
-                    <div class="dashboard-stats-modal-tile" data-stat-detail="early" role="button" tabindex="0">
-                        <span class="label">Early Departures</span>
-                        <span class="value">${safeHtml(stats.earlyDepartures ?? 0)}</span>
-                        <span class="hint">Left before cutoff</span>
-                    </div>
-                    <div class="dashboard-stats-modal-tile" data-stat-detail="extra" role="button" tabindex="0">
-                        <span class="label">Extra Hours</span>
-                        <span class="value">${safeHtml(stats.extraWorkedHours ?? 0)}h</span>
-                        <span class="hint">Counted extra time</span>
-                    </div>
-                    <div class="dashboard-stats-modal-tile" data-stat-detail="late" role="button" tabindex="0">
-                        <span class="label">Penalty</span>
-                        <span class="value">${safeHtml(stats.penalty ?? stats.penaltyLeaves ?? 0)}</span>
-                        <span class="hint">Leave deductions</span>
-                    </div>
-                    <div class="dashboard-stats-modal-tile" data-stat-detail="extra" role="button" tabindex="0">
-                        <span class="label">Penalty Offset</span>
-                        <span class="value">${safeHtml(stats.penaltyOffset ?? 0)}</span>
-                        <span class="hint">Extra hours offset</span>
-                    </div>
-                    <div class="dashboard-stats-modal-tile highlight" data-stat-detail="late" role="button" tabindex="0">
-                        <span class="label">Effective Penalty</span>
-                        <span class="value">${safeHtml(stats.effectivePenalty ?? 0)}</span>
-                        <span class="hint">Final deduction</span>
-                    </div>
-                </div>
-                <div class="dashboard-stats-modal-section">
-                    <div class="dashboard-stats-modal-section-title">Breakdown</div>
-                    <div class="dashboard-stats-modal-breakdown">
-                        ${(items.length ? items : [['No data', 0]]).map(([k, v]) => `
-                            <div class="dashboard-stats-modal-row" data-breakdown-key="${safeHtml(k)}" role="button" tabindex="0">
-                                <span>${safeHtml(k)}</span>
-                                <strong>${safeHtml(v)}</strong>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-                <div class="dashboard-stats-modal-section">
-                    <div class="dashboard-stats-modal-section-title" id="dashboard-stats-detail-title">Details</div>
-                    <div class="dashboard-stats-modal-dates" id="dashboard-stats-date-list"></div>
-                </div>
-            </div>
-        `;
-        document.body.appendChild(modal);
-        document.body.style.overflow = 'hidden';
-        window._dashboardStatsDetailData = { type, buckets };
-        const defaultKey = buckets.late.length ? 'late' : (buckets.early.length ? 'early' : (buckets.extra.length ? 'extra' : 'Present'));
-        window.app_updateStatsDetailView(defaultKey);
-        modal.addEventListener('click', (event) => {
-            const detailTile = event.target.closest('[data-stat-detail]');
-            if (detailTile) {
-                window.app_updateStatsDetailView(detailTile.getAttribute('data-stat-detail'));
-                return;
-            }
-            const breakdownRow = event.target.closest('[data-breakdown-key]');
-            if (breakdownRow) {
-                window.app_updateStatsDetailView(breakdownRow.getAttribute('data-breakdown-key'));
-            }
-        });
-        modal.addEventListener('keydown', (event) => {
-            if (event.key !== 'Enter' && event.key !== ' ') return;
-            const detailTile = event.target.closest('[data-stat-detail]');
-            const breakdownRow = event.target.closest('[data-breakdown-key]');
-            if (detailTile || breakdownRow) {
-                event.preventDefault();
-                window.app_updateStatsDetailView((detailTile ? detailTile.getAttribute('data-stat-detail') : breakdownRow.getAttribute('data-breakdown-key')));
-            }
-        });
-        modal.addEventListener('click', (event) => {
-            if (event.target === modal) {
-                window.app_closeStatsDetailModal();
-            }
-        });
-        window._dashboardStatsEscHandler = (e) => {
-            if (e.key === 'Escape') window.app_closeStatsDetailModal();
-        };
-        window.addEventListener('keydown', window._dashboardStatsEscHandler);
+        const normalized = String(type || '').trim() === 'yearly' ? 'yearly' : 'monthly';
+        const card = document.querySelector(`.dashboard-staff-view .dashboard-stats-card[data-stats-type="${normalized}"]`);
+        window.app_toggleDashboardCardMode?.(`stats-${normalized}`, DASHBOARD_CARD_MODE_FULLSCREEN, card || null);
     };
 
     window.app_closeStatsDetailModal = function () {
-        const modal = document.getElementById('dashboard-stats-modal');
-        if (modal) modal.remove();
-        document.body.style.overflow = '';
-        window._dashboardStatsDetailData = null;
-        if (window._dashboardStatsEscHandler) {
-            window.removeEventListener('keydown', window._dashboardStatsEscHandler);
-            window._dashboardStatsEscHandler = null;
-        }
+        window.app_closeDashboardCardFullscreen?.();
     };
 
-    window.app_updateStatsDetailView = function (key) {
-        const data = window._dashboardStatsDetailData || {};
-        const buckets = data.buckets || {};
-        let label = '';
-        let dates = [];
-        if (key === 'late') {
-            label = 'Late Dates';
-            dates = buckets.late || [];
-        } else if (key === 'early') {
-            label = 'Early Departure Dates';
-            dates = buckets.early || [];
-        } else if (key === 'extra') {
-            label = 'Extra Hours Dates';
-            dates = buckets.extra || [];
-        } else if (buckets.breakdown && Object.prototype.hasOwnProperty.call(buckets.breakdown, key)) {
-            label = `${key} Dates`;
-            dates = buckets.breakdown[key] || [];
-        } else {
-            label = 'Details';
-            dates = [];
-        }
-        const titleEl = document.getElementById('dashboard-stats-detail-title');
-        const listEl = document.getElementById('dashboard-stats-date-list');
-        if (titleEl) titleEl.textContent = label;
-        if (listEl) {
-            listEl.innerHTML = dates.length
-                ? dates.map(d => `<div class="dashboard-stats-date-item">${safeHtml(d)}</div>`).join('')
-                : `<div class="dashboard-stats-date-empty">No dates available.</div>`;
-        }
-        document.querySelectorAll('.dashboard-stats-modal-tile, .dashboard-stats-modal-row').forEach(el => {
-            const tileKey = el.getAttribute('data-stat-detail');
-            const rowKey = el.getAttribute('data-breakdown-key');
-            el.classList.toggle('is-active', (tileKey && tileKey === key) || (rowKey && rowKey === key));
-        });
-    };
+    window.app_updateStatsDetailView = function () { };
 
     window.app_attachStatsCardHandlers = function () {
         attachStatsCardHandlers();
     };
 
-    window.app_expandTeamActivityRefresh = function () {
-        const state = getStaffActivityState();
-        const modalBody = document.getElementById('staff-activity-list-modal');
-        const modalLabel = document.getElementById('staff-activity-range-label-modal');
-        if (modalBody) {
-            modalBody.innerHTML = renderStaffActivityListSplit(state.logs, state.sortKey);
-        }
-        if (modalLabel) {
-            modalLabel.textContent = formatMonthLabel(state.selectedMonth);
-        }
+    window.app_expandTeamActivityRefresh = async function () {
+        await refreshStaffActivityWidget(false, { listId: 'staff-activity-list-max', labelId: 'staff-activity-range-label-max' });
     };
 
     window.app_closeTeamActivityExpanded = function () {

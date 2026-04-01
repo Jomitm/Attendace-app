@@ -380,7 +380,11 @@ export class Database {
 
     async getAll(collectionName, options = {}) {
         try {
-            const snapshot = await this.db.collection(collectionName).get();
+            const source = String(options?.source || '').trim().toLowerCase();
+            const canUseSource = source === 'server' || source === 'cache';
+            const snapshot = canUseSource
+                ? await this.db.collection(collectionName).get({ source })
+                : await this.db.collection(collectionName).get();
             const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
             this.track('getAll', collectionName, data.length);
             return data;
@@ -393,12 +397,14 @@ export class Database {
         }
     }
 
-    async get(collectionName, id) {
+    async get(collectionName, id, options = {}) {
         if (!id) return null;
         try {
             const docId = String(id);
             const docRef = this.db.collection(collectionName).doc(docId);
-            const doc = await docRef.get();
+            const source = String(options?.source || '').trim().toLowerCase();
+            const canUseSource = source === 'server' || source === 'cache';
+            const doc = canUseSource ? await docRef.get({ source }) : await docRef.get();
             if (doc.exists) {
                 this.track('get', collectionName, 1);
                 return { ...doc.data(), id: doc.id };

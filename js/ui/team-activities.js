@@ -60,10 +60,20 @@ function getTeamActivitiesState() {
 }
 
 function normalizeActivityRows(rows) {
+    const normalizeSourceTime = (row = {}) => {
+        const raw = String(row.checkOut || row._sortTime || '').trim();
+        if (!raw) return '';
+        const lowered = raw.toLowerCase();
+        if (lowered === 'active now' || raw === '00:00' || raw === '09:00') return '';
+        const hhmm = raw.match(/^(\d{1,2}):(\d{2})/);
+        if (hhmm) return `${String(Number(hhmm[1])).padStart(2, '0')}:${hhmm[2]}`;
+        return raw;
+    };
+
     return (rows || []).map(row => {
         const type = row.type || (row.workDescription ? 'attendance' : 'work');
         const description = row._displayDesc || row.workDescription || row.task || 'Activity';
-        const sourceTime = row.checkOut || row._sortTime || '00:00';
+        const sourceTime = normalizeSourceTime(row);
         const statusSeed = row.status || (type === 'attendance' ? 'completed' : '');
         const status = window.AppCalendar
             ? window.AppCalendar.getSmartTaskStatus(row.date, statusSeed)
@@ -981,6 +991,8 @@ if (typeof window !== 'undefined') {
 
 export async function renderTeamActivitiesPage() {
     const state = getTeamActivitiesState();
+    const currentUser = window.AppAuth?.getUser ? window.AppAuth.getUser() : null;
+    const isAdmin = !!(currentUser && (currentUser.role === 'Administrator' || currentUser.isAdmin));
     return `
         <div class="team-activities-page">
             <div class="team-activities-header">
@@ -990,9 +1002,11 @@ export async function renderTeamActivitiesPage() {
                 </div>
                 <div class="team-activities-actions">
                     <button class="action-btn" onclick="window.app_teamActivitiesRefresh()"><i class="fa-solid fa-rotate"></i> Refresh</button>
-                    <button class="action-btn secondary" onclick="window.app_teamActivitiesResetFilters()"><i class="fa-solid fa-filter-circle-xmark"></i> Reset</button>
-                    <button class="action-btn secondary" onclick="window.app_findCarryForwardIssues && window.app_findCarryForwardIssues()"><i class="fa-solid fa-triangle-exclamation"></i> Find Auto-Forward Issues</button>
-                    <button class="action-btn danger" onclick="window.app_openForwardCleanupModal && window.app_openForwardCleanupModal()"><i class="fa-solid fa-broom"></i> Forward Cleanup</button>
+                    ${isAdmin ? `
+                        <button class="action-btn secondary" onclick="window.app_teamActivitiesResetFilters()"><i class="fa-solid fa-filter-circle-xmark"></i> Reset</button>
+                        <button class="action-btn secondary" onclick="window.app_findCarryForwardIssues && window.app_findCarryForwardIssues()"><i class="fa-solid fa-triangle-exclamation"></i> Find Auto-Forward Issues</button>
+                        <button class="action-btn danger" onclick="window.app_openForwardCleanupModal && window.app_openForwardCleanupModal()"><i class="fa-solid fa-broom"></i> Forward Cleanup</button>
+                    ` : ''}
                 </div>
             </div>
             <div class="team-activities-summary" id="team-activities-summary">${renderSummary(state)}</div>
