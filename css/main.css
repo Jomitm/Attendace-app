@@ -9411,6 +9411,23 @@ textarea:focus {
     font-size: 0.9rem !important;
 }
 
+.dashboard-checkin-action-row {
+    display: flex;
+    gap: 0.55rem;
+    align-items: stretch;
+}
+
+.dashboard-checkin-action-row .dashboard-checkin-btn {
+    flex: 1 1 0;
+    width: auto;
+}
+
+.dashboard-checkin-pause-btn {
+    background: #f8fafc !important;
+    color: #334155 !important;
+    border: 1px solid #cbd5e1 !important;
+}
+
 .dashboard-checkin-btn:disabled {
     opacity: 0.6;
     cursor: not-allowed;

@@ -3284,13 +3284,22 @@ function startTimer(targetUser = null, readOnly = false) {
     const updateTimerUI = async () => {
         let status = 'out';
         let lastCheckIn = null;
+        let isPaused = false;
+        let pauseStartedAt = null;
+        let totalPausedMs = 0;
         if (targetUser) {
             status = targetUser.status || 'out';
             lastCheckIn = targetUser.lastCheckIn || null;
+            isPaused = targetUser.isPaused === true;
+            pauseStartedAt = targetUser.pauseStartedAt || null;
+            totalPausedMs = Number(targetUser.totalPausedMs) || 0;
         } else {
             const statusInfo = await window.AppAttendance.getStatus();
             status = statusInfo.status;
             lastCheckIn = statusInfo.lastCheckIn;
+            isPaused = statusInfo.isPaused === true;
+            pauseStartedAt = statusInfo.pauseStartedAt || null;
+            totalPausedMs = Number(statusInfo.totalPausedMs) || 0;
         }
         const display = document.getElementById('timer-display');
         const countdownContainer = document.getElementById('countdown-container');
@@ -3317,13 +3326,15 @@ function startTimer(targetUser = null, readOnly = false) {
             // Timer Interval
             timerInterval = setInterval(() => {
                 const now = Date.now();
-                const diff = now - lastCheckIn; // Total Worked (Elapsed)
+                const pauseStartMs = Number(pauseStartedAt) || 0;
+                const livePausedMs = (isPaused && pauseStartMs > 0) ? Math.max(0, now - pauseStartMs) : 0;
+                const effectiveElapsedMs = Math.max(0, (now - lastCheckIn) - totalPausedMs - livePausedMs);
 
                 // Format Elapsed (Main Timer)
                 if (display) {
-                    let hrs = Math.floor(diff / (1000 * 60 * 60));
-                    let mins = Math.floor((diff / (1000 * 60)) % 60);
-                    let secs = Math.floor((diff / 1000) % 60);
+                    let hrs = Math.floor(effectiveElapsedMs / (1000 * 60 * 60));
+                    let mins = Math.floor((effectiveElapsedMs / (1000 * 60)) % 60);
+                    let secs = Math.floor((effectiveElapsedMs / 1000) % 60);
 
                     hrs = (hrs < 10) ? "0" + hrs : hrs;
                     mins = (mins < 10) ? "0" + mins : mins;
@@ -3344,36 +3355,34 @@ function startTimer(targetUser = null, readOnly = false) {
                 }
 
                 // Countdown / Overtime Logic
-                const timeToTarget = targetTime.getTime() - now;
+                const totalShiftDuration = Math.max(0, targetTime.getTime() - lastCheckIn);
+                const remainingWorkMs = totalShiftDuration - effectiveElapsedMs;
 
-                if (timeToTarget > 0) {
+                if (remainingWorkMs > 0) {
                     // Regular Work Time
                     if (countdownContainer) countdownContainer.style.display = 'block';
                     if (overtimeContainer) overtimeContainer.style.display = 'none';
                     if (timerLabel) {
-                        timerLabel.textContent = 'Elapsed Time';
-                        timerLabel.style.color = '#6b7280';
+                        timerLabel.textContent = isPaused ? 'Paused' : 'Elapsed Time';
+                        timerLabel.style.color = isPaused ? '#b45309' : '#6b7280';
                     }
-                    if (display) display.style.color = '#1f2937';
+                    if (display) display.style.color = isPaused ? '#b45309' : '#1f2937';
 
                     // Calculate Remaining
-                    let rHrs = Math.floor((timeToTarget / (1000 * 60 * 60)) % 24);
-                    let rMins = Math.floor((timeToTarget / (1000 * 60)) % 60);
-                    let rSecs = Math.floor((timeToTarget / 1000) % 60);
+                    let rHrs = Math.floor((remainingWorkMs / (1000 * 60 * 60)) % 24);
+                    let rMins = Math.floor((remainingWorkMs / (1000 * 60)) % 60);
+                    let rSecs = Math.floor((remainingWorkMs / 1000) % 60);
 
                     rHrs = (rHrs < 10) ? "0" + rHrs : rHrs;
                     rMins = (rMins < 10) ? "0" + rMins : rMins;
                     rSecs = (rSecs < 10) ? "0" + rSecs : rSecs;
 
-                    // Progress Bar calculation (Target is fixed duration from checkin or fixed time?)
-                    // Let's use CheckIn -> Target as the full bar.
-                    const totalShiftDuration = targetTime.getTime() - lastCheckIn;
                     // Avoid division by zero
-                    const progress = totalShiftDuration > 0 ? Math.min(100, (diff / totalShiftDuration) * 100) : 100;
+                    const progress = totalShiftDuration > 0 ? Math.min(100, (effectiveElapsedMs / totalShiftDuration) * 100) : 100;
 
                     if (countdownValue) countdownValue.textContent = `${rHrs}:${rMins}:${rSecs}`;
                     if (countdownProgress) countdownProgress.style.width = `${progress}%`;
-                    if (countdownProgress) countdownProgress.style.background = 'var(--primary)'; // Normal Color
+                    if (countdownProgress) countdownProgress.style.background = isPaused ? '#f59e0b' : 'var(--primary)';
 
                 } else {
                     // Overtime
@@ -3381,7 +3390,7 @@ function startTimer(targetUser = null, readOnly = false) {
                     if (overtimeContainer) overtimeContainer.style.display = 'block';
 
                     // Calculate Overtime Duration
-                    const otDiff = Math.abs(now - targetTime.getTime());
+                    const otDiff = Math.abs(remainingWorkMs);
                     let oHrs = Math.floor(otDiff / (1000 * 60 * 60));
                     let oMins = Math.floor((otDiff / (1000 * 60)) % 60);
                     let oSecs = Math.floor((otDiff / 1000) % 60);
@@ -3393,17 +3402,20 @@ function startTimer(targetUser = null, readOnly = false) {
                     if (overtimeValue) overtimeValue.textContent = `+ ${oHrs}:${oMins}:${oSecs}`;
 
                     // Change Main Timer Color
-                    if (display) display.style.color = '#c2410c'; // Dark Orange
+                    if (display) display.style.color = isPaused ? '#b45309' : '#c2410c';
                     if (timerLabel) {
-                        timerLabel.textContent = 'Total Elapsed (Overtime)';
-                        timerLabel.style.color = '#c2410c';
+                        timerLabel.textContent = isPaused ? 'Paused (Overtime)' : 'Total Elapsed (Overtime)';
+                        timerLabel.style.color = isPaused ? '#b45309' : '#c2410c';
                     }
                 }
 
             }, 1000);
 
             // Start Activity Monitor
-            if (!readOnly && window.AppActivity && window.AppActivity.start) window.AppActivity.start();
+            if (!readOnly && window.AppActivity) {
+                if (isPaused && window.AppActivity.stop) window.AppActivity.stop();
+                else if (!isPaused && window.AppActivity.start) window.AppActivity.start();
+            }
 
         } else {
             if (display) {
@@ -3416,6 +3428,7 @@ function startTimer(targetUser = null, readOnly = false) {
             }
             if (countdownContainer) countdownContainer.style.display = 'none';
             if (overtimeContainer) overtimeContainer.style.display = 'none';
+            if (!readOnly && window.AppActivity && window.AppActivity.stop) window.AppActivity.stop();
         }
     };
     updateTimerUI();
@@ -5970,6 +5983,68 @@ async function handleAttendance() {
         attendanceActionInFlight = false;
     }
 }
+
+window.app_pauseSession = async function () {
+    if (attendanceActionInFlight) return;
+    attendanceActionInFlight = true;
+    const attendanceBtn = document.getElementById('attendance-btn');
+    const pauseBtn = document.getElementById('attendance-pause-btn');
+
+    try {
+        if (attendanceBtn) attendanceBtn.disabled = true;
+        if (pauseBtn) {
+            pauseBtn.disabled = true;
+            pauseBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Pausing...`;
+        }
+
+        const result = await window.AppAttendance.pauseSession();
+        if (result && result.conflict) {
+            window.app_showSyncToast(result.message || 'Status updated from another device.');
+            await refreshDashboardAfterAttendance();
+            return;
+        }
+        if (result && result.ok) {
+            if (window.AppActivity && window.AppActivity.stop) window.AppActivity.stop();
+            markLocalAttendanceMutation();
+            await refreshDashboardAfterAttendance();
+        }
+    } catch (err) {
+        alert(err.message || err);
+    } finally {
+        attendanceActionInFlight = false;
+    }
+};
+
+window.app_resumeSession = async function () {
+    if (attendanceActionInFlight) return;
+    attendanceActionInFlight = true;
+    const attendanceBtn = document.getElementById('attendance-btn');
+    const pauseBtn = document.getElementById('attendance-pause-btn');
+
+    try {
+        if (attendanceBtn) attendanceBtn.disabled = true;
+        if (pauseBtn) {
+            pauseBtn.disabled = true;
+            pauseBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Resuming...`;
+        }
+
+        const result = await window.AppAttendance.resumeSession();
+        if (result && result.conflict) {
+            window.app_showSyncToast(result.message || 'Status updated from another device.');
+            await refreshDashboardAfterAttendance();
+            return;
+        }
+        if (result && result.ok) {
+            if (window.AppActivity && window.AppActivity.start) window.AppActivity.start();
+            markLocalAttendanceMutation();
+            await refreshDashboardAfterAttendance();
+        }
+    } catch (err) {
+        alert(err.message || err);
+    } finally {
+        attendanceActionInFlight = false;
+    }
+};
 
 // New Function: Handle Check-Out Submission
 window.app_submitCheckOut = async function (event) {

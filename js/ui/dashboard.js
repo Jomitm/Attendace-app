@@ -1075,7 +1075,15 @@ export async function renderDashboard() {
         }
     };
 
-    const statusData = isReadOnlyView ? { status: displayUser.status || 'out', lastCheckIn: displayUser.lastCheckIn || null } : status;
+    const statusData = isReadOnlyView
+        ? {
+            status: displayUser.status || 'out',
+            lastCheckIn: displayUser.lastCheckIn || null,
+            isPaused: displayUser.isPaused === true,
+            pauseStartedAt: displayUser.pauseStartedAt || null,
+            totalPausedMs: Number(displayUser.totalPausedMs) || 0
+        }
+        : status;
     const isCheckedIn = statusData.status === 'in';
     const notifications = user.notifications || [];
     const tagHistory = user.tagHistory || [];
@@ -1114,6 +1122,11 @@ export async function renderDashboard() {
         btnText = 'Check-out';
         btnClass = 'action-btn checkout';
     }
+    const pauseBtnHtml = isCheckedIn && !isReadOnlyView
+        ? `<button class="action-btn secondary dashboard-checkin-btn dashboard-checkin-pause-btn" id="attendance-pause-btn" onclick="window.${statusData.isPaused ? 'app_resumeSession' : 'app_pauseSession'}()">
+            ${statusData.isPaused ? 'Resume' : 'Pause'} <i class="fa-solid ${statusData.isPaused ? 'fa-play' : 'fa-pause'}"></i>
+        </button>`
+        : '';
 
     const formatElapsed = (ms) => {
         const safeMs = Math.max(0, ms || 0);
@@ -1255,7 +1268,10 @@ export async function renderDashboard() {
                         <div class="dashboard-checkin-overtime-label">OVERTIME</div>
                         <div id="overtime-value" class="dashboard-checkin-overtime-value">00:00:00</div>
                     </div>
-                    <button class="${btnClass} dashboard-checkin-btn" id="attendance-btn" ${isReadOnlyView ? 'disabled' : ''} title="${isReadOnlyView ? 'View only' : ''}">${btnText} <i class="fa-solid fa-fingerprint"></i></button>
+                    <div class="dashboard-checkin-action-row">
+                        <button class="${btnClass} dashboard-checkin-btn" id="attendance-btn" ${isReadOnlyView ? 'disabled' : ''} title="${isReadOnlyView ? 'View only' : ''}">${btnText} <i class="fa-solid fa-fingerprint"></i></button>
+                        ${pauseBtnHtml}
+                    </div>
                     <div class="location-text dashboard-checkin-location" id="location-text"><i class="fa-solid fa-location-dot"></i><span>${isCheckedIn && displayUser.currentLocation ? `Lat: ${Number(displayUser.currentLocation.lat).toFixed(4)}, Lng: ${Number(displayUser.currentLocation.lng).toFixed(4)}` : 'Waiting for location...'}</span></div>
                 </div>
                 <div class="dashboard-primary-col ${!isViewingSelf ? 'dashboard-primary-col-highlight' : ''}">${renderWorkLog(logs, collaborations, targetStaff, minutesData)}</div>

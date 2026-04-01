@@ -11,7 +11,15 @@ export class Attendance {
             ? AppAuth.refreshCurrentUserFromDB()
             : AppAuth.getUser());
 
-        if (!user) return { status: 'out', lastCheckIn: null };
+        if (!user) {
+            return {
+                status: 'out',
+                lastCheckIn: null,
+                isPaused: false,
+                pauseStartedAt: null,
+                totalPausedMs: 0
+            };
+        }
 
         if (user.status === 'in' && user.lastCheckIn) {
             try {
@@ -23,7 +31,14 @@ export class Attendance {
                 const todayStr = now.toISOString().split('T')[0];
 
                 if (checkInDateStr < todayStr) {
-                    return { status: 'out', lastCheckIn: null, staleSession: true };
+                    return {
+                        status: 'out',
+                        lastCheckIn: null,
+                        isPaused: false,
+                        pauseStartedAt: null,
+                        totalPausedMs: 0,
+                        staleSession: true
+                    };
                 }
             } catch (e) {
                 console.warn("Date parsing error in getStatus:", e);
@@ -32,7 +47,10 @@ export class Attendance {
 
         return {
             status: user.status || 'out',
-            lastCheckIn: user.lastCheckIn
+            lastCheckIn: user.lastCheckIn,
+            isPaused: user.isPaused === true,
+            pauseStartedAt: user.pauseStartedAt || null,
+            totalPausedMs: Number(user.totalPausedMs) || 0
         };
     }
 
@@ -59,6 +77,10 @@ export class Attendance {
                     // Self-heal stale "in" state without creating a missed-checkout half-day entry.
                     user.status = 'out';
                     user.lastCheckIn = null;
+                    user.isPaused = false;
+                    user.pauseStartedAt = null;
+                    user.totalPausedMs = 0;
+                    user.pauseEvents = [];
                     user.currentLocation = null;
                     user.locationMismatched = false;
                     noticeMessage = 'Recovered previous checkout record and cleared stale session status.';
@@ -125,6 +147,10 @@ export class Attendance {
                     user.lastCheckOutLocation = { lat: null, lng: null, address: 'System closure on next check-in' };
                     user.locationMismatched = false;
                     user.lastCheckIn = null;
+                    user.isPaused = false;
+                    user.pauseStartedAt = null;
+                    user.totalPausedMs = 0;
+                    user.pauseEvents = [];
                     user.currentLocation = null;
 
                     resolvedMissedCheckout = true;
@@ -142,6 +168,10 @@ export class Attendance {
         // Update User State
         user.status = 'in';
         user.lastCheckIn = Date.now();
+        user.isPaused = false;
+        user.pauseStartedAt = null;
+        user.totalPausedMs = 0;
+        user.pauseEvents = [];
         const locationString = address && address !== 'Unknown Location'
             ? address
             : (latitude && longitude ? `Lat: ${Number(latitude).toFixed(4)}, Lng: ${Number(longitude).toFixed(4)}` : 'Unknown Location');
@@ -159,6 +189,72 @@ export class Attendance {
         };
     }
 
+    async pauseSession() {
+        const user = await (AppAuth.refreshCurrentUserFromDB
+            ? AppAuth.refreshCurrentUserFromDB()
+            : AppAuth.getUser());
+        if (!user || user.status !== 'in') {
+            return {
+                ok: false,
+                conflict: true,
+                message: 'Status updated from another device.'
+            };
+        }
+        if (user.isPaused === true) {
+            return {
+                ok: false,
+                conflict: true,
+                message: 'Session is already paused.'
+            };
+        }
+
+        const now = Date.now();
+        const events = Array.isArray(user.pauseEvents) ? user.pauseEvents.slice(-99) : [];
+        events.push({ type: 'pause', at: new Date(now).toISOString(), atMs: now });
+
+        user.isPaused = true;
+        user.pauseStartedAt = now;
+        user.totalPausedMs = Number(user.totalPausedMs) || 0;
+        user.pauseEvents = events;
+
+        await AppDB.put('users', user);
+        return { ok: true };
+    }
+
+    async resumeSession() {
+        const user = await (AppAuth.refreshCurrentUserFromDB
+            ? AppAuth.refreshCurrentUserFromDB()
+            : AppAuth.getUser());
+        if (!user || user.status !== 'in') {
+            return {
+                ok: false,
+                conflict: true,
+                message: 'Status updated from another device.'
+            };
+        }
+        if (user.isPaused !== true) {
+            return {
+                ok: false,
+                conflict: true,
+                message: 'Session is not paused.'
+            };
+        }
+
+        const now = Date.now();
+        const pauseStartMs = Number(user.pauseStartedAt) || now;
+        const resumedMs = Math.max(0, now - pauseStartMs);
+        const events = Array.isArray(user.pauseEvents) ? user.pauseEvents.slice(-99) : [];
+        events.push({ type: 'resume', at: new Date(now).toISOString(), atMs: now });
+
+        user.totalPausedMs = (Number(user.totalPausedMs) || 0) + resumedMs;
+        user.isPaused = false;
+        user.pauseStartedAt = null;
+        user.pauseEvents = events;
+
+        await AppDB.put('users', user);
+        return { ok: true, resumedPausedMs: resumedMs, totalPausedMs: user.totalPausedMs };
+    }
+
     async checkOut(description = '', lat = null, lng = null, address = 'Detected Location', locationMismatched = false, explanation = '', options = {}) {
         const user = await (AppAuth.refreshCurrentUserFromDB
             ? AppAuth.refreshCurrentUserFromDB()
@@ -173,11 +269,25 @@ export class Attendance {
 
         const checkInTime = new Date(user.lastCheckIn);
         const checkOutTime = options.checkOutTime ? new Date(options.checkOutTime) : new Date();
-        const durationMs = checkOutTime - checkInTime;
+        const checkInMs = checkInTime.getTime();
+        const checkOutMs = checkOutTime.getTime();
+        const basePausedMs = Number(user.totalPausedMs) || 0;
+        const pauseStartMs = Number(user.pauseStartedAt) || 0;
+        let autoClosedPauseMs = 0;
+        if (user.isPaused === true && pauseStartMs > 0 && checkOutMs > pauseStartMs) {
+            autoClosedPauseMs = checkOutMs - pauseStartMs;
+        }
+        const totalPausedMs = Math.max(0, basePausedMs + autoClosedPauseMs);
+        const durationMs = Math.max(0, (checkOutMs - checkInMs) - totalPausedMs);
         const statusMeta = this.evaluateAttendanceStatus(checkInTime, durationMs);
 
         // Get Activity Stats
         const activityStats = window.AppActivity ? window.AppActivity.getStats() : { score: 0 };
+        const pauseEvents = Array.isArray(user.pauseEvents) ? user.pauseEvents.slice() : [];
+        if (autoClosedPauseMs > 0) {
+            pauseEvents.push({ type: 'resume', at: checkOutTime.toISOString(), atMs: checkOutMs, autoClosedOnCheckout: true });
+        }
+        const pauseCount = pauseEvents.filter(evt => evt && evt.type === 'pause').length;
 
         const log = {
             id: String(Date.now()),
@@ -187,6 +297,9 @@ export class Attendance {
             checkOut: checkOutTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             duration: this.msToTime(durationMs),
             durationMs: durationMs,
+            pausedMs: totalPausedMs,
+            pauseCount: pauseCount,
+            pauseEvents: pauseEvents,
             type: statusMeta.status,
             dayCredit: statusMeta.dayCredit,
             lateCountable: statusMeta.lateCountable,
@@ -225,6 +338,10 @@ export class Attendance {
         user.lastCheckOutLocation = { lat, lng, address };
         user.locationMismatched = locationMismatched;
         user.lastCheckIn = null;
+        user.isPaused = false;
+        user.pauseStartedAt = null;
+        user.totalPausedMs = 0;
+        user.pauseEvents = [];
         user.currentLocation = null;
 
         await AppDB.put('users', user);
