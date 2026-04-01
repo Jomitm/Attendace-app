@@ -80,6 +80,7 @@ export const Widget = {
         const mainTimerLabel = document.getElementById('timer-label');
         const mainStatusDot = document.querySelector('.check-in-widget .status-dot') || document.querySelector('.check-in-widget [style*="background: #10b981"]') || document.querySelector('.check-in-widget [style*="background: #94a3b8"]');
         const mainBtn = document.getElementById('attendance-btn');
+        const mainPauseBtn = document.getElementById('attendance-pause-btn');
         const mainLocation = document.getElementById('location-text');
 
         // Progress bar sources
@@ -100,6 +101,7 @@ export const Widget = {
         const widgetTimerLabel = targetView.querySelector('#timer-label');
         const widgetStatusDot = targetView.querySelector('.status-dot-indicator');
         const widgetBtn = targetView.querySelector('#attendance-btn');
+        const widgetPauseBtn = targetView.querySelector('#widget-pause-btn');
         const widgetLocation = targetView.querySelector('#location-text');
 
         const widgetCountdownContainer = targetView.querySelector('#countdown-container');
@@ -143,6 +145,22 @@ export const Widget = {
             widgetBtn.disabled = mainBtn.disabled;
         }
 
+        // Sync Pause/Resume Button
+        if (widgetPauseBtn) {
+            if (mainPauseBtn) {
+                widgetPauseBtn.style.display = '';
+                widgetPauseBtn.innerHTML = mainPauseBtn.innerHTML;
+                widgetPauseBtn.className = mainPauseBtn.className;
+                widgetPauseBtn.disabled = mainPauseBtn.disabled;
+                const onclick = String(mainPauseBtn.getAttribute('onclick') || '');
+                widgetPauseBtn.dataset.action = onclick.includes('app_resumeSession') ? 'resume' : 'pause';
+            } else {
+                widgetPauseBtn.style.display = 'none';
+                widgetPauseBtn.dataset.action = '';
+                widgetPauseBtn.disabled = true;
+            }
+        }
+
         // Sync Location
         if (mainLocation && widgetLocation) {
             widgetLocation.innerHTML = mainLocation.innerHTML;
@@ -181,6 +199,49 @@ export const Widget = {
                 const originalText = btn.innerHTML;
                 btn.innerHTML = '<i class="fa-solid fa-arrow-up-right-from-square"></i> Opening App...';
                 setTimeout(() => { btn.innerHTML = originalText; }, 3000);
+            }
+        } else {
+            alert("Please allow popups or open the main application window manually.");
+        }
+    },
+
+    handleWidgetPauseAction() {
+        const pauseBtn = document.getElementById('widget-pause-btn');
+        const action = (pauseBtn?.dataset?.action || '').toLowerCase();
+        const invokeAction = (targetWindow) => {
+            if (!targetWindow) return false;
+            if (action === 'resume' && typeof targetWindow.app_resumeSession === 'function') {
+                targetWindow.app_resumeSession();
+                return true;
+            }
+            if (action === 'pause' && typeof targetWindow.app_pauseSession === 'function') {
+                targetWindow.app_pauseSession();
+                return true;
+            }
+            return false;
+        };
+
+        if (window.opener && !window.opener.closed) {
+            try {
+                window.opener.focus();
+                if (window.opener.location.hash !== '#dashboard') {
+                    window.opener.location.hash = '#dashboard';
+                }
+                if (invokeAction(window.opener)) return;
+            } catch (err) {
+                console.warn("Could not communicate with main window for pause action:", err);
+            }
+        }
+
+        // Fallback: open main app if opener is unavailable
+        const mainAppUrl = window.location.origin + window.location.pathname + '#dashboard';
+        const mainApp = window.open(mainAppUrl, 'CRWIMainApp');
+        if (mainApp) {
+            mainApp.focus();
+            if (pauseBtn) {
+                const originalText = pauseBtn.innerHTML;
+                pauseBtn.innerHTML = '<i class="fa-solid fa-arrow-up-right-from-square"></i> Opening App...';
+                setTimeout(() => { pauseBtn.innerHTML = originalText; }, 3000);
             }
         } else {
             alert("Please allow popups or open the main application window manually.");
@@ -243,9 +304,14 @@ export const Widget = {
                     <div id="overtime-value" style="color: #ea580c; font-size: 1.1rem; font-weight: 800; font-family: monospace;">00:00:00</div>
                 </div>
 
-                <button class="btn btn-primary" id="attendance-btn" onclick="window.Widget.handleWidgetAction()" style="width: 100%; padding: 0.75rem; font-size: 0.9rem; border-radius: 10px; margin-top: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; transition: all 0.3s ease;">
-                    Action <i class="fa-solid fa-fingerprint"></i>
-                </button>
+                <div class="widget-action-row" style="display:flex; gap:0.5rem; margin-top: 0.5rem;">
+                    <button class="btn btn-primary" id="attendance-btn" onclick="window.Widget.handleWidgetAction()" style="width: 100%; padding: 0.75rem; font-size: 0.9rem; border-radius: 10px; display: flex; align-items: center; justify-content: center; gap: 0.5rem; transition: all 0.3s ease;">
+                        Action <i class="fa-solid fa-fingerprint"></i>
+                    </button>
+                    <button class="btn btn-secondary" id="widget-pause-btn" data-action="" onclick="window.Widget.handleWidgetPauseAction()" style="display:none; width:100%; padding:0.75rem; font-size:0.9rem; border-radius:10px; border:1px solid #cbd5e1; background:#f8fafc; color:#334155;">
+                        Pause <i class="fa-solid fa-pause"></i>
+                    </button>
+                </div>
 
                 <div class="location-text" id="location-text" style="font-size: 0.65rem; color: #94a3b8; text-align: center; margin-top: 0.5rem;">
                     <i class="fa-solid fa-location-dot"></i><span>Waiting for location...</span>

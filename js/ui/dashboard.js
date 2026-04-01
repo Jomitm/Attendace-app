@@ -8,6 +8,8 @@ import { renderStarRating, renderTaskStatusBadge } from './common.js';
 import { renderYearlyPlan } from './team-schedule.js';
 import { AppConfig } from '../config.js';
 
+const escapeJsSingleQuote = (value) => String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
 // --- Local State for Dashboard ---
 
 const teamActivityAutoScroll = {
@@ -279,6 +281,8 @@ export function renderActivityList(allLogs, startStr, endStr, targetStaffId, col
     let lastDate = '';
     const currentUser = window.AppAuth.getUser();
     const isAdminUser = window.app_hasPerm('dashboard', 'admin', currentUser);
+    const isSelfView = currentUser && String(targetStaffId || '') === String(currentUser.id || '');
+    const canEditRows = !!(isAdminUser || isSelfView);
 
     merged.forEach(log => {
         const showDate = log.date !== lastDate;
@@ -289,13 +293,25 @@ export function renderActivityList(allLogs, startStr, endStr, targetStaffId, col
         const borderColor = log._isCollab ? '#10b981' : (log._isMinute ? '#6366f1' : '#e5e7eb');
         const collabClass = log._isCollab ? 'dashboard-activity-item-collab' : (log._isMinute ? 'dashboard-activity-item-minute' : '');
         const progressMeta = renderProgressMeta(log);
+        const editActionType = log._isMinute
+            ? 'minute'
+            : ((!log._isCollab && log.id && log.id !== 'active_now') ? 'attendance' : 'plan');
+        const editButton = canEditRows
+            ? `<div class="dashboard-activity-edit-wrap"><button onclick="window.app_editDashboardActivity('${escapeJsSingleQuote(editActionType)}','${escapeJsSingleQuote(log.id || '')}','${escapeJsSingleQuote(log.date || '')}','${escapeJsSingleQuote(targetStaffId || '')}','${escapeJsSingleQuote(log._meetingId || '')}')" class="dashboard-activity-edit-btn" title="Edit Activity"><i class="fa-solid fa-pen-to-square"></i></button></div>`
+            : '';
         let statusBadge = '';
         if (log._isCollab || log.status || log._isMinute) {
             const status = window.AppCalendar ? window.AppCalendar.getSmartTaskStatus(log.date, log.status) : (log.status || 'to-be-started');
             statusBadge = `
                 <div class="dashboard-activity-status-row">
                     ${renderTaskStatusBadge(status)}
-                    ${isAdminUser || log._isMinute ? `<div class="dashboard-activity-edit-wrap"><button onclick="${log._isMinute ? `(window.app_openMinuteDetails ? window.app_openMinuteDetails('${log._meetingId}') : (window.location.hash = 'minutes'))` : `window.app_openDayPlan('${log.date}', '${targetStaffId}')`}" class="dashboard-activity-edit-btn" title="View/Edit"><i class="fa-solid fa-${log._isMinute ? 'eye' : 'pen-to-square'}"></i></button></div>` : ''}
+                    ${editButton}
+                </div>`;
+        } else if (editButton) {
+            statusBadge = `
+                <div class="dashboard-activity-status-row">
+                    <span></span>
+                    ${editButton}
                 </div>`;
         }
         html += `<div class="dashboard-activity-item ${collabClass}" style="border-left-color:${borderColor};"><div class="dashboard-activity-desc">${safeHtml(log._displayDesc)}</div>${progressMeta}${statusBadge}<div class="dashboard-activity-meta">${safeHtml(log.checkOut || (log.status === 'completed' ? 'Completed' : 'Planned Activity'))}</div></div>`;
@@ -1430,6 +1446,43 @@ const refreshStaffActivityWidget = async (fetchLogs = true) => {
 
 // --- Export to Window (Global) ---
 if (typeof window !== 'undefined') {
+    window.app_editDashboardActivity = async function (kind, logId, dateStr, targetStaffId, meetingId) {
+        const mode = String(kind || '').trim();
+        if (mode === 'minute') {
+            if (window.app_openMinuteDetails) window.app_openMinuteDetails(String(meetingId || ''));
+            else window.location.hash = 'minutes';
+            return;
+        }
+
+        if (mode === 'attendance') {
+            const id = String(logId || '').trim();
+            if (!id || id === 'active_now') return;
+            let currentDesc = '';
+            try {
+                const existing = await window.AppDB.get('attendance', id);
+                currentDesc = String(existing?.workDescription || '');
+            } catch {
+                currentDesc = '';
+            }
+
+            let newDesc = null;
+            if (window.appPrompt) {
+                newDesc = await window.appPrompt('Update Work Summary:', currentDesc, { title: 'Update Work Summary', confirmText: 'Save' });
+            } else {
+                newDesc = window.prompt('Update Work Summary:', currentDesc);
+            }
+            if (newDesc === null) return;
+
+            await window.AppAttendance.updateLog(id, { workDescription: String(newDesc) });
+            if (window.app_refreshDashboard) await window.app_refreshDashboard();
+            return;
+        }
+
+        if (window.app_openDayPlan) {
+            window.app_openDayPlan(String(dateStr || ''), String(targetStaffId || ''));
+        }
+    };
+
     window.app_setStaffActivityMonth = async function (value) {
         const state = getStaffActivityState();
         const normalized = String(value || '').trim();
