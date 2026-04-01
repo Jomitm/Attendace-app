@@ -35,6 +35,7 @@ import { renderLogin } from './ui/auth-pages.js';
 import { renderModals } from './ui/global-modals.js';
 import { renderYearlyPlan } from './ui/team-schedule.js';
 import { renderTeamActivitiesPage } from './ui/team-activities.js';
+import { renderDashboardSectionPage, initDashboardSectionPage } from './ui/dashboard-sections.js';
 
 // Re-export for ESM usage
 export {
@@ -66,7 +67,9 @@ export {
     renderLogin,
     renderModals,
     renderYearlyPlan,
-    renderTeamActivitiesPage
+    renderTeamActivitiesPage,
+    renderDashboardSectionPage,
+    initDashboardSectionPage
 };
 
 export const AppUI = {
@@ -98,7 +101,9 @@ export const AppUI = {
     renderLogin,
     renderModals,
     renderYearlyPlan,
-    renderTeamActivitiesPage
+    renderTeamActivitiesPage,
+    renderDashboardSectionPage,
+    initDashboardSectionPage
 };
 
 

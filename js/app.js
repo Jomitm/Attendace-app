@@ -2999,6 +2999,9 @@ async function init() {
     });
 
     window.addEventListener('hashchange', router);
+    if (window.AppUI?.initDashboardSectionPage) {
+        window.AppUI.initDashboardSectionPage();
+    }
     router();
 
     // Trigger Tour if applicable
@@ -3011,7 +3014,10 @@ async function init() {
 // Router
 async function router() {
     const user = window.AppAuth.getUser();
-    const hash = window.location.hash.slice(1) || 'dashboard';
+    const rawHash = window.location.hash.slice(1) || 'dashboard';
+    const isDashboardSectionRoute = rawHash.startsWith('dashboard-section/');
+    const dashboardSectionKey = isDashboardSectionRoute ? rawHash.split('/')[1] : '';
+    const hash = isDashboardSectionRoute ? 'dashboard-section' : rawHash;
 
     // Cleanup
     if (hash !== 'admin' && adminListenerUnsubscribe && adminListenerUnsubscribe.length > 0) {
@@ -3098,7 +3104,8 @@ async function router() {
     // Active Nav
     const navLinks = document.querySelectorAll('.nav-item, .mobile-nav-item');
     navLinks.forEach(link => {
-        if (link.dataset.page === hash) {
+        const shouldActivateDashboard = isDashboardSectionRoute && link.dataset.page === 'dashboard';
+        if (link.dataset.page === hash || shouldActivateDashboard) {
             link.classList.add('active');
         } else {
             link.classList.remove('active');
@@ -3119,6 +3126,11 @@ async function router() {
         if (hash === 'dashboard') {
             contentArea.innerHTML = await AppUI.renderDashboard();
             setupDashboardEvents();
+        } else if (hash === 'dashboard-section') {
+            contentArea.innerHTML = await AppUI.renderDashboardSectionPage(dashboardSectionKey || 'worklog');
+            if (window.AppUI?.initDashboardSectionPage) {
+                window.AppUI.initDashboardSectionPage(dashboardSectionKey || 'worklog');
+            }
         } else if (hash === 'team-activities') {
             contentArea.innerHTML = await AppUI.renderTeamActivitiesPage();
             if (window.app_initTeamActivities) {
@@ -6520,6 +6532,10 @@ async function refreshDashboardAfterAttendance() {
     }
 }
 window.app_refreshDashboard = refreshDashboardAfterAttendance;
+
+window.app_refreshCurrentPage = async function () {
+    await router();
+};
 
 // --- Global Event Delegation ---
 

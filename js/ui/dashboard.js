@@ -143,8 +143,10 @@ const getDashboardCardTitle = (cardEl) => {
 };
 
 const getDashboardCardId = (cardEl, index) => {
+    if (cardEl.classList.contains('dashboard-checkin-card')) return 'checkin';
     if (cardEl.classList.contains('dashboard-worklog-card')) return 'worklog';
     if (cardEl.classList.contains('dashboard-team-activity-card')) return 'team-activity';
+    if (cardEl.classList.contains('dashboard-team-schedule-card')) return 'team-schedule';
     if (cardEl.classList.contains('dashboard-staff-directory-card')) return 'staff-directory';
     if (cardEl.classList.contains('dashboard-leave-requests-card')) return 'leave-requests';
     if (cardEl.classList.contains('dashboard-leave-history-card')) return 'leave-history';
@@ -262,6 +264,10 @@ const initDashboardCardControls = () => {
 // --- Local State for Dashboard ---
 
 const teamActivityAutoScroll = {
+    controllers: new WeakMap(),
+    elements: new Set()
+};
+const worklogAutoScroll = {
     controllers: new WeakMap(),
     elements: new Set()
 };
@@ -1531,6 +1537,7 @@ export async function renderDashboard() {
         minutesData: Array.isArray(minutesData) ? minutesData : [],
         targetStaffId
     };
+    setTimeout(() => initWorklogAutoScroll(document), 0);
     setTimeout(() => initDashboardCardControls(), 0);
 
     return `
@@ -1700,33 +1707,174 @@ function initTeamActivityAutoScroll(container) {
     const TICK_MS = 35;
     const BOTTOM_PAUSE_MS = 1400;
     const TOP_PAUSE_MS = 900;
+    const EDGE_THRESHOLD_PX = 2;
+    const STALL_TICKS_BEFORE_FLIP = 20;
     const columns = container.querySelectorAll('.dashboard-team-activity-col-list');
     columns.forEach((el) => {
-        const state = { intervalId: null, pauseTimeoutId: null, resumeTimeoutId: null, direction: 1, isPausedByUser: false, isWaitingAtEdge: false };
+        const state = {
+            intervalId: null,
+            pauseTimeoutId: null,
+            resumeTimeoutId: null,
+            direction: 1,
+            isPausedByUser: false,
+            isWaitingAtEdge: false,
+            lastScrollTop: 0,
+            stallTicks: 0
+        };
         const waitAtEdge = (nextDirection, waitMs) => {
             state.isWaitingAtEdge = true;
             if (state.pauseTimeoutId) clearTimeout(state.pauseTimeoutId);
-            state.pauseTimeoutId = setTimeout(() => { state.direction = nextDirection; state.isWaitingAtEdge = false; }, waitMs);
+            state.pauseTimeoutId = setTimeout(() => {
+                state.direction = nextDirection;
+                state.isWaitingAtEdge = false;
+                state.stallTicks = 0;
+            }, waitMs);
         };
         const tick = () => {
             if (state.isPausedByUser || state.isWaitingAtEdge || !el.isConnected) return;
             const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
-            if (maxScroll <= 0) return;
+            if (maxScroll <= 0) {
+                state.stallTicks = 0;
+                state.lastScrollTop = 0;
+                return;
+            }
             el.scrollTop += (SCROLL_STEP_PX * state.direction);
-            if (state.direction === 1 && el.scrollTop >= maxScroll) { el.scrollTop = maxScroll; waitAtEdge(-1, BOTTOM_PAUSE_MS); }
-            else if (state.direction === -1 && el.scrollTop <= 0) { el.scrollTop = 0; waitAtEdge(1, TOP_PAUSE_MS); }
+            const nearBottom = el.scrollTop >= (maxScroll - EDGE_THRESHOLD_PX);
+            const nearTop = el.scrollTop <= EDGE_THRESHOLD_PX;
+            if (state.direction === 1 && nearBottom) {
+                el.scrollTop = maxScroll;
+                waitAtEdge(-1, BOTTOM_PAUSE_MS);
+                return;
+            }
+            if (state.direction === -1 && nearTop) {
+                el.scrollTop = 0;
+                waitAtEdge(1, TOP_PAUSE_MS);
+                return;
+            }
+
+            if (Math.abs(el.scrollTop - state.lastScrollTop) < 0.2) {
+                state.stallTicks += 1;
+                if (state.stallTicks >= STALL_TICKS_BEFORE_FLIP) {
+                    state.direction *= -1;
+                    state.stallTicks = 0;
+                }
+            } else {
+                state.stallTicks = 0;
+            }
+            state.lastScrollTop = el.scrollTop;
         };
         state.onMouseEnter = () => { state.isPausedByUser = true; };
         state.onMouseLeave = () => { state.isPausedByUser = false; };
         state.onTouchStart = () => { state.isPausedByUser = true; if (state.resumeTimeoutId) clearTimeout(state.resumeTimeoutId); };
         state.onTouchEnd = () => { if (state.resumeTimeoutId) clearTimeout(state.resumeTimeoutId); state.resumeTimeoutId = setTimeout(() => { state.isPausedByUser = false; }, 400); };
+        state.onTouchCancel = () => { state.isPausedByUser = false; };
         el.addEventListener('mouseenter', state.onMouseEnter);
         el.addEventListener('mouseleave', state.onMouseLeave);
         el.addEventListener('touchstart', state.onTouchStart, { passive: true });
         el.addEventListener('touchend', state.onTouchEnd, { passive: true });
+        el.addEventListener('touchcancel', state.onTouchCancel, { passive: true });
         state.intervalId = setInterval(tick, TICK_MS);
         teamActivityAutoScroll.controllers.set(el, state);
         teamActivityAutoScroll.elements.add(el);
+    });
+}
+
+function clearWorklogController(el) {
+    if (!el) return;
+    const state = worklogAutoScroll.controllers.get(el);
+    if (!state) return;
+    if (state.intervalId) clearInterval(state.intervalId);
+    if (state.pauseTimeoutId) clearTimeout(state.pauseTimeoutId);
+    if (state.resumeTimeoutId) clearTimeout(state.resumeTimeoutId);
+    el.removeEventListener('mouseenter', state.onMouseEnter);
+    el.removeEventListener('mouseleave', state.onMouseLeave);
+    el.removeEventListener('touchstart', state.onTouchStart);
+    el.removeEventListener('touchend', state.onTouchEnd);
+    el.removeEventListener('touchcancel', state.onTouchCancel);
+    worklogAutoScroll.controllers.delete(el);
+    worklogAutoScroll.elements.delete(el);
+}
+
+function disposeWorklogAutoScroll() {
+    Array.from(worklogAutoScroll.elements).forEach(el => clearWorklogController(el));
+}
+
+function initWorklogAutoScroll(container = document) {
+    if (!container) return;
+    disposeWorklogAutoScroll();
+    const SCROLL_STEP_PX = 1;
+    const TICK_MS = 38;
+    const BOTTOM_PAUSE_MS = 1200;
+    const TOP_PAUSE_MS = 900;
+    const EDGE_THRESHOLD_PX = 2;
+    const STALL_TICKS_BEFORE_FLIP = 20;
+    const lists = container.querySelectorAll('.dashboard-worklog-list');
+
+    lists.forEach((el) => {
+        const state = {
+            intervalId: null,
+            pauseTimeoutId: null,
+            resumeTimeoutId: null,
+            direction: 1,
+            isPausedByUser: false,
+            isWaitingAtEdge: false,
+            lastScrollTop: 0,
+            stallTicks: 0
+        };
+        const waitAtEdge = (nextDirection, waitMs) => {
+            state.isWaitingAtEdge = true;
+            if (state.pauseTimeoutId) clearTimeout(state.pauseTimeoutId);
+            state.pauseTimeoutId = setTimeout(() => {
+                state.direction = nextDirection;
+                state.isWaitingAtEdge = false;
+                state.stallTicks = 0;
+            }, waitMs);
+        };
+        const tick = () => {
+            if (state.isPausedByUser || state.isWaitingAtEdge || !el.isConnected) return;
+            const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
+            if (maxScroll <= 0) {
+                state.stallTicks = 0;
+                state.lastScrollTop = 0;
+                return;
+            }
+            el.scrollTop += (SCROLL_STEP_PX * state.direction);
+            const nearBottom = el.scrollTop >= (maxScroll - EDGE_THRESHOLD_PX);
+            const nearTop = el.scrollTop <= EDGE_THRESHOLD_PX;
+            if (state.direction === 1 && nearBottom) {
+                el.scrollTop = maxScroll;
+                waitAtEdge(-1, BOTTOM_PAUSE_MS);
+                return;
+            }
+            if (state.direction === -1 && nearTop) {
+                el.scrollTop = 0;
+                waitAtEdge(1, TOP_PAUSE_MS);
+                return;
+            }
+            if (Math.abs(el.scrollTop - state.lastScrollTop) < 0.2) {
+                state.stallTicks += 1;
+                if (state.stallTicks >= STALL_TICKS_BEFORE_FLIP) {
+                    state.direction *= -1;
+                    state.stallTicks = 0;
+                }
+            } else {
+                state.stallTicks = 0;
+            }
+            state.lastScrollTop = el.scrollTop;
+        };
+        state.onMouseEnter = () => { state.isPausedByUser = true; };
+        state.onMouseLeave = () => { state.isPausedByUser = false; };
+        state.onTouchStart = () => { state.isPausedByUser = true; if (state.resumeTimeoutId) clearTimeout(state.resumeTimeoutId); };
+        state.onTouchEnd = () => { if (state.resumeTimeoutId) clearTimeout(state.resumeTimeoutId); state.resumeTimeoutId = setTimeout(() => { state.isPausedByUser = false; }, 350); };
+        state.onTouchCancel = () => { state.isPausedByUser = false; };
+        el.addEventListener('mouseenter', state.onMouseEnter);
+        el.addEventListener('mouseleave', state.onMouseLeave);
+        el.addEventListener('touchstart', state.onTouchStart, { passive: true });
+        el.addEventListener('touchend', state.onTouchEnd, { passive: true });
+        el.addEventListener('touchcancel', state.onTouchCancel, { passive: true });
+        state.intervalId = setInterval(tick, TICK_MS);
+        worklogAutoScroll.controllers.set(el, state);
+        worklogAutoScroll.elements.add(el);
     });
 }
 
@@ -1766,6 +1914,10 @@ if (typeof window !== 'undefined') {
     window.app_toggleDashboardCardMode = (cardId, mode = DASHBOARD_CARD_MODE_TILE, triggerEl = null) => {
         if (!cardId) return;
         const safeMode = DASHBOARD_CARD_MODES.has(mode) ? mode : DASHBOARD_CARD_MODE_TILE;
+        if (safeMode === DASHBOARD_CARD_MODE_FULLSCREEN && typeof window.app_openDashboardSection === 'function') {
+            window.app_openDashboardSection(String(cardId || '').trim());
+            return;
+        }
         const cardEl = getDashboardCardElementById(cardId);
         const currentMode = String(cardEl?.dataset?.dashboardCardMode || DASHBOARD_CARD_MODE_TILE);
         if (currentMode === safeMode && safeMode !== DASHBOARD_CARD_MODE_TILE) {
@@ -1834,6 +1986,7 @@ if (typeof window !== 'undefined') {
             Array.isArray(ctx.collaborations) ? ctx.collaborations : [],
             Array.isArray(ctx.minutesData) ? ctx.minutesData : []
         );
+        initWorklogAutoScroll(document);
     };
 
     window.app_setStaffActivityMonth = async function (value, listId = 'staff-activity-list', labelId = 'staff-activity-range-label') {
