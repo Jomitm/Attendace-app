@@ -652,18 +652,16 @@ export class Analytics {
         return AppConfig?.HERO_POLICY || {};
     }
 
-    getHeroWeekRange(baseDate = null) {
+    getHeroScoreRange(baseDate = null) {
         const seed = baseDate instanceof Date && !Number.isNaN(baseDate.getTime())
             ? new Date(baseDate)
             : (window.AppDB?.getIstNow ? window.AppDB.getIstNow() : new Date());
-        const day = seed.getDay();
-        const diffToMonday = day === 0 ? -6 : 1 - day;
-        const start = new Date(seed);
-        start.setDate(seed.getDate() + diffToMonday);
-        start.setHours(0, 0, 0, 0);
-        const end = new Date(start);
-        end.setDate(start.getDate() + 6);
+        const end = new Date(seed);
+        end.setDate(seed.getDate() - 1);
         end.setHours(23, 59, 59, 999);
+        const start = new Date(end);
+        start.setDate(end.getDate() - 6);
+        start.setHours(0, 0, 0, 0);
         return { start, end };
     }
 
@@ -777,12 +775,13 @@ export class Analytics {
 
     classifyHeroTaskStatus(rawStatus, planDate = null) {
         const normalized = String(rawStatus || '').toLowerCase().trim();
+        if (normalized === 'postponed') return 'postponed';
         const smartStatus = window.AppCalendar?.getSmartTaskStatus
             ? String(window.AppCalendar.getSmartTaskStatus(planDate, normalized) || normalized)
             : normalized;
         if (smartStatus === 'completed') return 'completed';
         if (smartStatus === 'in-process' || smartStatus === 'in progress' || smartStatus === 'to-be-started' || smartStatus === 'pending' || smartStatus === '') return 'in_progress';
-        if (smartStatus === 'not-completed' || smartStatus === 'overdue' || smartStatus === 'postponed' || smartStatus === 'missed') return 'missed';
+        if (smartStatus === 'not-completed' || smartStatus === 'overdue' || smartStatus === 'missed') return 'missed';
         return 'in_progress';
     }
 
@@ -791,24 +790,75 @@ export class Analytics {
         (workPlans || []).forEach((wp) => {
             const userId = String(wp?.userId || wp?.user_id || '').trim();
             if (!userId || !Array.isArray(wp?.plans)) return;
-            wp.plans.forEach((task) => {
+            wp.plans.forEach((task, taskIndex) => {
                 if (!task || !String(task.task || '').trim()) return;
                 const status = this.classifyHeroTaskStatus(task.status, wp.date);
-                rows.push({ userId, status, date: wp.date });
+                rows.push({
+                    userId,
+                    status,
+                    date: wp.date,
+                    planId: String(wp?.id || ''),
+                    taskIndex,
+                    rawStatus: String(task.status || '').trim().toLowerCase(),
+                    task: String(task.task || ''),
+                    subPlans: Array.isArray(task.subPlans) ? task.subPlans.slice() : [],
+                    completedDate: task.completedDate || null,
+                    assignedTo: String(task.assignedTo || wp?.userId || wp?.user_id || '').trim(),
+                    assignedToName: String(task.assignedToName || wp?.userName || '').trim()
+                });
             });
         });
         return rows;
+    }
+
+    buildHeroTaskBuckets(taskRows = []) {
+        const byUser = new Map();
+        const ensureBucket = (userId) => {
+            if (!byUser.has(userId)) {
+                byUser.set(userId, {
+                    completed: [],
+                    in_progress: [],
+                    postponed: [],
+                    missed: []
+                });
+            }
+            return byUser.get(userId);
+        };
+
+        taskRows.forEach((row) => {
+            if (!row?.userId) return;
+            const bucket = ensureBucket(String(row.userId));
+            const key = ['completed', 'in_progress', 'postponed', 'missed'].includes(row.status)
+                ? row.status
+                : 'in_progress';
+            bucket[key].push({
+                userId: String(row.userId),
+                planId: String(row.planId || ''),
+                taskIndex: Number(row.taskIndex),
+                date: String(row.date || ''),
+                task: String(row.task || ''),
+                subPlans: Array.isArray(row.subPlans) ? row.subPlans.slice() : [],
+                status: key,
+                rawStatus: String(row.rawStatus || ''),
+                completedDate: row.completedDate || null,
+                assignedTo: String(row.assignedTo || ''),
+                assignedToName: String(row.assignedToName || '')
+            });
+        });
+
+        return byUser;
     }
 
     buildHeroTaskStats(taskRows = []) {
         const byUser = new Map();
         taskRows.forEach((row) => {
             if (!byUser.has(row.userId)) {
-                byUser.set(row.userId, { planned: 0, completed: 0, inProgress: 0, missed: 0 });
+                byUser.set(row.userId, { planned: 0, completed: 0, inProgress: 0, missed: 0, postponed: 0 });
             }
             const bucket = byUser.get(row.userId);
             bucket.planned += 1;
             if (row.status === 'completed') bucket.completed += 1;
+            else if (row.status === 'postponed') bucket.postponed += 1;
             else if (row.status === 'missed') bucket.missed += 1;
             else bucket.inProgress += 1;
         });
@@ -842,21 +892,23 @@ export class Analytics {
                 daysSet: new Set(),
                 activityLogDepth: 0
             };
-            const tasks = taskStats.get(String(userId)) || { planned: 0, completed: 0, inProgress: 0, missed: 0 };
+            const tasks = taskStats.get(String(userId)) || { planned: 0, completed: 0, inProgress: 0, missed: 0, postponed: 0 };
 
             const days = attendance.daysSet.size;
             const hoursValue = attendance.totalDurationMs / (1000 * 60 * 60);
             const planned = Math.max(0, Number(tasks.planned) || 0);
             const completed = Math.max(0, Number(tasks.completed) || 0);
+            const postponed = Math.max(0, Number(tasks.postponed) || 0);
             const inProgress = Math.max(0, Number(tasks.inProgress) || 0);
             const missed = Math.max(0, Number(tasks.missed) || 0);
+            const penaltyMissed = missed + postponed;
             const completionRate = planned > 0 ? (completed / planned) * 100 : 0;
 
             const taskExecutionScore = planned > 0
-                ? Math.max(0, Math.min(100, ((completed + (inProgress * 0.5) - missed) / planned) * 100))
+                ? Math.max(0, Math.min(100, ((completed + (inProgress * 0.5) - penaltyMissed) / planned) * 100))
                 : 0;
             const inProgressScore = planned > 0 ? Math.max(0, Math.min(100, (inProgress / planned) * 100)) : 0;
-            const missPenaltyScore = planned > 0 ? Math.max(0, Math.min(100, (missed / planned) * 100)) : 0;
+            const missPenaltyScore = planned > 0 ? Math.max(0, Math.min(100, (penaltyMissed / planned) * 100)) : 0;
             const consistencyScore = (days / windowDays) * 100;
             const effortScore = Math.min((hoursValue / hourCap) * 100, 100);
 
@@ -880,6 +932,7 @@ export class Analytics {
                 taskCompleted: completed,
                 taskInProgress: inProgress,
                 taskMissed: missed,
+                taskPostponed: postponed,
                 completionRate: Number(completionRate.toFixed(1)),
                 taskScore: Number(Math.max(0, taskScore).toFixed(2)),
                 attendanceFactor: Number(attendanceFactor.toFixed(3)),
@@ -966,10 +1019,10 @@ export class Analytics {
         try {
             const policy = this.getHeroPolicy();
             const windowDays = Math.max(1, Number(policy.WINDOW_DAYS || 7));
-            const { start, end } = this.getHeroWeekRange(options.baseDate);
+            const { start, end } = this.getHeroScoreRange(options.baseDate);
 
             const [logs, workPlans, users] = await Promise.all([
-                this.getAttendanceInRange(start, end, 'hero_calendar_week'),
+                this.getAttendanceInRange(start, end, 'hero_yesterday_window'),
                 this.db.queryMany
                     ? this.db.queryMany('work_plans', [
                         { field: 'date', operator: '>=', value: start.toISOString().split('T')[0] },
@@ -980,17 +1033,26 @@ export class Analytics {
             ]);
 
             const weeklyHero = this.scoreHeroFromLogs(logs, users, {
-                period: 'current_week',
+                period: 'yesterday_back_7_days',
                 source: String(options.source || 'direct_cache'),
                 workPlans
             });
-            if (weeklyHero.state === 'winner') return weeklyHero;
+            if (weeklyHero.state === 'winner') {
+                return {
+                    ...weeklyHero,
+                    meta: {
+                        startDate: start.toISOString().split('T')[0],
+                        endDate: end.toISOString().split('T')[0],
+                        windowDays
+                    }
+                };
+            }
 
             return {
                 ...weeklyHero,
-                period: 'current_week',
+                period: 'yesterday_back_7_days',
                 source: String(options.source || 'direct_cache'),
-                reason: weeklyHero.reason || 'No staff met the minimum hero criteria this week.',
+                reason: weeklyHero.reason || 'No staff met the minimum hero criteria in the last 7 completed days.',
                 schemaVersion: Number(policy.SCHEMA_VERSION || 1),
                 meta: {
                     windowDays,
@@ -1020,10 +1082,10 @@ export class Analytics {
             const minDays = Math.max(1, Number(minEvidence.minDays || 1));
             const minDurationMs = Math.max(0, Number(minEvidence.minDurationMs || 1));
             const minPlannedTasks = Math.max(0, Number(minEvidence.minPlannedTasks || 1));
-            const { start, end } = this.getHeroWeekRange(options.baseDate);
+            const { start, end } = this.getHeroScoreRange(options.baseDate);
 
             const [logs, workPlans, users] = await Promise.all([
-                this.getAttendanceInRange(start, end, 'hero_calendar_week'),
+                this.getAttendanceInRange(start, end, 'hero_yesterday_window'),
                 this.db.queryMany
                     ? this.db.queryMany('work_plans', [
                         { field: 'date', operator: '>=', value: start.toISOString().split('T')[0] },
@@ -1040,6 +1102,7 @@ export class Analytics {
                 this.buildHeroTaskStats(normalizedTasks),
                 policy
             );
+            const taskBuckets = this.buildHeroTaskBuckets(normalizedTasks);
             const rankedMap = new Map(ranked.map((row, index) => [String(row.userId), { ...row, rank: index + 1 }]));
             const rows = (Array.isArray(users) ? users : []).map((user) => {
                 const userId = String(user?.id || '').trim();
@@ -1051,10 +1114,16 @@ export class Analytics {
                     stats,
                     rank: stats.rank,
                     isEligible,
+                    taskBuckets: taskBuckets.get(userId) || {
+                        completed: [],
+                        in_progress: [],
+                        postponed: [],
+                        missed: []
+                    },
                     eligibilityReason: isEligible
                         ? 'Eligible'
                         : `Needs at least ${minPlannedTasks} planned task${minPlannedTasks === 1 ? '' : 's'} and ${minDays} day${minDays === 1 ? '' : 's'} or tracked time.`,
-                    period: 'current_week'
+                    period: 'yesterday_back_7_days'
                 };
             }).sort((a, b) => {
                 const aRank = Number.isFinite(a.rank) ? a.rank : Number.MAX_SAFE_INTEGER;
@@ -1065,7 +1134,7 @@ export class Analytics {
 
             return {
                 state: 'ok',
-                period: 'current_week',
+                period: 'yesterday_back_7_days',
                 source: String(options.source || 'direct_cache'),
                 rows,
                 winnerUserId: rows.find((row) => row.isEligible && Number(row.rank) === 1)?.user?.id || null,
@@ -1079,7 +1148,7 @@ export class Analytics {
             console.error('Hero Leaderboard Error:', err);
             return {
                 state: 'fetch_error',
-                period: 'current_week',
+                period: 'yesterday_back_7_days',
                 source: String(options.source || 'direct_cache'),
                 rows: [],
                 winnerUserId: null,
@@ -1173,8 +1242,9 @@ export class Analytics {
             : new Date(now.getFullYear(), now.getMonth() + 1, 0);
         const activityLimit = Math.max(1, Number(AppConfig?.SUMMARY_POLICY?.TEAM_ACTIVITY_LIMIT) || 15);
 
-        const [hero, teamActivities] = await Promise.all([
+        const [hero, heroLeaderboard, teamActivities] = await Promise.all([
             this.getHeroOfTheWeek({ source: 'shared_summary' }),
+            this.getHeroLeaderboard({ source: 'shared_summary' }),
             this.getAllStaffActivities({ mode: 'month', month: monthKey, scope: 'all', sideEffects: false })
         ]);
 
@@ -1184,6 +1254,7 @@ export class Analytics {
             version: Number(AppConfig?.SUMMARY_POLICY?.SCHEMA_VERSION || 1),
             generatedAt: Date.now(),
             hero: (hero && hero.state !== 'fetch_error') ? hero : null,
+            heroLeaderboard: (heroLeaderboard && heroLeaderboard.state !== 'fetch_error') ? heroLeaderboard : null,
             teamActivityPreview: (teamActivities || []).slice(0, activityLimit),
             range: {
                 startIso: monthStart.toISOString().split('T')[0],
@@ -1191,7 +1262,8 @@ export class Analytics {
             },
             meta: {
                 generatedAt: Date.now(),
-                source: 'client_first_writer'
+                source: 'client_first_writer',
+                generationGate: 'first_checkin'
             }
         };
     }

@@ -60,12 +60,13 @@ export const AppConfig = {
         STALENESS_MS: 24 * 60 * 60 * 1000,
         TEAM_ACTIVITY_LIMIT: 15,
         LOCK_TTL_MS: 90000,
-        SCHEMA_VERSION: 3,
+        SCHEMA_VERSION: 4,
+        GENERATE_ON_FIRST_CHECKIN: true,
         RECOMPUTE_CUTOFF_HOUR_IST: 17,
         FALLBACK_TO_PREVIOUS_DAY: true
     },
     HERO_POLICY: {
-        SCHEMA_VERSION: 3,
+        SCHEMA_VERSION: 4,
         WINDOW_DAYS: 7,
         FALLBACK_LOOKBACK_DAYS: 90,
         WEIGHTS: {

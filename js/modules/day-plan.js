@@ -552,13 +552,13 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
     container.appendChild(modalOverlay);
     const modalEl = document.getElementById('day-plan-modal');
     if (modalEl) {
-        const overlays = Array.from(document.querySelectorAll('.modal-overlay, .modal'))
+        const overlays = Array.from(document.querySelectorAll('.modal-overlay, .modal, .dashboard-max-overlay, .dashboard-max-window, .hero-task-modal-overlay, .hero-task-modal-shell'))
             .filter(el => el !== modalEl);
         const maxZ = overlays.reduce((acc, el) => {
             const z = Number.parseInt(window.getComputedStyle(el).zIndex, 10);
             return Number.isFinite(z) ? Math.max(acc, z) : acc;
         }, 1000);
-        modalEl.style.zIndex = String(maxZ + 2);
+        modalEl.style.zIndex = String(maxZ + 20);
     }
 }
 

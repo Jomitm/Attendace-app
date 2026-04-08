@@ -1409,184 +1409,6 @@ window.app_findCarryForwardIssues = async function () {
     }
 };
 
-window.app_purgeAllAutoForwardedTasks = async function () {
-    try {
-        if (!window.AppCalendar?.purgeAllCarriedForwardTasksAllTime) {
-            alert('Auto-forward purge is not available in this build.');
-            return;
-        }
-        const currentUser = window.AppAuth?.getUser ? window.AppAuth.getUser() : null;
-        const isAdmin = !!(currentUser && (currentUser.role === 'Administrator' || currentUser.isAdmin));
-        const confirmText = isAdmin
-            ? 'Delete ALL auto-forwarded tasks for ALL staff and ALL dates? This cannot be undone.'
-            : 'Delete ALL of YOUR auto-forwarded tasks for ALL dates? This cannot be undone.';
-        const approved = window.appConfirm
-            ? await window.appConfirm(confirmText)
-            : window.confirm(confirmText);
-        if (!approved) return;
-
-        const result = isAdmin
-            ? await window.AppCalendar.purgeAllCarriedForwardTasksAllTime({ scopes: ['personal', 'annual'] })
-            : await window.AppCalendar.purgeCarriedForwardTasksForUserAllTime(currentUser?.id, { scopes: ['personal'] });
-        const summary = `Removed ${result.removedTasks} auto-forwarded task(s) from ${result.touchedPlans} plan(s).`;
-        if (window.app_showSyncToast) {
-            window.app_showSyncToast(summary);
-        } else {
-            alert(summary);
-        }
-    } catch (err) {
-        console.error('Auto-forward purge failed:', err);
-        alert('Failed to delete auto-forwarded tasks.');
-    }
-};
-
-window.app_openForwardCleanupModal = async function () {
-    try {
-        if (!window.AppCalendar?.getForwardCleanupItemsAllTime) {
-            alert('Forward cleanup is not available in this build.');
-            return;
-        }
-        const items = await window.AppCalendar.getForwardCleanupItemsAllTime({ includePersonal: true, includeAnnual: true });
-        if (!items.length) {
-            alert('No forwarded tasks found.');
-            return;
-        }
-
-        const manual = items.filter(i => i.type === 'manual');
-        const system = items.filter(i => i.type === 'system');
-        window.app_forwardCleanupItems = items;
-
-        const renderRows = (rows) => rows.map((row) => `
-            <tr>
-                <td style="padding:6px 8px; border-bottom:1px solid #e2e8f0;">
-                    <input type="checkbox" class="forward-cleanup-row" data-key="${app_escapeHtml(`${row.planId}__${row.taskIndex}`)}">
-                </td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e2e8f0;">${app_escapeHtml(row.planDate || '')}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e2e8f0;">${app_escapeHtml(row.planUserName || row.planUserId || '')}</td>
-                <td style="padding:6px 8px; border-bottom:1px solid #e2e8f0;">${app_escapeHtml(row.taskText || '')}</td>
-            </tr>
-        `).join('');
-
-        const section = (title, rows, sectionKey) => `
-            <div style="margin-top:0.75rem;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
-                    <div style="font-weight:700; color:#0f172a;">${title} (${rows.length})</div>
-                    <div style="display:flex; gap:0.4rem;">
-                        <button type="button" class="action-btn secondary" data-forward-select-all="${sectionKey}">Select All</button>
-                        <button type="button" class="action-btn danger" data-forward-delete="${sectionKey}">Delete Selected</button>
-                    </div>
-                </div>
-                <div style="border:1px solid #e2e8f0; border-radius:10px; overflow:auto; max-height:40vh;">
-                    <table style="width:100%; border-collapse:collapse; font-size:0.82rem;">
-                        <thead style="background:#f8fafc; position:sticky; top:0;">
-                            <tr>
-                                <th style="text-align:left; padding:8px; border-bottom:1px solid #e2e8f0; width:36px;"></th>
-                                <th style="text-align:left; padding:8px; border-bottom:1px solid #e2e8f0;">Date</th>
-                                <th style="text-align:left; padding:8px; border-bottom:1px solid #e2e8f0;">Staff</th>
-                                <th style="text-align:left; padding:8px; border-bottom:1px solid #e2e8f0;">Task</th>
-                            </tr>
-                        </thead>
-                        <tbody>${renderRows(rows)}</tbody>
-                    </table>
-                </div>
-            </div>
-        `;
-
-        const html = `
-            <div class="modal-overlay" id="forward-cleanup-modal" style="display:flex;">
-                <div class="modal-content" style="max-width:980px;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem;">
-                        <h3 style="margin:0;">Forward Cleanup</h3>
-                        <button type="button" onclick="window.app_closeModal(this)" class="day-plan-close-btn" title="Close">
-                            <i class="fa-solid fa-xmark"></i>
-                        </button>
-                    </div>
-                    <div style="font-size:0.85rem; color:#64748b;">
-                        Manual postponed tasks are created by user actions. System postponed tasks are auto-forwarded by the system.
-                    </div>
-                    ${section('Manual Postponed', manual, 'manual')}
-                    ${section('System Postponed', system, 'system')}
-                </div>
-            </div>
-        `;
-        window.app_showModal(html, 'forward-cleanup-modal');
-
-        const modal = document.getElementById('forward-cleanup-modal');
-        if (!modal) return;
-
-        const collectKeys = (sectionKey) => {
-            const rows = sectionKey === 'manual' ? manual : system;
-            const keys = new Set(rows.map(r => `${r.planId}__${r.taskIndex}`));
-            return keys;
-        };
-
-        const selectAll = (sectionKey) => {
-            const keys = collectKeys(sectionKey);
-            const boxes = Array.from(modal.querySelectorAll('.forward-cleanup-row'));
-            boxes.forEach((box) => {
-                const key = box.getAttribute('data-key');
-                if (keys.has(key)) box.checked = true;
-            });
-        };
-
-        const deleteSelected = async (sectionKey) => {
-            const keys = collectKeys(sectionKey);
-            const boxes = Array.from(modal.querySelectorAll('.forward-cleanup-row'))
-                .filter(b => b.checked && keys.has(b.getAttribute('data-key')));
-            if (!boxes.length) {
-                alert('Select at least one task.');
-                return;
-            }
-            const confirmText = `Delete ${boxes.length} selected task(s)? This cannot be undone.`;
-            const approved = window.appConfirm ? await window.appConfirm(confirmText) : window.confirm(confirmText);
-            if (!approved) return;
-
-            const currentUser = window.AppAuth?.getUser ? window.AppAuth.getUser() : null;
-            let removed = 0;
-            for (const box of boxes) {
-                const key = box.getAttribute('data-key') || '';
-                const [planId, idxRaw] = key.split('__');
-                const taskIndex = Number(idxRaw);
-                if (!planId || !Number.isInteger(taskIndex)) continue;
-                const plan = await window.AppDB.get('work_plans', planId);
-                if (!plan || !Array.isArray(plan.plans) || !plan.plans[taskIndex]) continue;
-                plan.plans[taskIndex] = {
-                    ...plan.plans[taskIndex],
-                    status: 'not-completed',
-                    isRemoved: true,
-                    removedAt: new Date().toISOString(),
-                    removedBy: currentUser?.id || ''
-                };
-                plan.updatedAt = new Date().toISOString();
-                await window.AppDB.put('work_plans', plan);
-                removed += 1;
-            }
-            if (window.app_showSyncToast) {
-                window.app_showSyncToast(`Removed ${removed} task(s).`);
-            } else {
-                alert(`Removed ${removed} task(s).`);
-            }
-            window.app_closeModal(modal.querySelector('.day-plan-close-btn'));
-            window.app_openForwardCleanupModal();
-        };
-
-        modal.addEventListener('click', (event) => {
-            const target = event.target;
-            const selectAllBtn = target.closest('[data-forward-select-all]');
-            const deleteBtn = target.closest('[data-forward-delete]');
-            if (selectAllBtn) {
-                selectAll(selectAllBtn.getAttribute('data-forward-select-all'));
-            }
-            if (deleteBtn) {
-                deleteSelected(deleteBtn.getAttribute('data-forward-delete'));
-            }
-        });
-    } catch (err) {
-        console.error('Forward cleanup failed:', err);
-        alert('Failed to load forward cleanup.');
-    }
-};
-
 const escapeDialogHtml = (value) => {
     return String(value ?? '')
         .replace(/&/g, '&amp;')
@@ -5314,16 +5136,17 @@ window.app_deleteMeeting = async (id) => {
 window.app_postponeTask = async (planId, taskIndex, targetDate) => {
     if (!targetDate) return;
     try {
-        const user = window.AppAuth.getUser();
         await window.AppCalendar.updateTaskStatus(planId, taskIndex, 'postponed');
         const plan = await window.AppDB.get('work_plans', planId);
         const task = plan?.plans?.[taskIndex];
+        const ownerUserId = String(plan?.userId || window.AppAuth.getUser()?.id || '').trim();
+        if (!ownerUserId) throw new Error('Task owner not found.');
         const details = (task && task.subPlans && task.subPlans.length) ? ` - ${task.subPlans.join(', ')}` : '';
         const text = task ? `${task.task}${details}` : '';
         const fromDate = plan?.date || new Date().toISOString().split('T')[0];
         const cleanedText = text.replace(/\s*\(Postponed from [^)]+\)\s*$/i, '');
         const postponedText = `${cleanedText} (Postponed from ${fromDate})`;
-        await window.AppCalendar.addWorkPlanTask(targetDate, user.id, postponedText, [], {
+        await window.AppCalendar.addWorkPlanTask(targetDate, ownerUserId, postponedText, [], {
             addedFrom: 'postponed',
             sourcePlanId: planId,
             sourceTaskIndex: taskIndex,

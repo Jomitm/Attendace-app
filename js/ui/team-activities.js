@@ -1005,7 +1005,6 @@ export async function renderTeamActivitiesPage() {
                     ${isAdmin ? `
                         <button class="action-btn secondary" onclick="window.app_teamActivitiesResetFilters()"><i class="fa-solid fa-filter-circle-xmark"></i> Reset</button>
                         <button class="action-btn secondary" onclick="window.app_findCarryForwardIssues && window.app_findCarryForwardIssues()"><i class="fa-solid fa-triangle-exclamation"></i> Find Auto-Forward Issues</button>
-                        <button class="action-btn danger" onclick="window.app_openForwardCleanupModal && window.app_openForwardCleanupModal()"><i class="fa-solid fa-broom"></i> Forward Cleanup</button>
                     ` : ''}
                 </div>
             </div>

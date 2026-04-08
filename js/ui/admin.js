@@ -443,29 +443,79 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         </div>
     `;
 
-    const renderPendingLeavesBlock = (isExpanded = false) => pendingLeaves.length === 0
+    const pendingLeaveGroups = Array.from(
+        (pendingLeaves || []).reduce((map, leave) => {
+            const userId = String(leave?.userId || leave?.id || 'unknown');
+            const existing = map.get(userId) || {
+                userId,
+                userName: leave?.userName || 'Staff',
+                latestAppliedOn: leave?.appliedOn || leave?.startDate || '',
+                totalDays: 0,
+                requests: []
+            };
+            existing.userName = existing.userName || leave?.userName || 'Staff';
+            existing.latestAppliedOn = [existing.latestAppliedOn, leave?.appliedOn, leave?.startDate]
+                .filter(Boolean)
+                .sort((a, b) => new Date(b) - new Date(a))[0] || existing.latestAppliedOn;
+            existing.totalDays += Number(leave?.daysCount || 0);
+            existing.requests.push(leave);
+            map.set(userId, existing);
+            return map;
+        }, new Map()).values()
+    ).sort((a, b) => new Date(b.latestAppliedOn || 0) - new Date(a.latestAppliedOn || 0));
+
+    const formatPendingLeaveRange = (leave) => {
+        const start = String(leave?.startDate || '').trim();
+        const end = String(leave?.endDate || '').trim();
+        if (!start && !end) return '--';
+        if (start && end && start !== end) {
+            return `${new Date(start).toLocaleDateString()} - ${new Date(end).toLocaleDateString()}`;
+        }
+        return new Date(start || end).toLocaleDateString();
+    };
+
+    const renderPendingLeavesBlock = (isExpanded = false) => pendingLeaveGroups.length === 0
         ? '<p class="text-muted">No pending requests.</p>'
         : `
             <div class="table-container ${isExpanded ? 'admin-table-expanded' : ''}">
                 <table class="compact-table">
                     <thead>
-                        <tr><th>Date</th><th>Staff</th><th>Type</th><th>Days</th><th>Action</th></tr>
+                        <tr><th>Staff</th><th>Requests</th><th>Total Days</th></tr>
                     </thead>
                     <tbody>
-                        ${pendingLeaves.map(l => `
+                        ${pendingLeaveGroups.map((group) => `
                             <tr>
-                                <td>${new Date(l.startDate).toLocaleDateString()}</td>
-                                <td>${safeHtml(l.userName)}</td>
-                                <td><span class="admin-leave-type-badge">${safeHtml(l.type)}</span></td>
-                                <td>${l.daysCount}</td>
                                 <td>
-                                    <div class="admin-leave-actions">
-                                    ${window.app_hasPerm('leaves', 'admin') ? `
-                                        <button onclick="window.AppLeaves.updateLeaveStatus('${l.id}', 'Approved', window.AppAuth?.getUser?.()?.id).then(() => window.app_refreshAdminPage())" class="admin-btn admin-btn-success">Approve</button>
-                                        <button onclick="window.AppLeaves.updateLeaveStatus('${l.id}', 'Rejected', window.AppAuth?.getUser?.()?.id).then(() => window.app_refreshAdminPage())" class="admin-btn admin-btn-danger">Reject</button>
-                                    ` : '<span class="text-muted" style="font-size:0.7rem;">View Only</span>'}
-                                </div>
+                                    <div style="font-weight:700; color:#0f172a;">${safeHtml(group.userName)}</div>
+                                    <div class="text-muted" style="font-size:0.78rem;">${group.requests.length} request${group.requests.length === 1 ? '' : 's'}</div>
                                 </td>
+                                <td>
+                                    <div style="display:flex; flex-direction:column; gap:0.7rem;">
+                                        ${group.requests
+        .sort((a, b) => new Date(b.appliedOn || b.startDate || 0) - new Date(a.appliedOn || a.startDate || 0))
+        .map((l) => `
+                                                <div style="border:1px solid #e2e8f0; border-radius:12px; padding:0.7rem 0.8rem; background:rgba(248,250,252,0.92);">
+                                                    <div style="display:flex; flex-wrap:wrap; gap:0.5rem 0.9rem; align-items:center; margin-bottom:0.45rem;">
+                                                        <span style="font-weight:700; color:#334155;">${safeHtml(formatPendingLeaveRange(l))}</span>
+                                                        <span class="admin-leave-type-badge">${safeHtml(l.type)}</span>
+                                                        <span style="font-size:0.78rem; color:#475569;">${safeHtml(String(l.daysCount || 0))} day${Number(l.daysCount || 0) === 1 ? '' : 's'}</span>
+                                                    </div>
+                                                    <div style="display:flex; justify-content:space-between; gap:0.75rem; align-items:flex-start; flex-wrap:wrap;">
+                                                        <div class="text-muted" style="font-size:0.75rem;">
+                                                            Applied ${safeHtml(l.appliedOn ? new Date(l.appliedOn).toLocaleDateString() : '--')}
+                                                        </div>
+                                                        <div class="admin-leave-actions">
+                                                            ${window.app_hasPerm('leaves', 'admin') ? `
+                                                                <button onclick="window.AppLeaves.updateLeaveStatus('${l.id}', 'Approved', window.AppAuth?.getUser?.()?.id).then(() => window.app_refreshAdminPage())" class="admin-btn admin-btn-success">Approve</button>
+                                                                <button onclick="window.AppLeaves.updateLeaveStatus('${l.id}', 'Rejected', window.AppAuth?.getUser?.()?.id).then(() => window.app_refreshAdminPage())" class="admin-btn admin-btn-danger">Reject</button>
+                                                            ` : '<span class="text-muted" style="font-size:0.7rem;">View Only</span>'}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            `).join('')}
+                                    </div>
+                                </td>
+                                <td>${group.totalDays}</td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -590,7 +640,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
     if (window.app_hasPerm('leaves', 'view')) {
         pushCard({
             id: 'pending-leaves',
-            title: `Pending Leave Requests (${pendingLeaves.length})`,
+            title: `Pending Leave Requests (${pendingLeaveGroups.length} staff / ${pendingLeaves.length} requests)`,
             className: 'admin-section-card',
             compactHtml: renderPendingLeavesBlock(false),
             expandedHtml: renderPendingLeavesBlock(true)

@@ -127,11 +127,62 @@ export class Database {
         };
     }
 
+    getISTDayRange(dateKey) {
+        const key = String(dateKey || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return null;
+        const start = new Date(`${key}T00:00:00+05:30`);
+        const end = new Date(`${key}T23:59:59.999+05:30`);
+        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+        return {
+            start,
+            end,
+            startMs: start.getTime(),
+            endMs: end.getTime()
+        };
+    }
+
     shouldRecomputeNowIST(cutoffHourIST) {
         const cutoff = Number.isFinite(Number(cutoffHourIST))
             ? Number(cutoffHourIST)
             : Number(AppConfig?.SUMMARY_POLICY?.RECOMPUTE_CUTOFF_HOUR_IST || 17);
         return this.getIstNow().getHours() >= Math.max(0, Math.min(23, cutoff));
+    }
+
+    async hasAttendanceSignalForDate(dateKey) {
+        const key = String(dateKey || '').trim();
+        if (!key) return false;
+        try {
+            if (this.queryMany) {
+                const attendanceRows = await this.queryMany('attendance', [
+                    { field: 'date', operator: '==', value: key }
+                ], { limit: 1 });
+                if (Array.isArray(attendanceRows) && attendanceRows.length > 0) return true;
+            }
+
+            const dayRange = this.getISTDayRange(key);
+            if (!dayRange) return false;
+
+            if (this.queryMany) {
+                const checkedInUsers = await this.queryMany('users', [
+                    { field: 'lastCheckIn', operator: '>=', value: dayRange.startMs },
+                    { field: 'lastCheckIn', operator: '<=', value: dayRange.endMs }
+                ], { limit: 1 });
+                return Array.isArray(checkedInUsers) && checkedInUsers.length > 0;
+            }
+
+            const [attendanceRows, users] = await Promise.all([
+                this.getAll('attendance'),
+                this.getAll('users')
+            ]);
+            if ((attendanceRows || []).some((row) => String(row?.date || '') === key)) return true;
+            return (users || []).some((user) => {
+                const lastCheckIn = Number(user?.lastCheckIn || 0);
+                return Number.isFinite(lastCheckIn) && lastCheckIn >= dayRange.startMs && lastCheckIn <= dayRange.endMs;
+            });
+        } catch (error) {
+            console.warn('Failed to check attendance signal for date:', key, error);
+            return false;
+        }
     }
 
     isSummaryFresh(summaryDoc, staleAfterMs) {
@@ -309,7 +360,13 @@ export class Database {
             return { ...fallback.summary, _source: 'shared_today' };
         }
 
-        if (!this.shouldRecomputeNowIST(AppConfig?.SUMMARY_POLICY?.RECOMPUTE_CUTOFF_HOUR_IST)) {
+        const shouldGateOnFirstCheckIn = AppConfig?.SUMMARY_POLICY?.GENERATE_ON_FIRST_CHECKIN !== false;
+        if (shouldGateOnFirstCheckIn) {
+            const hasAttendanceSignal = await this.hasAttendanceSignalForDate(key);
+            if (!hasAttendanceSignal) {
+                return fallback.summary ? { ...fallback.summary, _source: `fallback_${fallback.source}` } : null;
+            }
+        } else if (!this.shouldRecomputeNowIST(AppConfig?.SUMMARY_POLICY?.RECOMPUTE_CUTOFF_HOUR_IST)) {
             return fallback.summary ? { ...fallback.summary, _source: `fallback_${fallback.source}` } : null;
         }
 

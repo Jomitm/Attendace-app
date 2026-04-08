@@ -5907,6 +5907,29 @@ textarea:focus {
     color: #0f172a;
 }
 
+.hero-leaderboard-count,
+.hero-leaderboard-count-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2rem;
+    font-weight: 700;
+}
+
+.hero-leaderboard-count-btn {
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #0f172a;
+    border-radius: 999px;
+    padding: 0.22rem 0.58rem;
+    cursor: pointer;
+}
+
+.hero-leaderboard-count-btn:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
+}
+
 .hero-leaderboard-staff-wrap {
     display: flex;
     align-items: center;
@@ -5957,6 +5980,104 @@ textarea:focus {
     .hero-leaderboard-head {
         flex-direction: column;
     }
+}
+
+.hero-task-modal-overlay {
+    align-items: center;
+    justify-content: center;
+}
+
+.hero-task-modal-shell {
+    width: min(920px, 94vw);
+    max-height: min(82vh, 860px);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+}
+
+.hero-task-modal-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1.1rem 0.9rem;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.hero-task-modal-head h3 {
+    margin: 0;
+    font-size: 1.08rem;
+    color: #0f172a;
+}
+
+.hero-task-modal-head p {
+    margin: 0.2rem 0 0;
+    font-size: 0.82rem;
+    color: #64748b;
+}
+
+.hero-task-modal-body {
+    padding: 1rem 1.1rem 1.1rem;
+    overflow: auto;
+    display: grid;
+    gap: 0.8rem;
+}
+
+.hero-task-item {
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 0.9rem;
+    background: #fff;
+    display: grid;
+    gap: 0.8rem;
+}
+
+.hero-task-item-title {
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.hero-task-item-subplans {
+    margin-top: 0.25rem;
+    color: #475569;
+    font-size: 0.82rem;
+}
+
+.hero-task-item-meta {
+    margin-top: 0.45rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.hero-task-item-chip {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 0.2rem 0.5rem;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 0.73rem;
+    font-weight: 700;
+}
+
+.hero-task-item-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
 }
 
 .admin-max-card-content .action-btn {
@@ -6600,9 +6721,17 @@ body.dashboard-max-open {
 
 
 /* Day Plan Modal Refresh */
+#day-plan-modal.day-plan-modal-overlay {
+    z-index: 1600 !important;
+}
+
 #day-plan-modal .day-plan-content {
     border: 1px solid #dbe3ee !important;
     box-shadow: 0 24px 50px rgba(15, 23, 42, 0.2) !important;
+    width: min(1320px, 96vw) !important;
+    max-height: min(880px, 92vh) !important;
+    border-radius: 18px !important;
+    padding: 1.35rem !important;
 }
 
 #day-plan-modal .day-plan-head h3 {

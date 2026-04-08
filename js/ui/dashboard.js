@@ -17,6 +17,18 @@ const DASHBOARD_CARD_MODE_ORIGINAL = 'original';
 const DASHBOARD_CARD_MODE_FULLSCREEN = 'fullscreen';
 const DASHBOARD_CARD_MODES = new Set([DASHBOARD_CARD_MODE_TILE, DASHBOARD_CARD_MODE_ORIGINAL, DASHBOARD_CARD_MODE_FULLSCREEN]);
 const DASHBOARD_CARD_CONTROL_EXCLUDED_CLASSES = ['dashboard-hero-card'];
+const DASHBOARD_SECTION_ROUTE_CARD_IDS = new Set([
+    'checkin',
+    'worklog',
+    'team-activity',
+    'team-schedule',
+    'staff-directory',
+    'leave-requests',
+    'leave-history',
+    'missed-checkout',
+    'stats-monthly',
+    'stats-yearly'
+]);
 
 const ensureDashboardMaxOverlay = () => {
     let overlay = document.getElementById(DASHBOARD_MAX_OVERLAY_ID);
@@ -197,6 +209,17 @@ const buildOriginalCardTemplate = (cardEl) => {
         .replace(/<div[^>]*class="[^"]*dashboard-card-mode-controls[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '')
         .replace(/<button[^>]*class="[^"]*dashboard-card-max-btn[^"]*"[^>]*>[\s\S]*?<\/button>/gi, '');
     return html;
+};
+
+const renderHeroExpandedAuditMarkup = () => {
+    return `${renderHeroCard(window.app_dashboardHeroData, window.app_dashboardHeroMeta || {})}${renderHeroLeaderboardExpanded(window.app_dashboardHeroLeaderboard, window.app_dashboardHeroData)}`;
+};
+
+const updateHeroExpandedOverlay = () => {
+    if (window._dashboardMaxCardId !== 'hero-week') return;
+    const body = document.getElementById(DASHBOARD_MAX_BODY_ID);
+    if (!body) return;
+    body.innerHTML = `<div class="dashboard-max-card-content">${renderHeroExpandedAuditMarkup()}</div>`;
 };
 
 const createDashboardModeButton = (cardId, title, mode) => {
@@ -394,6 +417,7 @@ export function renderHeroCard(heroData, heroMeta = {}) {
     const taskCompleted = Number(stats?.taskCompleted ?? 0);
     const taskInProgress = Number(stats?.taskInProgress ?? 0);
     const taskMissed = Number(stats?.taskMissed ?? 0);
+    const taskPostponed = Number(stats?.taskPostponed ?? 0);
     const attendanceDays = Number(stats?.days ?? 0);
     const attendanceHours = Number(stats?.hours ?? 0);
     const attendanceFactor = Number(stats?.attendanceFactor ?? 1);
@@ -401,7 +425,9 @@ export function renderHeroCard(heroData, heroMeta = {}) {
     const confidencePct = Number.isFinite(Number(heroData?.confidence))
         ? Math.round(Number(heroData.confidence) * 100)
         : 0;
-    const periodLabel = heroData?.period === 'current_week' ? 'Current Week' : 'Weekly';
+    const periodLabel = heroData?.period === 'yesterday_back_7_days'
+        ? 'Last 7 Completed Days'
+        : 'Weekly';
 
     return `
         <div class="card dashboard-hero-stats-card hero-slot ${isNew ? 'is-new-summary' : ''}">
@@ -429,6 +455,10 @@ export function renderHeroCard(heroData, heroMeta = {}) {
                     <div class="hero-metric">
                         <div class="hero-metric-value">${taskInProgress}</div>
                         <div class="hero-metric-label">In Progress</div>
+                    </div>
+                    <div class="hero-metric">
+                        <div class="hero-metric-value">${taskPostponed}</div>
+                        <div class="hero-metric-label">Postponed</div>
                     </div>
                     <div class="hero-metric">
                         <div class="hero-metric-value">${taskMissed}</div>
@@ -583,7 +613,7 @@ function renderHeroLeaderboardExpanded(leaderboardData, heroData = null) {
     const winnerId = String(leaderboardData?.winnerUserId || heroData?.user?.id || '');
     const periodLabel = meta.startDate && meta.endDate
         ? `${safeHtml(meta.startDate)} to ${safeHtml(meta.endDate)}`
-        : 'Current week';
+        : 'Last 7 completed days';
 
     if (!rows.length) {
         return `
@@ -591,13 +621,20 @@ function renderHeroLeaderboardExpanded(leaderboardData, heroData = null) {
                 <div class="hero-leaderboard-head">
                     <div>
                         <h4>Weekly Hero Audit</h4>
-                        <p>Current week: ${periodLabel}</p>
+                        <p>Scored range: ${periodLabel}</p>
                     </div>
                 </div>
                 <div class="dashboard-activity-empty">No staff leaderboard data available for this week.</div>
             </section>
         `;
     }
+
+    const renderMetricButton = (entry, bucketKey, value, label) => {
+        const userId = String(entry?.user?.id || '');
+        const count = Number(value || 0);
+        if (!count || !userId) return `<span class="hero-leaderboard-count">${count}</span>`;
+        return `<button type="button" class="hero-leaderboard-count-btn" onclick="window.app_openHeroTaskList('${safeHtml(userId)}','${safeHtml(bucketKey)}')">${count}<span class="sr-only">${safeHtml(label)}</span></button>`;
+    };
 
     const rowsHtml = rows.map((entry) => {
         const user = entry?.user || {};
@@ -620,9 +657,10 @@ function renderHeroLeaderboardExpanded(leaderboardData, heroData = null) {
                     </div>
                 </td>
                 <td>${Number(stats.taskPlanned || 0)}</td>
-                <td>${Number(stats.taskCompleted || 0)}</td>
-                <td>${Number(stats.taskInProgress || 0)}</td>
-                <td>${Number(stats.taskMissed || 0)}</td>
+                <td>${renderMetricButton(entry, 'completed', stats.taskCompleted, 'completed tasks')}</td>
+                <td>${renderMetricButton(entry, 'in_progress', stats.taskInProgress, 'in progress tasks')}</td>
+                <td>${renderMetricButton(entry, 'postponed', stats.taskPostponed, 'postponed tasks')}</td>
+                <td>${renderMetricButton(entry, 'missed', stats.taskMissed, 'missed tasks')}</td>
                 <td>${Number(stats.days || 0)}</td>
                 <td>${Number(stats.hours || 0).toFixed(1)}h</td>
                 <td>${Number(stats.completionRate || 0).toFixed(1)}%</td>
@@ -638,7 +676,7 @@ function renderHeroLeaderboardExpanded(leaderboardData, heroData = null) {
             <div class="hero-leaderboard-head">
                 <div>
                     <h4>Weekly Hero Audit</h4>
-                    <p>Current week: ${periodLabel}</p>
+                    <p>Scored range: ${periodLabel}</p>
                 </div>
                 <div class="hero-leaderboard-summary">
                     <span class="dashboard-kpi-tag">Staff ${rows.length}</span>
@@ -654,6 +692,7 @@ function renderHeroLeaderboardExpanded(leaderboardData, heroData = null) {
                             <th>Planned</th>
                             <th>Completed</th>
                             <th>In Progress</th>
+                            <th>Postponed</th>
                             <th>Missed</th>
                             <th>Days</th>
                             <th>Hours</th>
@@ -667,6 +706,84 @@ function renderHeroLeaderboardExpanded(leaderboardData, heroData = null) {
                 </table>
             </div>
         </section>
+    `;
+}
+
+function renderHeroTaskDetailsModalContent(userRow, bucketKey) {
+    const user = userRow?.user || {};
+    const stats = userRow?.stats || {};
+    const buckets = userRow?.taskBuckets || {};
+    const tasks = Array.isArray(buckets?.[bucketKey]) ? buckets[bucketKey] : [];
+    const titleMap = {
+        completed: 'Completed Tasks',
+        in_progress: 'In Progress Tasks',
+        postponed: 'Postponed Tasks',
+        missed: 'Missed Tasks'
+    };
+    const title = titleMap[bucketKey] || 'Tasks';
+    const rowsHtml = tasks.map((task, index) => {
+        const subPlans = Array.isArray(task.subPlans) && task.subPlans.length
+            ? `<div class="hero-task-item-subplans">${safeHtml(task.subPlans.join(', '))}</div>`
+            : '';
+        const completedDate = task.completedDate ? `<span class="hero-task-item-chip">Completed ${safeHtml(task.completedDate)}</span>` : '';
+        const rawStatus = task.rawStatus ? `<span class="hero-task-item-chip">Status ${safeHtml(task.rawStatus)}</span>` : '';
+        const safeUserId = escapeJsSingleQuote(String(user.id || ''));
+        const safePlanId = escapeJsSingleQuote(String(task.planId || ''));
+        const safeTaskDate = escapeJsSingleQuote(String(task.date || ''));
+        const safeBucketKey = escapeJsSingleQuote(String(bucketKey || ''));
+        const actionButtons = bucketKey === 'completed'
+            ? `
+                <button type="button" class="action-btn danger" onclick="window.app_deleteHeroTaskAction('${safePlanId}', ${Number(task.taskIndex)}, '${safeUserId}', '${safeBucketKey}')">Delete</button>
+            `
+            : bucketKey === 'missed'
+                ? `
+                    <button type="button" class="action-btn" onclick="window.app_completeHeroTaskAction('${safePlanId}', ${Number(task.taskIndex)}, '${safeUserId}', '${safeBucketKey}')">Complete</button>
+                    <button type="button" class="action-btn secondary" onclick="window.app_postponeHeroTaskAction('${safePlanId}', ${Number(task.taskIndex)}, '${safeUserId}', '${safeBucketKey}')">Postpone</button>
+                    <button type="button" class="action-btn danger" onclick="window.app_deleteHeroTaskAction('${safePlanId}', ${Number(task.taskIndex)}, '${safeUserId}', '${safeBucketKey}')">Delete</button>
+                `
+                : bucketKey === 'postponed'
+                    ? `
+                        <button type="button" class="action-btn" onclick="window.app_completeHeroTaskAction('${safePlanId}', ${Number(task.taskIndex)}, '${safeUserId}', '${safeBucketKey}')">Complete</button>
+                        <button type="button" class="action-btn secondary" onclick="window.app_postponeHeroTaskAction('${safePlanId}', ${Number(task.taskIndex)}, '${safeUserId}', '${safeBucketKey}')">Postpone Again</button>
+                        <button type="button" class="action-btn danger" onclick="window.app_deleteHeroTaskAction('${safePlanId}', ${Number(task.taskIndex)}, '${safeUserId}', '${safeBucketKey}')">Delete</button>
+                    `
+                    : `
+                        <button type="button" class="action-btn" onclick="window.app_completeHeroTaskAction('${safePlanId}', ${Number(task.taskIndex)}, '${safeUserId}', '${safeBucketKey}')">Complete</button>
+                        <button type="button" class="action-btn danger" onclick="window.app_deleteHeroTaskAction('${safePlanId}', ${Number(task.taskIndex)}, '${safeUserId}', '${safeBucketKey}')">Delete</button>
+                    `;
+
+        return `
+            <div class="hero-task-item">
+                <div class="hero-task-item-main">
+                    <div class="hero-task-item-title">${index + 1}. ${safeHtml(task.task || 'Untitled task')}</div>
+                    ${subPlans}
+                    <div class="hero-task-item-meta">
+                        <span class="hero-task-item-chip">${safeHtml(task.date || '--')}</span>
+                        ${rawStatus}
+                        ${completedDate}
+                    </div>
+                </div>
+                <div class="hero-task-item-actions">
+                    <button type="button" class="action-btn secondary" onclick="window.app_editHeroTaskAction('${safeTaskDate}','${safeUserId}')">Edit Plan</button>
+                    ${actionButtons}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    return `
+        <div class="hero-task-modal-head">
+            <div>
+                <h3>${safeHtml(title)}</h3>
+                <p>${safeHtml(user.name || 'Staff')} • ${Number(stats.taskPlanned || 0)} planned</p>
+            </div>
+            <button type="button" class="dashboard-max-close" onclick="window.app_closeHeroTaskList?.()" aria-label="Close task list">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <div class="hero-task-modal-body">
+            ${tasks.length ? rowsHtml : '<div class="dashboard-activity-empty">No tasks in this category for the scored range.</div>'}
+        </div>
     `;
 }
 
@@ -1267,10 +1384,9 @@ export async function renderDashboard() {
     const todayStr = dateKeys.todayKey;
     const yesterdayStr = dateKeys.yesterdayKey;
     const sharedSummaryEnabled = !!AppConfig?.READ_OPT_FLAGS?.FF_SHARED_DAILY_SUMMARY;
-    const heroWeekRange = getWeekRange(todayStr);
     const heroSchemaVersion = Number(window.AppAnalytics?.getHeroPolicy?.()?.SCHEMA_VERSION || AppConfig?.HERO_POLICY?.SCHEMA_VERSION || 1);
-    const heroCacheKey = `hero_stats_v${heroSchemaVersion}_${heroWeekRange.startKey}_${heroWeekRange.endKey}`;
-    const heroLeaderboardCacheKey = `hero_leaderboard_v${heroSchemaVersion}_${heroWeekRange.startKey}_${heroWeekRange.endKey}`;
+    const heroCacheKey = `hero_stats_v${heroSchemaVersion}_${todayStr}`;
+    const heroLeaderboardCacheKey = `hero_leaderboard_v${heroSchemaVersion}_${todayStr}`;
     const heroCacheTtl = 24 * 60 * 60 * 1000;
 
     const targetStaffId = (isAdmin && window.app_selectedSummaryStaffId) ? window.app_selectedSummaryStaffId : user.id;
@@ -1296,7 +1412,7 @@ export async function renderDashboard() {
     const heroPromise = sharedSummaryEnabled
         ? Promise.resolve(null)
         : readDirectHeroCached();
-    const heroLeaderboardPromise = window.AppDB?.getOrGenerateSummary
+    const heroLeaderboardPromise = !sharedSummaryEnabled && window.AppDB?.getOrGenerateSummary
         ? window.AppDB.getOrGenerateSummary(
             heroLeaderboardCacheKey,
             async () => window.AppAnalytics.getHeroLeaderboard({ source: 'direct_cache' }),
@@ -1415,8 +1531,11 @@ export async function renderDashboard() {
         : {};
     let heroData = sharedSummaryEnabled ? (dailySummary?.hero || null) : heroDataRaw;
     let staffActivities = sharedSummaryEnabled ? (Array.isArray(dailySummary?.teamActivityPreview) ? dailySummary.teamActivityPreview : []) : staffActivitiesRaw;
-    window.app_dashboardHeroLeaderboard = heroLeaderboardData;
+    window.app_dashboardHeroLeaderboard = sharedSummaryEnabled
+        ? (dailySummary?.heroLeaderboard || null)
+        : heroLeaderboardData;
     window.app_dashboardHeroData = heroData;
+    window.app_dashboardHeroMeta = heroMeta;
 
     if (sharedSummaryEnabled && (!dailySummary || !Array.isArray(dailySummary.teamActivityPreview))) {
         setTimeout(() => refreshStaffActivityWidget(true), 0);
@@ -1451,9 +1570,12 @@ export async function renderDashboard() {
 
         sharedSummaryTask.then(async (ds) => {
             const latestHero = ds && ds.hero ? ds.hero : null;
+            const latestHeroLeaderboard = ds && ds.heroLeaderboard ? ds.heroLeaderboard : null;
             if (latestHero) {
                 const updatedMeta = { ...heroMeta, lowRead: false, generatedAt: ds.generatedAt || heroMeta.generatedAt, source: ds._source || heroMeta.source };
+                window.app_dashboardHeroLeaderboard = latestHeroLeaderboard;
                 window.app_dashboardHeroData = latestHero;
+                window.app_dashboardHeroMeta = updatedMeta;
                 replaceHeroSlot(renderHeroCard(latestHero, updatedMeta));
                 return;
             }
@@ -1461,7 +1583,17 @@ export async function renderDashboard() {
             // Step 2: shared summary missing hero -> use cached direct hero.
             const directCachedHero = await readDirectHeroCached();
             if (directCachedHero) {
+                const directCachedLeaderboard = !sharedSummaryEnabled
+                    ? await heroLeaderboardPromise
+                    : await window.AppAnalytics.getHeroLeaderboard({ source: 'direct_cache' }).catch(() => null);
+                window.app_dashboardHeroLeaderboard = directCachedLeaderboard;
                 window.app_dashboardHeroData = directCachedHero;
+                window.app_dashboardHeroMeta = {
+                    ...heroMeta,
+                    lowRead: false,
+                    generatedAt: Date.now(),
+                    source: 'direct_cache'
+                };
                 replaceHeroSlot(renderHeroCard(directCachedHero, {
                     ...heroMeta,
                     lowRead: false,
@@ -1488,10 +1620,20 @@ export async function renderDashboard() {
             try {
                 // Step 3: one/day fallback direct read, then cache the result.
                 const directHero = await window.AppAnalytics.getHeroOfTheWeek({ source: 'direct_fallback' });
+                const directHeroLeaderboard = await window.AppAnalytics.getHeroLeaderboard({ source: 'direct_fallback' });
                 if (!directHero || directHero.state === 'fetch_error') {
+                    window.app_dashboardHeroLeaderboard = directHeroLeaderboard && directHeroLeaderboard.state !== 'fetch_error'
+                        ? directHeroLeaderboard
+                        : null;
                     window.app_dashboardHeroData = {
                         state: 'fetch_error',
                         reason: 'Hero stats are temporarily unavailable.',
+                        source: 'direct_fallback'
+                    };
+                    window.app_dashboardHeroMeta = {
+                        ...heroMeta,
+                        lowRead: false,
+                        generatedAt: Date.now(),
                         source: 'direct_fallback'
                     };
                     replaceHeroSlot(renderHeroCard({
@@ -1508,13 +1650,24 @@ export async function renderDashboard() {
                 }
                 await window.AppDB.getOrGenerateSummary(heroCacheKey, async () => directHero, heroCacheTtl);
                 const fallbackMeta = { ...heroMeta, lowRead: false, generatedAt: Date.now(), source: 'direct_fallback' };
+                window.app_dashboardHeroLeaderboard = directHeroLeaderboard && directHeroLeaderboard.state !== 'fetch_error'
+                    ? directHeroLeaderboard
+                    : null;
                 window.app_dashboardHeroData = directHero;
+                window.app_dashboardHeroMeta = fallbackMeta;
                 replaceHeroSlot(renderHeroCard(directHero, fallbackMeta));
             } catch (err) {
                 console.warn('Hero fallback direct fetch failed:', err);
+                window.app_dashboardHeroLeaderboard = null;
                 window.app_dashboardHeroData = {
                     state: 'fetch_error',
                     reason: 'Hero stats are temporarily unavailable.',
+                    source: 'direct_fallback'
+                };
+                window.app_dashboardHeroMeta = {
+                    ...heroMeta,
+                    lowRead: false,
+                    generatedAt: Date.now(),
                     source: 'direct_fallback'
                 };
                 replaceHeroSlot(renderHeroCard({
@@ -1529,11 +1682,13 @@ export async function renderDashboard() {
                 }));
             }
         }).catch(() => {
+            window.app_dashboardHeroLeaderboard = null;
             window.app_dashboardHeroData = {
                 state: 'fetch_error',
                 reason: 'Hero stats are temporarily unavailable.',
                 source: 'shared_error'
             };
+            window.app_dashboardHeroMeta = { ...heroMeta, lowRead: false, source: 'shared_error' };
             replaceHeroSlot(renderHeroCard({
                 state: 'fetch_error',
                 reason: 'Hero stats are temporarily unavailable.',
@@ -2120,7 +2275,11 @@ if (typeof window !== 'undefined') {
     window.app_toggleDashboardCardMode = (cardId, mode = DASHBOARD_CARD_MODE_TILE, triggerEl = null) => {
         if (!cardId) return;
         const safeMode = DASHBOARD_CARD_MODES.has(mode) ? mode : DASHBOARD_CARD_MODE_TILE;
-        if (safeMode === DASHBOARD_CARD_MODE_FULLSCREEN && typeof window.app_openDashboardSection === 'function') {
+        if (
+            safeMode === DASHBOARD_CARD_MODE_FULLSCREEN
+            && DASHBOARD_SECTION_ROUTE_CARD_IDS.has(String(cardId || '').trim())
+            && typeof window.app_openDashboardSection === 'function'
+        ) {
             window.app_openDashboardSection(String(cardId || '').trim());
             return;
         }
@@ -2136,6 +2295,11 @@ if (typeof window !== 'undefined') {
             return;
         }
         applyDashboardCardMode(cardId, safeMode, triggerEl || null);
+        if (safeMode === DASHBOARD_CARD_MODE_FULLSCREEN && String(cardId || '').trim() === 'hero-week') {
+            setTimeout(() => {
+                window.app_refreshHeroAuditLive?.();
+            }, 0);
+        }
     };
     window.app_toggleDashboardCardMaximize = (cardId, triggerEl = null) => {
         window.app_toggleDashboardCardMode?.(cardId, DASHBOARD_CARD_MODE_FULLSCREEN, triggerEl || null);
@@ -2238,6 +2402,197 @@ if (typeof window !== 'undefined') {
     window.app_attachStatsCardHandlers = function () {
         attachStatsCardHandlers();
         attachHeroCardHandlers();
+    };
+
+    window.app_openHeroTaskList = function (userId, bucketKey) {
+        const leaderboard = window.app_dashboardHeroLeaderboard;
+        const rows = Array.isArray(leaderboard?.rows) ? leaderboard.rows : [];
+        const target = rows.find((row) => String(row?.user?.id || '') === String(userId || ''));
+        if (!target) return;
+        let overlay = document.getElementById('hero-task-modal-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'hero-task-modal-overlay';
+            overlay.className = 'modal-overlay hero-task-modal-overlay';
+            overlay.addEventListener('click', (event) => {
+                if (event.target === overlay) window.app_closeHeroTaskList?.();
+            });
+            document.body.appendChild(overlay);
+        }
+        window.app_heroTaskModalState = { userId: String(userId || ''), bucketKey: String(bucketKey || '') };
+        overlay.innerHTML = `<div class="modal-content hero-task-modal-shell">${renderHeroTaskDetailsModalContent(target, String(bucketKey || ''))}</div>`;
+        overlay.style.display = 'flex';
+    };
+
+    window.app_refreshHeroAuditLive = async function ({ reopenTaskList = false } = {}) {
+        try {
+            const [liveHero, liveLeaderboard] = await Promise.all([
+                window.AppAnalytics.getHeroOfTheWeek({ source: 'live_audit' }),
+                window.AppAnalytics.getHeroLeaderboard({ source: 'live_audit' })
+            ]);
+            if (liveHero && liveHero.state !== 'fetch_error') {
+                window.app_dashboardHeroData = liveHero;
+            }
+            if (liveLeaderboard && liveLeaderboard.state !== 'fetch_error') {
+                window.app_dashboardHeroLeaderboard = liveLeaderboard;
+            }
+            window.app_dashboardHeroMeta = {
+                ...(window.app_dashboardHeroMeta || {}),
+                generatedAt: Date.now(),
+                source: 'live_audit'
+            };
+            updateHeroExpandedOverlay();
+            if (reopenTaskList && window.app_heroTaskModalState?.userId && window.app_heroTaskModalState?.bucketKey) {
+                window.app_openHeroTaskList(window.app_heroTaskModalState.userId, window.app_heroTaskModalState.bucketKey);
+            }
+        } catch (err) {
+            console.warn('Failed to refresh live hero audit:', err);
+        }
+    };
+
+    window.app_closeHeroTaskList = function () {
+        const overlay = document.getElementById('hero-task-modal-overlay');
+        if (overlay) overlay.remove();
+        window.app_heroTaskModalState = null;
+    };
+
+    window.app_refreshHeroTaskList = async function (userId, bucketKey) {
+        window.app_heroTaskModalState = { userId: String(userId || ''), bucketKey: String(bucketKey || '') };
+        await window.app_refreshHeroAuditLive({ reopenTaskList: true });
+    };
+
+    window.app_applyHeroTaskOptimisticUpdate = function (userId, bucketKey, planId, taskIndex, action) {
+        const leaderboard = window.app_dashboardHeroLeaderboard;
+        const rows = Array.isArray(leaderboard?.rows) ? leaderboard.rows : null;
+        if (!rows) return;
+        const row = rows.find((item) => String(item?.user?.id || '') === String(userId || ''));
+        if (!row || !row.taskBuckets || !row.stats) return;
+
+        const fromKey = String(bucketKey || '');
+        const buckets = row.taskBuckets;
+        const sourceList = Array.isArray(buckets[fromKey]) ? buckets[fromKey] : [];
+        const idx = sourceList.findIndex((task) => String(task?.planId || '') === String(planId || '') && Number(task?.taskIndex) === Number(taskIndex));
+        if (idx < 0) return;
+
+        const [task] = sourceList.splice(idx, 1);
+        row.stats.taskPlanned = Math.max(0, Number(row.stats.taskPlanned || 0) - (action === 'delete' ? 1 : 0));
+        if (fromKey === 'completed') row.stats.taskCompleted = Math.max(0, Number(row.stats.taskCompleted || 0) - 1);
+        if (fromKey === 'in_progress') row.stats.taskInProgress = Math.max(0, Number(row.stats.taskInProgress || 0) - 1);
+        if (fromKey === 'postponed') row.stats.taskPostponed = Math.max(0, Number(row.stats.taskPostponed || 0) - 1);
+        if (fromKey === 'missed') row.stats.taskMissed = Math.max(0, Number(row.stats.taskMissed || 0) - 1);
+
+        if (action === 'complete') {
+            const nextTask = {
+                ...task,
+                status: 'completed',
+                rawStatus: 'completed',
+                completedDate: new Date().toISOString().split('T')[0]
+            };
+            buckets.completed = Array.isArray(buckets.completed) ? buckets.completed : [];
+            buckets.completed.unshift(nextTask);
+            row.stats.taskCompleted = Number(row.stats.taskCompleted || 0) + 1;
+        } else if (action === 'postpone') {
+            const nextTask = {
+                ...task,
+                status: 'postponed',
+                rawStatus: 'postponed'
+            };
+            buckets.postponed = Array.isArray(buckets.postponed) ? buckets.postponed : [];
+            buckets.postponed.unshift(nextTask);
+            row.stats.taskPostponed = Number(row.stats.taskPostponed || 0) + 1;
+        }
+
+        updateHeroExpandedOverlay();
+    };
+
+    window.app_scheduleHeroAuditRefresh = function (userId, bucketKey) {
+        setTimeout(() => {
+            window.app_refreshHeroTaskList(userId, bucketKey).catch((err) => {
+                console.warn('Delayed hero audit refresh failed:', err);
+            });
+        }, 150);
+    };
+
+    window.app_completeHeroTaskAction = async function (planId, taskIndex, userId, bucketKey) {
+        window.app_applyHeroTaskOptimisticUpdate(userId, bucketKey, planId, taskIndex, 'complete');
+        await window.app_markTaskCompleted(planId, taskIndex);
+        window.app_heroTaskModalState = { userId: String(userId || ''), bucketKey: String(bucketKey || '') };
+        window.app_openHeroTaskList?.(userId, bucketKey);
+        window.app_scheduleHeroAuditRefresh(userId, bucketKey);
+    };
+
+    window.app_postponeHeroTaskAction = async function (planId, taskIndex, userId, bucketKey) {
+        const modalId = 'postpone-task-modal';
+        document.getElementById(modalId)?.remove();
+        const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+        const html = `
+            <div class="modal-overlay" id="${modalId}" style="display:flex;">
+                <div class="modal-content" style="max-width:420px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.8rem;">
+                        <h3 style="margin:0; font-size:1.05rem;">Postpone Task</h3>
+                        <button type="button" onclick="document.getElementById('${modalId}')?.remove()" style="background:none; border:none; font-size:1.1rem; cursor:pointer;">&times;</button>
+                    </div>
+                    <label for="hero-postpone-date-input" style="display:block; margin-bottom:0.35rem; font-size:0.85rem; color:#475569; font-weight:600;">Select date</label>
+                    <input id="hero-postpone-date-input" type="date" value="${tomorrow}" style="width:100%; padding:0.6rem; border:1px solid #d1d5db; border-radius:8px;">
+                    <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1rem;">
+                        <button type="button" class="action-btn secondary" onclick="document.getElementById('${modalId}')?.remove()" style="padding:0.55rem 0.9rem;">Cancel</button>
+                        <button type="button" class="action-btn" onclick="window.app_confirmHeroPostponeTask('${escapeJsSingleQuote(String(planId || ''))}', ${Number(taskIndex)}, '${escapeJsSingleQuote(String(userId || ''))}', '${escapeJsSingleQuote(String(bucketKey || ''))}')" style="padding:0.55rem 0.9rem;">Confirm</button>
+                    </div>
+                </div>
+            </div>`;
+        window.app_showModal(html, modalId);
+    };
+
+    window.app_confirmHeroPostponeTask = async function (planId, taskIndex, userId, bucketKey) {
+        const targetDate = document.getElementById('hero-postpone-date-input')?.value;
+        if (!targetDate) {
+            alert('Please select a date.');
+            return;
+        }
+        document.getElementById('postpone-task-modal')?.remove();
+        window.app_applyHeroTaskOptimisticUpdate(userId, bucketKey, planId, taskIndex, 'postpone');
+        window.app_heroTaskModalState = { userId: String(userId || ''), bucketKey: String(bucketKey || '') };
+        window.app_openHeroTaskList?.(userId, bucketKey);
+        await window.app_postponeTask(planId, taskIndex, targetDate);
+        window.app_scheduleHeroAuditRefresh(userId, bucketKey);
+    };
+
+    window.app_deleteHeroTaskAction = async function (planId, taskIndex, userId, bucketKey) {
+        if (!window.AppCalendar?.removeTask) return;
+        if (!await window.appConfirm('Delete this plan from the hero audit list?')) return;
+        window.app_applyHeroTaskOptimisticUpdate(userId, bucketKey, planId, taskIndex, 'delete');
+        window.app_openHeroTaskList?.(userId, bucketKey);
+        await window.AppCalendar.removeTask(planId, taskIndex);
+        window.app_scheduleHeroAuditRefresh(userId, bucketKey);
+    };
+
+    window.app_editHeroTaskAction = async function (date, userId) {
+        window.app_closeHeroTaskList?.();
+        window.app_closeDashboardCardFullscreen?.();
+        const safeDate = String(date || '').trim();
+        const safeUserId = String(userId || '').trim();
+        setTimeout(async () => {
+            try {
+                if (window.AppDayPlan?.openDayPlan) {
+                    await window.AppDayPlan.openDayPlan(safeDate, safeUserId);
+                } else if (window.app_openDayPlan) {
+                    await window.app_openDayPlan(safeDate, safeUserId);
+                }
+                const modal = document.getElementById('day-plan-modal');
+                if (modal) {
+                    const heroLayers = Array.from(document.querySelectorAll('.dashboard-max-overlay, .dashboard-max-window, .hero-task-modal-overlay, .hero-task-modal-shell'))
+                        .filter((el) => el && el !== modal);
+                    const maxZ = heroLayers.reduce((acc, el) => {
+                        const z = Number.parseInt(window.getComputedStyle(el).zIndex, 10);
+                        return Number.isFinite(z) ? Math.max(acc, z) : acc;
+                    }, 1400);
+                    modal.style.zIndex = String(maxZ + 20);
+                }
+            } catch (err) {
+                console.error('Failed to open day plan from hero audit:', err);
+                alert(`Unable to open plan editor: ${err.message || err}`);
+            }
+        }, 80);
     };
 
     window.app_expandTeamActivityRefresh = async function () {
