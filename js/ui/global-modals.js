@@ -9,12 +9,12 @@ export function renderModals() {
 
     return `
         <!-- Check-Out Modal -->
-        <div id="checkout-modal" class="modal-overlay" style="display: none;">
-            <div class="modal-content" style="width: 100%; max-width: 450px;">
+        <div id="checkout-modal" class="modal-overlay checkout-main-modal" style="display: none;">
+            <div class="modal-content checkout-main-content" style="width: 100%; max-width: 620px;">
                 <h3 style="margin-bottom: 1rem;">Check Out</h3>
-                <p style="color: #6b7280; font-size: 0.9rem; margin-bottom: 1rem;">Please summarize your work for today before checking out.</p>
-                <form onsubmit="window.app_submitCheckOut(event)">
-                    <textarea name="description" required placeholder="- Completed monthly report&#10;- Fixed login bug..." style="width: 100%; height: 120px; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem; resize: none; font-family: inherit; margin-bottom: 1.5rem;"></textarea>
+                <p style="color: #6b7280; font-size: 0.9rem; margin-bottom: 1rem;">Work summary is optional for completed tasks, but required if you postpone or delegate anything during check-out.</p>
+                <form id="checkout-form" novalidate>
+                    <textarea name="description" placeholder="- Completed monthly report&#10;- Fixed login bug..." style="width: 100%; height: 120px; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem; resize: none; font-family: inherit; margin-bottom: 1.5rem;"></textarea>
                     <div id="checkout-plan-ref" style="display:none; background:#f0f9ff; padding:12px; border-radius:10px; border:1px solid #bae6fd; margin-bottom:1.5rem;">
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
                             <label style="font-size:0.7rem; font-weight:800; color:#0369a1; text-transform:uppercase; letter-spacing:0.5px;">Today's Work Plan</label>

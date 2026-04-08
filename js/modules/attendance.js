@@ -40,6 +40,34 @@ export class Attendance {
                         staleSession: true
                     };
                 }
+
+                const hasCheckout = await this.hasRecordedCheckoutForSession(user.id, checkInDate, now);
+                if (hasCheckout) {
+                    const healedUser = {
+                        ...user,
+                        status: 'out',
+                        lastCheckIn: null,
+                        isPaused: false,
+                        pauseStartedAt: null,
+                        totalPausedMs: 0
+                    };
+                    try {
+                        await AppDB.put('users', healedUser);
+                    } catch (healErr) {
+                        console.warn('Failed to self-heal stale checked-in status from attendance logs:', healErr);
+                    }
+                    if (AppAuth) {
+                        AppAuth.currentUser = healedUser;
+                    }
+                    return {
+                        status: 'out',
+                        lastCheckIn: null,
+                        isPaused: false,
+                        pauseStartedAt: null,
+                        totalPausedMs: 0,
+                        healedFromAttendanceLog: true
+                    };
+                }
             } catch (e) {
                 console.warn("Date parsing error in getStatus:", e);
             }

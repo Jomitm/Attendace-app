@@ -1149,6 +1149,29 @@ const handleUserSyncEvent = (ev) => {
         }
     })();
 };
+
+const reconcileCurrentUserAttendanceState = async () => {
+    if (!window.AppAuth?.refreshCurrentUserFromDB) return;
+    try {
+        const latestUser = await window.AppAuth.refreshCurrentUserFromDB();
+        if (!latestUser) return;
+        window.dispatchEvent(new CustomEvent('app:user-sync', { detail: latestUser }));
+    } catch (err) {
+        console.warn('Current user attendance reconciliation failed:', err);
+    }
+};
+
+const handleVisibilityAttendanceReconcile = () => {
+    if (document.visibilityState !== 'visible') return;
+    void reconcileCurrentUserAttendanceState();
+};
+
+window.app_reconcileCurrentUserAttendanceState = reconcileCurrentUserAttendanceState;
+window.addEventListener('focus', () => {
+    void reconcileCurrentUserAttendanceState();
+});
+document.addEventListener('visibilitychange', handleVisibilityAttendanceReconcile);
+
 function toggleMobileSidebar(show) {
     const sidebar = document.querySelector('.sidebar');
     const overlay = document.getElementById('sidebar-overlay');
@@ -4403,9 +4426,7 @@ window.app_collectCheckoutTaskUpdates = () => {
         let error = '';
         if (detail.action === 'postpone') {
             const date = detail.actionMeta?.postponeDate;
-            const reason = String(detail.actionMeta?.postponeReason || '').trim();
             if (!date) error = 'Select a new date to postpone.';
-            else if (!reason) error = 'Add a reason for postponing.';
         }
         if (detail.action === 'delegate') {
             const userId = String(detail.actionMeta?.delegateUserId || '').trim();
@@ -4450,16 +4471,13 @@ window.app_openCheckoutActionModal = (key) => {
             : details.action === 'delegate'
                 ? 'Delegate'
                 : 'Action';
-    const chips = Object.keys(app_checkoutStatusLabels).map((status) => {
-        const selected = details.progressStatus === status ? 'is-selected' : '';
-        return `<button type="button" class="checkout-task-chip ${selected}" data-status-chip="${status}" onclick="window.app_setCheckoutTaskStatus('${app_escapeJsSingleQuote(key)}','${status}')">${app_checkoutStatusLabels[status]}</button>`;
-    }).join('');
+    const chips = '';
     const postponeDate = app_escapeHtml(details.actionMeta?.postponeDate || new Date(Date.now() + 86400000).toISOString().split('T')[0]);
     const postponeReason = app_escapeHtml(details.actionMeta?.postponeReason || '');
-    const completionNote = app_escapeHtml(details.actionMeta?.completionNote || '');
+    const completionNote = '';
     const delegateNote = app_escapeHtml(details.actionMeta?.delegateNote || '');
     const delegateUserId = app_escapeHtml(details.actionMeta?.delegateUserId || '');
-    const progressNote = app_escapeHtml(details.progressNote || '');
+    const progressNote = '';
     const candidateOptions = Object.keys(userMap).filter((userId) => String(userId) !== String(currentUserId)).map((userId) => {
         const selected = delegateUserId && delegateUserId === String(userId) ? 'selected' : '';
         return `<option value="${app_escapeHtml(userId)}" ${selected}>${app_escapeHtml(userMap[userId])}</option>`;
@@ -4574,6 +4592,131 @@ window.app_renderCheckoutActionPreview = () => {
                     <span>${detail.progressPercent}% • ${app_escapeHtml(statusLabel)}</span>
                 </div>
                 ${progressNote ? `<div class="checkout-action-preview-note">${app_escapeHtml(progressNote)}</div>` : ''}
+                ${extra ? `<div class="checkout-action-preview-extra">${extra}</div>` : ''}
+            </div>
+        `;
+    }).filter(Boolean);
+    if (items.length === 0) {
+        container.style.display = 'none';
+        list.innerHTML = '';
+        return;
+    }
+    container.style.display = 'block';
+    list.innerHTML = items.join('');
+};
+
+window.app_openCheckoutActionModal = (key) => {
+    const details = window.app_checkoutTaskDetails?.[key];
+    if (!details || !details.action) return;
+    const meta = window.app_checkoutTaskMeta?.[key] || {};
+    const userMap = window.app_checkoutUserMap || {};
+    const currentUserId = window.AppAuth.getUser()?.id;
+    document.getElementById('checkout-action-detail-modal')?.remove();
+
+    const actionLabel = details.action === 'complete'
+        ? 'Complete'
+        : details.action === 'postpone'
+            ? 'Postpone'
+            : details.action === 'delegate'
+                ? 'Delegate'
+                : 'Action';
+    const postponeDate = app_escapeHtml(details.actionMeta?.postponeDate || new Date(Date.now() + 86400000).toISOString().split('T')[0]);
+    const postponeReason = app_escapeHtml(details.actionMeta?.postponeReason || '');
+    const delegateNote = app_escapeHtml(details.actionMeta?.delegateNote || '');
+    const delegateUserId = app_escapeHtml(details.actionMeta?.delegateUserId || '');
+    const candidateOptions = Object.keys(userMap)
+        .filter((userId) => String(userId) !== String(currentUserId))
+        .map((userId) => {
+            const selected = delegateUserId && delegateUserId === String(userId) ? 'selected' : '';
+            return `<option value="${app_escapeHtml(userId)}" ${selected}>${app_escapeHtml(userMap[userId])}</option>`;
+        }).join('');
+
+    const modal = document.createElement('div');
+    modal.id = 'checkout-action-detail-modal';
+    modal.className = 'modal-overlay checkout-action-detail-modal';
+    modal.setAttribute('data-checkout-key', key);
+    modal.innerHTML = `
+        <div class="modal-content checkout-action-detail-content">
+            <div class="checkout-action-detail-header">
+                <div>
+                    <div class="checkout-action-detail-title">${app_escapeHtml(meta.text || 'Task')}</div>
+                    <div class="checkout-action-detail-sub">${app_escapeHtml(actionLabel)} details</div>
+                </div>
+                <button type="button" class="checkout-action-detail-close" onclick="window.app_closeCheckoutActionModal()">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="checkout-task-panel-body">
+                <div class="checkout-task-panel-header">
+                    <span>${app_escapeHtml(actionLabel)}</span>
+                    <span class="checkout-task-saved" data-saved-indicator>Saved</span>
+                </div>
+                <div class="checkout-task-action-extra" data-action-panel-section="complete" style="display:${details.action === 'complete' ? 'block' : 'none'};">
+                    <div class="checkout-task-action-help">This task will be marked completed during check-out.</div>
+                </div>
+                <div class="checkout-task-action-extra" data-action-panel-section="postpone" style="display:${details.action === 'postpone' ? 'block' : 'none'};">
+                    <label>New Date</label>
+                    <input type="date" data-action-field="postponeDate" value="${postponeDate}" onchange="window.app_updateCheckoutTaskActionMeta('${app_escapeJsSingleQuote(key)}','postponeDate', this.value)">
+                    <label>Reason</label>
+                    <textarea rows="2" data-action-field="postponeReason" placeholder="Optional reason" oninput="window.app_updateCheckoutTaskActionMeta('${app_escapeJsSingleQuote(key)}','postponeReason', this.value)">${postponeReason}</textarea>
+                </div>
+                <div class="checkout-task-action-extra" data-action-panel-section="delegate" style="display:${details.action === 'delegate' ? 'block' : 'none'};">
+                    <label>Assign To</label>
+                    <select data-action-field="delegateUserId" onchange="window.app_updateCheckoutTaskActionMeta('${app_escapeJsSingleQuote(key)}','delegateUserId', this.value)">
+                        <option value="">Select staff</option>
+                        ${candidateOptions}
+                    </select>
+                    <label>Handoff Note</label>
+                    <textarea rows="2" data-action-field="delegateNote" placeholder="Handoff context (optional)." oninput="window.app_updateCheckoutTaskActionMeta('${app_escapeJsSingleQuote(key)}','delegateNote', this.value)">${delegateNote}</textarea>
+                </div>
+                <div class="checkout-task-inline-error" data-inline-error></div>
+            </div>
+            <div class="checkout-action-detail-footer">
+                <button type="button" class="action-btn secondary" onclick="window.app_closeCheckoutActionModal()">Done</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    window.app_syncCheckoutTaskPanel(key);
+};
+
+window.app_renderCheckoutActionPreview = () => {
+    const container = document.getElementById('checkout-action-preview');
+    const list = document.getElementById('checkout-action-preview-list');
+    if (!container || !list) return;
+    const detailsMap = window.app_checkoutTaskDetails || {};
+    const metaMap = window.app_checkoutTaskMeta || {};
+    const userMap = window.app_checkoutUserMap || {};
+    const items = Object.keys(detailsMap).map((key) => {
+        const detail = detailsMap[key];
+        if (!detail || !detail.action) return null;
+        const meta = metaMap[key] || {};
+        const title = meta.text || 'Task';
+        const actionLabel = detail.action === 'complete'
+            ? 'Complete'
+            : detail.action === 'postpone'
+                ? 'Postpone'
+                : detail.action === 'delegate'
+                    ? 'Delegate'
+                    : detail.action;
+        let extra = '';
+        if (detail.action === 'postpone') {
+            const date = app_normalizeIsoDate(detail.actionMeta?.postponeDate) || '--';
+            const reason = String(detail.actionMeta?.postponeReason || '').trim();
+            extra = `New date: ${app_escapeHtml(date)}${reason ? ` • Reason: ${app_escapeHtml(reason)}` : ''}`;
+        }
+        if (detail.action === 'delegate') {
+            const userId = String(detail.actionMeta?.delegateUserId || '');
+            const userName = userMap[userId] || '--';
+            const note = String(detail.actionMeta?.delegateNote || '').trim();
+            extra = `Assigned to: ${app_escapeHtml(userName)}${note ? ` • Note: ${app_escapeHtml(note)}` : ''}`;
+        }
+        return `
+            <div class="checkout-action-preview-item">
+                <div class="checkout-action-preview-title">${app_escapeHtml(title)}</div>
+                <div class="checkout-action-preview-meta">
+                    <span class="checkout-action-preview-chip">${app_escapeHtml(actionLabel)}</span>
+                </div>
                 ${extra ? `<div class="checkout-action-preview-extra">${extra}</div>` : ''}
             </div>
         `;
@@ -5759,7 +5902,7 @@ async function handleAttendance() {
                                                     <option value="postpone" ${actionValue === 'postpone' ? 'selected' : ''}>Postpone</option>
                                                     <option value="delegate" ${actionValue === 'delegate' ? 'selected' : ''}>Delegate</option>
                                                 </select>
-                                                <button type="button" class="checkout-task-detail-btn" data-checkout-detail-key="${app_escapeHtml(actionKey)}" onclick="window.app_openCheckoutActionModal('${app_escapeJsSingleQuote(actionKey)}')" ${actionValue ? '' : 'disabled'}>Action Details</button>
+                                                <button type="button" class="checkout-task-detail-btn" data-checkout-detail-key="${app_escapeHtml(actionKey)}" onclick="window.app_openCheckoutActionModal('${app_escapeJsSingleQuote(actionKey)}')" ${actionValue ? '' : 'disabled'}>Details</button>
                                             </div>
                                         </div>`;
                             }).join('');
@@ -5901,16 +6044,50 @@ window.app_resumeSession = async function () {
 };
 
 // New Function: Handle Check-Out Submission
+window.app_triggerCheckoutFromButton = function (buttonEl) {
+    const form = buttonEl?.closest ? buttonEl.closest('form') : document.getElementById('checkout-form');
+    if (!form) {
+        alert('Check-out form is not available. Please close and reopen the checkout window.');
+        return;
+    }
+    return window.app_submitCheckOut({
+        preventDefault: () => { },
+        target: form,
+        submitter: buttonEl || null
+    });
+};
+
+window.app_showCheckoutValidationPopup = async function (messages = []) {
+    const items = Array.isArray(messages)
+        ? messages.map((msg) => String(msg || '').trim()).filter(Boolean)
+        : [String(messages || '').trim()].filter(Boolean);
+    if (!items.length) return;
+    const body = items.map((msg, index) => `${index + 1}. ${msg}`).join('\n');
+    if (window.appAlert) {
+        await window.appAlert(body, 'Checkout Incomplete');
+        return;
+    }
+    alert(body);
+};
+
 window.app_submitCheckOut = async function (event) {
     event.preventDefault();
-    const form = event.target;
-    const description = form.description.value;
-    const submitBtn = form.querySelector('button[type="submit"]');
+    const form = event?.target?.tagName === 'FORM'
+        ? event.target
+        : (event?.submitter?.closest ? event.submitter.closest('form') : document.getElementById('checkout-form'));
+    if (!form) {
+        alert('Check-out form is not available. Please close and reopen the checkout window.');
+        return;
+    }
+    const description = String(form.description?.value || '').trim();
+    const submitBtn = event?.submitter || form.querySelector('button[type="submit"]') || form.querySelector('.action-btn');
     attendanceActionInFlight = true;
 
     try {
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Locating & Saving...`;
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Locating & Saving...`;
+        }
 
         const detailKeys = Object.keys(window.app_checkoutTaskDetails || {});
         detailKeys.forEach((key) => window.app_clearCheckoutTaskError(key));
@@ -5922,8 +6099,21 @@ window.app_submitCheckOut = async function (event) {
                 const modal = document.querySelector(`.checkout-action-detail-modal[data-checkout-key="${app_escapeCssValue(firstErrorKey)}"]`);
                 if (modal) modal.scrollIntoView({ behavior: 'smooth', block: 'center' });
             }
-            submitBtn.disabled = false;
-            submitBtn.textContent = 'Complete Check-Out';
+            await window.app_showCheckoutValidationPopup(taskErrors.map((err) => err.message));
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Complete Check-Out';
+            }
+            return;
+        }
+        const needsSummary = taskUpdates.some((update) => update && (update.action === 'postpone' || update.action === 'delegate'));
+        if (needsSummary && !description) {
+            await window.app_showCheckoutValidationPopup('Please add a short check-out summary when postponing or delegating tasks.');
+            form.description?.focus();
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Complete Check-Out';
+            }
             return;
         }
 
@@ -5967,9 +6157,11 @@ window.app_submitCheckOut = async function (event) {
 
         if (overtimeState.showPrompt) {
             if (!overtimeExplanation) {
-                alert('Please describe the overtime work before checkout.');
-                submitBtn.disabled = false;
-                submitBtn.textContent = 'Complete Check-Out';
+                await window.app_showCheckoutValidationPopup('Please describe the overtime work before checkout.');
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Complete Check-Out';
+                }
                 return;
             }
             checkOutOptions.overtimePrompted = true;
@@ -6001,10 +6193,9 @@ window.app_submitCheckOut = async function (event) {
         if (!pos) {
             const mismatchDiv = document.getElementById('checkout-location-mismatch');
             if (mismatchDiv) mismatchDiv.style.display = 'block';
-            alert("Location unavailable. Please enable location and try again.");
-            submitBtn.disabled = false;
-            submitBtn.textContent = 'Complete Check-Out';
-            return;
+            if (!explanation) {
+                explanation = String(locationError?.message || locationError || 'Location unavailable during checkout.').trim();
+            }
         }
 
         // Create formatted address string if no address available
@@ -6039,10 +6230,6 @@ window.app_submitCheckOut = async function (event) {
         }
         markLocalAttendanceMutation();
 
-        if (taskUpdates.length > 0) {
-            await window.app_applyCheckoutTaskUpdates(taskUpdates);
-        }
-
         window.app_checkoutSummaryDraft = '';
         window.app_checkoutTaskActions = {};
         window.app_checkoutTaskDetails = {};
@@ -6053,12 +6240,27 @@ window.app_submitCheckOut = async function (event) {
         // Hide modal
         document.getElementById('checkout-modal').style.display = 'none';
 
+        if (taskUpdates.length > 0) {
+            try {
+                await window.app_applyCheckoutTaskUpdates(taskUpdates);
+            } catch (taskErr) {
+                console.error('Checkout task side-effects failed after successful checkout:', taskErr);
+                if (window.app_showSyncToast) {
+                    window.app_showSyncToast(`Checked out, but some task updates need review: ${taskErr.message || taskErr}`);
+                } else {
+                    alert(`Checked out, but some task updates need review: ${taskErr.message || taskErr}`);
+                }
+            }
+        }
+
         // Refresh
         await refreshDashboardAfterAttendance();
     } catch (err) {
         alert("Check-out failed: " + err.message);
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Complete Check-Out';
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Complete Check-Out';
+        }
     } finally {
         attendanceActionInFlight = false;
     }
@@ -6390,8 +6592,6 @@ document.addEventListener('submit', (e) => {
 
     // Use getAttribute('id') because elements with name="id" shadow the form.id property!
     const id = String(e.target.getAttribute('id') || '');
-    console.log("Submit Event Intercepted. Form ID:", id);
-
     if (id === 'manual-log-form') handleManualLog(e);
     else if (id === 'checkout-form') window.app_submitCheckOut(e);
     else if (id === 'add-user-form') handleAddUser(e);
