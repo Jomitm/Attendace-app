@@ -29,6 +29,50 @@ export async function renderMasterSheet(month = null, year = null) {
         filteredLogs = allLogs.filter(l => l.date >= startDateStr && l.date <= endDateStr);
     }
 
+    let monthEvents = [];
+    try {
+        if (window.AppDB.queryMany) {
+            monthEvents = await window.AppDB.queryMany('events', [
+                { field: 'date', operator: '>=', value: startDateStr },
+                { field: 'date', operator: '<=', value: endDateStr }
+            ]);
+        } else {
+            const allEvents = await window.AppDB.getAll('events');
+            monthEvents = (allEvents || []).filter((event) => {
+                const date = String(event?.date || '').trim();
+                return date >= startDateStr && date <= endDateStr;
+            });
+        }
+    } catch (e) {
+        console.warn('MasterSheet: events query failed, continuing without calendar holidays', e);
+        monthEvents = [];
+    }
+
+    const normalizeEventDate = (value) => {
+        const raw = String(value || '').trim();
+        if (!raw) return '';
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+        const d = new Date(raw);
+        if (Number.isNaN(d.getTime())) return '';
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+
+    const isHolidayEvent = (event) => {
+        const type = String(event?.type || '').trim().toLowerCase();
+        const title = String(event?.title || '').trim().toLowerCase();
+        return type.includes('holiday') || title.includes('holiday');
+    };
+
+    const holidayEventsByDate = new Map();
+    (monthEvents || []).forEach((event) => {
+        if (!isHolidayEvent(event)) return;
+        const dateStr = normalizeEventDate(event?.date);
+        if (!dateStr || dateStr < startDateStr || dateStr > endDateStr) return;
+        if (!holidayEventsByDate.has(dateStr)) holidayEventsByDate.set(dateStr, []);
+        const title = String(event?.title || '').trim() || 'Holiday';
+        holidayEventsByDate.get(dateStr).push(title);
+    });
+
     // Days in selected month
     const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
     const daysArray = Array.from({ length: daysInMonth }, (_, i) => i + 1);
@@ -181,6 +225,8 @@ export async function renderMasterSheet(month = null, year = null) {
             const dayLogs = filteredLogs.filter(l => (l.userId === u.id || l.user_id === u.id) && l.date === dateStr);
             const dayAttendanceLogs = dayLogs.filter(isAttendanceEligibleLog);
             const dayPolicy = getWeekendPolicy(dateStr);
+            const holidayTitles = holidayEventsByDate.get(dateStr) || [];
+            const hasHolidayEvent = holidayTitles.length > 0;
 
             let cellContent = '-';
             let cellStyle = '';
@@ -222,8 +268,13 @@ export async function renderMasterSheet(month = null, year = null) {
                     cellContent = 'P'; cellStyle = 'color: #10b981; font-weight: bold; font-size: 0.9rem;'; tooltip = 'Checked in (pending checkout)';
                 } else if (isFutureDate || isBeforeJoinDate) {
                     cellContent = '-'; cellStyle = 'color: #94a3b8; font-weight: 600;'; tooltip = isFutureDate ? 'Future date' : `Before joining date (${u.joinDate})`;
-                } else if (dayPolicy === 'holiday') {
-                    cellContent = 'H'; cellStyle = 'color: #64748b; font-weight: 700;'; tooltip = 'Holiday';
+                } else if (hasHolidayEvent || dayPolicy === 'holiday') {
+                    cellContent = 'H';
+                    cellStyle = 'color: #64748b; font-weight: 700;';
+                    const holidayReason = hasHolidayEvent
+                        ? `Holiday: ${Array.from(new Set(holidayTitles)).join(', ')}`
+                        : 'Holiday';
+                    tooltip = holidayReason;
                 } else {
                     cellContent = 'A'; cellStyle = 'color: #ef4444; font-weight: bold;'; tooltip = 'Absent';
                 }

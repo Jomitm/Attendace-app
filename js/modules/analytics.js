@@ -652,6 +652,21 @@ export class Analytics {
         return AppConfig?.HERO_POLICY || {};
     }
 
+    getHeroWeekRange(baseDate = null) {
+        const seed = baseDate instanceof Date && !Number.isNaN(baseDate.getTime())
+            ? new Date(baseDate)
+            : (window.AppDB?.getIstNow ? window.AppDB.getIstNow() : new Date());
+        const day = seed.getDay();
+        const diffToMonday = day === 0 ? -6 : 1 - day;
+        const start = new Date(seed);
+        start.setDate(seed.getDate() + diffToMonday);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(start);
+        end.setDate(start.getDate() + 6);
+        end.setHours(23, 59, 59, 999);
+        return { start, end };
+    }
+
     parseHeroLogDate(raw) {
         if (!raw) return null;
         if (raw instanceof Date && !Number.isNaN(raw.getTime())) return raw;
@@ -933,78 +948,38 @@ export class Analytics {
         try {
             const policy = this.getHeroPolicy();
             const windowDays = Math.max(1, Number(policy.WINDOW_DAYS || 7));
-            const fallbackDays = Math.max(windowDays, Number(policy.FALLBACK_LOOKBACK_DAYS || 90));
-            const now = new Date();
-            const start = new Date(now);
-            start.setDate(start.getDate() - windowDays);
-            start.setHours(0, 0, 0, 0);
+            const { start, end } = this.getHeroWeekRange(options.baseDate);
 
             const [logs, workPlans, users] = await Promise.all([
-                this.getAttendanceInRange(start, now, 'hero'),
+                this.getAttendanceInRange(start, end, 'hero_calendar_week'),
                 this.db.queryMany
                     ? this.db.queryMany('work_plans', [
                         { field: 'date', operator: '>=', value: start.toISOString().split('T')[0] },
-                        { field: 'date', operator: '<=', value: now.toISOString().split('T')[0] }
+                        { field: 'date', operator: '<=', value: end.toISOString().split('T')[0] }
                     ])
                     : this.db.getAll('work_plans'),
                 this.getUsersCached()
             ]);
 
             const weeklyHero = this.scoreHeroFromLogs(logs, users, {
-                period: 'weekly',
+                period: 'current_week',
                 source: String(options.source || 'direct_cache'),
                 workPlans
             });
             if (weeklyHero.state === 'winner') return weeklyHero;
 
-            const fallbackStart = new Date(now);
-            fallbackStart.setDate(fallbackStart.getDate() - fallbackDays);
-            fallbackStart.setHours(0, 0, 0, 0);
-            const [widerLogs, widerWorkPlans] = await Promise.all([
-                this.getAttendanceInRange(fallbackStart, now, 'hero_fallback_lookback'),
-                this.db.queryMany
-                    ? this.db.queryMany('work_plans', [
-                        { field: 'date', operator: '>=', value: fallbackStart.toISOString().split('T')[0] },
-                        { field: 'date', operator: '<=', value: now.toISOString().split('T')[0] }
-                    ])
-                    : this.db.getAll('work_plans')
-            ]);
-            const normalizedWiderLogs = this.normalizeHeroLogs(widerLogs);
-            const normalizedWiderTasks = this.normalizeHeroTasks(widerWorkPlans);
-            if (normalizedWiderLogs.length === 0 && normalizedWiderTasks.length === 0) {
-                return this.createNoHeroPayload({
-                    reason: weeklyHero.reason,
-                    period: 'latest_active_window',
-                    source: String(options.source || 'direct_cache')
-                });
-            }
-
-            const latestFromAttendance = normalizedWiderLogs.length > 0
-                ? normalizedWiderLogs.reduce((max, row) => (row.logDate > max ? row.logDate : max), normalizedWiderLogs[0].logDate)
-                : null;
-            const latestFromTasks = normalizedWiderTasks.length > 0
-                ? normalizedWiderTasks.reduce((max, row) => {
-                    const dt = this.parseHeroLogDate(row?.date);
-                    return (dt && (!max || dt > max)) ? dt : max;
-                }, null)
-                : null;
-            const latestLogDate = latestFromAttendance || latestFromTasks || now;
-            const windowStart = new Date(latestLogDate);
-            windowStart.setDate(windowStart.getDate() - (windowDays - 1));
-            windowStart.setHours(0, 0, 0, 0);
-            const slicedRawLogs = (widerLogs || []).filter((log) => {
-                const dt = this.parseHeroLogDate(log?.date);
-                return !!dt && dt >= windowStart && dt <= latestLogDate;
-            });
-            const slicedWorkPlans = (widerWorkPlans || []).filter((plan) => {
-                const dt = this.parseHeroLogDate(plan?.date);
-                return !!dt && dt >= windowStart && dt <= latestLogDate;
-            });
-            return this.scoreHeroFromLogs(slicedRawLogs, users, {
-                period: 'latest_active_window',
+            return {
+                ...weeklyHero,
+                period: 'current_week',
                 source: String(options.source || 'direct_cache'),
-                workPlans: slicedWorkPlans
-            });
+                reason: weeklyHero.reason || 'No staff met the minimum hero criteria this week.',
+                schemaVersion: Number(policy.SCHEMA_VERSION || 1),
+                meta: {
+                    windowDays,
+                    startDate: start.toISOString().split('T')[0],
+                    endDate: end.toISOString().split('T')[0]
+                }
+            };
         } catch (err) {
             console.error('Hero Calculation Error:', err);
             return {

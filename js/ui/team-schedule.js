@@ -6,6 +6,14 @@
 export const renderYearlyPlan = (plans) => {
     const today = new Date();
     const currentUser = window.AppAuth?.getUser();
+    const canManageHoliday = !!(
+        currentUser
+        && (
+            window.app_isAdminUser?.(currentUser)
+            || currentUser.role === 'Administrator'
+            || window.app_canManageAttendanceSheet?.(currentUser)
+        )
+    );
     if (window.app_calMonth === undefined) window.app_calMonth = today.getMonth();
     if (window.app_calYear === undefined) window.app_calYear = today.getFullYear();
 
@@ -55,7 +63,7 @@ export const renderYearlyPlan = (plans) => {
                     </div>
                     <button onclick="window.app_changeCalMonth(1)" style="background:none; border:none; color:#6b7280; cursor:pointer; padding:2px;"><i class="fa-solid fa-chevron-right"></i></button>
                     </div>
-                    ${currentUser && (currentUser.role === 'Administrator' || currentUser.isAdmin) ? `<button onclick="window.app_openEventModal()" style="background:none; border:none; color:var(--primary); cursor:pointer;"><i class="fa-solid fa-plus-circle"></i></button>` : ''}
+                    ${canManageHoliday ? `<button onclick="window.app_openEventModal()" style="background:none; border:none; color:var(--primary); cursor:pointer;" title="Add Holiday / Event"><i class="fa-solid fa-plus-circle"></i></button>` : ''}
             </div>
             <div class="calendar-grid-mini" style="display:grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align:center; font-size: 0.65rem;">
                 <div style="font-weight:700; color:#9ca3af;">S</div>

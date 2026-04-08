@@ -396,7 +396,7 @@ export function renderHeroCard(heroData, heroMeta = {}) {
     const confidencePct = Number.isFinite(Number(heroData?.confidence))
         ? Math.round(Number(heroData.confidence) * 100)
         : 0;
-    const periodLabel = heroData?.period === 'latest_active_window' ? 'Latest Active Window' : 'Weekly';
+    const periodLabel = heroData?.period === 'current_week' ? 'Current Week' : 'Weekly';
 
     return `
         <div class="card dashboard-hero-stats-card hero-slot ${isNew ? 'is-new-summary' : ''}">
@@ -1149,7 +1149,9 @@ export async function renderDashboard() {
     const todayStr = dateKeys.todayKey;
     const yesterdayStr = dateKeys.yesterdayKey;
     const sharedSummaryEnabled = !!AppConfig?.READ_OPT_FLAGS?.FF_SHARED_DAILY_SUMMARY;
-    const heroCacheKey = `hero_stats_${todayStr}`;
+    const heroWeekRange = getWeekRange(todayStr);
+    const heroSchemaVersion = Number(window.AppAnalytics?.getHeroPolicy?.()?.SCHEMA_VERSION || AppConfig?.HERO_POLICY?.SCHEMA_VERSION || 1);
+    const heroCacheKey = `hero_stats_v${heroSchemaVersion}_${heroWeekRange.startKey}_${heroWeekRange.endKey}`;
     const heroCacheTtl = 24 * 60 * 60 * 1000;
 
     const targetStaffId = (isAdmin && window.app_selectedSummaryStaffId) ? window.app_selectedSummaryStaffId : user.id;

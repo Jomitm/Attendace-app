@@ -24,11 +24,23 @@ export const AppPolicies = {
         { name: 'Christmas', date: '2025-12-25', type: 'Regional' }
     ],
 
+    canManageHolidays(user = AppAuth.getUser()) {
+        if (!user) return false;
+        return !!(
+            window.app_isAdminUser?.(user)
+            || user.role === 'Administrator'
+            || window.app_hasPerm?.('policies', 'admin', user)
+            || window.app_hasPerm?.('attendance', 'admin', user)
+            || window.app_canManageAttendanceSheet?.(user)
+        );
+    },
+
     async render() {
         const policy = await AppLeaves.getPolicy();
         const user = AppAuth.getUser();
         const fy = await AppLeaves.getFinancialYear();
         const isFullAdmin = window.app_hasPerm('policies', 'admin', user);
+        const canManageHolidays = this.canManageHolidays(user);
 
         let lateCount = 0;
         try {
@@ -62,7 +74,7 @@ export const AppPolicies = {
             };
         });
         const balances = await Promise.all(balancePromises);
-        const holidaysTable = await this.renderHolidayTable(this.currentYear, isFullAdmin);
+        const holidaysTable = await this.renderHolidayTable(this.currentYear, canManageHolidays);
 
         return `
             <div class="content-container slide-in policies-modern">
@@ -136,7 +148,7 @@ export const AppPolicies = {
                                 <button onclick="window.AppPolicies.changeYear(1)"><i class="fa-solid fa-chevron-right"></i></button>
                             </div>
                         </div>
-                        ${isFullAdmin ? `
+                        ${canManageHolidays ? `
                             <div style="display:flex; justify-content:flex-end; margin-bottom:0.5rem;">
                                 <button class="action-btn" onclick="window.AppPolicies.openHolidayEditor()">
                                     <i class="fa-solid fa-plus"></i> Add Holiday
@@ -285,16 +297,16 @@ export const AppPolicies = {
         const yearLabel = document.getElementById('policy-year-label');
         const container = document.getElementById('holidays-container');
         const user = AppAuth.getUser();
-        const isAdmin = window.app_hasPerm('policies', 'admin', user);
+        const canManageHolidays = this.canManageHolidays(user);
         if (yearLabel && container) {
             yearLabel.textContent = this.currentYear;
-            container.innerHTML = await this.renderHolidayTable(this.currentYear, isAdmin);
+            container.innerHTML = await this.renderHolidayTable(this.currentYear, canManageHolidays);
         }
     },
 
     async openHolidayEditor(index = null) {
         const user = AppAuth.getUser();
-        if (!user || !window.app_hasPerm('policies', 'admin', user)) return;
+        if (!this.canManageHolidays(user)) return;
         const year = this.currentYear;
         const holidays = await this.getHolidaysForYear(year);
         const existing = Number.isInteger(index) ? holidays[index] : null;
@@ -338,7 +350,6 @@ export const AppPolicies = {
 
     async saveHoliday(e, index = null) {
         e.preventDefault();
-        const year = this.currentYear;
         const name = (document.getElementById('holiday-name-input')?.value || '').trim();
         const date = String(document.getElementById('holiday-date-input')?.value || '').trim();
         const type = (document.getElementById('holiday-type-input')?.value || 'Regional').trim();
@@ -346,27 +357,37 @@ export const AppPolicies = {
             alert('Please provide holiday name and date.');
             return;
         }
-        if (!date.startsWith(`${year}-`)) {
-            alert(`Date must be within ${year}.`);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+            alert('Please select a valid date.');
             return;
         }
 
         const settings = await this.loadHolidaySettings();
-        const y = String(year);
-        const list = Array.isArray(settings.byYear[y]) ? [...settings.byYear[y]] : this.buildYearFromBaseline(year);
+        const sourceYear = String(this.currentYear);
+        const targetYear = String(date).slice(0, 4);
+        const sourceYearNum = Number(sourceYear);
+        const targetYearNum = Number(targetYear);
+        let sourceList = Array.isArray(settings.byYear[sourceYear]) ? [...settings.byYear[sourceYear]] : this.buildYearFromBaseline(sourceYearNum);
+        let targetList = Array.isArray(settings.byYear[targetYear]) ? [...settings.byYear[targetYear]] : this.buildYearFromBaseline(targetYearNum);
+
         const payload = { name, date, type: type === 'National' ? 'National' : 'Regional' };
-        if (Number.isInteger(index) && list[index]) list[index] = payload;
-        else list.push(payload);
-        settings.byYear[y] = list.sort((a, b) => new Date(a.date) - new Date(b.date));
+        if (Number.isInteger(index) && sourceList[index]) {
+            sourceList.splice(index, 1);
+            settings.byYear[sourceYear] = sourceList.sort((a, b) => new Date(a.date) - new Date(b.date));
+        }
+
+        targetList.push(payload);
+        settings.byYear[targetYear] = targetList.sort((a, b) => new Date(a.date) - new Date(b.date));
         await this.saveHolidaySettings(settings);
 
+        this.currentYear = targetYearNum;
         document.querySelector('.modal-overlay[id^="holiday-editor-"]')?.remove();
         await this.changeYear(0);
     },
 
     async deleteHoliday(index) {
         const user = AppAuth.getUser();
-        if (!user || !window.app_hasPerm('policies', 'admin', user)) return;
+        if (!this.canManageHolidays(user)) return;
         const ok = await window.appConfirm('Delete this holiday from current year?');
         if (!ok) return;
 

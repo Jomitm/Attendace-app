@@ -2857,7 +2857,21 @@ window.alert = (message) => {
 
 // Initialize Global App Logic
 // --- Yearly Plan / Calendar Logic ---
+window.app_canManageHolidays = (user = window.AppAuth?.getUser()) => {
+    if (!user) return false;
+    return !!(
+        window.app_isAdminUser?.(user)
+        || user.role === 'Administrator'
+        || window.app_canManageAttendanceSheet?.(user)
+    );
+};
+
 window.app_openEventModal = () => {
+    const user = window.AppAuth?.getUser?.();
+    if (!window.app_canManageHolidays(user)) {
+        alert('Only admin and attendance admin can add holidays.');
+        return;
+    }
     const html = `
             <div class="modal-overlay" id="event-modal" style="display:flex;">
                 <div class="modal-content">
@@ -2894,6 +2908,11 @@ window.app_openEventModal = () => {
 
 window.app_submitEvent = async (e) => {
     e.preventDefault();
+    const user = window.AppAuth?.getUser?.();
+    if (!window.app_canManageHolidays(user)) {
+        alert('Only admin and attendance admin can add holidays.');
+        return;
+    }
     const title = document.getElementById('event-title').value;
     const date = document.getElementById('event-date').value;
     const type = document.getElementById('event-type').value;
