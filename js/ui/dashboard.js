@@ -137,12 +137,14 @@ const applyDashboardCardMode = (cardId, mode, triggerEl = null) => {
 };
 
 const getDashboardCardTitle = (cardEl) => {
+    if (cardEl.classList.contains('dashboard-hero-stats-card')) return 'Hero of the Week';
     const heading = cardEl.querySelector('.dashboard-card-title, .dashboard-stats-card-title, .dashboard-worklog-head h4, .dashboard-team-activity-head h4, .dashboard-staff-directory-head h4, .dashboard-tagged-head h4, .dashboard-leave-requests-head h4, .dashboard-leave-history-head h4, h3, h4');
     const text = String(heading?.textContent || '').trim();
     return text || 'Dashboard Card';
 };
 
 const getDashboardCardId = (cardEl, index) => {
+    if (cardEl.classList.contains('dashboard-hero-stats-card')) return 'hero-week';
     if (cardEl.classList.contains('dashboard-checkin-card')) return 'checkin';
     if (cardEl.classList.contains('dashboard-worklog-card')) return 'worklog';
     if (cardEl.classList.contains('dashboard-team-activity-card')) return 'team-activity';
@@ -182,6 +184,9 @@ const buildExpandedCardTemplate = (cardEl) => {
         if (statType) {
             html += renderStatsDetailInline(statType);
         }
+    }
+    if (cardEl.classList.contains('dashboard-hero-stats-card')) {
+        html += renderHeroLeaderboardExpanded(window.app_dashboardHeroLeaderboard, window.app_dashboardHeroData);
     }
     return html;
 };
@@ -572,6 +577,99 @@ export function renderActivityList(allLogs, startStr, endStr, targetStaffId, col
     return html;
 }
 
+function renderHeroLeaderboardExpanded(leaderboardData, heroData = null) {
+    const rows = Array.isArray(leaderboardData?.rows) ? leaderboardData.rows : [];
+    const meta = leaderboardData?.meta || {};
+    const winnerId = String(leaderboardData?.winnerUserId || heroData?.user?.id || '');
+    const periodLabel = meta.startDate && meta.endDate
+        ? `${safeHtml(meta.startDate)} to ${safeHtml(meta.endDate)}`
+        : 'Current week';
+
+    if (!rows.length) {
+        return `
+            <section class="hero-leaderboard-panel">
+                <div class="hero-leaderboard-head">
+                    <div>
+                        <h4>Weekly Hero Audit</h4>
+                        <p>Current week: ${periodLabel}</p>
+                    </div>
+                </div>
+                <div class="dashboard-activity-empty">No staff leaderboard data available for this week.</div>
+            </section>
+        `;
+    }
+
+    const rowsHtml = rows.map((entry) => {
+        const user = entry?.user || {};
+        const stats = entry?.stats || {};
+        const userId = String(user.id || '');
+        const isWinner = winnerId && userId === winnerId;
+        const eligibilityClass = entry?.isEligible ? 'is-eligible' : 'is-ineligible';
+        const eligibilityText = entry?.isEligible ? 'Eligible' : safeHtml(entry?.eligibilityReason || 'Not eligible');
+        const rankLabel = Number.isFinite(Number(entry?.rank)) ? `#${Number(entry.rank)}` : 'NR';
+        return `
+            <tr class="hero-leaderboard-row ${isWinner ? 'is-winner' : ''}">
+                <td class="hero-leaderboard-rank">${rankLabel}</td>
+                <td class="hero-leaderboard-staff">
+                    <div class="hero-leaderboard-staff-wrap">
+                        <img src="${safeUrl(user.avatar)}" alt="${safeHtml(user.name || 'Staff')}" class="hero-leaderboard-avatar">
+                        <div>
+                            <div class="hero-leaderboard-name">${safeHtml(user.name || 'Unknown Staff')}</div>
+                            <div class="hero-leaderboard-role">${safeHtml(user.role || 'Staff')}</div>
+                        </div>
+                    </div>
+                </td>
+                <td>${Number(stats.taskPlanned || 0)}</td>
+                <td>${Number(stats.taskCompleted || 0)}</td>
+                <td>${Number(stats.taskInProgress || 0)}</td>
+                <td>${Number(stats.taskMissed || 0)}</td>
+                <td>${Number(stats.days || 0)}</td>
+                <td>${Number(stats.hours || 0).toFixed(1)}h</td>
+                <td>${Number(stats.completionRate || 0).toFixed(1)}%</td>
+                <td>x${Number(stats.attendanceFactor || 1).toFixed(2)}</td>
+                <td>${Number(stats.finalScore || 0).toFixed(2)}</td>
+                <td><span class="hero-leaderboard-pill ${eligibilityClass}">${eligibilityText}</span></td>
+            </tr>
+        `;
+    }).join('');
+
+    return `
+        <section class="hero-leaderboard-panel">
+            <div class="hero-leaderboard-head">
+                <div>
+                    <h4>Weekly Hero Audit</h4>
+                    <p>Current week: ${periodLabel}</p>
+                </div>
+                <div class="hero-leaderboard-summary">
+                    <span class="dashboard-kpi-tag">Staff ${rows.length}</span>
+                    <span class="dashboard-kpi-tag">Winner ${safeHtml(heroData?.user?.name || rows.find((row) => String(row?.user?.id || '') === winnerId)?.user?.name || 'None')}</span>
+                </div>
+            </div>
+            <div class="table-container hero-leaderboard-table-wrap">
+                <table class="hero-leaderboard-table">
+                    <thead>
+                        <tr>
+                            <th>Rank</th>
+                            <th>Staff</th>
+                            <th>Planned</th>
+                            <th>Completed</th>
+                            <th>In Progress</th>
+                            <th>Missed</th>
+                            <th>Days</th>
+                            <th>Hours</th>
+                            <th>Completion</th>
+                            <th>Factor</th>
+                            <th>Score</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rowsHtml}</tbody>
+                </table>
+            </div>
+        </section>
+    `;
+}
+
 export function renderActivityLog(allStaffLogs) {
     const state = getStaffActivityState();
     state.logs = Array.isArray(allStaffLogs) ? allStaffLogs : [];
@@ -806,6 +904,26 @@ function attachStatsCardHandlers() {
             if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
                 window.app_toggleDashboardCardMode?.(`stats-${type}`, DASHBOARD_CARD_MODE_FULLSCREEN, card);
+            }
+        });
+    });
+}
+
+function attachHeroCardHandlers() {
+    document.querySelectorAll('.dashboard-hero-stats-card.hero-slot').forEach(card => {
+        if (card.dataset.heroBound === '1') return;
+        card.dataset.heroBound = '1';
+        card.setAttribute('tabindex', '0');
+        card.setAttribute('role', 'button');
+        card.setAttribute('aria-label', 'Open Hero of the Week details');
+        card.addEventListener('click', (event) => {
+            if (event.target && event.target.closest && event.target.closest('.dashboard-card-mode-controls')) return;
+            window.app_toggleDashboardCardMode?.('hero-week', DASHBOARD_CARD_MODE_FULLSCREEN, card);
+        });
+        card.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                window.app_toggleDashboardCardMode?.('hero-week', DASHBOARD_CARD_MODE_FULLSCREEN, card);
             }
         });
     });
@@ -1152,6 +1270,7 @@ export async function renderDashboard() {
     const heroWeekRange = getWeekRange(todayStr);
     const heroSchemaVersion = Number(window.AppAnalytics?.getHeroPolicy?.()?.SCHEMA_VERSION || AppConfig?.HERO_POLICY?.SCHEMA_VERSION || 1);
     const heroCacheKey = `hero_stats_v${heroSchemaVersion}_${heroWeekRange.startKey}_${heroWeekRange.endKey}`;
+    const heroLeaderboardCacheKey = `hero_leaderboard_v${heroSchemaVersion}_${heroWeekRange.startKey}_${heroWeekRange.endKey}`;
     const heroCacheTtl = 24 * 60 * 60 * 1000;
 
     const targetStaffId = (isAdmin && window.app_selectedSummaryStaffId) ? window.app_selectedSummaryStaffId : user.id;
@@ -1177,6 +1296,16 @@ export async function renderDashboard() {
     const heroPromise = sharedSummaryEnabled
         ? Promise.resolve(null)
         : readDirectHeroCached();
+    const heroLeaderboardPromise = window.AppDB?.getOrGenerateSummary
+        ? window.AppDB.getOrGenerateSummary(
+            heroLeaderboardCacheKey,
+            async () => window.AppAnalytics.getHeroLeaderboard({ source: 'direct_cache' }),
+            heroCacheTtl
+        ).catch((err) => {
+            console.warn('Hero leaderboard cache read failed:', err);
+            return null;
+        })
+        : Promise.resolve(null);
 
     const staffActivityPromise = sharedSummaryEnabled
         ? Promise.resolve([])
@@ -1239,12 +1368,13 @@ export async function renderDashboard() {
     const currentWeekRange = getWeekRange(leaveHistoryDate);
 
     // Parallel Fetch
-    const [status, logs, monthlyStats, yearlyStats, heroDataRaw, calendarPlans, staffActivitiesRaw, pendingLeaves, allUsers, collaborations, allLeaves, dailySummary, minutesData, attendanceLogs, weeklyAttendanceLogs] = await Promise.all([
+    const [status, logs, monthlyStats, yearlyStats, heroDataRaw, heroLeaderboardData, calendarPlans, staffActivitiesRaw, pendingLeaves, allUsers, collaborations, allLeaves, dailySummary, minutesData, attendanceLogs, weeklyAttendanceLogs] = await Promise.all([
         window.AppAttendance.getStatus(),
         window.AppAttendance.getLogs(targetStaffId),
         window.AppAnalytics.getUserMonthlyStats(targetStaffId),
         window.AppAnalytics.getUserYearlyStats(targetStaffId),
         heroPromise,
+        heroLeaderboardPromise,
         window.AppCalendar ? window.AppCalendar.getPlans() : { leaves: [], events: [] },
         staffActivityPromise,
         window.app_hasPerm('leaves', 'view') ? window.AppLeaves.getPendingLeaves() : Promise.resolve([]),
@@ -1285,6 +1415,8 @@ export async function renderDashboard() {
         : {};
     let heroData = sharedSummaryEnabled ? (dailySummary?.hero || null) : heroDataRaw;
     let staffActivities = sharedSummaryEnabled ? (Array.isArray(dailySummary?.teamActivityPreview) ? dailySummary.teamActivityPreview : []) : staffActivitiesRaw;
+    window.app_dashboardHeroLeaderboard = heroLeaderboardData;
+    window.app_dashboardHeroData = heroData;
 
     if (sharedSummaryEnabled && (!dailySummary || !Array.isArray(dailySummary.teamActivityPreview))) {
         setTimeout(() => refreshStaffActivityWidget(true), 0);
@@ -1308,13 +1440,20 @@ export async function renderDashboard() {
         };
         const replaceHeroSlot = (html) => {
             const slot = document.querySelector('.hero-slot');
-            if (slot) slot.outerHTML = html;
+            if (slot) {
+                slot.outerHTML = html;
+                setTimeout(() => {
+                    initDashboardCardControls();
+                    attachHeroCardHandlers();
+                }, 0);
+            }
         };
 
         sharedSummaryTask.then(async (ds) => {
             const latestHero = ds && ds.hero ? ds.hero : null;
             if (latestHero) {
                 const updatedMeta = { ...heroMeta, lowRead: false, generatedAt: ds.generatedAt || heroMeta.generatedAt, source: ds._source || heroMeta.source };
+                window.app_dashboardHeroData = latestHero;
                 replaceHeroSlot(renderHeroCard(latestHero, updatedMeta));
                 return;
             }
@@ -1322,6 +1461,7 @@ export async function renderDashboard() {
             // Step 2: shared summary missing hero -> use cached direct hero.
             const directCachedHero = await readDirectHeroCached();
             if (directCachedHero) {
+                window.app_dashboardHeroData = directCachedHero;
                 replaceHeroSlot(renderHeroCard(directCachedHero, {
                     ...heroMeta,
                     lowRead: false,
@@ -1349,6 +1489,11 @@ export async function renderDashboard() {
                 // Step 3: one/day fallback direct read, then cache the result.
                 const directHero = await window.AppAnalytics.getHeroOfTheWeek({ source: 'direct_fallback' });
                 if (!directHero || directHero.state === 'fetch_error') {
+                    window.app_dashboardHeroData = {
+                        state: 'fetch_error',
+                        reason: 'Hero stats are temporarily unavailable.',
+                        source: 'direct_fallback'
+                    };
                     replaceHeroSlot(renderHeroCard({
                         state: 'fetch_error',
                         reason: 'Hero stats are temporarily unavailable.',
@@ -1363,9 +1508,15 @@ export async function renderDashboard() {
                 }
                 await window.AppDB.getOrGenerateSummary(heroCacheKey, async () => directHero, heroCacheTtl);
                 const fallbackMeta = { ...heroMeta, lowRead: false, generatedAt: Date.now(), source: 'direct_fallback' };
+                window.app_dashboardHeroData = directHero;
                 replaceHeroSlot(renderHeroCard(directHero, fallbackMeta));
             } catch (err) {
                 console.warn('Hero fallback direct fetch failed:', err);
+                window.app_dashboardHeroData = {
+                    state: 'fetch_error',
+                    reason: 'Hero stats are temporarily unavailable.',
+                    source: 'direct_fallback'
+                };
                 replaceHeroSlot(renderHeroCard({
                     state: 'fetch_error',
                     reason: 'Hero stats are temporarily unavailable.',
@@ -1378,6 +1529,11 @@ export async function renderDashboard() {
                 }));
             }
         }).catch(() => {
+            window.app_dashboardHeroData = {
+                state: 'fetch_error',
+                reason: 'Hero stats are temporarily unavailable.',
+                source: 'shared_error'
+            };
             replaceHeroSlot(renderHeroCard({
                 state: 'fetch_error',
                 reason: 'Hero stats are temporarily unavailable.',
@@ -2081,6 +2237,7 @@ if (typeof window !== 'undefined') {
 
     window.app_attachStatsCardHandlers = function () {
         attachStatsCardHandlers();
+        attachHeroCardHandlers();
     };
 
     window.app_expandTeamActivityRefresh = async function () {

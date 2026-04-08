@@ -5833,6 +5833,132 @@ textarea:focus {
     height: auto !important;
 }
 
+.hero-leaderboard-panel {
+    margin-top: 1rem;
+    display: grid;
+    gap: 0.85rem;
+}
+
+.hero-leaderboard-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.hero-leaderboard-head h4 {
+    margin: 0;
+    font-size: 1.02rem;
+    font-weight: 800;
+    color: #0f172a;
+}
+
+.hero-leaderboard-head p {
+    margin: 0.2rem 0 0;
+    color: #64748b;
+    font-size: 0.82rem;
+}
+
+.hero-leaderboard-summary {
+    display: flex;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+}
+
+.hero-leaderboard-table-wrap {
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    background: #fff;
+}
+
+.hero-leaderboard-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 980px;
+}
+
+.hero-leaderboard-table th,
+.hero-leaderboard-table td {
+    padding: 0.75rem 0.7rem;
+    border-bottom: 1px solid #e2e8f0;
+    text-align: left;
+    font-size: 0.83rem;
+    vertical-align: middle;
+}
+
+.hero-leaderboard-table th {
+    position: sticky;
+    top: 0;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 0.74rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    z-index: 1;
+}
+
+.hero-leaderboard-row.is-winner {
+    background: linear-gradient(90deg, rgba(34, 197, 94, 0.08), rgba(14, 165, 233, 0.05));
+}
+
+.hero-leaderboard-rank {
+    font-weight: 800;
+    color: #0f172a;
+}
+
+.hero-leaderboard-staff-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+}
+
+.hero-leaderboard-avatar {
+    width: 2.2rem;
+    height: 2.2rem;
+    border-radius: 999px;
+    object-fit: cover;
+    background: #e2e8f0;
+    flex-shrink: 0;
+}
+
+.hero-leaderboard-name {
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.hero-leaderboard-role {
+    font-size: 0.75rem;
+    color: #64748b;
+}
+
+.hero-leaderboard-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    padding: 0.28rem 0.58rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.hero-leaderboard-pill.is-eligible {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.hero-leaderboard-pill.is-ineligible {
+    background: #fff7ed;
+    color: #9a3412;
+}
+
+@media (max-width: 720px) {
+    .hero-leaderboard-head {
+        flex-direction: column;
+    }
+}
+
 .admin-max-card-content .action-btn {
     padding: 0.56rem 0.9rem;
     font-size: 0.82rem;

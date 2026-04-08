@@ -667,6 +667,24 @@ export class Analytics {
         return { start, end };
     }
 
+    createZeroHeroStats(userId = '') {
+        return {
+            userId: String(userId || ''),
+            days: 0,
+            hours: 0,
+            totalDurationMs: 0,
+            activityLogDepth: 0,
+            taskPlanned: 0,
+            taskCompleted: 0,
+            taskInProgress: 0,
+            taskMissed: 0,
+            completionRate: 0,
+            taskScore: 0,
+            attendanceFactor: Number((this.getHeroPolicy()?.ATTENDANCE_MODIFIER?.base ?? 0.9).toFixed(3)),
+            finalScore: 0
+        };
+    }
+
     parseHeroLogDate(raw) {
         if (!raw) return null;
         if (raw instanceof Date && !Number.isNaN(raw.getTime())) return raw;
@@ -991,6 +1009,83 @@ export class Analytics {
                 source: String(options.source || 'direct_cache'),
                 confidence: 0,
                 schemaVersion: Number(this.getHeroPolicy()?.SCHEMA_VERSION || 1)
+            };
+        }
+    }
+
+    async getHeroLeaderboard(options = {}) {
+        try {
+            const policy = this.getHeroPolicy();
+            const minEvidence = policy.MIN_EVIDENCE || {};
+            const minDays = Math.max(1, Number(minEvidence.minDays || 1));
+            const minDurationMs = Math.max(0, Number(minEvidence.minDurationMs || 1));
+            const minPlannedTasks = Math.max(0, Number(minEvidence.minPlannedTasks || 1));
+            const { start, end } = this.getHeroWeekRange(options.baseDate);
+
+            const [logs, workPlans, users] = await Promise.all([
+                this.getAttendanceInRange(start, end, 'hero_calendar_week'),
+                this.db.queryMany
+                    ? this.db.queryMany('work_plans', [
+                        { field: 'date', operator: '>=', value: start.toISOString().split('T')[0] },
+                        { field: 'date', operator: '<=', value: end.toISOString().split('T')[0] }
+                    ])
+                    : this.db.getAll('work_plans'),
+                this.getUsersCached()
+            ]);
+
+            const normalizedLogs = this.normalizeHeroLogs(logs);
+            const normalizedTasks = this.normalizeHeroTasks(workPlans);
+            const ranked = this.rankHeroCandidates(
+                this.buildHeroCandidateStats(normalizedLogs),
+                this.buildHeroTaskStats(normalizedTasks),
+                policy
+            );
+            const rankedMap = new Map(ranked.map((row, index) => [String(row.userId), { ...row, rank: index + 1 }]));
+            const rows = (Array.isArray(users) ? users : []).map((user) => {
+                const userId = String(user?.id || '').trim();
+                const stats = rankedMap.get(userId) || { ...this.createZeroHeroStats(userId), rank: null };
+                const isEligible = stats.taskPlanned >= minPlannedTasks
+                    && (stats.days >= minDays || stats.totalDurationMs >= minDurationMs);
+                return {
+                    user,
+                    stats,
+                    rank: stats.rank,
+                    isEligible,
+                    eligibilityReason: isEligible
+                        ? 'Eligible'
+                        : `Needs at least ${minPlannedTasks} planned task${minPlannedTasks === 1 ? '' : 's'} and ${minDays} day${minDays === 1 ? '' : 's'} or tracked time.`,
+                    period: 'current_week'
+                };
+            }).sort((a, b) => {
+                const aRank = Number.isFinite(a.rank) ? a.rank : Number.MAX_SAFE_INTEGER;
+                const bRank = Number.isFinite(b.rank) ? b.rank : Number.MAX_SAFE_INTEGER;
+                if (aRank !== bRank) return aRank - bRank;
+                return String(a.user?.name || '').localeCompare(String(b.user?.name || ''));
+            });
+
+            return {
+                state: 'ok',
+                period: 'current_week',
+                source: String(options.source || 'direct_cache'),
+                rows,
+                winnerUserId: rows.find((row) => row.isEligible && Number(row.rank) === 1)?.user?.id || null,
+                meta: {
+                    startDate: start.toISOString().split('T')[0],
+                    endDate: end.toISOString().split('T')[0],
+                    schemaVersion: Number(policy.SCHEMA_VERSION || 1)
+                }
+            };
+        } catch (err) {
+            console.error('Hero Leaderboard Error:', err);
+            return {
+                state: 'fetch_error',
+                period: 'current_week',
+                source: String(options.source || 'direct_cache'),
+                rows: [],
+                winnerUserId: null,
+                meta: {
+                    schemaVersion: Number(this.getHeroPolicy()?.SCHEMA_VERSION || 1)
+                }
             };
         }
     }
