@@ -9700,6 +9700,175 @@ body.dashboard-max-open {
     color: #344b62;
 }
 
+.dashboard-leave-requests-card {
+    background: linear-gradient(160deg, rgba(251, 253, 255, 0.96) 0%, rgba(239, 246, 255, 0.78) 100%);
+    border: 1px solid rgba(191, 219, 254, 0.72);
+    box-shadow: 0 18px 40px rgba(59, 130, 246, 0.08);
+}
+
+.dashboard-leave-requests-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.85rem;
+    border-bottom: 1px solid rgba(191, 219, 254, 0.5);
+}
+
+.dashboard-leave-requests-head h4 {
+    margin: 0;
+    font-size: 1.28rem;
+    color: #17324d;
+}
+
+.dashboard-leave-requests-head span {
+    color: #59708b;
+    font-size: 0.86rem;
+    font-weight: 600;
+}
+
+.dashboard-leave-requests-list {
+    display: grid;
+    gap: 0.9rem;
+}
+
+.dashboard-leave-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: stretch;
+    gap: 1rem;
+    padding: 1rem 1.05rem;
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(244, 249, 255, 0.88) 100%);
+    border: 1px solid rgba(191, 219, 254, 0.7);
+    box-shadow: 0 10px 22px rgba(148, 163, 184, 0.12);
+}
+
+.dashboard-leave-info {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    gap: 0.35rem;
+}
+
+.dashboard-leave-topline {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.dashboard-leave-name {
+    font-size: 1.05rem;
+    font-weight: 800;
+    color: #102a43;
+}
+
+.dashboard-leave-chip {
+    padding: 0.35rem 0.7rem;
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.1);
+    color: #1d4ed8;
+    font-size: 0.76rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.dashboard-leave-type {
+    color: #284b63;
+    font-weight: 700;
+}
+
+.dashboard-leave-meta {
+    display: flex;
+    gap: 0.9rem;
+    flex-wrap: wrap;
+    color: #64748b;
+    font-size: 0.82rem;
+    font-weight: 600;
+}
+
+.dashboard-leave-date {
+    color: #1e293b;
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+
+.dashboard-leave-reason {
+    color: #475569;
+    font-size: 0.88rem;
+    line-height: 1.5;
+    background: rgba(241, 245, 249, 0.92);
+    border: 1px solid rgba(203, 213, 225, 0.82);
+    border-radius: 12px;
+    padding: 0.7rem 0.8rem;
+}
+
+.dashboard-leave-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+    align-items: flex-start;
+    justify-content: flex-end;
+    min-width: 240px;
+}
+
+.dashboard-leave-btn {
+    border: none;
+    border-radius: 12px;
+    padding: 0.68rem 0.82rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 800;
+    font-size: 0.84rem;
+    cursor: pointer;
+    transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
+}
+
+.dashboard-leave-btn:hover {
+    transform: translateY(-1px);
+}
+
+.dashboard-leave-btn.export,
+.dashboard-leave-btn.comment {
+    background: rgba(255, 255, 255, 0.96);
+    color: #294866;
+    border: 1px solid rgba(191, 219, 254, 0.9);
+    box-shadow: 0 8px 16px rgba(148, 163, 184, 0.12);
+}
+
+.dashboard-leave-btn.approve {
+    background: linear-gradient(135deg, #16794e 0%, #0f5f3d 100%);
+    color: #fff;
+    box-shadow: 0 12px 20px rgba(22, 121, 78, 0.2);
+}
+
+.dashboard-leave-btn.reject {
+    background: linear-gradient(135deg, #c2410c 0%, #9a3412 100%);
+    color: #fff;
+    box-shadow: 0 12px 20px rgba(194, 65, 12, 0.2);
+}
+
+@media (max-width: 780px) {
+    .dashboard-leave-row {
+        flex-direction: column;
+    }
+
+    .dashboard-leave-actions {
+        min-width: 0;
+        justify-content: stretch;
+    }
+
+    .dashboard-leave-btn {
+        flex: 1 1 calc(50% - 0.55rem);
+        justify-content: center;
+    }
+}
+
 .dashboard-modern .dashboard-worklog-date-input,
 .dashboard-modern .dashboard-team-select {
     background: rgba(255, 255, 255, 0.76);

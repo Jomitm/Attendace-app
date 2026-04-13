@@ -183,8 +183,12 @@ if (typeof window !== 'undefined') {
 
 export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
     let allUsers = [];
+    let allLeaves = [];
     let pendingLeaves = [];
     let attendanceLogs = [];
+    let pendingNotifications = [];
+    let reviewedNotifications = [];
+    let currentAdmin = null;
     let performance = { avgScore: 0, trendData: [0, 0, 0, 0, 0, 0, 0], labels: [] };
     let audits = [];
     let simulationCleanupAudits = [];
@@ -202,6 +206,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
             window.AppDB.queryMany
                 ? window.AppDB.queryMany('location_audits', [], { orderBy: [{ field: 'timestamp', direction: 'desc' }], limit: 300 }).catch(() => window.AppDB.getAll('location_audits'))
                 : window.AppDB.getAll('location_audits'),
+            window.AppLeaves.getAllLeaves ? window.AppLeaves.getAllLeaves() : window.AppDB.getAll('leaves'),
             window.AppLeaves.getPendingLeaves(),
             window.AppDB.queryMany
                 ? window.AppDB.queryMany('system_audit_logs', [], { orderBy: [{ field: 'createdAt', direction: 'desc' }], limit: 80 }).catch(() => window.AppDB.getAll('system_audit_logs'))
@@ -220,8 +225,9 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         allUsers = readSettled(0, [], 'users');
         performance = readSettled(1, { avgScore: 0, trendData: [0, 0, 0, 0, 0, 0, 0], labels: [] }, 'performance');
         audits = readSettled(2, [], 'location_audits');
-        pendingLeaves = readSettled(3, [], 'pending_leaves');
-        simulationCleanupAudits = readSettled(4, [], 'system_audit_logs');
+        allLeaves = readSettled(3, [], 'all_leaves');
+        pendingLeaves = readSettled(4, [], 'pending_leaves');
+        simulationCleanupAudits = readSettled(5, [], 'system_audit_logs');
 
         audits = audits.filter(a => {
             const d = new Date(a.timestamp).toISOString().split('T')[0];
@@ -234,21 +240,27 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
             .slice(0, 25);
 
         const currentUser = window.AppAuth?.getUser?.();
-        const currentAdmin = currentUser ? allUsers.find((user) => String(user.id) === String(currentUser.id)) || currentUser : null;
-        const pendingNotifications = (Array.isArray(currentAdmin?.notifications) ? currentAdmin.notifications : [])
+        currentAdmin = currentUser ? allUsers.find((user) => String(user.id) === String(currentUser.id)) || currentUser : null;
+        pendingNotifications = (Array.isArray(currentAdmin?.notifications) ? currentAdmin.notifications : [])
             .filter((notif) =>
                 notif
                 && notif.type === 'missed-checkout-reason'
                 && String(notif.status || 'pending').toLowerCase() === 'pending'
                 && notif.logId);
-        const pendingLogIds = Array.from(new Set(
-            pendingNotifications.map((notif) => String(notif.logId || '')).filter(Boolean)
+        reviewedNotifications = (Array.isArray(currentAdmin?.notifications) ? currentAdmin.notifications : [])
+            .filter((notif) =>
+                notif
+                && notif.type === 'missed-checkout-reason'
+                && ['approved', 'rejected'].includes(String(notif.status || '').toLowerCase())
+                && notif.logId);
+        const reviewLogIds = Array.from(new Set(
+            [...pendingNotifications, ...reviewedNotifications].map((notif) => String(notif.logId || '')).filter(Boolean)
         ));
 
-        attendanceLogs = pendingLogIds.length
+        attendanceLogs = reviewLogIds.length
             ? (window.AppDB.getManyByIds
-                ? await window.AppDB.getManyByIds('attendance', pendingLogIds)
-                : (await Promise.all(pendingLogIds.map((id) => window.AppDB.get('attendance', id)))).filter(Boolean))
+                ? await window.AppDB.getManyByIds('attendance', reviewLogIds)
+                : (await Promise.all(reviewLogIds.map((id) => window.AppDB.get('attendance', id)))).filter(Boolean))
             : [];
     } catch (e) {
         console.error('Failed to fetch admin data', e);
@@ -265,31 +277,55 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
             return aKey.localeCompare(bKey);
         })
         .slice(0, 5);
-    const currentUser = window.AppAuth?.getUser?.();
-    const currentAdmin = currentUser ? allUsers.find((user) => String(user.id) === String(currentUser.id)) || currentUser : null;
-    const adminNotifications = Array.isArray(currentAdmin?.notifications) ? currentAdmin.notifications : [];
     const usersById = new Map(allUsers.map((user) => [String(user.id), user]));
-    const missedCheckoutItems = (attendanceLogs || [])
-        .filter((log) => log
-            && log.missedCheckoutReasonRequired
-            && log.missedCheckoutReasonSubmittedAt
-            && String(log.missedCheckoutReasonStatus || '').toLowerCase() === 'pending')
-        .map((log) => {
-            const staff = usersById.get(String(log.user_id));
-            const notification = adminNotifications.find((notif) =>
-                notif
-                && notif.type === 'missed-checkout-reason'
-                && String(notif.logId || '') === String(log.id || '')
-                && String(notif.status || 'pending').toLowerCase() === 'pending'
-            );
+    const attendanceLogsById = new Map((attendanceLogs || []).filter(Boolean).map((log) => [String(log.id || ''), log]));
+    const missedCheckoutItems = pendingNotifications
+        .map((notif) => {
+            const log = attendanceLogsById.get(String(notif.logId || '')) || null;
+            const staffId = String(notif.staffId || notif.taggedById || log?.user_id || log?.userId || '');
+            const staff = usersById.get(staffId);
             return {
-                ...log,
-                staffName: staff?.name || 'Staff',
+                ...(log || {}),
+                staffName: notif.staffName || staff?.name || 'Staff',
                 staffRole: staff?.role || 'Employee',
-                notificationId: notification?.id || ''
+                notificationId: notif.id || '',
+                user_id: log?.user_id || log?.userId || staffId,
+                date: log?.date || notif.missedCheckoutDate || notif.date || '',
+                missedCheckoutReason: log?.missedCheckoutReason || notif.missedCheckoutReason || '',
+                missedCheckoutReasonSubmittedAt: log?.missedCheckoutReasonSubmittedAt || notif.missedCheckoutReasonSubmittedAt || notif.date || '',
+                missedCheckoutReasonStatus: String(log?.missedCheckoutReasonStatus || notif.status || 'pending').toLowerCase(),
+                missedCheckoutReasonRequired: log?.missedCheckoutReasonRequired !== false
             };
         })
+        .filter((item) =>
+            item
+            && item.notificationId
+            && item.missedCheckoutReasonRequired
+            && item.missedCheckoutReasonSubmittedAt
+            && String(item.missedCheckoutReasonStatus || '').toLowerCase() === 'pending')
         .sort((a, b) => new Date(b.missedCheckoutReasonSubmittedAt || b.systemClosedAt || b.date || 0) - new Date(a.missedCheckoutReasonSubmittedAt || a.systemClosedAt || a.date || 0));
+    const reviewedMissedCheckoutItems = reviewedNotifications
+        .map((notif) => {
+            const log = attendanceLogsById.get(String(notif.logId || '')) || null;
+            const staffId = String(notif.staffId || notif.taggedById || log?.user_id || log?.userId || '');
+            const staff = usersById.get(staffId);
+            return {
+                ...(log || {}),
+                staffName: notif.staffName || staff?.name || 'Staff',
+                staffRole: staff?.role || 'Employee',
+                notificationId: notif.id || '',
+                date: log?.date || notif.missedCheckoutDate || notif.date || '',
+                reviewStatus: String(notif.status || log?.missedCheckoutReasonStatus || '').trim() || 'pending',
+                reviewNote: String(log?.missedCheckoutReviewNote || notif.reviewNote || '').trim(),
+                reviewedAt: log?.missedCheckoutReviewedAt || notif.respondedAt || notif.date || ''
+            };
+        })
+        .sort((a, b) => new Date(b.reviewedAt || b.date || 0) - new Date(a.reviewedAt || a.date || 0))
+        .slice(0, 12);
+    const reviewedLeaveItems = (allLeaves || [])
+        .filter((leave) => ['approved', 'rejected'].includes(String(leave?.status || '').toLowerCase()))
+        .sort((a, b) => new Date(b.actionDate || b.appliedOn || 0) - new Date(a.actionDate || a.appliedOn || 0))
+        .slice(0, 12);
 
     const formatCleanupSummary = (row) => {
         const payload = row && row.payload ? row.payload : {};
@@ -363,7 +399,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
             <div class="admin-audit-filter-row">
                 <input type="date" id="${startId}" value="${auditStartDate}" style="font-size:0.75rem;">
                 <input type="date" id="${endId}" value="${auditEndDate}" style="font-size:0.75rem;">
-                <button onclick="window.app_applyAuditFilter(${startRead}, ${endRead})" class="action-btn">Filter</button>
+                <button type="button" onclick="window.app_applyAuditFilter(${startRead}, ${endRead})" class="action-btn">Filter</button>
             </div>
             <div class="table-container ${isExpanded ? 'admin-table-expanded' : ''}">
                 <table>
@@ -404,8 +440,8 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
     const renderStaffBlock = (isExpanded = false) => `
         <div class="admin-staff-head">
             <div class="admin-staff-head-actions">
-                ${(window.app_isAdminUser?.() || window.app_canManageBirthdays?.()) ? `<button class="action-btn secondary" onclick="window.location.hash='birthday-calendar'"><i class="fa-solid fa-cake-candles"></i> Birthday Calendar</button>` : ''}
-                ${window.app_hasPerm('users', 'admin') ? `<button class="action-btn" onclick="document.getElementById('add-user-modal').style.display='flex'"><i class="fa-solid fa-user-plus"></i> Add Staff</button>` : ''}
+                ${(window.app_isAdminUser?.() || window.app_canManageBirthdays?.()) ? `<button type="button" class="action-btn secondary" onclick="window.location.hash='birthday-calendar'"><i class="fa-solid fa-cake-candles"></i> Birthday Calendar</button>` : ''}
+                ${window.app_hasPerm('users', 'admin') ? `<button type="button" class="action-btn" onclick="document.getElementById('add-user-modal').style.display='flex'"><i class="fa-solid fa-user-plus"></i> Add Staff</button>` : ''}
             </div>
         </div>
         <div class="table-container ${isExpanded ? 'admin-table-expanded' : ''} mobile-table-card">
@@ -432,8 +468,8 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                             <td>${safeHtml(u.role)} / ${safeHtml(u.dept || '--')}</td>
                             <td>
                                 <div class="admin-row-actions">
-                                    <button onclick="window.app_viewLogs('${u.id}')" class="admin-icon-btn"><i class="fa-solid fa-list-check"></i></button>
-                                    ${window.app_hasPerm('users', 'admin') ? `<button onclick="window.app_editUser('${u.id}')" class="admin-icon-btn"><i class="fa-solid fa-pen"></i></button>` : ''}
+                                    <button type="button" onclick="window.app_viewLogs('${u.id}')" class="admin-icon-btn"><i class="fa-solid fa-list-check"></i></button>
+                                    ${window.app_hasPerm('users', 'admin') ? `<button type="button" onclick="window.app_editUser('${u.id}')" class="admin-icon-btn"><i class="fa-solid fa-pen"></i></button>` : ''}
                                 </div>
                             </td>
                         </tr>`;
@@ -474,8 +510,26 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         return new Date(start || end).toLocaleDateString();
     };
 
+    const renderPendingLeaveHistory = (limit = null) => `
+        <div style="margin-top:0.9rem; border-top:1px solid #e2e8f0; padding-top:0.9rem;">
+            <div style="font-weight:700; color:#0f172a; margin-bottom:0.6rem;">Recent Decisions</div>
+            ${reviewedLeaveItems.length ? reviewedLeaveItems.slice(0, limit || reviewedLeaveItems.length).map((leave) => `
+                <div style="display:flex; justify-content:space-between; gap:0.75rem; align-items:flex-start; border:1px solid #e2e8f0; border-radius:12px; padding:0.7rem 0.8rem; background:rgba(255,255,255,0.9); margin-bottom:0.55rem;">
+                    <div>
+                        <div style="font-weight:700; color:#334155;">${safeHtml(leave.userName || usersById.get(String(leave.userId || ''))?.name || 'Staff')}</div>
+                        <div style="font-size:0.8rem; color:#475569;">${safeHtml(formatPendingLeaveRange(leave))} • ${safeHtml(leave.type || '--')} • <span style="color:${String(leave.status) === 'Approved' ? '#166534' : '#b91c1c'};">${safeHtml(leave.status || '--')}</span></div>
+                        <div style="font-size:0.75rem; color:#64748b;">${leave.actionDate ? `Reviewed ${safeHtml(new Date(leave.actionDate).toLocaleString())}` : 'Reviewed recently'}${leave.adminComment ? ` • ${safeHtml(leave.adminComment)}` : ''}</div>
+                    </div>
+                    <div class="admin-leave-actions">
+                        <button type="button" onclick="window.app_undoLeaveDecision('${leave.id}')" class="admin-btn admin-btn-secondary">Undo</button>
+                    </div>
+                </div>
+            `).join('') : '<div class="text-muted" style="font-size:0.8rem;">No recent leave decisions.</div>'}
+        </div>
+    `;
+
     const renderPendingLeavesBlock = (isExpanded = false) => pendingLeaveGroups.length === 0
-        ? '<p class="text-muted">No pending requests.</p>'
+        ? `${isExpanded ? renderPendingLeaveHistory() : reviewedLeaveItems.length ? renderPendingLeaveHistory(3) : '<p class="text-muted">No pending requests.</p>'}`
         : `
             <div class="table-container ${isExpanded ? 'admin-table-expanded' : ''}">
                 <table class="compact-table">
@@ -506,13 +560,14 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                                                         </div>
                                                         <div class="admin-leave-actions">
                                                             ${window.app_hasPerm('leaves', 'admin') ? `
-                                                                <button onclick="window.AppLeaves.updateLeaveStatus('${l.id}', 'Approved', window.AppAuth?.getUser?.()?.id).then(() => window.app_refreshAdminPage())" class="admin-btn admin-btn-success">Approve</button>
-                                                                <button onclick="window.AppLeaves.updateLeaveStatus('${l.id}', 'Rejected', window.AppAuth?.getUser?.()?.id).then(() => window.app_refreshAdminPage())" class="admin-btn admin-btn-danger">Reject</button>
+                                                                <button type="button" onclick="window.app_approveLeave('${l.id}')" class="admin-btn admin-btn-success">Approve</button>
+                                                                <button type="button" onclick="window.app_rejectLeave('${l.id}')" class="admin-btn admin-btn-danger">Reject</button>
                                                             ` : '<span class="text-muted" style="font-size:0.7rem;">View Only</span>'}
                                                         </div>
                                                     </div>
                                                 </div>
                                             `).join('')}
+                                        ${isExpanded ? renderPendingLeaveHistory() : ''}
                                     </div>
                                 </td>
                                 <td>${group.totalDays}</td>
@@ -521,10 +576,32 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                     </tbody>
                 </table>
             </div>
+            ${!isExpanded && reviewedLeaveItems.length ? renderPendingLeaveHistory(3) : ''}
         `;
 
+    const renderMissedCheckoutHistory = (limit = null) => `
+        <div style="margin-top:0.85rem; border-top:1px solid #e2e8f0; padding-top:0.85rem;">
+            <div style="font-weight:700; color:#0f172a; margin-bottom:0.55rem;">Recent Decisions</div>
+            ${reviewedMissedCheckoutItems.length ? reviewedMissedCheckoutItems.slice(0, limit || reviewedMissedCheckoutItems.length).map((log) => `
+                <div class="dashboard-tagged-item">
+                    <div>
+                        <div class="dashboard-tagged-title">${safeHtml(log.staffName)}</div>
+                        <div class="dashboard-tagged-desc">${safeHtml(log.reviewNote || log.missedCheckoutReason || 'No review note recorded.')}</div>
+                        <div class="dashboard-tagged-meta">${safeHtml(log.date || '--')} | ${safeHtml(log.staffRole || 'Employee')}${log.reviewedAt ? ` | Reviewed ${safeHtml(new Date(log.reviewedAt).toLocaleString())}` : ''}</div>
+                    </div>
+                    <div class="dashboard-tagged-status">
+                        <span class="dashboard-tagged-pill ${String(log.reviewStatus).toLowerCase() === 'approved' ? 'accepted' : 'rejected'}">${safeHtml(String(log.reviewStatus || '').toUpperCase())}</span>
+                        <div class="dashboard-tagged-actions">
+                            <button type="button" class="dashboard-tagged-btn" onclick="window.app_undoMissedCheckoutReview(${JSON.stringify(String(log.notificationId || ''))})">Undo</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('') : '<div class="text-muted" style="font-size:0.8rem;">No recent missed checkout decisions.</div>'}
+        </div>
+    `;
+
     const renderMissedCheckoutBlock = (isExpanded = false) => missedCheckoutItems.length === 0
-        ? '<p class="text-muted">No missed checkout reasons waiting for review.</p>'
+        ? `${isExpanded ? renderMissedCheckoutHistory() : reviewedMissedCheckoutItems.length ? renderMissedCheckoutHistory(3) : '<p class="text-muted">No missed checkout reasons waiting for review.</p>'}`
         : `
             <div class="dashboard-tagged-list ${isExpanded ? 'admin-list-expanded' : ''}">
                 ${missedCheckoutItems.map((log) => `
@@ -541,14 +618,16 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                             <span class="dashboard-tagged-pill pending">Pending</span>
                             ${log.notificationId ? `
                                 <div class="dashboard-tagged-actions">
-                                    <button class="dashboard-tagged-btn accept" onclick='window.app_reviewMissedCheckoutReasonFromNotification(-1, ${JSON.stringify(String(log.notificationId))}, "approved")'>Approve</button>
-                                    <button class="dashboard-tagged-btn reject" onclick='window.app_reviewMissedCheckoutReasonFromNotification(-1, ${JSON.stringify(String(log.notificationId))}, "rejected")'>Reject</button>
+                                    <button type="button" class="dashboard-tagged-btn accept" onclick='window.app_reviewMissedCheckoutReasonFromNotification(-1, ${JSON.stringify(String(log.notificationId))}, "approved")'>Approve</button>
+                                    <button type="button" class="dashboard-tagged-btn reject" onclick='window.app_reviewMissedCheckoutReasonFromNotification(-1, ${JSON.stringify(String(log.notificationId))}, "rejected")'>Reject</button>
                                 </div>
                             ` : '<span class="text-muted" style="font-size:0.7rem;">Notification sync pending</span>'}
                         </div>
                     </div>
                 `).join('')}
+                ${isExpanded ? renderMissedCheckoutHistory() : ''}
             </div>
+            ${!isExpanded && reviewedMissedCheckoutItems.length ? renderMissedCheckoutHistory(3) : ''}
         `;
 
     const renderBirthdayBlock = () => `
@@ -566,7 +645,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                 `).join('')
         : '<div style="color:#9a3412; font-size:0.85rem;">No birthdays saved yet.</div>'}
         </div>
-        <button class="action-btn" onclick="window.location.hash='birthday-calendar'"><i class="fa-solid fa-cake-candles"></i> Open</button>
+        <button type="button" class="action-btn" onclick="window.location.hash='birthday-calendar'"><i class="fa-solid fa-cake-candles"></i> Open</button>
     `;
 
     const cards = [];

@@ -162,6 +162,7 @@ export function renderModals() {
                     </label>
                     <label>Reason
                         <textarea name="reason" rows="3" required style="width:100%; padding:0.5rem; border:1px solid #ddd; border-radius:0.5rem;"></textarea>
+                        <div style="margin-top:0.35rem; font-size:0.75rem; color:#92400e; line-height:1.4;">Please mention the reason specifically. If the reason is vague or not clearly mentioned, the leave may not be sanctioned.</div>
                     </label>
                     <div style="display: flex; gap: 1rem; margin-top: 1rem;">
                         <button type="button" onclick="document.getElementById('leave-modal').style.display = 'none'" style="flex: 1; padding: 0.75rem; border: 1px solid #ddd; background: white; border-radius: 0.5rem; cursor: pointer;">Cancel</button>

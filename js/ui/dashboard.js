@@ -362,24 +362,22 @@ function ensureDashboardActionDelegates() {
 
         try {
             if (action === 'export') {
-                if (window.AppLeaves?.exportLeave) await window.AppLeaves.exportLeave(leaveId);
+                if (typeof window.app_exportLeaveRequestPdf === 'function') {
+                    await window.app_exportLeaveRequestPdf(leaveId);
+                }
                 return;
             }
             if (action === 'comment') {
-                if (window.AppLeaves?.commentLeave) await window.AppLeaves.commentLeave(leaveId);
+                if (typeof window.app_addLeaveComment === 'function') {
+                    await window.app_addLeaveComment(leaveId);
+                }
                 return;
             }
             if (action === 'approve' || action === 'reject') {
-                const status = action === 'approve' ? 'Approved' : 'Rejected';
-                const adminId = window.AppAuth?.getUser?.()?.id;
-                if (window.AppLeaves?.updateLeaveStatus) {
-                    await window.AppLeaves.updateLeaveStatus(leaveId, status, adminId);
-                }
-                if (typeof window.app_refreshCurrentPage === 'function') {
-                    await window.app_refreshCurrentPage();
-                } else {
-                    const contentArea = document.getElementById('page-content');
-                    if (contentArea) contentArea.innerHTML = await renderDashboard();
+                if (action === 'approve' && typeof window.app_approveLeave === 'function') {
+                    await window.app_approveLeave(leaveId);
+                } else if (action === 'reject' && typeof window.app_rejectLeave === 'function') {
+                    await window.app_rejectLeave(leaveId);
                 }
             }
         } catch (err) {
@@ -1183,6 +1181,8 @@ export function renderLeaveRequests(leaves, workFromHomeEntries = []) {
                     <div class="dashboard-leave-name">${safeHtml(l.userName || 'Staff')}</div>
                     <div class="dashboard-leave-type">${safeHtml(l.type)} • ${l.daysCount} days</div>
                     <div class="dashboard-leave-date">${l.startDate} to ${l.endDate}</div>
+                    <div class="dashboard-leave-meta">ID: ${safeHtml(String(l.id || '--'))}</div>
+                    ${l.reason ? `<div class="dashboard-leave-reason">${safeHtml(l.reason)}</div>` : ''}
                 </div>
                 <div class="dashboard-leave-actions">
                     <button class="dashboard-leave-btn export" data-action="export" data-leave-id="${l.id}" title="Export PDF"><i class="fa-solid fa-file-pdf"></i></button>
@@ -1260,6 +1260,7 @@ export function renderLeaveHistory(leaves, options = {}) {
     const title = options.title || 'Leave History';
     const subtitle = options.subtitle || 'Past records';
     const selectedDate = options.selectedDate || new Date().toISOString().slice(0, 10);
+    const canUndo = options.canUndo === true;
 
     if (!leaves || leaves.length === 0) {
         return `
@@ -1296,10 +1297,15 @@ export function renderLeaveHistory(leaves, options = {}) {
                         <div class="dashboard-leave-history-main">
                             <div class="dashboard-leave-history-user">${safeHtml(l.userName || 'Staff')}</div>
                             <div class="dashboard-leave-history-type">${safeHtml(l.type)} - ${l.daysCount} days</div>
-                            <div class="dashboard-leave-history-date">${l.startDate} to ${l.endDate}</div>
+                            <div class="dashboard-leave-meta">ID: ${safeHtml(String(l.id || '--'))}</div>
+                            ${l.reason ? `<div class="dashboard-leave-reason">${safeHtml(l.reason)}</div>` : ''}
+                            <div class="dashboard-leave-history-date">${l.startDate} to ${l.endDate}${l.adminComment ? ` • ${safeHtml(l.adminComment)}` : ''}</div>
                         </div>
                         <div class="dashboard-leave-history-status">
                             <span class="status-pill" style="background: ${statusColor(l.status)}15; color: ${statusColor(l.status)}">${safeHtml(l.status)}</span>
+                            ${canUndo && ['Approved', 'Rejected'].includes(String(l.status || '')) ? `
+                                <button type="button" class="dashboard-tagged-btn" style="margin-top:0.45rem;" onclick="window.app_undoLeaveDecision('${safeHtml(l.id)}')">Undo</button>
+                            ` : ''}
                         </div>
                     </div>
                 `).join('')}
@@ -1865,7 +1871,8 @@ export async function renderDashboard() {
             subtitle: hasExplicitSelection
                 ? `Current week (${weekRange.label}) for selected staff`
                 : `Current week (${weekRange.label}) across all staff`,
-            selectedDate: leaveHistoryDate
+            selectedDate: leaveHistoryDate,
+            canUndo: true
         });
 
         summaryHTML = `

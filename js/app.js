@@ -2696,6 +2696,20 @@ window.appPrompt = (message, defaultValue = '', opts = {}) => window.app_systemD
     cancelText: opts.cancelText || 'Cancel',
     placeholder: opts.placeholder || ''
 });
+
+window.app_requestMandatoryRejectionReason = async function ({
+    title = 'Reject Item',
+    message = 'Please enter the rejection reason.',
+    confirmText = 'Submit Reason'
+} = {}) {
+    while (true) {
+        const reason = await window.appPrompt(message, '', { title, confirmText });
+        if (reason === null) return null;
+        const trimmed = String(reason || '').trim();
+        if (trimmed) return trimmed;
+        await window.appAlert('A rejection reason is required to continue.', 'Reason Required');
+    }
+};
 window.alert = (message) => {
     window.appAlert(message);
 };
@@ -6648,29 +6662,47 @@ document.addEventListener('submit', (e) => {
 });
 
 async function handleLeaveRequest(e) {
+    e.preventDefault();
+    const formEl = e.target;
+    if (!formEl || formEl.dataset.submitting === '1') return;
+    formEl.dataset.submitting = '1';
     const fd = new FormData(e.target);
     const user = window.AppAuth.getUser();
     const startDate = fd.get('startDate');
     let endDate = fd.get('endDate');
     const type = fd.get('type');
-    if (type === 'Half Day') {
-        endDate = startDate;
-    }
-    await window.AppLeaves.requestLeave({
-        userId: user.id,
-        userName: user.name,
-        startDate,
-        endDate,
-        startTime: fd.get('startTime') || '',
-        endTime: fd.get('endTime') || '',
-        type,
-        reason: fd.get('reason'),
-        durationHours: fd.get('durationHours') || ''
-    });
+    const submitBtn = formEl.querySelector('button[type="submit"]');
+    const originalLabel = submitBtn ? submitBtn.innerHTML : '';
+    try {
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = 'Submitting...';
+        }
+        if (type === 'Half Day') {
+            endDate = startDate;
+        }
+        await window.AppLeaves.requestLeave({
+            userId: user.id,
+            userName: user.name,
+            startDate,
+            endDate,
+            startTime: fd.get('startTime') || '',
+            endTime: fd.get('endTime') || '',
+            type,
+            reason: fd.get('reason'),
+            durationHours: fd.get('durationHours') || ''
+        });
 
-    alert('Leave requested successfully!');
-    document.getElementById('leave-modal').style.display = 'none';
-    e.target.reset();
+        alert('Leave requested successfully!');
+        document.getElementById('leave-modal').style.display = 'none';
+        e.target.reset();
+    } finally {
+        formEl.dataset.submitting = '0';
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalLabel;
+        }
+    }
 }
 
 async function handleNotifyUser(e) {
@@ -7212,7 +7244,12 @@ window.app_reviewMissedCheckoutReasonFromNotification = async (notifIndex, notif
 
         let reviewNote = '';
         if (decision === 'rejected') {
-            reviewNote = (await window.appPrompt('Optional: add a rejection reason', '', { title: 'Reject Reason', confirmText: 'Submit Reason' })) || '';
+            reviewNote = await window.app_requestMandatoryRejectionReason({
+                title: 'Reject Auto Checkout',
+                message: 'Please enter why this missed/auto checkout request is being rejected.',
+                confirmText: 'Submit Reason'
+            });
+            if (reviewNote === null) return;
         }
 
         const log = await window.AppDB.get('attendance', logId);
@@ -7220,6 +7257,7 @@ window.app_reviewMissedCheckoutReasonFromNotification = async (notifIndex, notif
             const approvedMissedCheckoutUpdate = decision === 'approved' && log.autoCheckout
                 ? {
                     type: 'Present',
+                    missedCheckoutOriginalType: log.missedCheckoutOriginalType || log.type || 'Absent',
                     dayCredit: (window.AppAttendance && typeof window.AppAttendance.getDayCredit === 'function')
                         ? window.AppAttendance.getDayCredit('Present')
                         : 1,
@@ -7279,6 +7317,92 @@ window.app_reviewMissedCheckoutReasonFromNotification = async (notifIndex, notif
         }
     } catch (err) {
         alert('Failed to review missed checkout reason: ' + err.message);
+    }
+};
+
+window.app_undoMissedCheckoutReview = async (notifId) => {
+    try {
+        const currentUser = window.AppAuth.getUser();
+        const isAdmin = currentUser && (currentUser.isAdmin || currentUser.role === 'Administrator');
+        if (!isAdmin) {
+            alert('Only admin can undo missed checkout reviews.');
+            return;
+        }
+
+        const adminUser = await window.AppDB.get('users', currentUser.id);
+        if (!adminUser || !Array.isArray(adminUser.notifications)) {
+            alert('Notification not found.');
+            return;
+        }
+
+        const notif = adminUser.notifications.find((n) =>
+            n
+            && n.type === 'missed-checkout-reason'
+            && String(n.id || '') === String(notifId || '')
+        );
+        if (!notif) {
+            alert('This missed checkout review is no longer available.');
+            return;
+        }
+
+        const logId = notif.logId;
+        if (!logId) {
+            alert('Invalid missed checkout review payload.');
+            return;
+        }
+
+        const log = await window.AppDB.get('attendance', logId);
+        if (log) {
+            const restoredType = log.missedCheckoutOriginalType || log.originalTypeBeforeApproval || (log.autoCheckout ? 'Absent' : log.type);
+            await window.AppDB.put('attendance', {
+                ...log,
+                type: restoredType,
+                dayCredit: (window.AppAttendance && typeof window.AppAttendance.getDayCredit === 'function')
+                    ? window.AppAttendance.getDayCredit(restoredType)
+                    : (restoredType === 'Present' ? 1 : 0),
+                lateCountable: restoredType === 'Late',
+                missedCheckoutApprovedAsFullDay: false,
+                missedCheckoutApprovedAt: '',
+                missedCheckoutApprovedBy: '',
+                missedCheckoutReasonStatus: 'pending',
+                missedCheckoutReviewedBy: '',
+                missedCheckoutReviewedAt: '',
+                missedCheckoutReviewNote: ''
+            });
+        }
+
+        notif.status = 'pending';
+        notif.respondedAt = '';
+        notif.read = false;
+        await window.AppAuth.updateUser(adminUser);
+
+        const staffId = notif.staffId || notif.taggedById;
+        const staffUser = staffId ? await window.AppDB.get('users', staffId) : null;
+        if (staffUser) {
+            if (!Array.isArray(staffUser.notifications)) staffUser.notifications = [];
+            staffUser.notifications.unshift({
+                id: `mcr_undo_${Date.now()}`,
+                type: 'missed-checkout-review-undone',
+                title: 'Missed checkout review reopened',
+                message: `Admin moved your missed checkout request for ${notif.missedCheckoutDate || log?.date || 'the selected date'} back to pending review.`,
+                status: 'pending',
+                date: new Date().toISOString(),
+                taggedById: currentUser.id,
+                taggedByName: currentUser.name
+            });
+            await window.AppDB.put('users', staffUser);
+        }
+
+        if (typeof window.app_refreshAdminPage === 'function') {
+            await window.app_refreshAdminPage();
+        } else if (contentArea) {
+            contentArea.innerHTML = await AppUI.renderDashboard();
+            if (window.setupDashboardEvents) window.setupDashboardEvents();
+        }
+
+        if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
+    } catch (err) {
+        alert('Failed to undo missed checkout review: ' + err.message);
     }
 };
 
@@ -7691,41 +7815,65 @@ window.app_deleteLog = async (logId, userId) => {
 };
 
 // --- Leave Management Handlers ---
+const app_refreshAfterLeaveAction = async () => {
+    if (typeof window.app_refreshAdminPage === 'function' && (window.location.hash || '').includes('admin')) {
+        await window.app_refreshAdminPage();
+        return;
+    }
+    if (contentArea) {
+        contentArea.innerHTML = await AppUI.renderDashboard();
+        setupDashboardEvents();
+    }
+};
+
 window.app_approveLeave = async (leaveId) => {
     if (!await window.appConfirm("Are you sure you want to APPROVE this leave request?")) return;
     try {
         const user = window.AppAuth.getUser();
         await window.AppLeaves.updateLeaveStatus(leaveId, 'Approved', user.id);
         alert("Leave Approved! Attendance logs have been automatically generated.");
-
-        // Refresh Dashboard
-        const contentArea = document.getElementById('page-content');
-        if (contentArea) {
-            contentArea.innerHTML = await AppUI.renderDashboard();
-            setupDashboardEvents();
-        }
+        await app_refreshAfterLeaveAction();
     } catch (err) {
         alert("Error: " + err.message);
     }
 };
 
 window.app_rejectLeave = async (leaveId) => {
-    const reason = await window.appPrompt("Enter rejection reason (optional):", "", { title: 'Reject Leave', confirmText: 'Reject Leave' });
+    const reason = await window.app_requestMandatoryRejectionReason({
+        title: 'Reject Leave',
+        message: 'Please enter why this leave request is being rejected.',
+        confirmText: 'Reject Leave'
+    });
     if (reason === null) return; // Cancelled
 
     try {
         const user = window.AppAuth.getUser();
         await window.AppLeaves.updateLeaveStatus(leaveId, 'Rejected', user.id, reason);
         alert("Leave Rejected.");
-
-        // Refresh Dashboard
-        const contentArea = document.getElementById('page-content');
-        if (contentArea) {
-            contentArea.innerHTML = await AppUI.renderDashboard();
-            setupDashboardEvents();
-        }
+        await app_refreshAfterLeaveAction();
     } catch (err) {
         alert("Error: " + err.message);
+    }
+};
+
+window.app_undoLeaveDecision = async (leaveId) => {
+    try {
+        const leave = await window.AppDB.get('leaves', leaveId);
+        if (!leave) {
+            alert('Leave request not found.');
+            return;
+        }
+        if (String(leave.status || '').toLowerCase() === 'pending') {
+            alert('This leave request is already pending.');
+            return;
+        }
+        if (!await window.appConfirm('Move this leave request back to pending review?')) return;
+        const user = window.AppAuth.getUser();
+        await window.AppLeaves.updateLeaveStatus(leaveId, 'Pending', user?.id || '');
+        alert('Leave request moved back to pending.');
+        await app_refreshAfterLeaveAction();
+    } catch (err) {
+        alert('Error: ' + err.message);
     }
 };
 
@@ -7760,6 +7908,94 @@ window.app_exportLeaves = async () => {
         await window.AppReports.exportLeavesCSV(allLeaves);
     } catch (err) {
         alert("Export Failed: " + err.message);
+    }
+};
+
+window.app_exportLeaveRequestPdf = async (leaveId) => {
+    try {
+        const leave = await window.AppDB.get('leaves', leaveId);
+        if (!leave) {
+            alert('Leave request not found.');
+            return;
+        }
+        const user = await window.AppDB.get('users', leave.userId).catch(() => null);
+        const staffName = leave.userName || user?.name || 'Staff';
+        const status = String(leave.status || 'Pending');
+        const statusColor = status === 'Approved' ? '#166534' : status === 'Rejected' ? '#b91c1c' : '#854d0e';
+        const printWindow = window.open('', '_blank', 'width=920,height=760');
+        if (!printWindow) {
+            alert('Please allow popups to open the printable leave slip.');
+            return;
+        }
+
+        const escapeHtml = (value) => String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+
+        const html = `
+            <!doctype html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>Leave Slip - ${escapeHtml(staffName)}</title>
+                <style>
+                    body { font-family: "Segoe UI", Tahoma, sans-serif; margin: 0; background: #eef4fb; color: #1f2937; }
+                    .sheet { max-width: 820px; margin: 32px auto; background: #fff; border-radius: 24px; padding: 32px; box-shadow: 0 20px 50px rgba(15, 23, 42, 0.14); }
+                    .head { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; margin-bottom: 24px; }
+                    .brand { font-size: 28px; font-weight: 800; color: #1e3a5f; margin: 0 0 6px; }
+                    .sub { margin: 0; color: #64748b; font-size: 14px; }
+                    .status { padding: 10px 16px; border-radius: 999px; font-weight: 700; color: ${statusColor}; background: ${statusColor}15; border: 1px solid ${statusColor}33; }
+                    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 24px; }
+                    .card { border: 1px solid #dbe5f1; border-radius: 18px; padding: 16px 18px; background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%); }
+                    .label { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #64748b; margin-bottom: 6px; font-weight: 700; }
+                    .value { font-size: 18px; font-weight: 700; color: #0f172a; }
+                    .full { grid-column: 1 / -1; }
+                    .reason { min-height: 84px; white-space: pre-wrap; line-height: 1.55; }
+                    .actions { margin-top: 28px; display: flex; justify-content: flex-end; }
+                    button { border: 0; border-radius: 14px; padding: 12px 18px; background: linear-gradient(135deg, #355b86 0%, #28496f 100%); color: #fff; font-weight: 700; cursor: pointer; }
+                    @media print {
+                        body { background: #fff; }
+                        .sheet { margin: 0; box-shadow: none; border-radius: 0; max-width: none; }
+                        .actions { display: none; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="sheet">
+                    <div class="head">
+                        <div>
+                            <h1 class="brand">CRWI Attendance</h1>
+                            <p class="sub">Leave request slip</p>
+                        </div>
+                        <div class="status">${escapeHtml(status)}</div>
+                    </div>
+                    <div class="grid">
+                        <div class="card"><span class="label">Staff</span><div class="value">${escapeHtml(staffName)}</div></div>
+                        <div class="card"><span class="label">Type</span><div class="value">${escapeHtml(leave.type || '--')}</div></div>
+                        <div class="card"><span class="label">From</span><div class="value">${escapeHtml(leave.startDate || '--')}</div></div>
+                        <div class="card"><span class="label">To</span><div class="value">${escapeHtml(leave.endDate || '--')}</div></div>
+                        <div class="card"><span class="label">Days</span><div class="value">${escapeHtml(leave.daysCount || '--')}</div></div>
+                        <div class="card"><span class="label">Applied On</span><div class="value">${escapeHtml(leave.appliedOn ? new Date(leave.appliedOn).toLocaleString() : '--')}</div></div>
+                        <div class="card full"><span class="label">Reason</span><div class="value reason">${escapeHtml(leave.reason || 'No reason provided.')}</div></div>
+                        <div class="card full"><span class="label">Admin Comment</span><div class="value reason">${escapeHtml(leave.adminComment || 'No admin comment added.')}</div></div>
+                    </div>
+                    <div class="actions">
+                        <button onclick="window.print()">Print / Save PDF</button>
+                    </div>
+                </div>
+            </body>
+            </html>
+        `;
+
+        printWindow.document.open();
+        printWindow.document.write(html);
+        printWindow.document.close();
+        printWindow.focus();
+    } catch (err) {
+        alert('Failed to open leave slip: ' + err.message);
     }
 };
 

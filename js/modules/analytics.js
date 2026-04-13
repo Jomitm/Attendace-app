@@ -341,20 +341,136 @@ export class Analytics {
         return this.calculateStatsForLogs(userLogs);
     }
 
+    getWeekendPolicy(dateStr) {
+        const d = new Date(`${dateStr}T00:00:00`);
+        const day = d.getDay();
+        if (day === 0) return 'holiday';
+        if (day === 6) {
+            const nthSaturday = Math.floor((d.getDate() - 1) / 7) + 1;
+            if (nthSaturday === 2 || nthSaturday === 4) return 'holiday';
+            if (nthSaturday === 1 || nthSaturday === 3 || nthSaturday === 5) return 'halfday';
+        }
+        return 'working';
+    }
+
+    async getHolidayDateSetInRange(startDate, endDate) {
+        const startDateStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
+        const endDateStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
+        let rangeEvents = [];
+        try {
+            if (window.AppDB?.queryMany) {
+                rangeEvents = await window.AppDB.queryMany('events', [
+                    { field: 'date', operator: '>=', value: startDateStr },
+                    { field: 'date', operator: '<=', value: endDateStr }
+                ]);
+            } else {
+                const allEvents = await window.AppDB.getAll('events');
+                rangeEvents = (allEvents || []).filter((event) => {
+                    const date = String(event?.date || '').trim();
+                    return date >= startDateStr && date <= endDateStr;
+                });
+            }
+        } catch (e) {
+            console.warn('Analytics: events query failed, continuing without calendar holidays', e);
+            rangeEvents = [];
+        }
+
+        let configuredHolidays = [];
+        try {
+            if (window.AppPolicies?.getHolidaysForYear) {
+                configuredHolidays = await window.AppPolicies.getHolidaysForYear(startDate.getFullYear(), false);
+            } else {
+                const holidaySettings = await window.AppDB.get('settings', 'holidays').catch(() => null);
+                configuredHolidays = Array.isArray(holidaySettings?.byYear?.[String(startDate.getFullYear())])
+                    ? holidaySettings.byYear[String(startDate.getFullYear())]
+                    : [];
+            }
+        } catch (e) {
+            console.warn('Analytics: holiday settings lookup failed, continuing without configured holidays', e);
+            configuredHolidays = [];
+        }
+
+        const normalizeEventDate = (value) => {
+            const raw = String(value || '').trim();
+            if (!raw) return '';
+            if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+            const d = new Date(raw);
+            if (Number.isNaN(d.getTime())) return '';
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        };
+
+        const isHolidayEvent = (event) => {
+            const type = String(event?.type || '').trim().toLowerCase();
+            const title = String(event?.title || '').trim().toLowerCase();
+            return type.includes('holiday') || title.includes('holiday');
+        };
+
+        const holidayDates = new Set();
+        (rangeEvents || []).forEach((event) => {
+            if (!isHolidayEvent(event)) return;
+            const dateStr = normalizeEventDate(event?.date);
+            if (!dateStr || dateStr < startDateStr || dateStr > endDateStr) return;
+            holidayDates.add(dateStr);
+        });
+        (configuredHolidays || []).forEach((holiday) => {
+            const dateStr = normalizeEventDate(holiday?.date);
+            if (!dateStr || dateStr < startDateStr || dateStr > endDateStr) return;
+            holidayDates.add(dateStr);
+        });
+
+        return holidayDates;
+    }
+
+    applyImpliedMonthlyAbsences(user, userLogs, stats, startOfMonth, endOfMonth, holidayDates = new Set()) {
+        const today = new Date();
+        const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        const joinDate = String(user?.joinDate || '').trim();
+        const joinDateIso = /^\d{4}-\d{2}-\d{2}$/.test(joinDate) ? joinDate : '';
+        const canonicalLogs = this.pickBestAttendanceLogPerDay(userLogs, startOfMonth, endOfMonth);
+        const eligibleDates = new Set(
+            canonicalLogs
+                .filter((log) => this.isAttendanceEligibleLog(log))
+                .map((log) => String(log?.date || '').trim())
+                .filter(Boolean)
+        );
+
+        for (let date = new Date(startOfMonth); date <= endOfMonth; date.setDate(date.getDate() + 1)) {
+            const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+            if (dateStr > todayIso) continue;
+            if (joinDateIso && dateStr < joinDateIso) continue;
+            if (holidayDates.has(dateStr)) continue;
+            if (this.getWeekendPolicy(dateStr) === 'holiday') continue;
+            if (eligibleDates.has(dateStr)) continue;
+            stats.unpaidLeaves += 1;
+            stats.breakdown['Absent'] += 1;
+            stats.leaves += 1;
+        }
+
+        return stats;
+    }
+
     async getSystemMonthlySummary() {
         const today = new Date();
         const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
         const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-        const [allUsers, allLogs] = await Promise.all([
+        const [allUsers, allLogs, holidayDates] = await Promise.all([
             this.getUsersCached(),
-            this.getAttendanceInRange(startOfMonth, endOfMonth, 'sysMonthly')
+            this.getAttendanceInRange(startOfMonth, endOfMonth, 'sysMonthly'),
+            this.getHolidayDateSetInRange(startOfMonth, endOfMonth)
         ]);
 
         const summary = await Promise.all(allUsers.map(async (user) => {
             const userLogs = allLogs.filter(l => (l.userId === user.id || l.user_id === user.id) &&
                 (new Date(l.date) >= startOfMonth && new Date(l.date) <= endOfMonth));
 
-            const stats = this.calculateStatsForLogs(userLogs);
+            const stats = this.applyImpliedMonthlyAbsences(
+                user,
+                userLogs,
+                this.calculateStatsForLogs(userLogs),
+                startOfMonth,
+                endOfMonth,
+                holidayDates
+            );
             return {
                 user,
                 stats

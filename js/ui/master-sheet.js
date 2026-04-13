@@ -48,6 +48,19 @@ export async function renderMasterSheet(month = null, year = null) {
         monthEvents = [];
     }
 
+    let configuredHolidays = [];
+    try {
+        if (window.AppPolicies?.getHolidaysForYear) {
+            configuredHolidays = await window.AppPolicies.getHolidaysForYear(currentYear, false);
+        } else {
+            const holidaySettings = await window.AppDB.get('settings', 'holidays').catch(() => null);
+            configuredHolidays = Array.isArray(holidaySettings?.byYear?.[String(currentYear)]) ? holidaySettings.byYear[String(currentYear)] : [];
+        }
+    } catch (e) {
+        console.warn('MasterSheet: holiday settings lookup failed, continuing without configured holidays', e);
+        configuredHolidays = [];
+    }
+
     const normalizeEventDate = (value) => {
         const raw = String(value || '').trim();
         if (!raw) return '';
@@ -70,6 +83,13 @@ export async function renderMasterSheet(month = null, year = null) {
         if (!dateStr || dateStr < startDateStr || dateStr > endDateStr) return;
         if (!holidayEventsByDate.has(dateStr)) holidayEventsByDate.set(dateStr, []);
         const title = String(event?.title || '').trim() || 'Holiday';
+        holidayEventsByDate.get(dateStr).push(title);
+    });
+    (configuredHolidays || []).forEach((holiday) => {
+        const dateStr = normalizeEventDate(holiday?.date);
+        if (!dateStr || dateStr < startDateStr || dateStr > endDateStr) return;
+        if (!holidayEventsByDate.has(dateStr)) holidayEventsByDate.set(dateStr, []);
+        const title = String(holiday?.name || holiday?.title || 'Holiday').trim() || 'Holiday';
         holidayEventsByDate.get(dateStr).push(title);
     });
 

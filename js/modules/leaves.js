@@ -18,6 +18,64 @@ export class Leaves {
         };
     }
 
+    dedupeLeaves(leaves = []) {
+        const unique = new Map();
+        (Array.isArray(leaves) ? leaves : []).forEach((leave) => {
+            if (!leave) return;
+            const userId = String(leave.userId || leave.user_id || '').trim();
+            const type = String(leave.type || '').trim().toLowerCase();
+            const startDate = String(leave.startDate || '').trim();
+            const endDate = String(leave.endDate || '').trim();
+            const status = String(leave.status || '').trim().toLowerCase();
+            const reason = String(leave.reason || '').trim().toLowerCase();
+            const daysCount = String(leave.daysCount ?? '').trim();
+            const exactId = String(leave.id || '').trim();
+            const contentKey = [
+                userId,
+                type,
+                startDate,
+                endDate,
+                daysCount,
+                reason,
+                status
+            ].join('|');
+            const key = exactId || contentKey;
+            const existing = unique.get(key);
+            if (!existing) {
+                unique.set(key, leave);
+                return;
+            }
+            const existingTime = new Date(existing.actionDate || existing.appliedOn || existing.startDate || 0).getTime();
+            const nextTime = new Date(leave.actionDate || leave.appliedOn || leave.startDate || 0).getTime();
+            if (nextTime >= existingTime) {
+                unique.set(key, { ...existing, ...leave });
+            }
+        });
+        const contentUnique = new Map();
+        Array.from(unique.values()).forEach((leave) => {
+            const contentKey = [
+                String(leave.userId || leave.user_id || '').trim(),
+                String(leave.type || '').trim().toLowerCase(),
+                String(leave.startDate || '').trim(),
+                String(leave.endDate || '').trim(),
+                String(leave.daysCount ?? '').trim(),
+                String(leave.reason || '').trim().toLowerCase(),
+                String(leave.status || '').trim().toLowerCase()
+            ].join('|');
+            const existing = contentUnique.get(contentKey);
+            if (!existing) {
+                contentUnique.set(contentKey, leave);
+                return;
+            }
+            const existingTime = new Date(existing.actionDate || existing.appliedOn || existing.startDate || 0).getTime();
+            const nextTime = new Date(leave.actionDate || leave.appliedOn || leave.startDate || 0).getTime();
+            if (nextTime >= existingTime) {
+                contentUnique.set(contentKey, { ...existing, ...leave });
+            }
+        });
+        return Array.from(contentUnique.values());
+    }
+
     async getPolicy() {
         if (this.cache.policy) return this.cache.policy;
 
@@ -124,10 +182,10 @@ export class Leaves {
                 const scoped = await this.db.queryMany('leaves', [
                     { field: 'status', operator: '==', value: 'Pending' }
                 ], { orderBy: [{ field: 'appliedOn', direction: 'desc' }] });
-                pending = scoped.sort((a, b) => new Date(b.appliedOn) - new Date(a.appliedOn));
+                pending = this.dedupeLeaves(scoped).sort((a, b) => new Date(b.appliedOn) - new Date(a.appliedOn));
             } else {
                 const leaves = await this.db.getAll('leaves');
-                pending = leaves
+                pending = this.dedupeLeaves(leaves)
                     .filter(l => l.status === 'Pending')
                     .sort((a, b) => new Date(b.appliedOn) - new Date(a.appliedOn));
             }
@@ -146,10 +204,19 @@ export class Leaves {
         } catch (e) {
             console.warn('getPendingLeaves failed, using fallback', e);
             const leaves = await this.db.getAll('leaves').catch(() => []);
-            return leaves
+            return this.dedupeLeaves(leaves)
                 .filter(l => l.status === 'Pending')
                 .sort((a, b) => new Date(b.appliedOn) - new Date(a.appliedOn));
         }
+    }
+
+    async getAllLeaves() {
+        const leaves = this.dedupeLeaves(await this.db.getAll('leaves').catch(() => []));
+        return (leaves || []).sort((a, b) => {
+            const bTime = new Date(b.actionDate || b.appliedOn || b.startDate || 0).getTime();
+            const aTime = new Date(a.actionDate || a.appliedOn || a.startDate || 0).getTime();
+            return bTime - aTime;
+        });
     }
 
     async requestLeave(leaveData) {
@@ -236,14 +303,85 @@ export class Leaves {
         return leave;
     }
 
+    async generateApprovedLeaveAttendance(leave) {
+        const start = new Date(leave.startDate);
+        const end = new Date(leave.endDate);
+        const leaveTypeCompact = String(leave.type || '').toLowerCase().replace(/\s+/g, '');
+        const normalizedType = (
+            leaveTypeCompact === 'workfromhome' ||
+            leaveTypeCompact === 'work-home' ||
+            leaveTypeCompact === 'wfh'
+        ) ? 'Work - Home' : leave.type;
+        const isWorkFromHome = normalizedType === 'Work - Home';
+
+        let current = new Date(start);
+        while (current <= end) {
+            const dateStr = current.toISOString().split('T')[0];
+            const attendanceLog = {
+                id: 'att_' + leave.userId + '_' + dateStr,
+                user_id: leave.userId,
+                date: dateStr,
+                checkIn: '09:00',
+                checkOut: '17:00',
+                duration: '8h 0m',
+                location: isWorkFromHome ? 'Work - Home' : 'On Leave',
+                type: isWorkFromHome ? 'Work - Home' : normalizedType,
+                status: 'in',
+                synced: false,
+                leaveRequestId: leave.id,
+                leaveGenerated: true
+            };
+            await this.db.put('attendance', attendanceLog);
+            current.setDate(current.getDate() + 1);
+        }
+    }
+
+    async removeApprovedLeaveAttendance(leave) {
+        const start = new Date(leave.startDate);
+        const end = new Date(leave.endDate);
+        const leaveTypeCompact = String(leave.type || '').toLowerCase().replace(/\s+/g, '');
+        const normalizedType = (
+            leaveTypeCompact === 'workfromhome' ||
+            leaveTypeCompact === 'work-home' ||
+            leaveTypeCompact === 'wfh'
+        ) ? 'Work - Home' : leave.type;
+
+        let current = new Date(start);
+        while (current <= end) {
+            const dateStr = current.toISOString().split('T')[0];
+            const logId = 'att_' + leave.userId + '_' + dateStr;
+            const existing = await this.db.get('attendance', logId).catch(() => null);
+            if (existing) {
+                const belongsToLeave = String(existing.leaveRequestId || '') === String(leave.id || '');
+                const matchesLegacyGeneratedLeave = !existing.checkOutLocation
+                    && String(existing.user_id || '') === String(leave.userId || '')
+                    && String(existing.date || '') === dateStr
+                    && String(existing.type || '') === String(normalizedType || '')
+                    && (String(existing.location || '') === 'On Leave' || String(existing.location || '') === 'Work - Home');
+                if (belongsToLeave || matchesLegacyGeneratedLeave) {
+                    await this.db.delete('attendance', logId).catch(() => null);
+                }
+            }
+            current.setDate(current.getDate() + 1);
+        }
+    }
+
     async updateLeaveStatus(leaveId, status, adminId, adminComment = '') {
         const leave = await this.db.get('leaves', leaveId);
         if (!leave) throw new Error("Leave not found");
 
         const actingUserId = adminId || window.AppAuth?.getUser?.()?.id || null;
+        const previousStatus = leave.status || 'Pending';
+        const nextStatus = status || previousStatus;
+        const nowIso = new Date().toISOString();
 
-        leave.status = status;
-        leave.actionDate = new Date().toISOString();
+        if (!Array.isArray(leave.reviewHistory)) leave.reviewHistory = [];
+
+        const isStatusChange = previousStatus !== nextStatus;
+        const isCommentOnlyUpdate = !isStatusChange && typeof adminComment === 'string' && adminComment !== (leave.adminComment || '');
+
+        leave.status = nextStatus;
+        leave.actionDate = nowIso;
         leave.adminComment = adminComment;
 
         if (actingUserId) {
@@ -252,37 +390,34 @@ export class Leaves {
             delete leave.actionBy;
         }
 
+        if (isStatusChange) {
+            leave.reviewHistory.unshift({
+                id: `leave_hist_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                previousStatus,
+                nextStatus,
+                at: nowIso,
+                by: actingUserId || '',
+                comment: adminComment || ''
+            });
+        } else if (isCommentOnlyUpdate) {
+            leave.reviewHistory.unshift({
+                id: `leave_note_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                previousStatus,
+                nextStatus,
+                at: nowIso,
+                by: actingUserId || '',
+                comment: adminComment || '',
+                noteOnly: true
+            });
+        }
+
         await this.db.put('leaves', leave);
 
-        if (status === 'Approved') {
-            const start = new Date(leave.startDate);
-            const end = new Date(leave.endDate);
-            const leaveTypeCompact = String(leave.type || '').toLowerCase().replace(/\s+/g, '');
-            const normalizedType = (
-                leaveTypeCompact === 'workfromhome' ||
-                leaveTypeCompact === 'work-home' ||
-                leaveTypeCompact === 'wfh'
-            ) ? 'Work - Home' : leave.type;
-            const isWorkFromHome = normalizedType === 'Work - Home';
-
-            let current = new Date(start);
-            while (current <= end) {
-                const dateStr = current.toISOString().split('T')[0];
-                const attendanceLog = {
-                    id: 'att_' + leave.userId + '_' + dateStr,
-                    user_id: leave.userId,
-                    date: dateStr,
-                    checkIn: '09:00',
-                    checkOut: '17:00',
-                    duration: '8h 0m',
-                    location: isWorkFromHome ? 'Work - Home' : 'On Leave',
-                    type: isWorkFromHome ? 'Work - Home' : normalizedType,
-                    status: 'in',
-                    synced: false
-                };
-                await this.db.put('attendance', attendanceLog);
-                current.setDate(current.getDate() + 1);
-            }
+        if (isStatusChange && previousStatus === 'Approved' && nextStatus !== 'Approved') {
+            await this.removeApprovedLeaveAttendance(leave);
+        }
+        if (isStatusChange && nextStatus === 'Approved') {
+            await this.generateApprovedLeaveAttendance(leave);
         }
         return leave;
     }
