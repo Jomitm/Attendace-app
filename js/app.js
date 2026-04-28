@@ -3324,9 +3324,11 @@ function startTimer(targetUser = null, readOnly = false) {
     updateTimerUI();
 }
 
-window.getLocation = function getLocation() {
+window.getLocation = function getLocation(options = {}) {
     return new Promise((resolve, reject) => {
         (async () => {
+            const forceFresh = options && options.forceFresh === true;
+            const allowStaleFallback = !(options && options.allowStaleFallback === false);
             const host = (window.location && window.location.hostname) ? window.location.hostname : '';
             const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host === '::1';
             if (!window.isSecureContext && !isLocalhost) {
@@ -3336,7 +3338,7 @@ window.getLocation = function getLocation() {
 
             // Check Cache first
             const now = Date.now();
-            if (cachedLocation && (now - lastLocationFetch < LOCATION_CACHE_TIME)) {
+            if (!forceFresh && cachedLocation && (now - lastLocationFetch < LOCATION_CACHE_TIME)) {
                 console.log("Using cached location (freshness: " + (now - lastLocationFetch) + "ms)");
                 resolve(cachedLocation);
                 return;
@@ -3371,7 +3373,7 @@ window.getLocation = function getLocation() {
                 const pQuick = await getPosition({
                     enableHighAccuracy: false,
                     timeout: 5000,
-                    maximumAge: 120000
+                    maximumAge: forceFresh ? 0 : 120000
                 });
                 const posQuick = { lat: pQuick.coords.latitude, lng: pQuick.coords.longitude };
                 cachedLocation = posQuick;
@@ -3388,7 +3390,7 @@ window.getLocation = function getLocation() {
                 const pAccurate = await getPosition({
                     enableHighAccuracy: true,
                     timeout: 8000,
-                    maximumAge: 10000
+                    maximumAge: forceFresh ? 0 : 10000
                 });
                 const posAccurate = { lat: pAccurate.coords.latitude, lng: pAccurate.coords.longitude };
                 cachedLocation = posAccurate;
@@ -3400,7 +3402,7 @@ window.getLocation = function getLocation() {
             }
 
             // Final fallback: if we have a not-too-old cached location, use it rather than blocking action.
-            if (cachedLocation && (Date.now() - lastLocationFetch < LOCATION_STALE_FALLBACK_TIME)) {
+            if (allowStaleFallback && cachedLocation && (Date.now() - lastLocationFetch < LOCATION_STALE_FALLBACK_TIME)) {
                 console.warn("Using stale cached location fallback.");
                 resolve(cachedLocation);
                 return;
@@ -3411,6 +3413,26 @@ window.getLocation = function getLocation() {
             reject(err && err.message ? err.message : 'Unable to retrieve location.');
         });
     });
+}
+
+const app_hasValidPosition = (pos) => {
+    const lat = Number(pos?.lat);
+    const lng = Number(pos?.lng);
+    return Number.isFinite(lat) && Number.isFinite(lng);
+};
+
+async function app_getAttendanceLocation() {
+    const pos = await window.getLocation({
+        forceFresh: true,
+        allowStaleFallback: false
+    });
+    if (!app_hasValidPosition(pos)) {
+        throw new Error('Location capture returned invalid coordinates. Please enable location and try again.');
+    }
+    return {
+        lat: Number(pos.lat),
+        lng: Number(pos.lng)
+    };
 }
 
 // --- Work Plan Logic ---
@@ -5719,7 +5741,7 @@ async function handleAttendance() {
     try {
         if (status === 'out') {
             if (btn) btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Locating...`;
-            const pos = await window.getLocation();
+            const pos = await app_getAttendanceLocation();
             const checkInAddress = `Lat: ${pos.lat.toFixed(4)}, Lng: ${pos.lng.toFixed(4)}`;
             if (locationText) locationText.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${checkInAddress}`;
             const checkInResult = await window.AppAttendance.checkIn(pos.lat, pos.lng, checkInAddress);
@@ -5955,7 +5977,7 @@ async function handleAttendance() {
                 // Use an async IIFE to not block the UI from showing the modal
                 (async () => {
                     try {
-                        const currentPos = await window.getLocation();
+                        const currentPos = await app_getAttendanceLocation();
                         const checkInLoc = user.currentLocation || user.lastLocation;
 
                         if (mismatchLoading) mismatchLoading.style.display = 'none';
@@ -5974,7 +5996,9 @@ async function handleAttendance() {
                     }
                 })();
             } else {
-                const result = await window.AppAttendance.checkOut();
+                const pos = await app_getAttendanceLocation();
+                const formattedAddress = `Lat: ${Number(pos.lat).toFixed(4)}, Lng: ${Number(pos.lng).toFixed(4)}`;
+                const result = await window.AppAttendance.checkOut('', pos.lat, pos.lng, formattedAddress, false, '');
                 if (result && !result.conflict) {
                     markLocalAttendanceMutation();
                 }
@@ -6131,36 +6155,31 @@ window.app_submitCheckOut = async function (event) {
             return;
         }
 
-        // Fetch location during checkout - fallback to manual explanation if denied
+        // Attendance checkout must save a freshly captured location.
         let pos = null;
-        let locationError = null;
         try {
             const locationTimeoutMs = 9000;
             pos = await Promise.race([
-                window.getLocation(),
+                app_getAttendanceLocation(),
                 new Promise((_, reject) => setTimeout(() => reject(new Error('Location request timed out.')), locationTimeoutMs))
             ]);
         } catch (err) {
-            locationError = err;
+            const message = String(err?.message || err || 'Unable to capture location.');
+            await window.app_showCheckoutValidationPopup(`Location is required for check-out. ${message}`);
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Complete Check-Out';
+            }
+            return;
         }
 
         // Detect mismatch for saving
         let locationMismatched = false;
         const checkInLoc = window.AppAuth.getUser()?.currentLocation;
 
-        if (pos) {
-            // Try to use cached location first for speed, otherwise use fetched pos
-            const checkPos = (cachedLocation && (Date.now() - lastLocationFetch < LOCATION_CACHE_TIME))
-                ? cachedLocation
-                : pos;
-
-            // Standardize pos to the one we are using for calculation/saving
-            pos = checkPos;
-
-            if (checkInLoc && checkInLoc.lat && checkInLoc.lng && pos.lat && pos.lng) {
-                const dist = calculateDistance(pos.lat, pos.lng, checkInLoc.lat, checkInLoc.lng);
-                if (dist > 500) locationMismatched = true;
-            }
+        if (checkInLoc && checkInLoc.lat && checkInLoc.lng && pos.lat && pos.lng) {
+            const dist = calculateDistance(pos.lat, pos.lng, checkInLoc.lat, checkInLoc.lng);
+            if (dist > 500) locationMismatched = true;
         }
 
         let explanation = form.locationExplanation ? form.locationExplanation.value.trim() : '';
@@ -6204,18 +6223,8 @@ window.app_submitCheckOut = async function (event) {
             }));
         }
 
-        if (!pos) {
-            const mismatchDiv = document.getElementById('checkout-location-mismatch');
-            if (mismatchDiv) mismatchDiv.style.display = 'block';
-            if (!explanation) {
-                explanation = String(locationError?.message || locationError || 'Location unavailable during checkout.').trim();
-            }
-        }
-
         // Create formatted address string if no address available
-        const formattedAddress = pos
-            ? `Lat: ${Number(pos.lat).toFixed(4)}, Lng: ${Number(pos.lng).toFixed(4)}`
-            : 'Location unavailable (reason provided)';
+        const formattedAddress = `Lat: ${Number(pos.lat).toFixed(4)}, Lng: ${Number(pos.lng).toFixed(4)}`;
         const tomorrowGoal = form.tomorrowGoal ? form.tomorrowGoal.value.trim() : '';
 
         // 1. Save tomorrow's goal if provided
@@ -6230,8 +6239,8 @@ window.app_submitCheckOut = async function (event) {
             pos ? pos.lat : null,
             pos ? pos.lng : null,
             formattedAddress,
-            locationMismatched || !pos,
-            explanation || (locationError ? String(locationError) : ''),
+            locationMismatched,
+            explanation,
             checkOutOptions
         );
 
@@ -6613,7 +6622,7 @@ document.addEventListener('submit', (e) => {
         (async () => {
             const fd = new FormData(e.target);
             try {
-                const pos = await window.getLocation();
+                const pos = await app_getAttendanceLocation();
                 const success = await window.AppAuth.login(fd.get('username'), fd.get('password'));
                 if (!success) {
                     alert('Invalid Credentials');

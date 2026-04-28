@@ -2,6 +2,8 @@ import { AppAuth } from './auth.js';
 import { AppDB } from './db.js';
 import { AppConfig } from '../config.js';
 
+const hasValidCoordinatePair = (lat, lng) => Number.isFinite(Number(lat)) && Number.isFinite(Number(lng));
+
 export class Attendance {
     async getStatus() {
         // If AppAuth is already syncing in realtime, AppAuth.getUser() is likely more up-to-date
@@ -87,6 +89,9 @@ export class Attendance {
             ? AppAuth.refreshCurrentUserFromDB()
             : AppAuth.getUser());
         if (!user) throw new Error("User not authenticated");
+        if (!hasValidCoordinatePair(latitude, longitude)) {
+            throw new Error('Location is required for check-in. Please enable location and try again.');
+        }
 
         let resolvedMissedCheckout = false;
         let noticeMessage = '';
@@ -293,6 +298,9 @@ export class Attendance {
                 conflict: true,
                 message: 'Status updated from another device.'
             };
+        }
+        if (!options.autoCheckout && !hasValidCoordinatePair(lat, lng)) {
+            throw new Error('Location is required for check-out. Please enable location and try again.');
         }
 
         const checkInTime = new Date(user.lastCheckIn);
