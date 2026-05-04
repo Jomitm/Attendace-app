@@ -708,10 +708,15 @@ function renderHeroLeaderboardExpanded(leaderboardData, heroData = null) {
 }
 
 function renderHeroTaskDetailsModalContent(userRow, bucketKey) {
+    const currentUser = window.AppAuth?.getUser?.();
     const user = userRow?.user || {};
     const stats = userRow?.stats || {};
     const buckets = userRow?.taskBuckets || {};
     const tasks = Array.isArray(buckets?.[bucketKey]) ? buckets[bucketKey] : [];
+    const canManageHeroTasks = currentUser && (
+        String(currentUser.id || '') === String(user.id || '')
+        || window.app_hasPerm?.('dashboard', 'admin', currentUser)
+    );
     const titleMap = {
         completed: 'Completed Tasks',
         in_progress: 'In Progress Tasks',
@@ -729,7 +734,9 @@ function renderHeroTaskDetailsModalContent(userRow, bucketKey) {
         const safePlanId = escapeJsSingleQuote(String(task.planId || ''));
         const safeTaskDate = escapeJsSingleQuote(String(task.date || ''));
         const safeBucketKey = escapeJsSingleQuote(String(bucketKey || ''));
-        const actionButtons = bucketKey === 'completed'
+        const actionButtons = !canManageHeroTasks
+            ? ''
+            : bucketKey === 'completed'
             ? `
                 <button type="button" class="action-btn danger" onclick="window.app_deleteHeroTaskAction('${safePlanId}', ${Number(task.taskIndex)}, '${safeUserId}', '${safeBucketKey}')">Delete</button>
             `
@@ -761,10 +768,12 @@ function renderHeroTaskDetailsModalContent(userRow, bucketKey) {
                         ${completedDate}
                     </div>
                 </div>
-                <div class="hero-task-item-actions">
-                    <button type="button" class="action-btn secondary" onclick="window.app_editHeroTaskAction('${safeTaskDate}','${safeUserId}')">Edit Plan</button>
-                    ${actionButtons}
-                </div>
+                ${canManageHeroTasks ? `
+                    <div class="hero-task-item-actions">
+                        <button type="button" class="action-btn secondary" onclick="window.app_editHeroTaskAction('${safeTaskDate}','${safeUserId}')">Edit Plan</button>
+                        ${actionButtons}
+                    </div>
+                ` : ''}
             </div>
         `;
     }).join('');
@@ -1819,7 +1828,12 @@ export async function renderDashboard() {
 
     if (isCheckedIn && statusData.lastCheckIn) {
         const lastTs = new Date(statusData.lastCheckIn).getTime();
-        timerHTML = formatElapsed(Date.now() - lastTs);
+        const pausedMs = Number(statusData.totalPausedMs) || 0;
+        const pauseStartMs = Number(statusData.pauseStartedAt) || 0;
+        const livePausedMs = (statusData.isPaused === true && pauseStartMs > 0)
+            ? Math.max(0, Date.now() - pauseStartMs)
+            : 0;
+        timerHTML = formatElapsed(Math.max(0, Date.now() - lastTs - pausedMs - livePausedMs));
     }
 
     const notifHTML = renderNotificationPanel(notifications, tagHistory);
@@ -2468,6 +2482,19 @@ if (typeof window !== 'undefined') {
         await window.app_refreshHeroAuditLive({ reopenTaskList: true });
     };
 
+    window.app_canManageHeroTaskActions = function (userId) {
+        const currentUser = window.AppAuth?.getUser?.();
+        if (!currentUser) return false;
+        return String(currentUser.id || '') === String(userId || '')
+            || window.app_hasPerm?.('dashboard', 'admin', currentUser);
+    };
+
+    window.app_requireHeroTaskManagePermission = function (userId) {
+        if (window.app_canManageHeroTaskActions?.(userId)) return true;
+        alert('You can only change your own hero task list.');
+        return false;
+    };
+
     window.app_applyHeroTaskOptimisticUpdate = function (userId, bucketKey, planId, taskIndex, action) {
         const leaderboard = window.app_dashboardHeroLeaderboard;
         const rows = Array.isArray(leaderboard?.rows) ? leaderboard.rows : null;
@@ -2521,6 +2548,7 @@ if (typeof window !== 'undefined') {
     };
 
     window.app_completeHeroTaskAction = async function (planId, taskIndex, userId, bucketKey) {
+        if (!window.app_requireHeroTaskManagePermission?.(userId)) return;
         window.app_applyHeroTaskOptimisticUpdate(userId, bucketKey, planId, taskIndex, 'complete');
         await window.app_markTaskCompleted(planId, taskIndex);
         window.app_heroTaskModalState = { userId: String(userId || ''), bucketKey: String(bucketKey || '') };
@@ -2529,6 +2557,7 @@ if (typeof window !== 'undefined') {
     };
 
     window.app_postponeHeroTaskAction = async function (planId, taskIndex, userId, bucketKey) {
+        if (!window.app_requireHeroTaskManagePermission?.(userId)) return;
         const modalId = 'postpone-task-modal';
         document.getElementById(modalId)?.remove();
         const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
@@ -2551,6 +2580,7 @@ if (typeof window !== 'undefined') {
     };
 
     window.app_confirmHeroPostponeTask = async function (planId, taskIndex, userId, bucketKey) {
+        if (!window.app_requireHeroTaskManagePermission?.(userId)) return;
         const targetDate = document.getElementById('hero-postpone-date-input')?.value;
         if (!targetDate) {
             alert('Please select a date.');
@@ -2565,6 +2595,7 @@ if (typeof window !== 'undefined') {
     };
 
     window.app_deleteHeroTaskAction = async function (planId, taskIndex, userId, bucketKey) {
+        if (!window.app_requireHeroTaskManagePermission?.(userId)) return;
         if (!window.AppCalendar?.removeTask) return;
         if (!await window.appConfirm('Delete this plan from the hero audit list?')) return;
         window.app_applyHeroTaskOptimisticUpdate(userId, bucketKey, planId, taskIndex, 'delete');
@@ -2574,6 +2605,7 @@ if (typeof window !== 'undefined') {
     };
 
     window.app_editHeroTaskAction = async function (date, userId) {
+        if (!window.app_requireHeroTaskManagePermission?.(userId)) return;
         window.app_closeHeroTaskList?.();
         window.app_closeDashboardCardFullscreen?.();
         const safeDate = String(date || '').trim();

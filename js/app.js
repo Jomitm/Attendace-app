@@ -61,6 +61,8 @@ const releaseUpdateState = {
 };
 const LOCATION_CACHE_TIME = 180000; // 3 minutes cache
 const LOCATION_STALE_FALLBACK_TIME = 600000; // 10 minutes fallback when live lookup fails
+const CHECKOUT_LOCATION_FRESH_MS = 120000; // Reuse GPS captured during the checkout modal for 2 minutes
+let checkoutLocationSession = null;
 window.app_annualYear = new Date().getFullYear();
 
 const getStoredSeenReleaseId = () => {
@@ -3435,6 +3437,110 @@ async function app_getAttendanceLocation() {
     };
 }
 
+function app_formatCheckoutLocationElapsed(ms) {
+    const totalSeconds = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+function app_stopCheckoutLocationTimer() {
+    if (checkoutLocationSession?.timerId) {
+        clearInterval(checkoutLocationSession.timerId);
+        checkoutLocationSession.timerId = null;
+    }
+}
+
+function app_setCheckoutLocationProgress(message = 'Capturing location', active = true) {
+    const loading = document.getElementById('checkout-location-loading');
+    const messageEl = document.getElementById('checkout-location-message');
+    const timerEl = document.getElementById('checkout-location-timer');
+    if (!loading) return;
+
+    loading.style.display = active ? 'flex' : 'none';
+    if (messageEl) messageEl.textContent = message;
+    if (!active) {
+        app_stopCheckoutLocationTimer();
+        if (timerEl) timerEl.textContent = '00:00';
+        return;
+    }
+
+    const startedAt = checkoutLocationSession?.startedAt || Date.now();
+    const updateTimer = () => {
+        if (timerEl) timerEl.textContent = app_formatCheckoutLocationElapsed(Date.now() - startedAt);
+    };
+    updateTimer();
+    app_stopCheckoutLocationTimer();
+    if (checkoutLocationSession) {
+        checkoutLocationSession.timerId = setInterval(updateTimer, 1000);
+    }
+}
+
+function app_isCheckoutLocationFresh(session = checkoutLocationSession) {
+    return !!(
+        session
+        && app_hasValidPosition(session.pos)
+        && Number.isFinite(Number(session.capturedAt))
+        && (Date.now() - Number(session.capturedAt)) <= CHECKOUT_LOCATION_FRESH_MS
+    );
+}
+
+function app_resetCheckoutLocationSession() {
+    app_stopCheckoutLocationTimer();
+    checkoutLocationSession = null;
+    app_setCheckoutLocationProgress('', false);
+}
+window.app_resetCheckoutLocationSession = app_resetCheckoutLocationSession;
+
+function app_startCheckoutLocationCapture(message = 'Capturing location') {
+    if (app_isCheckoutLocationFresh()) return Promise.resolve(checkoutLocationSession.pos);
+    if (checkoutLocationSession?.promise) {
+        app_setCheckoutLocationProgress(message, true);
+        return checkoutLocationSession.promise;
+    }
+
+    checkoutLocationSession = {
+        startedAt: Date.now(),
+        capturedAt: 0,
+        pos: null,
+        error: null,
+        promise: null,
+        timerId: null
+    };
+    app_setCheckoutLocationProgress(message, true);
+
+    checkoutLocationSession.promise = app_getAttendanceLocation()
+        .then((pos) => {
+            if (!checkoutLocationSession) return pos;
+            checkoutLocationSession.pos = pos;
+            checkoutLocationSession.capturedAt = Date.now();
+            checkoutLocationSession.error = null;
+            checkoutLocationSession.promise = null;
+            app_setCheckoutLocationProgress('Location captured', false);
+            return pos;
+        })
+        .catch((err) => {
+            if (checkoutLocationSession) {
+                checkoutLocationSession.error = err;
+                checkoutLocationSession.promise = null;
+            }
+            app_setCheckoutLocationProgress('Location capture failed', false);
+            throw err;
+        });
+
+    return checkoutLocationSession.promise;
+}
+
+async function app_getCheckoutSubmitLocation() {
+    if (app_isCheckoutLocationFresh()) return checkoutLocationSession.pos;
+    app_setCheckoutLocationProgress('Capturing location for checkout', true);
+    const locationTimeoutMs = 9000;
+    return Promise.race([
+        app_startCheckoutLocationCapture('Capturing location for checkout'),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Location request timed out.')), locationTimeoutMs))
+    ]);
+}
+
 // --- Work Plan Logic ---
 
 const app_isIsoDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
@@ -4810,7 +4916,10 @@ window.app_applyCheckoutTaskUpdates = async (updates = []) => {
         if (update.action === 'delegate') {
             const delegateUserId = String(update.actionMeta?.delegateUserId || '').trim();
             if (delegateUserId) {
-                await window.app_delegateTo(update.planId, update.taskIndex, delegateUserId);
+                await window.app_delegateTo(update.planId, update.taskIndex, delegateUserId, {
+                    silent: true,
+                    skipDashboardRefresh: true
+                });
             }
         }
     }
@@ -5530,7 +5639,8 @@ window.app_delegateTask = async function (planId, taskIndex) {
     }
 };
 
-window.app_delegateTo = async function (planId, taskIndex, userId) {
+window.app_delegateTo = async function (planId, taskIndex, userId, options = {}) {
+    const delegateOptions = options && typeof options === 'object' ? options : {};
     try {
         const plan = await window.AppDB.get('work_plans', planId);
         if (!plan || !plan.plans || !plan.plans[taskIndex]) {
@@ -5597,9 +5707,14 @@ window.app_delegateTo = async function (planId, taskIndex, userId) {
         if (window.AppStore && window.AppStore.invalidatePlans) {
             window.AppStore.invalidatePlans();
         }
-        alert(`Task delegated to ${recipient.name}.`);
-        if (typeof handleAttendance === 'function') await handleAttendance();
+        if (delegateOptions.silent !== true) {
+            alert(`Task delegated to ${recipient.name}.`);
+        }
+        if (delegateOptions.skipDashboardRefresh !== true && typeof refreshDashboardAfterAttendance === 'function') {
+            await refreshDashboardAfterAttendance();
+        }
     } catch (err) {
+        if (delegateOptions.silent === true) throw err;
         alert('Failed to delegate task: ' + err.message);
     }
 };
@@ -5969,18 +6084,14 @@ async function handleAttendance() {
 
                 // Background Location Verification (Deferred)
                 const mismatchDiv = document.getElementById('checkout-location-mismatch');
-                const mismatchLoading = document.getElementById('checkout-location-loading');
 
-                if (mismatchLoading) mismatchLoading.style.display = 'block';
                 if (mismatchDiv) mismatchDiv.style.display = 'none';
 
                 // Use an async IIFE to not block the UI from showing the modal
                 (async () => {
                     try {
-                        const currentPos = await app_getAttendanceLocation();
+                        const currentPos = await app_startCheckoutLocationCapture('Capturing location');
                         const checkInLoc = user.currentLocation || user.lastLocation;
-
-                        if (mismatchLoading) mismatchLoading.style.display = 'none';
 
                         if (checkInLoc && checkInLoc.lat && checkInLoc.lng) {
                             const dist = calculateDistance(currentPos.lat, currentPos.lng, checkInLoc.lat, checkInLoc.lng);
@@ -5992,7 +6103,6 @@ async function handleAttendance() {
                         }
                     } catch (locErr) {
                         console.warn("Background location check failed:", locErr);
-                        if (mismatchLoading) mismatchLoading.style.display = 'none';
                     }
                 })();
             } else {
@@ -6158,11 +6268,7 @@ window.app_submitCheckOut = async function (event) {
         // Attendance checkout must save a freshly captured location.
         let pos = null;
         try {
-            const locationTimeoutMs = 9000;
-            pos = await Promise.race([
-                app_getAttendanceLocation(),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('Location request timed out.')), locationTimeoutMs))
-            ]);
+            pos = await app_getCheckoutSubmitLocation();
         } catch (err) {
             const message = String(err?.message || err || 'Unable to capture location.');
             await window.app_showCheckoutValidationPopup(`Location is required for check-out. ${message}`);
@@ -6247,6 +6353,7 @@ window.app_submitCheckOut = async function (event) {
         if (checkOutResult && checkOutResult.conflict) {
             const modal = document.getElementById('checkout-modal');
             if (modal) modal.style.display = 'none';
+            app_resetCheckoutLocationSession();
             window.app_showSyncToast(checkOutResult.message || 'Status updated from another device.');
             await refreshDashboardAfterAttendance();
             return;
@@ -6262,6 +6369,7 @@ window.app_submitCheckOut = async function (event) {
 
         // Hide modal
         document.getElementById('checkout-modal').style.display = 'none';
+        app_resetCheckoutLocationSession();
 
         if (taskUpdates.length > 0) {
             try {
@@ -6315,14 +6423,15 @@ async function handleManualLog(e) {
         resolvedDayCredit = 0.5;
     }
 
+    const manualWorkDescription = String(formData.get('workDescription') || formData.get('location') || '').trim();
     const logData = {
         date: formData.get('date'),
         checkIn: checkIn,
         checkOut: checkOut,
         duration: dur,
         durationMs: durationMs,
-        location: formData.get('location'),
-        workDescription: formData.get('location'), // Save description here too
+        location: 'Manual timesheet entry',
+        workDescription: manualWorkDescription,
         type: resolvedType,
         dayCredit: resolvedDayCredit,
         lateCountable: false,

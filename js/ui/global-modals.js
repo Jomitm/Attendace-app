@@ -57,8 +57,9 @@ export function renderModals() {
                         <textarea name="tomorrowGoal" placeholder="e.g., Finalize the project report..." style="width:100%; height:60px; padding:0.75rem; border:1px solid #d1d5db; border-radius:0.5rem; resize:none; font-family:inherit;"></textarea>
                     </div>
 
-                    <div id="checkout-location-loading" style="display:none; font-size:0.75rem; color:#6b7280; margin-bottom:1rem; text-align:center;">
-                         <i class="fa-solid fa-spinner fa-spin"></i> Verifying location...
+                    <div id="checkout-location-loading" class="checkout-location-loading" style="display:none;">
+                         <span><i class="fa-solid fa-spinner fa-spin"></i> <span id="checkout-location-message">Capturing location</span></span>
+                         <span id="checkout-location-timer" class="checkout-location-timer">00:00</span>
                     </div>
                     <div id="checkout-location-mismatch" style="display:none; background:#fff1f2; padding:12px; border-radius:10px; border:1px solid #fecaca; margin-bottom:1.5rem;">
                          <div style="color:#991b1b; font-size:0.85rem; font-weight:700; display:flex; gap:6px; align-items:center; margin-bottom:4px;">
@@ -69,7 +70,7 @@ export function renderModals() {
                     </div>
 
                     <div style="display: flex; gap: 1rem;">
-                        <button type="button" onclick="document.getElementById('checkout-modal').style.display = 'none'" style="flex: 1; padding: 0.75rem; background: white; border: 1px solid #d1d5db; border-radius: 0.5rem; cursor: pointer;">Cancel</button>
+                        <button type="button" onclick="document.getElementById('checkout-modal').style.display = 'none'; window.app_resetCheckoutLocationSession?.();" style="flex: 1; padding: 0.75rem; background: white; border: 1px solid #d1d5db; border-radius: 0.5rem; cursor: pointer;">Cancel</button>
                         <button type="submit" class="action-btn" style="flex: 1; justify-content: center;">Complete Check-Out</button>
                     </div>
                 </form>
@@ -112,14 +113,14 @@ export function renderModals() {
                     </div>
 
                      <div>
-                        <label style="display: block; font-size: 0.85rem; font-weight: 500; color: #374151; margin-bottom: 0.5rem;">Activity Type</label>
+                        <label style="display: block; font-size: 0.85rem; font-weight: 500; color: #374151; margin-bottom: 0.5rem;">Work Summary</label>
                         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem;">
                             <button type="button" class="chip-btn" onclick="document.getElementById('log-location').value = 'Work - Home'">🏠 Work - Home</button>
                             <button type="button" class="chip-btn" onclick="document.getElementById('log-location').value = 'Training'">🎓 Training</button>
                             <button type="button" class="chip-btn" onclick="document.getElementById('log-location').value = 'Client Visit'">🤝 Client Visit</button>
                             <button type="button" class="chip-btn" onclick="document.getElementById('log-location').value = 'Field Work'">🚧 Field Work</button>
                         </div>
-                        <input type="text" name="location" id="log-location" placeholder="Or type activity description..." required style="width: 100%; padding: 0.75rem; border: 1px solid #e5e7eb; border-radius: 0.5rem;">
+                        <input type="text" name="workDescription" id="log-location" placeholder="Describe the work done..." required style="width: 100%; padding: 0.75rem; border: 1px solid #e5e7eb; border-radius: 0.5rem;">
                     </div>
 
                     <div style="display: flex; gap: 1rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #f3f4f6;">

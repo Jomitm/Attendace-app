@@ -1483,9 +1483,12 @@ export class Analytics {
             }
 
             const shouldFetchAttendance = scope !== 'work';
+            const shouldFetchManualWorkLogs = scope === 'work';
             const [attendanceLogs, workPlans, users] = await Promise.all([
                 shouldFetchAttendance
                     ? this.getAttendanceInRange(startDate, endDate, `staffAct:${startIso}:${endIso}:${scope}`)
+                    : shouldFetchManualWorkLogs
+                        ? this.getAttendanceInRange(startDate, endDate, `staffActManual:${startIso}:${endIso}`)
                     : Promise.resolve([]),
                 this.db.queryMany
                     ? this.db.queryMany('work_plans', [
@@ -1556,8 +1559,9 @@ export class Analytics {
                 return '';
             };
 
-            if (shouldFetchAttendance) {
+            if (shouldFetchAttendance || shouldFetchManualWorkLogs) {
                 attendanceLogs.forEach(log => {
+                    if (shouldFetchManualWorkLogs && String(log.entrySource || '') !== 'staff_manual_work') return;
                     const logDateKey = normalizeDateInput(log.date);
                     if (logDateKey && logDateKey >= startIso && logDateKey <= endIso && log.workDescription) {
                         const userKey = log.user_id || log.userId;

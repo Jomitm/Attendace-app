@@ -6,6 +6,7 @@
 export const Widget = {
     isWidgetMode: false,
     syncInterval: null,
+    syncInFlight: false,
 
     init() {
         console.log("Widget Module Initialized");
@@ -72,98 +73,121 @@ export const Widget = {
         if (this.syncInterval) clearInterval(this.syncInterval);
     },
 
-    sync() {
+    async sync() {
         if (!this.isWidgetMode) return;
+        if (this.syncInFlight) return;
+        this.syncInFlight = true;
 
-        // Source elements from the main dashboard
-        const mainTimer = document.getElementById('timer-display');
-        const mainTimerLabel = document.getElementById('timer-label');
-        const mainStatusDot = document.querySelector('.check-in-widget .status-dot') || document.querySelector('.check-in-widget [style*="background: #10b981"]') || document.querySelector('.check-in-widget [style*="background: #94a3b8"]');
-        const mainBtn = document.getElementById('attendance-btn');
-        const mainPauseBtn = document.getElementById('attendance-pause-btn');
-        const mainLocation = document.getElementById('location-text');
+        try {
+            // Source elements from the main dashboard
+            const mainTimer = document.getElementById('timer-display');
+            const mainTimerLabel = document.getElementById('timer-label');
+            const mainStatusDot = document.querySelector('.check-in-widget .status-dot') || document.querySelector('.check-in-widget [style*="background: #10b981"]') || document.querySelector('.check-in-widget [style*="background: #94a3b8"]');
+            const mainBtn = document.getElementById('attendance-btn');
+            const mainPauseBtn = document.getElementById('attendance-pause-btn');
+            const mainLocation = document.getElementById('location-text');
 
-        // Progress bar sources
-        const mainCountdownContainer = document.getElementById('countdown-container');
-        const mainCountdownLabel = document.getElementById('countdown-label');
-        const mainCountdownValue = document.getElementById('countdown-value');
-        const mainCountdownProgress = document.getElementById('countdown-progress');
+            // Progress bar sources
+            const mainCountdownContainer = document.getElementById('countdown-container');
+            const mainCountdownLabel = document.getElementById('countdown-label');
+            const mainCountdownValue = document.getElementById('countdown-value');
+            const mainCountdownProgress = document.getElementById('countdown-progress');
 
-        // Overtime sources
-        const mainOvertimeContainer = document.getElementById('overtime-container');
-        const mainOvertimeValue = document.getElementById('overtime-value');
+            // Overtime sources
+            const mainOvertimeContainer = document.getElementById('overtime-container');
+            const mainOvertimeValue = document.getElementById('overtime-value');
 
-        // Target elements in the widget view
-        const targetView = document.getElementById('widget-view');
-        if (!targetView) return;
+            // Target elements in the widget view
+            const targetView = document.getElementById('widget-view');
+            if (!targetView) return;
 
-        const widgetTimer = targetView.querySelector('#timer-display');
-        const widgetTimerLabel = targetView.querySelector('#timer-label');
-        const widgetStatusDot = targetView.querySelector('.status-dot-indicator');
-        const widgetBtn = targetView.querySelector('#attendance-btn');
-        const widgetPauseBtn = targetView.querySelector('#widget-pause-btn');
-        const widgetLocation = targetView.querySelector('#location-text');
+            const widgetTimer = targetView.querySelector('#timer-display');
+            const widgetTimerLabel = targetView.querySelector('#timer-label');
+            const widgetStatusDot = targetView.querySelector('.status-dot-indicator');
+            const widgetBtn = targetView.querySelector('#attendance-btn');
+            const widgetPauseBtn = targetView.querySelector('#widget-pause-btn');
+            const widgetLocation = targetView.querySelector('#location-text');
 
-        const widgetCountdownContainer = targetView.querySelector('#countdown-container');
-        const widgetCountdownLabel = targetView.querySelector('#countdown-label');
-        const widgetCountdownValue = targetView.querySelector('#countdown-value');
-        const widgetCountdownProgress = targetView.querySelector('#countdown-progress');
+            const widgetCountdownContainer = targetView.querySelector('#countdown-container');
+            const widgetCountdownLabel = targetView.querySelector('#countdown-label');
+            const widgetCountdownValue = targetView.querySelector('#countdown-value');
+            const widgetCountdownProgress = targetView.querySelector('#countdown-progress');
 
-        const widgetOvertimeContainer = targetView.querySelector('#overtime-container');
-        const widgetOvertimeValue = targetView.querySelector('#overtime-value');
+            const widgetOvertimeContainer = targetView.querySelector('#overtime-container');
+            const widgetOvertimeValue = targetView.querySelector('#overtime-value');
 
-        // Sync Timer
-        if (mainTimer && widgetTimer) {
-            widgetTimer.innerHTML = mainTimer.innerHTML;
-            widgetTimer.style.color = mainTimer.style.color;
-        }
-        if (mainTimerLabel && widgetTimerLabel) widgetTimerLabel.innerHTML = mainTimerLabel.innerHTML;
-
-        // Sync Status Dot (Online/Offline)
-        if (mainStatusDot && widgetStatusDot) {
-            widgetStatusDot.style.background = mainStatusDot.style.background || (mainStatusDot.classList.contains('online') ? '#10b981' : '#94a3b8');
-        }
-
-        // Sync Progress Bar
-        if (mainCountdownContainer && widgetCountdownContainer) {
-            widgetCountdownContainer.style.display = mainCountdownContainer.style.display;
-            if (mainCountdownLabel && widgetCountdownLabel) widgetCountdownLabel.innerHTML = mainCountdownLabel.innerHTML;
-            if (mainCountdownValue && widgetCountdownValue) widgetCountdownValue.innerHTML = mainCountdownValue.innerHTML;
-            if (mainCountdownProgress && widgetCountdownProgress) widgetCountdownProgress.style.width = mainCountdownProgress.style.width;
-        }
-
-        // Sync Overtime
-        if (mainOvertimeContainer && widgetOvertimeContainer) {
-            widgetOvertimeContainer.style.display = mainOvertimeContainer.style.display;
-            if (mainOvertimeValue && widgetOvertimeValue) widgetOvertimeValue.innerHTML = mainOvertimeValue.innerHTML;
-        }
-
-        // Sync Attendance Button
-        if (mainBtn && widgetBtn) {
-            widgetBtn.innerHTML = mainBtn.innerHTML;
-            widgetBtn.className = mainBtn.className;
-            widgetBtn.disabled = mainBtn.disabled;
-        }
-
-        // Sync Pause/Resume Button
-        if (widgetPauseBtn) {
-            if (mainPauseBtn) {
-                widgetPauseBtn.style.display = '';
-                widgetPauseBtn.innerHTML = mainPauseBtn.innerHTML;
-                widgetPauseBtn.className = mainPauseBtn.className;
-                widgetPauseBtn.disabled = mainPauseBtn.disabled;
-                const onclick = String(mainPauseBtn.getAttribute('onclick') || '');
-                widgetPauseBtn.dataset.action = onclick.includes('app_resumeSession') ? 'resume' : 'pause';
-            } else {
-                widgetPauseBtn.style.display = 'none';
-                widgetPauseBtn.dataset.action = '';
-                widgetPauseBtn.disabled = true;
+            // Sync Timer
+            if (mainTimer && widgetTimer) {
+                widgetTimer.innerHTML = mainTimer.innerHTML;
+                widgetTimer.style.color = mainTimer.style.color;
             }
-        }
+            if (mainTimerLabel && widgetTimerLabel) widgetTimerLabel.innerHTML = mainTimerLabel.innerHTML;
 
-        // Sync Location
-        if (mainLocation && widgetLocation) {
-            widgetLocation.innerHTML = mainLocation.innerHTML;
+            // Sync Status Dot (Online/Offline)
+            if (mainStatusDot && widgetStatusDot) {
+                widgetStatusDot.style.background = mainStatusDot.style.background || (mainStatusDot.classList.contains('online') ? '#10b981' : '#94a3b8');
+            }
+
+            // Sync Progress Bar
+            if (mainCountdownContainer && widgetCountdownContainer) {
+                widgetCountdownContainer.style.display = mainCountdownContainer.style.display;
+                if (mainCountdownLabel && widgetCountdownLabel) widgetCountdownLabel.innerHTML = mainCountdownLabel.innerHTML;
+                if (mainCountdownValue && widgetCountdownValue) widgetCountdownValue.innerHTML = mainCountdownValue.innerHTML;
+                if (mainCountdownProgress && widgetCountdownProgress) widgetCountdownProgress.style.width = mainCountdownProgress.style.width;
+            }
+
+            // Sync Overtime
+            if (mainOvertimeContainer && widgetOvertimeContainer) {
+                widgetOvertimeContainer.style.display = mainOvertimeContainer.style.display;
+                if (mainOvertimeValue && widgetOvertimeValue) widgetOvertimeValue.innerHTML = mainOvertimeValue.innerHTML;
+            }
+
+            // Sync Attendance Button
+            if (mainBtn && widgetBtn) {
+                widgetBtn.innerHTML = mainBtn.innerHTML;
+                widgetBtn.className = mainBtn.className;
+                widgetBtn.disabled = mainBtn.disabled;
+            }
+
+            // Sync Pause/Resume Button
+            if (widgetPauseBtn) {
+                if (mainPauseBtn) {
+                    widgetPauseBtn.style.display = '';
+                    widgetPauseBtn.innerHTML = mainPauseBtn.innerHTML;
+                    widgetPauseBtn.className = mainPauseBtn.className;
+                    widgetPauseBtn.disabled = mainPauseBtn.disabled;
+                    const onclick = String(mainPauseBtn.getAttribute('onclick') || '');
+                    widgetPauseBtn.dataset.action = onclick.includes('app_resumeSession') ? 'resume' : 'pause';
+                } else if (window.AppAttendance?.getStatus) {
+                    const statusInfo = await window.AppAttendance.getStatus();
+                    if (statusInfo?.status === 'in') {
+                        const action = statusInfo.isPaused === true ? 'resume' : 'pause';
+                        widgetPauseBtn.style.display = '';
+                        widgetPauseBtn.dataset.action = action;
+                        widgetPauseBtn.disabled = false;
+                        widgetPauseBtn.className = 'btn btn-secondary';
+                        widgetPauseBtn.innerHTML = action === 'resume'
+                            ? 'Resume <i class="fa-solid fa-play"></i>'
+                            : 'Pause <i class="fa-solid fa-pause"></i>';
+                        if (widgetTimerLabel) widgetTimerLabel.innerHTML = statusInfo.isPaused === true ? 'Paused' : widgetTimerLabel.innerHTML;
+                    } else {
+                        widgetPauseBtn.style.display = 'none';
+                        widgetPauseBtn.dataset.action = '';
+                        widgetPauseBtn.disabled = true;
+                    }
+                } else {
+                    widgetPauseBtn.style.display = 'none';
+                    widgetPauseBtn.dataset.action = '';
+                    widgetPauseBtn.disabled = true;
+                }
+            }
+
+            // Sync Location
+            if (mainLocation && widgetLocation) {
+                widgetLocation.innerHTML = mainLocation.innerHTML;
+            }
+        } finally {
+            this.syncInFlight = false;
         }
     },
 
@@ -205,9 +229,16 @@ export const Widget = {
         }
     },
 
-    handleWidgetPauseAction() {
+    async handleWidgetPauseAction() {
         const pauseBtn = document.getElementById('widget-pause-btn');
-        const action = (pauseBtn?.dataset?.action || '').toLowerCase();
+        let action = (pauseBtn?.dataset?.action || '').toLowerCase();
+        if (!action && window.AppAttendance?.getStatus) {
+            const statusInfo = await window.AppAttendance.getStatus().catch(() => null);
+            if (statusInfo?.status === 'in') {
+                action = statusInfo.isPaused === true ? 'resume' : 'pause';
+                if (pauseBtn) pauseBtn.dataset.action = action;
+            }
+        }
         const invokeAction = (targetWindow) => {
             if (!targetWindow) return false;
             if (action === 'resume' && typeof targetWindow.app_resumeSession === 'function') {
@@ -232,6 +263,8 @@ export const Widget = {
                 console.warn("Could not communicate with main window for pause action:", err);
             }
         }
+
+        if (invokeAction(window)) return;
 
         // Fallback: open main app if opener is unavailable
         const mainAppUrl = window.location.origin + window.location.pathname + '#dashboard';
