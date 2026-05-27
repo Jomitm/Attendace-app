@@ -444,8 +444,8 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                 ${window.app_hasPerm('users', 'admin') ? `<button type="button" class="action-btn" onclick="document.getElementById('add-user-modal').style.display='flex'"><i class="fa-solid fa-user-plus"></i> Add Staff</button>` : ''}
             </div>
         </div>
-        <div class="table-container ${isExpanded ? 'admin-table-expanded' : ''} mobile-table-card">
-            <table>
+        <div class="table-container ${isExpanded ? 'admin-table-expanded' : ''} mobile-table-card admin-staff-table-wrap">
+            <table class="admin-staff-table">
                 <thead>
                     <tr><th>Staff Member</th><th>Status</th><th>In / Out</th><th>Role / Dept</th><th>Actions</th></tr>
                 </thead>
@@ -632,15 +632,15 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
 
     const renderBirthdayBlock = () => `
         <p class="text-muted">${birthdayManagedCount} staff with reminder-ready birthdays</p>
-        <div style="display:flex; flex-direction:column; gap:0.55rem; margin-bottom:0.65rem;">
+        <div class="admin-birthday-list">
             ${upcomingBirthdayUsers.length
         ? upcomingBirthdayUsers.map((user) => `
-                    <div style="display:flex; justify-content:space-between; gap:0.75rem; border:1px solid #fdba74; border-radius:12px; padding:0.7rem 0.8rem; background:rgba(255,255,255,0.72);">
+                    <div class="admin-birthday-row">
                         <div>
-                            <div style="font-weight:700; color:#7c2d12;">${safeHtml(user.name || 'Staff')}</div>
-                            <div style="font-size:0.8rem; color:#9a3412;">${safeHtml(user.role || 'Employee')} / ${safeHtml(user.dept || 'General')}</div>
+                            <div class="admin-birthday-name">${safeHtml(user.name || 'Staff')}</div>
+                            <div class="admin-birthday-meta">${safeHtml(user.role || 'Employee')} / ${safeHtml(user.dept || 'General')}</div>
                         </div>
-                        <div style="text-align:right; color:#9a3412; font-weight:700;">${safeHtml(String(user.birthDay || '--'))}/${safeHtml(String(user.birthMonth || '--'))}${user.birthYear ? `/${safeHtml(String(user.birthYear))}` : ''}</div>
+                        <div class="admin-birthday-date">${safeHtml(String(user.birthDay || '--'))}/${safeHtml(String(user.birthMonth || '--'))}${user.birthYear ? `/${safeHtml(String(user.birthYear))}` : ''}</div>
                     </div>
                 `).join('')
         : '<div style="color:#9a3412; font-size:0.85rem;">No birthdays saved yet.</div>'}

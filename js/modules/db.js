@@ -491,7 +491,7 @@ export class Database {
         }
     }
 
-    async put(collectionName, item) {
+    async put(collectionName, item, options = {}) {
         if (!item.id) throw new Error("Item must have an ID for 'put' operation.");
         try {
             const docId = String(item.id);
@@ -501,6 +501,9 @@ export class Database {
             if (window.dispatchEvent) window.dispatchEvent(new CustomEvent('app:db-write', { detail: { collection: collectionName, op: 'put' } }));
             return docId;
         } catch (error) {
+            if (options?.silentPermissionDenied && this.isPermissionDenied(error)) {
+                return null;
+            }
             console.error(`Error putting ${item.id} to ${collectionName}:`, error);
             throw error;
         }
@@ -568,7 +571,7 @@ export class Database {
 
     async queryMany(collectionName, filters = [], options = {}) {
         const flags = this.getFlags();
-        if (!flags.FF_READ_OPT_DB_QUERIES) return this.getAll(collectionName);
+        if (!flags.FF_READ_OPT_DB_QUERIES) return this.getAll(collectionName, { ...options, silentPermissionDenied: true });
         try {
             let ref = this.db.collection(collectionName);
             ref = this.applyFilters(ref, filters);
@@ -579,7 +582,7 @@ export class Database {
             return data;
         } catch (error) {
             console.warn(`queryMany failed for ${collectionName}, falling back to getAll`, error);
-            return this.getAll(collectionName);
+            return this.getAll(collectionName, { ...options, silentPermissionDenied: true });
         }
     }
 

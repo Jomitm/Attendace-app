@@ -21,3 +21,7 @@ if (typeof firebase !== 'undefined' && !firebase.apps.length) {
 // Initialize & Export Firestore to Window
 export const AppFirestore = (typeof firebase !== 'undefined') ? firebase.firestore() : null;
 if (typeof window !== 'undefined') window.AppFirestore = AppFirestore;
+
+// Initialize & Export Firebase Storage to Window
+export const AppStorage = (typeof firebase !== 'undefined' && firebase.storage) ? firebase.storage() : null;
+if (typeof window !== 'undefined') window.AppStorage = AppStorage;

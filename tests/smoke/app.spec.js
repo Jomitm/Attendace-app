@@ -97,6 +97,93 @@ test.describe("CRWI Attendance smoke", () => {
     expect(consoleErrors, `Console errors:\n${consoleErrors.join("\n")}`).toEqual([]);
   });
 
+  test("renders letter pad editor for assigned users", async ({ page }) => {
+    const pageErrors = [];
+    const consoleErrors = [];
+
+    page.on("pageerror", (error) => {
+      pageErrors.push(error.message || String(error));
+    });
+
+    page.on("console", (msg) => {
+      if (msg.type() === "error") {
+        const text = msg.text() || "";
+        if (!text.includes("favicon")) {
+          consoleErrors.push(text);
+        }
+      }
+    });
+
+    await page.goto("/index.html", { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => Boolean(globalThis.AppUI?.renderLetterPad));
+
+    const html = await page.evaluate(async () => {
+      const w = globalThis;
+      const originals = {
+        getUser: w.AppAuth.getUser,
+        queryMany: w.AppDB.queryMany,
+        put: w.AppDB.put
+      };
+      const profile = {
+        id: "lp1",
+        ownerId: "u1",
+        name: "Main Office",
+        isDefault: true,
+        margins: { top: 28, right: 22, bottom: 28, left: 22 },
+        headerHeight: 82,
+        footerHeight: 64,
+        signatureSize: 120,
+        sealSize: 92
+      };
+
+      w.AppAuth.getUser = () => ({
+        id: "u1",
+        name: "Letter User",
+        permissions: { letterPad: "view" }
+      });
+      w.AppDB.queryMany = async (collection) => collection === "letter_pad_profiles" ? [profile] : [];
+      w.AppDB.put = async () => true;
+
+      try {
+        return await w.AppUI.renderLetterPad();
+      } finally {
+        w.AppAuth.getUser = originals.getUser;
+        w.AppDB.queryMany = originals.queryMany;
+        w.AppDB.put = originals.put;
+      }
+    });
+
+    expect(html).toContain("letter-pad-page");
+    expect(html).toContain("Main Office");
+    expect(html).toContain("letter-pad-editor");
+    expect(html).toContain("DOCX");
+    expect(html).toContain("PDF");
+    expect(pageErrors, `Page errors:\n${pageErrors.join("\n")}`).toEqual([]);
+    expect(consoleErrors, `Console errors:\n${consoleErrors.join("\n")}`).toEqual([]);
+  });
+
+  test("letter pad permission is captured from admin permission UI", async ({ page }) => {
+    await page.goto("/index.html", { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => Boolean(globalThis.AppUI?.renderModals && globalThis.app_getPermissionsFromUI));
+
+    const permissions = await page.evaluate(() => {
+      const w = globalThis;
+      const originalGetUser = w.AppAuth.getUser;
+      w.AppAuth.getUser = () => ({ id: "admin", name: "Admin", isAdmin: true });
+      try {
+        document.body.insertAdjacentHTML("beforeend", w.AppUI.renderModals());
+        document.getElementById("add-perm-letterPad-view").checked = true;
+        return w.app_getPermissionsFromUI("add");
+      } finally {
+        w.AppAuth.getUser = originalGetUser;
+        document.getElementById("add-user-modal")?.remove();
+        document.getElementById("edit-user-modal")?.remove();
+      }
+    });
+
+    expect(permissions.letterPad).toBe("view");
+  });
+
   test("renders dashboard with shared daily summary enabled", async ({ page }) => {
     const pageErrors = [];
     const consoleErrors = [];

@@ -995,6 +995,8 @@ export function renderBreakdown(breakdown) {
         'Earned Leave': { color: '#be185d', bg: '#fdf2f8', label: 'Earned' },
         'Paid Leave': { color: '#be123c', bg: '#ffe4e6', label: 'Paid' },
         'Maternity Leave': { color: '#a21caf', bg: '#fae8ff', label: 'Maternity' },
+        'Retreat Leave': { color: '#0e7490', bg: '#ecfeff', label: 'Retreat' },
+        'Staff Development Leave': { color: '#166534', bg: '#f0fdf4', label: 'Staff Dev' },
         'Absent': { color: '#7f1d1d', bg: '#fee2e2', label: 'Absent' },
         'Early Departure': { color: '#991b1b', bg: '#fff1f2', label: 'Early Exit' },
         'Holiday': { color: '#1e293b', bg: '#f1f5f9', label: 'Holiday' },
@@ -1080,6 +1082,8 @@ function buildStatsDetailBuckets(logs, range) {
             'Earned Leave': new Set(),
             'Paid Leave': new Set(),
             'Maternity Leave': new Set(),
+            'Retreat Leave': new Set(),
+            'Staff Development Leave': new Set(),
             'Absent': new Set(),
             'Holiday': new Set(),
             'National Holiday': new Set(),
@@ -1153,6 +1157,8 @@ function buildStatsDetailBuckets(logs, range) {
         else if (type === 'Earned Leave') buckets.breakdown['Earned Leave'].add(dateStr);
         else if (type === 'Paid Leave') buckets.breakdown['Paid Leave'].add(dateStr);
         else if (type === 'Maternity Leave') buckets.breakdown['Maternity Leave'].add(dateStr);
+        else if (type === 'Retreat Leave') buckets.breakdown['Retreat Leave'].add(dateStr);
+        else if (type === 'Staff Development Leave') buckets.breakdown['Staff Development Leave'].add(dateStr);
         else if (type === 'Absent') buckets.breakdown['Absent'].add(dateStr);
         else if (type === 'National Holiday') buckets.breakdown['National Holiday'].add(dateStr);
         else if (type === 'Regional Holidays') buckets.breakdown['Regional Holidays'].add(dateStr);

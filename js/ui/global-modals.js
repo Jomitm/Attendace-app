@@ -154,6 +154,8 @@ export function renderModals() {
                             <option value="Earned Leave">Earned Leave</option>
                             <option value="Paid Leave">Paid Leave</option>
                             <option value="Maternity Leave">Maternity Leave</option>
+                            <option value="Retreat Leave">Retreat Leave</option>
+                            <option value="Staff Development Leave">Staff Development Leave</option>
                             <option value="Regional Holidays">Regional Holidays</option>
                             <option value="National Holiday">National Holiday</option>
                             <option value="Holiday">Holiday</option>
@@ -269,6 +271,7 @@ export function renderModals() {
                             <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Birthday Calendar</div>
                             <input type="checkbox" class="perm-check" data-module="birthday" data-level="view" id="edit-perm-birthday-view">
                             <input type="checkbox" class="perm-check" data-module="birthday" data-level="admin" id="edit-perm-birthday-admin">
+
                         </div>
                     </div>
                      <div style="display: flex; gap: 1rem;">
@@ -435,6 +438,7 @@ export function renderModals() {
                             <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Birthday Calendar</div>
                             <input type="checkbox" class="perm-check" data-module="birthday" data-level="view" id="add-perm-birthday-view">
                             <input type="checkbox" class="perm-check" data-module="birthday" data-level="admin" id="add-perm-birthday-admin">
+
                         </div>
                     </div>
                      <div style="display: flex; gap: 1rem;">

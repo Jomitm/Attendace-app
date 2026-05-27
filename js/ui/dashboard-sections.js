@@ -189,6 +189,8 @@ const computeRangeStats = (logs, label) => {
         'Earned Leave': 0,
         'Paid Leave': 0,
         'Maternity Leave': 0,
+        'Retreat Leave': 0,
+        'Staff Development Leave': 0,
         Absent: 0,
         Holiday: 0,
         'National Holiday': 0,
@@ -210,7 +212,7 @@ const computeRangeStats = (logs, label) => {
     });
 
     const present = breakdown.Present + breakdown['Work - Home'] + breakdown.Training;
-    const leaves = breakdown['Sick Leave'] + breakdown['Casual Leave'] + breakdown['Earned Leave'] + breakdown['Paid Leave'] + breakdown['Maternity Leave'] + breakdown.Absent;
+    const leaves = breakdown['Sick Leave'] + breakdown['Casual Leave'] + breakdown['Earned Leave'] + breakdown['Paid Leave'] + breakdown['Maternity Leave'] + breakdown['Retreat Leave'] + breakdown['Staff Development Leave'] + breakdown.Absent;
     const late = breakdown.Late;
     const penalty = Math.floor((late || 0) / 3) * 0.5;
 

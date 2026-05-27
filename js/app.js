@@ -335,7 +335,7 @@ window.app_canSeeAdminPanel = (user = window.AppAuth?.getUser()) => {
     if (window.app_isAdminUser(user)) return true;
     // If they have ANY specific admin level permission, they can enter the admin panel
     if (user.permissions) {
-        return Object.entries(user.permissions).some(([module, level]) => module !== 'birthday' && level === 'admin');
+        return Object.entries(user.permissions).some(([module, level]) => !['birthday', 'letterPad'].includes(module) && level === 'admin');
     }
     return false;
 };
@@ -350,6 +350,12 @@ window.app_hasPerm = (module, level = 'view', user = window.AppAuth?.getUser()) 
     if (level === 'view') return perm === 'view' || perm === 'admin';
     if (level === 'admin') return perm === 'admin';
     return false;
+};
+
+window.app_canAccessLetterPad = (user = window.AppAuth?.getUser()) => {
+    if (!user) return false;
+    const perm = user.permissions?.letterPad;
+    return perm === 'view' || perm === 'admin';
 };
 
 window.app_canManageAttendanceSheet = (user = window.AppAuth?.getUser()) => {
@@ -2955,6 +2961,7 @@ async function router() {
     const canSeePoliciesAdmin = window.app_hasPerm('policies', 'view', user);
     const canSeeAdmin = window.app_canSeeAdminPanel(user);
     const canSeeBirthdayCalendar = window.app_canManageBirthdays(user);
+    const canSeeLetterPad = window.app_canAccessLetterPad(user);
 
     document.querySelectorAll('a[data-page="admin"]').forEach(link => {
         link.style.display = canSeeAdmin ? 'flex' : 'none';
@@ -2979,6 +2986,11 @@ async function router() {
     document.querySelectorAll('a[data-page="birthday-calendar"]').forEach(link => {
         link.style.display = canSeeBirthdayCalendar ? 'flex' : 'none';
         if (!canSeeBirthdayCalendar) link.style.setProperty('display', 'none', 'important');
+    });
+
+    document.querySelectorAll('a[data-page="letter-pad"]').forEach(link => {
+        link.style.display = canSeeLetterPad ? 'flex' : 'none';
+        if (!canSeeLetterPad) link.style.setProperty('display', 'none', 'important');
     });
 
     // Active Nav
@@ -3058,6 +3070,12 @@ async function router() {
         } else if (hash === 'minutes') {
             contentArea.innerHTML = await AppUI.renderMinutes();
             startMinutesRealtimeListener();
+        } else if (hash === 'letter-pad') {
+            if (!window.app_canAccessLetterPad(user)) {
+                window.location.hash = 'dashboard';
+                return;
+            }
+            contentArea.innerHTML = await AppUI.renderLetterPad();
         } else if (hash === 'admin') {
             if (!window.app_canSeeAdminPanel(user)) {
                 window.location.hash = 'dashboard';
@@ -6516,7 +6534,7 @@ async function handleAddUser(e) {
 
 window.app_getPermissionsFromUI = (prefix) => {
     const permissions = {};
-    const modules = ['dashboard', 'leaves', 'users', 'attendance', 'reports', 'minutes', 'policies', 'birthday'];
+    const modules = ['dashboard', 'leaves', 'users', 'attendance', 'reports', 'minutes', 'policies', 'birthday', 'letterPad'];
     modules.forEach(m => {
         const viewCheck = document.getElementById(`${prefix}-perm-${m}-view`);
         const adminCheck = document.getElementById(`${prefix}-perm-${m}-admin`);
@@ -7651,7 +7669,7 @@ window.app_editUser = async (userId) => {
     setVal('#edit-user-uan', user.uan || user.UAN || '');
 
     // Populate permissions
-    const modules = ['dashboard', 'leaves', 'users', 'attendance', 'reports', 'minutes', 'policies', 'birthday'];
+    const modules = ['dashboard', 'leaves', 'users', 'attendance', 'reports', 'minutes', 'policies', 'birthday', 'letterPad'];
     const permissions = user.permissions || {};
     modules.forEach(m => {
         const val = permissions[m];
@@ -8196,6 +8214,8 @@ window.app_openCellOverride = async (userId, dateStr) => {
         'Paternity Leave',
         'Study Leave',
         'Compassionate Leave',
+        'Retreat Leave',
+        'Staff Development Leave',
         'Regional Holidays',
         'National Holiday',
         'Holiday'
@@ -8284,10 +8304,23 @@ window.app_submitCellOverride = async (e, userId, dateStr, logId) => {
     const checkInDate = window.AppAttendance.buildDateTime(dateStr, checkIn);
     const checkOutDate = window.AppAttendance.buildDateTime(dateStr, checkOut);
     const durationMs = (checkInDate && checkOutDate) ? (checkOutDate - checkInDate) : 0;
+    const workedHours = Math.max(0, durationMs) / (1000 * 60 * 60);
     const statusMeta = window.AppAttendance.evaluateAttendanceStatus(checkInDate || new Date(), durationMs);
     const isManualOverride = fd.get('isManualOverride') === 'on';
     const selectedType = String(fd.get('type') || '').trim();
     const finalType = isManualOverride && selectedType ? selectedType : statusMeta.status;
+    const eightHoursMs = 8 * 60 * 60 * 1000;
+
+    let isSystemAutoClosed = false;
+    if (logId) {
+        const existing = await window.AppDB.get('attendance', logId).catch(() => null);
+        isSystemAutoClosed = !!existing?.autoCheckout;
+    }
+
+    if (selectedType === 'Half Day Leave' && durationMs >= eightHoursMs && !isSystemAutoClosed) {
+        alert(`Cannot set Half Day Leave for ${workedHours.toFixed(2)} worked hours. 8+ hours must be treated as full day.`);
+        return;
+    }
 
     const formatTime = (timeStr) => {
         if (!timeStr || timeStr === '--') return '--';
@@ -9425,6 +9458,99 @@ window.app_exportAudits = async () => {
         console.error("Export failed:", err);
         alert("Export failed: " + err.message);
     }
+};
+
+window.app_fixCurrentMonthFalseHalfDayLeaves = async (options = {}) => {
+    if (!window.app_canManageAttendanceSheet()) return { updated: 0, scanned: 0 };
+    const silent = options?.silent !== false;
+    const now = new Date();
+    const year = Number(options?.year) || now.getFullYear();
+    const monthOneBased = Number(options?.month) || (now.getMonth() + 1);
+    const startDateStr = `${year}-${String(monthOneBased).padStart(2, '0')}-01`;
+    const endDateStr = `${year}-${String(monthOneBased).padStart(2, '0')}-31`;
+
+    let logs = [];
+    try {
+        logs = await window.AppDB.query('attendance', 'date', '>=', startDateStr);
+        logs = (logs || []).filter(l => String(l?.date || '') <= endDateStr);
+    } catch (e) {
+        const allLogs = await window.AppDB.getAll('attendance');
+        logs = (allLogs || []).filter(l => String(l?.date || '') >= startDateStr && String(l?.date || '') <= endDateStr);
+    }
+
+    let scanned = 0;
+    let updated = 0;
+    let skippedAutoClosed = 0;
+    let skippedLinkedLeave = 0;
+    let skippedUnder8Hours = 0;
+    let skippedInvalidTime = 0;
+    const reviewCandidates = [];
+    for (const log of (logs || [])) {
+        if (!log || !log.id) continue;
+        scanned++;
+        const rawType = String(log.type || '').trim();
+        if (rawType !== 'Half Day Leave') continue;
+        if (log.autoCheckout) {
+            skippedAutoClosed++;
+            reviewCandidates.push({ id: log.id, userId: log.user_id || log.userId || '', date: log.date, reason: 'auto-closed system entry' });
+            continue;
+        }
+        const isLinkedLeave = !!(log.leaveGenerated || log.leaveRequestId);
+
+        const dateIso = parseLogDateToISO(log.date);
+        const in24 = (log.checkIn && log.checkOut && log.checkOut !== 'Active Now') ? convertTo24h(log.checkIn) : null;
+        const out24 = (log.checkIn && log.checkOut && log.checkOut !== 'Active Now') ? convertTo24h(log.checkOut) : null;
+        if (!dateIso || !in24 || !out24) {
+            skippedInvalidTime++;
+            reviewCandidates.push({ id: log.id, userId: log.user_id || log.userId || '', date: log.date, reason: 'invalid/missing time range' });
+            continue;
+        }
+
+        const inDt = window.AppAttendance.buildDateTime(dateIso, in24);
+        const outDt = window.AppAttendance.buildDateTime(dateIso, out24);
+        if (!(inDt && outDt && outDt > inDt)) {
+            skippedInvalidTime++;
+            reviewCandidates.push({ id: log.id, userId: log.user_id || log.userId || '', date: log.date, reason: 'invalid/missing time range' });
+            continue;
+        }
+        const durationMs = outDt - inDt;
+        if (durationMs < (8 * 60 * 60 * 1000)) {
+            skippedUnder8Hours++;
+            continue;
+        }
+
+        const statusMeta = window.AppAttendance.evaluateAttendanceStatus(inDt, durationMs);
+        const nextRecord = {
+            ...log,
+            type: 'Present',
+            dayCredit: 1,
+            lateCountable: statusMeta.lateCountable === true,
+            extraWorkedMs: statusMeta.extraWorkedMs || 0,
+            durationMs: typeof log.durationMs === 'number' ? log.durationMs : durationMs,
+            leaveGenerated: false,
+            leaveRequestId: '',
+            policyVersion: 'v2'
+        };
+        await window.AppDB.put('attendance', nextRecord);
+        if (isLinkedLeave) skippedLinkedLeave++;
+        updated++;
+    }
+
+    if (!silent && updated > 0) {
+        alert(`Fixed ${updated} incorrect Half Day Leave entr${updated === 1 ? 'y' : 'ies'} in ${year}-${String(monthOneBased).padStart(2, '0')}.`);
+    } else if (!silent) {
+        const sample = reviewCandidates.slice(0, 8).map((c) => `- ${c.date} | ${c.userId || 'unknown'} | ${c.reason}`).join('\n');
+        alert(
+            `No fixes applied for ${year}-${String(monthOneBased).padStart(2, '0')}.\n` +
+            `Scanned: ${scanned}\n` +
+            `Skipped (auto-closed): ${skippedAutoClosed}\n` +
+            `Skipped (linked leave): ${skippedLinkedLeave}\n` +
+            `Skipped (<8h): ${skippedUnder8Hours}\n` +
+            `Skipped (invalid time): ${skippedInvalidTime}\n` +
+            `${sample ? `\nSample skipped entries:\n${sample}` : ''}`
+        );
+    }
+    return { updated, scanned, skippedAutoClosed, skippedLinkedLeave, skippedUnder8Hours, skippedInvalidTime, reviewCandidates };
 };
 
 const APP_STAFF_DATA_RESET_COLLECTIONS = [

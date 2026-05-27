@@ -14,7 +14,9 @@ export class Leaves {
             'Maternity Leave': { total: 180, paid: true, gender: 'female' },
             'Paternity Leave': { total: 10, paid: true, gender: 'male', minServiceYears: 0 },
             'Study Leave': { total: 5, paid: false, requireApproval: true },
-            'Compassionate Leave': { total: 3, paid: true }
+            'Compassionate Leave': { total: 3, paid: true },
+            'Retreat Leave': { total: 10, paid: true, accrual: 'annual' },
+            'Staff Development Leave': { total: null, paid: true, requireApproval: true }
         };
     }
 
@@ -284,8 +286,8 @@ export class Leaves {
             if (daysRequested > rule.total) {
                 warnings.push(`Paternity Leave exceeds limit of ${rule.total} days.`);
             }
-        } else if (['Study Leave', 'Compassionate Leave'].includes(normalizedType) && rule) {
-            if (daysRequested > rule.total) {
+        } else if (['Study Leave', 'Compassionate Leave', 'Retreat Leave', 'Staff Development Leave'].includes(normalizedType) && rule) {
+            if (Number.isFinite(Number(rule.total)) && daysRequested > Number(rule.total)) {
                 warnings.push(`${normalizedType} exceeds limit of ${rule.total} days.`);
             }
         }

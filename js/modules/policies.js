@@ -411,6 +411,8 @@ export const AppPolicies = {
             'Paternity Leave': 'baby',
             'Study Leave': 'graduation-cap',
             'Compassionate Leave': 'hand-holding-heart',
+            'Retreat Leave': 'person-praying',
+            'Staff Development Leave': 'person-chalkboard',
             'Short Leave': 'clock'
         };
         return icons[type] || 'file-circle-check';
@@ -425,20 +427,25 @@ export const AppPolicies = {
             'Paternity Leave': '#1d4ed8',
             'Study Leave': '#6d28d9',
             'Compassionate Leave': '#9333ea',
+            'Retreat Leave': '#0e7490',
+            'Staff Development Leave': '#166534',
             'Short Leave': '#475569'
         };
         return colors[type] || '#64748b';
     },
 
     renderLeaveCard(title, balance, icon, color) {
-        const percentage = Math.min(100, (balance.usage / balance.total) * 100);
+        const hasFixedTotal = Number.isFinite(Number(balance.total)) && Number(balance.total) > 0;
+        const percentage = hasFixedTotal ? Math.min(100, (balance.usage / balance.total) * 100) : 0;
+        const remaining = hasFixedTotal ? (balance.total - balance.usage) : 'As Approved';
+        const totalLabel = hasFixedTotal ? balance.total : 'Flexible';
         return `
             <div class="policies-leave-item">
                 <div class="policies-leave-bg-icon" style="color:${color};"><i class="fa-solid fa-${icon}"></i></div>
                 <h4>${title}</h4>
                 <div class="policies-leave-count">
-                    <span>${balance.total - balance.usage}</span>
-                    <small>/ ${balance.total}</small>
+                    <span>${remaining}</span>
+                    <small>/ ${totalLabel}</small>
                 </div>
                 <div class="policies-leave-bar"><div style="width:${percentage}%; background:${color};"></div></div>
                 <div class="policies-leave-used">${balance.usage} used</div>

@@ -95,8 +95,8 @@
             document.body.appendChild(div);
         });
     </script>
-  <script type="module" crossorigin src="/assets/main-GLA7sZrc.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/main-DG1SzR2_.css">
+  <script type="module" crossorigin src="/assets/main-CCJ129E4.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/main-DsInloWD.css">
 </head>
 
 <body>
@@ -146,6 +146,10 @@
                 <a href="#minutes" class="nav-item" data-page="minutes">
                     <i class="fa-solid fa-file-lines"></i>
                     <span>Meeting Minutes</span>
+                </a>
+                <a href="#letter-pad" class="nav-item" data-page="letter-pad" style="display: none;">
+                    <i class="fa-solid fa-file-pen"></i>
+                    <span>Letter Pad</span>
                 </a>
                 <a href="#admin" class="nav-item" data-page="admin" style="display: none;">
                     <i class="fa-solid fa-user-gear"></i>
@@ -261,6 +265,10 @@
                 <i class="fa-solid fa-file-lines"></i>
                 <span>Minutes</span>
             </a>
+            <a href="#letter-pad" class="mobile-nav-item" data-page="letter-pad" style="display: none;">
+                <i class="fa-solid fa-file-pen"></i>
+                <span>Letters</span>
+            </a>
             <a href="#admin" class="mobile-nav-item" data-page="admin" style="display: none;">
                 <i class="fa-solid fa-user-gear"></i>
                 <span>Admin</span>
@@ -284,6 +292,8 @@
     <!-- Firebase SDK (v9.23.0 Compat) -->
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js" crossorigin="anonymous"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"
+        crossorigin="anonymous"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"
         crossorigin="anonymous"></script>
 
     <script>
@@ -314,6 +324,7 @@
                 });
 
             window.AppFirestore = firebase.firestore();
+            window.AppStorage = firebase.storage ? firebase.storage() : null;
             console.log("Firebase Initialized (Inline) with Persistence");
         } else {
             console.error("Firebase SDK not loaded!");

@@ -18,6 +18,18 @@ export async function renderMasterSheet(month = null, year = null) {
     const startDateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
     const endDateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-31`;
 
+    if (canAdminAttendance && typeof window.app_fixCurrentMonthFalseHalfDayLeaves === 'function') {
+        try {
+            await window.app_fixCurrentMonthFalseHalfDayLeaves({
+                silent: true,
+                year: currentYear,
+                month: currentMonth + 1
+            });
+        } catch (e) {
+            console.warn('MasterSheet: auto-fix for incorrect half-day leaves failed', e);
+        }
+    }
+
     // Fallback if query() doesn't exist or work as expected
     let filteredLogs = [];
     try {
@@ -126,6 +138,29 @@ export async function renderMasterSheet(month = null, year = null) {
             typeof log.outLng !== 'undefined'
         );
     };
+    const convertTo24h = (timeStr) => {
+        const raw = String(timeStr || '').trim();
+        if (!raw) return '00:00';
+        if (/^\d{2}:\d{2}$/.test(raw)) return raw;
+        const [time, ampmRaw] = raw.split(' ');
+        if (!time) return '00:00';
+        let [h, m] = time.split(':');
+        let hours = Number(h);
+        const ampm = String(ampmRaw || '').toUpperCase();
+        if (ampm === 'PM' && hours < 12) hours += 12;
+        if (ampm === 'AM' && hours === 12) hours = 0;
+        return `${String(Number.isFinite(hours) ? hours : 0).padStart(2, '0')}:${String(m || '00').padStart(2, '0')}`;
+    };
+
+    const getWorkedMs = (log) => {
+        if (!log || !log.checkIn || !log.checkOut || log.checkOut === 'Active Now' || !log.date) return 0;
+        const in24 = convertTo24h(log.checkIn);
+        const out24 = convertTo24h(log.checkOut);
+        const inDt = window.AppAttendance?.buildDateTime?.(log.date, in24);
+        const outDt = window.AppAttendance?.buildDateTime?.(log.date, out24);
+        if (!(inDt && outDt && outDt > inDt)) return 0;
+        return outDt - inDt;
+    };
 
     const getAutoClosureNote = (log) => {
         if (!log || !log.autoCheckout) return '';
@@ -143,6 +178,7 @@ export async function renderMasterSheet(month = null, year = null) {
 
     const getLogPriority = (log) => {
         if (log?.isManualOverride) return 4;
+        if (isActualCheckoutLog(log) && getWorkedMs(log) >= (8 * 60 * 60 * 1000)) return 3.5;
         if (isLeaveLog(log)) return 3;
         if (isActualCheckoutLog(log)) return 2;
         return 1;
@@ -182,6 +218,19 @@ export async function renderMasterSheet(month = null, year = null) {
         const contentArea = document.getElementById('page-content');
         if (contentArea) contentArea.innerHTML = await renderMasterSheet(m, y);
     };
+    window.app_runHalfDayLeaveFixForVisibleMonth = async () => {
+        if (!canAdminAttendance || typeof window.app_fixCurrentMonthFalseHalfDayLeaves !== 'function') return;
+        const monthValue = Number(document.getElementById('sheet-month')?.value);
+        const yearValue = Number(document.getElementById('sheet-year')?.value);
+        const month = Number.isFinite(monthValue) ? monthValue + 1 : (new Date().getMonth() + 1);
+        const year = Number.isFinite(yearValue) ? yearValue : new Date().getFullYear();
+        const result = await window.app_fixCurrentMonthFalseHalfDayLeaves({
+            silent: false,
+            year,
+            month
+        });
+        await window.app_refreshMasterSheet();
+    };
 
     return `
         <div class="dashboard-grid dashboard-modern dashboard-admin-view">
@@ -200,6 +249,9 @@ export async function renderMasterSheet(month = null, year = null) {
                             <option value="${currentYear - 1}">${currentYear - 1}</option>
                         </select>
                         ${canAdminAttendance ? `
+                        <button onclick="window.app_runHalfDayLeaveFixForVisibleMonth()" class="action-btn secondary" style="padding:0.4rem 0.75rem; font-size:0.8rem;">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> Fix Incorrect Half Day Leaves
+                        </button>
                         <button onclick="window.app_exportMasterSheet()" class="action-btn secondary" style="padding:0.4rem 0.75rem; font-size:0.8rem;">
                             <i class="fa-solid fa-file-excel"></i> Export Excel
                         </button>
@@ -212,7 +264,9 @@ export async function renderMasterSheet(month = null, year = null) {
                     <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#fff7ed;"><strong>L</strong> = Late</span>
                     <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#fff7ed;"><strong>HD</strong> = Half Day</span>
                     <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#fef2f2;"><strong>A</strong> = Absent</span>
-                    <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#f5f3ff;"><strong>C</strong> = Leave</span>
+                    <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#f5f3ff;"><strong>C</strong> = Leave (other)</span>
+                    <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#ecfeff;"><strong>RL</strong> = Retreat Leave</span>
+                    <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#f0fdf4;"><strong>SDL</strong> = Staff Development Leave</span>
                     <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#f0f9ff;"><strong>W</strong> = Work From Home</span>
                     <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#eff6ff;"><strong>D</strong> = On Duty</span>
                     <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#f8fafc;"><strong>H</strong> = Holiday</span>
@@ -268,6 +322,8 @@ export async function renderMasterSheet(month = null, year = null) {
                 else if (type === 'Half Day') { cellStyle = 'color: #c2410c; font-weight: bold;'; cellContent = 'HD'; }
                 else if (type === 'Absent') { cellStyle = 'color: #ef4444; font-weight: bold;'; cellContent = 'A'; }
                 else if (type.includes('Leave') && type.includes('Half Day')) { cellStyle = 'color: #7c3aed; font-weight: bold;'; cellContent = 'HD'; }
+                else if (type === 'Retreat Leave') { cellStyle = 'color: #0e7490; font-weight: bold;'; cellContent = 'RL'; }
+                else if (type === 'Staff Development Leave') { cellStyle = 'color: #166534; font-weight: bold;'; cellContent = 'SDL'; }
                 else if (type.includes('Leave')) { cellStyle = 'color: #8b5cf6; font-weight: bold;'; cellContent = 'C'; }
                 else if (type === 'Work - Home' || /work\s*[- ]?\s*from\s*[- ]?\s*home|wfh/i.test(String(type || ''))) { cellStyle = 'color: #0ea5e9; font-weight: bold;'; cellContent = 'W'; }
                 else if (type === 'On Duty') { cellStyle = 'color: #0369a1; font-weight: bold;'; cellContent = 'D'; }
