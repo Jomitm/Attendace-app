@@ -11770,6 +11770,14 @@ body.dashboard-max-open {
     box-shadow: none;
 }
 
+.letter-page-export .letter-page-header img,
+.letter-page-export .letter-page-footer img,
+.letter-page-export .letter-object img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
 .letter-page-export .letter-page-body {
     outline: none;
 }

@@ -649,6 +649,39 @@ const createFloatingImageParagraph = (image, object) => new Paragraph({
     })]
 });
 
+const parseDocxStylePx = (value) => {
+    const parsed = Number.parseFloat(String(value || ''));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+};
+
+const getDocxImageSizingFromNode = (image, node) => {
+    if (!image) return null;
+    const naturalRatio = image.width && image.height ? image.height / image.width : 0;
+    const inlineWidth = parseDocxStylePx(node?.style?.width || node?.getAttribute?.('width'));
+    const maxWidth = parseDocxStylePx(node?.style?.maxWidth);
+    const width = Math.max(
+        32,
+        Math.round(inlineWidth || maxWidth || Math.min(image.width || 0, 240) || 120)
+    );
+    const height = Math.max(
+        16,
+        Math.round(width * (naturalRatio || 0.5))
+    );
+    return { width, height };
+};
+
+const getLetterPadDocxImageUrl = (profile, object) => {
+    if (object?.kind === 'signature') {
+        const person = (profile?.people || []).find(item => item.id === object.assetId) || null;
+        return getPersonSignatureUrl(profile, person) || object?.url || '';
+    }
+    if (object?.kind === 'seal') {
+        const seal = (profile?.seals || []).find(item => item.id === object.assetId) || null;
+        return getSealImageUrl(profile, seal) || object?.url || '';
+    }
+    return object?.url || '';
+};
+
 const getDraftPayload = () => {
     const profile = getActiveProfile();
     const editor = document.getElementById('letter-pad-editor');
@@ -694,41 +727,107 @@ const urlToImageData = async (url) => {
     };
 };
 
-const htmlToDocxParagraphs = (html = '') => {
+const htmlToDocxParagraphs = async (html = '') => {
     const doc = new DOMParser().parseFromString(`<div>${html || ''}</div>`, 'text/html');
-    const blocks = Array.from(doc.body.firstElementChild?.childNodes || []);
+    const root = doc.body.firstElementChild;
     const paragraphs = [];
 
-    const toText = (node) => (node?.textContent || '').replace(/\s+/g, ' ').trim();
-    blocks.forEach((node) => {
+    const normalizeText = (text) => String(text || '').replace(/\s+/g, ' ');
+    const blockTags = new Set(['P', 'DIV', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'BLOCKQUOTE', 'LI', 'TD', 'TH', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6']);
+    const paragraphTags = new Set(['P', 'LI', 'TD', 'TH', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6']);
+
+    const collectRuns = async (node, style = {}) => {
+        if (!node) return [];
         if (node.nodeType === Node.TEXT_NODE) {
-            const text = toText(node);
-            if (text) paragraphs.push(new Paragraph({ children: [new TextRun(text)] }));
-            return;
+            const text = normalizeText(node.nodeValue);
+            return text.trim() ? [new TextRun({ text, bold: !!style.bold, italics: !!style.italics, strike: !!style.strike, size: style.size, font: style.font })] : [];
         }
-        if (node.nodeType !== Node.ELEMENT_NODE) return;
+        if (node.nodeType !== Node.ELEMENT_NODE) return [];
+
         const tag = node.tagName;
-        if (tag === 'UL' || tag === 'OL') {
-            Array.from(node.querySelectorAll('li')).forEach((li) => {
-                paragraphs.push(new Paragraph({
-                    text: toText(li),
-                    bullet: tag === 'UL' ? { level: 0 } : undefined,
-                    numbering: tag === 'OL' ? { reference: 'letter-numbering', level: 0 } : undefined
-                }));
-            });
-            return;
+        if (tag === 'BR') {
+            return [new TextRun({ break: 1 })];
+        }
+        if (tag === 'IMG') {
+            const image = await urlToImageData(node.getAttribute('src') || '').catch(() => null);
+            if (!image) return [];
+            const sizing = getDocxImageSizingFromNode(image, node);
+            return sizing ? [new ImageRun({ type: image.type, data: image.data, transformation: sizing })] : [];
+        }
+
+        const nextStyle = {
+            bold: style.bold || tag === 'B' || tag === 'STRONG' || Number.parseInt(node.style?.fontWeight || '', 10) >= 600,
+            italics: style.italics || tag === 'I' || tag === 'EM' || String(node.style?.fontStyle || '').toLowerCase() === 'italic',
+            strike: style.strike || tag === 'S' || tag === 'DEL' || String(node.style?.textDecoration || '').toLowerCase().includes('line-through'),
+            size: style.size || (parseDocxStylePx(node.style?.fontSize) ? Math.max(8, Math.round(parseDocxStylePx(node.style?.fontSize) * 1.5)) : undefined),
+            font: style.font || (node.style?.fontFamily ? String(node.style.fontFamily).split(',')[0].replace(/['"]/g, '').trim() : undefined)
+        };
+
+        const runs = [];
+        for (const child of Array.from(node.childNodes || [])) {
+            runs.push(...await collectRuns(child, nextStyle));
+        }
+        return runs;
+    };
+
+    const buildParagraph = async (node, options = {}) => {
+        const runs = [];
+        for (const child of Array.from(node.childNodes || [])) {
+            runs.push(...await collectRuns(child));
         }
         const align = {
             center: AlignmentType.CENTER,
             right: AlignmentType.RIGHT,
             justify: AlignmentType.JUSTIFIED
-        }[String(node.style?.textAlign || '').toLowerCase()] || AlignmentType.LEFT;
-        const text = toText(node);
+        }[String(node.style?.textAlign || '').toLowerCase()] || options.align || AlignmentType.LEFT;
         paragraphs.push(new Paragraph({
             alignment: align,
-            children: [new TextRun({ text: text || ' ', size: 24 })]
+            bullet: options.bullet,
+            numbering: options.numbering,
+            children: runs.length ? runs : [new TextRun(' ')]
         }));
-    });
+    };
+
+    const walk = async (node) => {
+        if (!node) return;
+        if (node.nodeType === Node.TEXT_NODE) {
+            const text = normalizeText(node.nodeValue).trim();
+            if (text) paragraphs.push(new Paragraph({ children: [new TextRun(text)] }));
+            return;
+        }
+        if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+        const tag = node.tagName;
+        if (tag === 'UL' || tag === 'OL') {
+            for (const li of Array.from(node.querySelectorAll(':scope > li'))) {
+                await buildParagraph(li, {
+                    bullet: tag === 'UL' ? { level: 0 } : undefined,
+                    numbering: tag === 'OL' ? { reference: 'letter-numbering', level: 0 } : undefined
+                });
+            }
+            return;
+        }
+        const hasNestedBlockChildren = Array.from(node.children || []).some(child => blockTags.has(child.tagName) && !paragraphTags.has(child.tagName));
+        if (tag === 'DIV' || tag === 'SECTION' || tag === 'ARTICLE' || tag === 'HEADER' || tag === 'FOOTER' || tag === 'BLOCKQUOTE') {
+            if (hasNestedBlockChildren) {
+                for (const child of Array.from(node.childNodes || [])) {
+                    await walk(child);
+                }
+                return;
+            }
+        }
+        if (paragraphTags.has(tag) || node === root) {
+            await buildParagraph(node);
+            return;
+        }
+        const runs = await collectRuns(node);
+        if (runs.length) paragraphs.push(new Paragraph({ children: runs }));
+    };
+
+    for (const child of Array.from(root?.childNodes || [])) {
+        await walk(child);
+    }
+
     return paragraphs.length ? paragraphs : [new Paragraph('')];
 };
 
@@ -1060,7 +1159,7 @@ const registerHandlers = () => {
         const footerHeightPx = page ? getCssVariablePx(page, '--lp-render-footer-height', profile.footerHeight) : profile.footerHeight;
         const headerSizing = getDocxImageSizing(headerImage, headerHeightPx);
         const footerSizing = getDocxImageSizing(footerImage, footerHeightPx);
-        const children = htmlToDocxParagraphs(html);
+        const children = await htmlToDocxParagraphs(html);
         const doc = new Document({
             numbering: {
                 config: [{ reference: 'letter-numbering', levels: [{ level: 0, format: 'decimal', text: '%1.', alignment: AlignmentType.LEFT }] }]
@@ -1509,8 +1608,8 @@ const placeSignatureForPerson = async (person) => {
         const html = document.getElementById('letter-pad-editor')?.innerHTML || '';
         const draft = normalizeDraftState(window._letterPadState.draft || {});
         const [headerImage, footerImage] = await Promise.all([
-            urlToImageData(profile.headerImageUrl).catch(() => null),
-            urlToImageData(profile.footerImageUrl).catch(() => null)
+            urlToImageData(getSlotImageUrl(profile, 'header')).catch(() => null),
+            urlToImageData(getSlotImageUrl(profile, 'footer')).catch(() => null)
         ]);
         const page = document.querySelector('.letter-page');
         if (page) syncLetterPageSizing(page);
@@ -1519,10 +1618,12 @@ const placeSignatureForPerson = async (person) => {
         const headerSizing = getDocxImageSizing(headerImage, headerHeightPx);
         const footerSizing = getDocxImageSizing(footerImage, footerHeightPx);
         const floatingObjects = await Promise.all(draft.objects.map(async (object) => {
-            if (!object.url) return null;
-            const image = await urlToImageData(object.url).catch(() => null);
+            const imageUrl = getLetterPadDocxImageUrl(profile, object);
+            if (!imageUrl) return null;
+            const image = await urlToImageData(imageUrl).catch(() => null);
             return image ? { object, image } : null;
         }));
+        const children = await htmlToDocxParagraphs(html);
         const doc = new Document({
             numbering: {
                 config: [{ reference: 'letter-numbering', levels: [{ level: 0, format: 'decimal', text: '%1.', alignment: AlignmentType.LEFT }] }]
@@ -1551,7 +1652,7 @@ const placeSignatureForPerson = async (person) => {
                     default: new Footer({ children: [makeLetterheadParagraph(footerImage, footerSizing, profile)] })
                 } : undefined,
                 children: [
-                    ...htmlToDocxParagraphs(html),
+                    ...children,
                     ...floatingObjects.filter(Boolean).map(({ object, image }) => createFloatingImageParagraph(image, object))
                 ]
             }]
