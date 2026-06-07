@@ -5574,6 +5574,12 @@ textarea:focus {
     display: inline-flex;
     align-items: center;
     gap: 0.3rem;
+    position: relative;
+    z-index: 5;
+    padding: 0.14rem;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid #dbe3ee;
 }
 
 .dashboard-staff-view .dashboard-card-mode-controls {
@@ -5602,6 +5608,14 @@ textarea:focus {
     justify-content: center;
     cursor: pointer;
     transition: transform 0.16s ease, box-shadow 0.16s ease, filter 0.16s ease;
+}
+
+.dashboard-card-mode-btn i,
+.admin-card-mode-btn i,
+.dashboard-card-max-btn i,
+.dashboard-expand-inline-btn i {
+    font-size: 0.95rem;
+    line-height: 1;
 }
 
 .dashboard-card-mode-btn:hover,
@@ -6012,6 +6026,24 @@ textarea:focus {
     background: #fff;
     color: #334155;
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+    transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+
+.admin-max-close i,
+.dashboard-max-close i {
+    font-size: 1.05rem;
+    line-height: 1;
+}
+
+.admin-max-close:hover,
+.dashboard-max-close:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.18);
+    background: #f8fafc;
 }
 
 .admin-max-body,
@@ -10826,6 +10858,113 @@ body.dashboard-max-open {
 
     100% {
         box-shadow: 0 0 0 0 rgba(251, 146, 60, 0);
+    }
+}
+
+.dashboard-modern .hero-missed-alert {
+    color: #7f1d1d;
+    box-shadow: 0 0 0 rgba(239, 68, 68, 0);
+    animation: dashboardMissedBlink 1.1s steps(2, end) infinite;
+    border: 1px solid #ef4444 !important;
+    appearance: none;
+    -webkit-appearance: none;
+    font: inherit;
+    cursor: pointer;
+}
+
+.dashboard-modern .hero-missed-alert.is-empty {
+    animation: dashboardMissedBlink 1.1s steps(2, end) infinite;
+    color: #7c2d12;
+    opacity: 0.92;
+}
+
+.dashboard-modern .hero-missed-alert button {
+    animation: none;
+}
+
+.dashboard-modern .dashboard-hero-missed-corner-wrap {
+    display: flex;
+    justify-content: flex-end;
+    width: 100%;
+    margin-bottom: 0.18rem;
+    pointer-events: none;
+}
+
+.dashboard-modern .dashboard-missed-strip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.3rem;
+    padding: 0.16rem 0.38rem !important;
+    min-height: 0;
+    overflow: hidden;
+    background: linear-gradient(90deg, #fff1f2 0%, #ffe4e6 100%) !important;
+    border-radius: 999px;
+    white-space: nowrap;
+    box-shadow: 0 4px 10px rgba(239, 68, 68, 0.14);
+    min-width: 0;
+    width: fit-content;
+    pointer-events: auto;
+    align-self: flex-end;
+}
+
+.dashboard-modern .dashboard-missed-strip-inner {
+    display: contents;
+}
+
+.dashboard-modern .dashboard-missed-strip-main {
+    display: none;
+}
+
+.dashboard-modern .dashboard-missed-strip-title {
+    font-size: 0.48rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #b91c1c;
+    line-height: 1;
+}
+
+.dashboard-modern .dashboard-missed-strip-count {
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    font-size: 0.7rem;
+    font-weight: 900;
+    color: #fff;
+    background: linear-gradient(180deg, #ef4444 0%, #b91c1c 100%);
+    box-shadow: 0 5px 12px rgba(239, 68, 68, 0.18);
+    animation: dashboardMissedCountBlink 1.1s steps(2, end) infinite;
+}
+
+@keyframes dashboardMissedBlink {
+    0%,
+    100% {
+        opacity: 1;
+        border-color: #ef4444;
+        box-shadow: 0 0 0 rgba(239, 68, 68, 0);
+    }
+
+    50% {
+        opacity: 0.62;
+        border-color: #b91c1c;
+        box-shadow: 0 0 18px rgba(239, 68, 68, 0.2);
+    }
+}
+
+@keyframes dashboardMissedCountBlink {
+    0%,
+    100% {
+        transform: scale(1);
+        filter: saturate(1);
+    }
+
+    50% {
+        transform: scale(0.94);
+        filter: saturate(1.2);
     }
 }
 

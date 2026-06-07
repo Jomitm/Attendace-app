@@ -3,7 +3,6 @@ import { AppDB } from './db.js';
 import { AppConfig } from '../config.js';
 
 const hasValidCoordinatePair = (lat, lng) => Number.isFinite(Number(lat)) && Number.isFinite(Number(lng));
-
 export class Attendance {
     async getStatus() {
         // If AppAuth is already syncing in realtime, AppAuth.getUser() is likely more up-to-date
@@ -84,7 +83,7 @@ export class Attendance {
         };
     }
 
-    async checkIn(latitude, longitude, address = 'Unknown Location') {
+    async checkIn(latitude, longitude, address = 'Unknown Location', options = {}) {
         const user = await (AppAuth.refreshCurrentUserFromDB
             ? AppAuth.refreshCurrentUserFromDB()
             : AppAuth.getUser());
@@ -210,6 +209,8 @@ export class Attendance {
             : (latitude && longitude ? `Lat: ${Number(latitude).toFixed(4)}, Lng: ${Number(longitude).toFixed(4)}` : 'Unknown Location');
 
         user.currentLocation = { lat: latitude, lng: longitude, address: locationString };
+        user.currentBudgetHeadId = String(options.budgetHeadId || user.currentBudgetHeadId || 'UNALLOCATED');
+        user.currentBudgetHeadUnallocatedReason = String(options.unallocatedReason || '');
 
         await AppDB.put('users', user);
         return {
@@ -361,6 +362,11 @@ export class Attendance {
             overtimeExplanation: options.overtimeExplanation || '',
             overtimeCappedToEightHours: !!options.overtimeCappedToEightHours,
             taskUpdates: Array.isArray(options.taskUpdates) ? options.taskUpdates : [],
+            budgetHeadId: String(options.budgetHeadId || user.currentBudgetHeadId || 'UNALLOCATED'),
+            budgetHeadUnallocatedReason: String(options.budgetHeadUnallocatedReason || ''),
+            validationStatus: String(options.validationStatus || 'compliant'),
+            validationErrors: Array.isArray(options.validationErrors) ? options.validationErrors : [],
+            taskUpdatesSubmittedAt: options.taskUpdatesSubmittedAt || null,
             entrySource: 'checkin_checkout',
             attendanceEligible: true,
             synced: false
@@ -379,6 +385,8 @@ export class Attendance {
         user.totalPausedMs = 0;
         user.pauseEvents = [];
         user.currentLocation = null;
+        user.currentBudgetHeadId = null;
+        user.currentBudgetHeadUnallocatedReason = '';
 
         await AppDB.put('users', user);
 

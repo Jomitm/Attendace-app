@@ -213,6 +213,7 @@ export function openPlanEditor(args) {
     });
 
     const grid = createElement('div', { className: 'plan-editor-grid' });
+    const budgetHeads = Array.isArray(window.app_budgetHeadsCache) ? window.app_budgetHeadsCache : [{ id: 'UNALLOCATED', code: 'UNALLOCATED', name: 'Unallocated / To Be Mapped' }];
 
     // Status Field
     const statusField = createElement('div', { className: 'plan-editor-field' });
@@ -225,6 +226,28 @@ export function openPlanEditor(args) {
         <option value="not-completed" ${planData.status === 'not-completed' ? 'selected' : ''}>Not Completing</option>
     `;
     statusField.appendChild(statusSelect);
+    grid.appendChild(statusField);
+
+    // Budget Head Field
+    const budgetField = createElement('div', { className: 'plan-editor-field' });
+    budgetField.innerHTML = '<label>Budget Head</label>';
+    const budgetSelect = createElement('select', { className: 'plan-editor-select' });
+    const currentBudgetHeadId = String(planData.budgetHeadId || AppAuth.getUser()?.currentBudgetHeadId || 'UNALLOCATED');
+    const sortedBudgetHeads = [...budgetHeads].sort((a, b) => {
+        if (String(a?.id || '') === 'UNALLOCATED') return -1;
+        if (String(b?.id || '') === 'UNALLOCATED') return 1;
+        const aLabel = `${String(a?.code || a?.id || '')} ${String(a?.name || '')}`.trim();
+        const bLabel = `${String(b?.code || b?.id || '')} ${String(b?.name || '')}`.trim();
+        return aLabel.localeCompare(bLabel, undefined, { numeric: true, sensitivity: 'base' });
+    });
+    sortedBudgetHeads.forEach((head) => {
+        const id = String(head.id || '');
+        const label = `${String(head.code || id)} - ${String(head.name || id)}`;
+        const opt = createElement('option', { textContent: label, attributes: { value: id, selected: id === currentBudgetHeadId } });
+        budgetSelect.appendChild(opt);
+    });
+    budgetField.appendChild(budgetSelect);
+    grid.appendChild(budgetField);
 
     // Only show Assignee Field for Admins
     let assignSelect = null;
@@ -260,6 +283,7 @@ export function openPlanEditor(args) {
                 ...planData,
                 task: taskText,
                 status: statusSelect.value,
+                budgetHeadId: String(budgetSelect.value || 'UNALLOCATED'),
                 assignedTo: assignSelect ? assignSelect.value : (planData.assignedTo || targetId),
                 tags: Array.isArray(planData.tags) ? planData.tags : []
             };
@@ -316,6 +340,7 @@ export function dayPlanRenderBlockV3(args) {
     const startDate = plan.startDate || '';
     const endDate = plan.endDate || '';
     const scope = String(plan.planScope || plan._planScope || defaultScope) === 'annual' ? 'annual' : 'personal';
+    const budgetHeadId = String(plan.budgetHeadId || AppAuth.getUser()?.currentBudgetHeadId || 'UNALLOCATED');
     const displayScope = isReference ? (plan.userName ? `${plan.userName}'s Plan` : 'Others Plan') : (scope === 'annual' ? 'Annual Plan' : 'Personal Plan');
     const summary = task.trim() ? (task.trim().length > 120 ? `${task.trim().slice(0, 120)}...` : task.trim()) : 'New task';
 
@@ -329,6 +354,7 @@ export function dayPlanRenderBlockV3(args) {
     hiddenInputs.innerHTML = `
         <textarea class="plan-task">${esc(task)}</textarea>
         <select class="plan-status"><option value="${esc(plan.status || '')}" selected></option></select>
+        <select class="plan-budget-head"><option value="${esc(budgetHeadId)}" selected></option></select>
         <select class="plan-scope"><option value="${esc(scope)}" selected></option></select>
         <select class="plan-assignee"><option value="${esc(assignedTo)}" selected></option></select>
         <input class="plan-start-date" value="${esc(startDate)}">
@@ -425,6 +451,7 @@ export function app_extractBlockData(block) {
     const task = block.querySelector('.plan-task')?.value || '';
     const status = block.querySelector('.plan-status')?.value || '';
     const planScope = block.querySelector('.plan-scope')?.value || 'personal';
+    const budgetHeadId = block.querySelector('.plan-budget-head')?.value || 'UNALLOCATED';
     const assignedTo = block.querySelector('.plan-assignee')?.value || '';
     const startDate = block.querySelector('.plan-start-date')?.value || '';
     const endDate = block.querySelector('.plan-end-date')?.value || '';
@@ -438,7 +465,7 @@ export function app_extractBlockData(block) {
         status: c.dataset.status
     }));
 
-    return { task, status, planScope, assignedTo, startDate, endDate, subPlans, tags, carryForwardRootId, isRemoved };
+    return { task, status, planScope, budgetHeadId, assignedTo, startDate, endDate, subPlans, tags, carryForwardRootId, isRemoved };
 }
 
 const isAutoForwardedTask = (task) => {
@@ -523,6 +550,7 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
             subPlans: [],
             tags: [],
             status: null,
+            budgetHeadId: AppAuth.getUser()?.currentBudgetHeadId || 'UNALLOCATED',
             assignedTo: targetId,
             startDate: date,
             endDate: date,

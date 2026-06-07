@@ -32,6 +32,7 @@ function getTeamActivitiesState() {
             staffIds: [],
             status: 'all',
             type: 'all',
+            budgetHead: 'all',
             search: '',
             sortKey: 'date-desc',
             page: 1,
@@ -48,12 +49,18 @@ function getTeamActivitiesState() {
             columnVisibility: {
                 type: true,
                 status: true,
-                sourceTime: true
+                sourceTime: true,
+                budgetHead: true,
+                compliance: true
             },
             users: [],
             data: [],
+            overdueRows: [],
+            overdueCount: 0,
             filtered: [],
-            lastRefreshed: null
+            lastRefreshed: null,
+            missedCheckoutRows: [],
+            missedCheckoutCount: 0
         };
     }
     return window.app_teamActivitiesState;
@@ -91,7 +98,10 @@ function normalizeActivityRows(rows) {
             planScope: row.planScope || 'personal',
             progressPercent: Number.isFinite(Number(row.progressPercent)) ? Number(row.progressPercent) : null,
             progressStatus: row.progressStatus || '',
-            progressNote: row.progressNote || ''
+            progressNote: row.progressNote || '',
+            budgetHeadId: row.budgetHeadId || 'UNALLOCATED',
+            validationStatus: row.validationStatus || 'unknown',
+            validationErrors: Array.isArray(row.validationErrors) ? row.validationErrors : []
         };
     });
 }
@@ -180,6 +190,7 @@ function applyFilters(state) {
     const staffIds = new Set(state.staffIds || []);
     const status = state.status;
     const type = state.type;
+    const budgetHead = String(state.budgetHead || 'all');
     const col = state.columnFilters || {};
     const colDate = String(col.date || '').trim();
     const colStaff = String(col.staff || '').trim().toLowerCase();
@@ -191,6 +202,7 @@ function applyFilters(state) {
     let filtered = state.data.filter(row => {
         if (staffIds.size && !staffIds.has(row.userId)) return false;
         if (type !== 'all' && row.type !== type) return false;
+        if (budgetHead !== 'all' && String(row.budgetHeadId || 'UNALLOCATED') !== budgetHead) return false;
         if (status !== 'all' && String(row.status || '').toLowerCase() !== status) return false;
         if (search) {
             const hay = `${row.date} ${row.staffName} ${row.description} ${row.status} ${row.type}`.toLowerCase();
@@ -302,6 +314,14 @@ function renderColumnsPanel(state) {
                 <input type="checkbox" data-column="sourceTime" ${vis.sourceTime ? 'checked' : ''}>
                 <span>Time</span>
             </label>
+            <label class="team-activities-checkbox">
+                <input type="checkbox" data-column="budgetHead" ${vis.budgetHead ? 'checked' : ''}>
+                <span>Budget Head</span>
+            </label>
+            <label class="team-activities-checkbox">
+                <input type="checkbox" data-column="compliance" ${vis.compliance ? 'checked' : ''}>
+                <span>Compliance</span>
+            </label>
         </div>
     `;
 }
@@ -331,6 +351,8 @@ function renderTable(state) {
         ${vis.type ? `<th data-sort="type" data-sort-alt="type-desc">${renderSortLabel('Type', 'type', 'type-desc', state)}</th>` : ''}
         ${vis.status ? `<th data-sort="status" data-sort-alt="status-desc">${renderSortLabel('Status', 'status', 'status-desc', state)}</th>` : ''}
         <th data-sort="description" data-sort-alt="description-desc">${renderSortLabel('Description', 'description', 'description-desc', state)}</th>
+        ${vis.budgetHead ? `<th>Budget Head</th>` : ''}
+        ${vis.compliance ? `<th>Compliance</th>` : ''}
         ${vis.sourceTime ? `<th data-sort="time" data-sort-alt="time-desc">${renderSortLabel('Time', 'time', 'time-desc', state)}</th>` : ''}
         <th data-sort="actions" data-sort-alt="actions-desc">${renderSortLabel('Actions', 'actions', 'actions-desc', state)}</th>
     `;
@@ -364,6 +386,8 @@ function renderTable(state) {
             ${vis.type ? `<td class="team-activities-type">${safeHtml(row.type)}</td>` : ''}
             ${vis.status ? `<td><span class="team-activities-status status-${safeHtml(statusClass)}">${safeHtml(row.status)}</span></td>` : ''}
             <td class="team-activities-desc">${safeHtml(row.description)}${progressBadge}</td>
+            ${vis.budgetHead ? `<td>${safeHtml(row.budgetHeadId || 'UNALLOCATED')}</td>` : ''}
+            ${vis.compliance ? `<td>${safeHtml(String(row.validationStatus || 'unknown'))}${(row.validationErrors || []).length ? ` <span title="${safeHtml((row.validationErrors || []).join(' | '))}" style="color:#b45309;">(${(row.validationErrors || []).length})</span>` : ''}</td>` : ''}
             ${vis.sourceTime ? `<td>${safeHtml(row.sourceTime || '--')}</td>` : ''}
             <td>
                 <div class="team-activities-row-actions">
@@ -404,8 +428,6 @@ function renderTable(state) {
     const selectHead = canAdminDelete
         ? `<th class="team-activities-select-col"><input type="checkbox" data-select-visible ${selectableRows.length ? '' : 'disabled'} ${allVisibleSelected ? 'checked' : ''}></th>`
         : '<th class="team-activities-select-col"></th>';
-
-    const filterRow = '';
 
     return `
         ${bulkBar}
@@ -502,6 +524,14 @@ async function refreshData() {
             sideEffects: false
         });
         state.data = normalizeActivityRows(rows);
+        state.overdueRows = (state.data || []).filter(row => String(row.status || '').toLowerCase() === 'overdue');
+        state.overdueCount = state.overdueRows.length;
+        window.app_teamActivitiesOverdueRows = state.overdueRows;
+        window.app_teamActivitiesOverdueCount = state.overdueCount;
+        state.missedCheckoutRows = state.overdueRows.slice();
+        state.missedCheckoutCount = state.overdueCount;
+        window.app_teamActivitiesOverdueRows = state.overdueRows;
+        window.app_teamActivitiesOverdueCount = state.overdueCount;
         state.lastRefreshed = Date.now();
         state.page = 1;
         state.selectedKeys = [];
@@ -521,6 +551,7 @@ function updateStateFromFilters() {
     const statusSelect = document.getElementById('team-activities-status');
     const searchInput = document.getElementById('team-activities-search');
     const pageSizeSelect = document.getElementById('team-activities-page-size');
+    const budgetHeadSelect = document.getElementById('team-activities-budget-head');
 
     if (startInput) state.startIso = startInput.value || state.startIso;
     if (endInput) state.endIso = endInput.value || state.endIso;
@@ -528,6 +559,7 @@ function updateStateFromFilters() {
     if (statusSelect) state.status = statusSelect.value || 'all';
     if (searchInput) state.search = searchInput.value || '';
     if (pageSizeSelect) state.pageSize = Number(pageSizeSelect.value) || DEFAULT_PAGE_SIZE;
+    if (budgetHeadSelect) state.budgetHead = budgetHeadSelect.value || 'all';
 
     state.page = 1;
     updateUI();
@@ -644,6 +676,9 @@ function bindEvents() {
         } else if (target.matches('#team-activities-type, #team-activities-status, #team-activities-page-size')) {
             updateStateFromFilters();
         }
+        else if (target.matches('#team-activities-budget-head')) {
+            updateStateFromFilters();
+        }
         if (target.matches('#team-activities-columns-popover input[type="checkbox"]')) {
             const col = target.getAttribute('data-column');
             if (col) state.columnVisibility[col] = target.checked;
@@ -716,13 +751,16 @@ function bindEvents() {
 }
 
 function buildCSV(rows) {
-    const headers = ['Date', 'Staff', 'Type', 'Status', 'Description', 'Time'];
+    const headers = ['Date', 'Staff', 'Type', 'Status', 'Description', 'Budget Head', 'Validation Status', 'Validation Errors', 'Time'];
     const lines = rows.map(r => [
         r.date,
         r.staffName,
         r.type,
         r.status,
         r.description,
+        r.budgetHeadId || 'UNALLOCATED',
+        r.validationStatus || 'unknown',
+        Array.isArray(r.validationErrors) ? r.validationErrors.join(' | ') : '',
         r.sourceTime
     ].map(val => `"${String(val || '').replace(/"/g, '""')}"`).join(','));
     return [headers.join(','), ...lines].join('\n');
@@ -765,6 +803,7 @@ if (typeof window !== 'undefined') {
         state.staffIds = [];
         state.status = 'all';
         state.type = 'all';
+        state.budgetHead = 'all';
         state.search = '';
         state.columnFilters = { date: '', staff: '', description: '', time: '', type: '', status: '' };
         state.sortKey = 'date-desc';
@@ -777,12 +816,14 @@ if (typeof window !== 'undefined') {
         const statusSelect = document.getElementById('team-activities-status');
         const searchInput = document.getElementById('team-activities-search');
         const pageSizeSelect = document.getElementById('team-activities-page-size');
+        const budgetHeadSelect = document.getElementById('team-activities-budget-head');
         if (startInput) startInput.value = state.startIso;
         if (endInput) endInput.value = state.endIso;
         if (typeSelect) typeSelect.value = 'all';
         if (statusSelect) statusSelect.value = 'all';
         if (searchInput) searchInput.value = '';
         if (pageSizeSelect) pageSizeSelect.value = String(DEFAULT_PAGE_SIZE);
+        if (budgetHeadSelect) budgetHeadSelect.value = 'all';
         updateUI();
         refreshData();
     };
@@ -993,6 +1034,12 @@ export async function renderTeamActivitiesPage() {
     const state = getTeamActivitiesState();
     const currentUser = window.AppAuth?.getUser ? window.AppAuth.getUser() : null;
     const isAdmin = !!(currentUser && (currentUser.role === 'Administrator' || currentUser.isAdmin));
+    const budgetHeads = (window.app_budgetHeadsCache || [{ id: 'UNALLOCATED', code: 'UNALLOCATED', name: 'Unallocated / To Be Mapped' }]);
+    const budgetHeadOptions = ['<option value="all">All budget heads</option>', ...budgetHeads.map((head) => {
+        const id = String(head.id || '');
+        const sel = id === String(state.budgetHead || 'all') ? 'selected' : '';
+        return `<option value="${safeHtml(id)}" ${sel}>${safeHtml(String(head.code || id))}</option>`;
+    })].join('');
     return `
         <div class="team-activities-page">
             <div class="team-activities-header">
@@ -1022,6 +1069,10 @@ export async function renderTeamActivitiesPage() {
                 <div class="team-activities-filter-group">
                     <label>Search</label>
                     <input type="text" id="team-activities-search" placeholder="Search by staff, description, date...">
+                </div>
+                <div class="team-activities-filter-group">
+                    <label>Budget Head</label>
+                    <select id="team-activities-budget-head">${budgetHeadOptions}</select>
                 </div>
             </div>
             <div id="team-activities-loading" class="team-activities-loading">Loading data...</div>

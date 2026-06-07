@@ -20,6 +20,31 @@ export class Leaves {
         };
     }
 
+    mergeHeroPolicy(overrides = {}) {
+        const base = AppConfig?.HERO_POLICY || {};
+        const stored = overrides && typeof overrides === 'object' ? overrides : {};
+        return {
+            ...base,
+            ...stored,
+            WEIGHTS: {
+                ...(base.WEIGHTS || {}),
+                ...(stored.WEIGHTS || {})
+            },
+            ATTENDANCE_MODIFIER: {
+                ...(base.ATTENDANCE_MODIFIER || {}),
+                ...(stored.ATTENDANCE_MODIFIER || {})
+            },
+            CAPS: {
+                ...(base.CAPS || {}),
+                ...(stored.CAPS || {})
+            },
+            MIN_EVIDENCE: {
+                ...(base.MIN_EVIDENCE || {}),
+                ...(stored.MIN_EVIDENCE || {})
+            }
+        };
+    }
+
     dedupeLeaves(leaves = []) {
         const unique = new Map();
         (Array.isArray(leaves) ? leaves : []).forEach((leave) => {
@@ -92,9 +117,15 @@ export class Leaves {
             } else {
                 this.cache.policy = this.defaultPolicy;
             }
+            if (typeof window !== 'undefined') {
+                window.AppHeroPolicy = this.mergeHeroPolicy(this.cache.policy.heroPolicy || {});
+            }
         } catch (e) {
             console.warn("Failed to fetch dynamic policy, using default.", e);
             this.cache.policy = this.defaultPolicy;
+            if (typeof window !== 'undefined') {
+                window.AppHeroPolicy = this.mergeHeroPolicy();
+            }
         }
         return this.cache.policy;
     }
@@ -104,6 +135,9 @@ export class Leaves {
             if (window.AppFirestore) {
                 await window.AppFirestore.collection('settings').doc('policies').set(newPolicy, { merge: true });
                 this.cache.policy = null;
+                if (typeof window !== 'undefined' && newPolicy?.heroPolicy) {
+                    window.AppHeroPolicy = this.mergeHeroPolicy(newPolicy.heroPolicy);
+                }
                 return true;
             }
             throw new Error("Database not connected");
@@ -427,3 +461,10 @@ export class Leaves {
 
 export const AppLeaves = new Leaves();
 if (typeof window !== 'undefined') window.AppLeaves = AppLeaves;
+if (typeof window !== 'undefined') {
+    Promise.resolve()
+        .then(() => AppLeaves.getPolicy())
+        .catch(() => {
+            window.AppHeroPolicy = AppLeaves.mergeHeroPolicy();
+        });
+}

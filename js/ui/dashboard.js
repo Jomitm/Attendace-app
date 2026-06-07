@@ -343,6 +343,174 @@ function getWeekRange(dateStr) {
     };
 }
 
+function getCurrentWeekOverdueWorkLogs(logs, targetStaffId, weekRange) {
+    const startKey = String(weekRange?.startKey || '');
+    const endKey = String(weekRange?.endKey || '');
+    const selectedStaffId = String(targetStaffId || '');
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const isOpenTask = (statusValue = '') => !['completed', 'not-completed', 'cancelled', 'canceled', 'removed'].includes(String(statusValue || '').toLowerCase());
+    const isVisibleMissedStatus = (statusValue = '') => {
+        const normalized = String(statusValue || '').toLowerCase();
+        return ['overdue', 'missed', 'postponed', 'in-process', 'in process', 'pending', 'to-be-started', 'to be started', 'not-completed'].includes(normalized);
+    };
+    const flattened = [];
+    (Array.isArray(logs) ? logs : []).forEach((entry) => {
+        if (!entry) return;
+        if (Array.isArray(entry.plans)) {
+            const userId = String(entry.userId || entry.user_id || '');
+            entry.plans.forEach((plan, index) => {
+                if (!plan) return;
+                const dateKey = String(entry.date || '');
+                const rawStatus = String(plan.status || '').toLowerCase();
+                const smartStatus = window.AppCalendar ? window.AppCalendar.getSmartTaskStatus(dateKey, rawStatus) : rawStatus;
+                const isPastDue = dateKey && dateKey < todayKey;
+                const status = rawStatus === 'postponed'
+                    ? 'postponed'
+                    : (smartStatus === 'overdue' || (isPastDue && isOpenTask(rawStatus)))
+                        ? 'overdue'
+                        : smartStatus;
+                if (!isVisibleMissedStatus(status)) return;
+                flattened.push({
+                    userId,
+                    date: dateKey,
+                    status,
+                    description: String(plan.task || 'Overdue work'),
+                    sourceTime: String(plan.checkOut || plan._sortTime || ''),
+                    planScope: String(plan.planScope || entry.planScope || 'personal'),
+                    planId: String(entry.id || ''),
+                    taskIndex: Number.isFinite(Number(index)) ? index : 0
+                });
+            });
+            return;
+        }
+        flattened.push({
+            userId: String(entry.userId || entry.user_id || ''),
+            date: String(entry.date || ''),
+            status: String(entry.status || '').toLowerCase(),
+            description: String(entry.description || entry.workDescription || entry.task || 'Overdue work'),
+            sourceTime: String(entry.sourceTime || entry.checkOut || ''),
+            planScope: String(entry.planScope || 'personal'),
+            planId: String(entry.planId || entry.id || ''),
+            taskIndex: Number.isFinite(Number(entry.taskIndex)) ? Number(entry.taskIndex) : 0
+        });
+    });
+
+    return flattened
+        .filter((log) => {
+            if (!log) return false;
+            if (selectedStaffId && String(log.userId || log.user_id || '') !== selectedStaffId) return false;
+            const dateKey = String(log.date || '');
+            if (startKey && dateKey < startKey) return false;
+            if (endKey && dateKey > endKey) return false;
+            return String(log.status || '').toLowerCase() === 'overdue';
+        })
+        .sort((a, b) => {
+            const dateDiff = String(b.date || '').localeCompare(String(a.date || ''));
+            if (dateDiff !== 0) return dateDiff;
+            return String(a.description || '').localeCompare(String(b.description || ''));
+        });
+}
+
+function getCurrentWeekOverdueTaskRows(activityRows, targetStaffId, weekRange) {
+    const startKey = String(weekRange?.startKey || '');
+    const endKey = String(weekRange?.endKey || '');
+    const selectedStaffId = String(targetStaffId || '');
+    const sourceRows = Array.isArray(window.app_teamActivitiesOverdueRows) && window.app_teamActivitiesOverdueRows.length
+        ? window.app_teamActivitiesOverdueRows
+        : (Array.isArray(activityRows) ? activityRows : []);
+    return sourceRows
+        .filter((row) => {
+            if (!row) return false;
+            const rowUserId = String(row.userId || row.user_id || '');
+            if (selectedStaffId && rowUserId !== selectedStaffId) return false;
+            const dateKey = String(row.date || '');
+            if (startKey && dateKey < startKey) return false;
+            if (endKey && dateKey > endKey) return false;
+            return String(row.status || '').toLowerCase() === 'overdue';
+        })
+        .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+}
+
+function renderCurrentWeekOverdueTaskStrip(overdueLogs) {
+    const count = Array.isArray(overdueLogs) ? overdueLogs.length : 0;
+    const preview = (Array.isArray(overdueLogs) ? overdueLogs : [])
+        .slice(0, 3)
+        .map((row) => `${String(row.staffName || 'Staff')}: ${String(row.description || 'Overdue task')}`)
+        .join(' • ');
+    const tooltip = count
+        ? `${count} missed task${count === 1 ? '' : 's'}${preview ? ` • ${preview}` : ''}`
+        : 'No missed tasks';
+    return `
+        <button type="button" class="dashboard-missed-strip hero-missed-alert" aria-label="Missed tasks count" title="${safeHtml(tooltip)}" onclick="window.app_openTeamActivities?.()">
+            <div class="dashboard-missed-strip-title">Missed Tasks</div>
+            <div class="dashboard-missed-strip-count">${count}</div>
+        </button>
+    `;
+}
+
+function renderCurrentWeekOverdueWorksModalContent(context = {}) {
+    const logs = Array.isArray(context.logs) ? context.logs : [];
+    const targetStaff = context.targetStaff || {};
+    const weekRange = context.weekRange || {};
+    const staffName = targetStaff?.name || 'Staff';
+    const label = weekRange?.label || 'Current week';
+
+    const rows = logs.map((log, index) => `
+        <div class="hero-task-item">
+            <div class="hero-task-item-main">
+                <div class="hero-task-item-title">${index + 1}. ${safeHtml(log.description || 'Overdue work')}</div>
+                <div class="hero-task-item-subplans">${safeHtml(log.type || 'work')} • ${safeHtml(log.date || '--')}${log.sourceTime ? ` • ${safeHtml(log.sourceTime)}` : ''}</div>
+                <div class="hero-task-item-meta">
+                    ${renderTaskStatusBadge(log.status)}
+                    ${log.planScope ? `<span class="hero-task-item-chip">${safeHtml(log.planScope)}</span>` : ''}
+                </div>
+            </div>
+            <div class="hero-task-item-actions">
+                ${log.date ? `<button type="button" class="action-btn secondary" onclick="window.app_openDayPlan?.('${escapeJsSingleQuote(String(log.date || ''))}','${escapeJsSingleQuote(String(targetStaff?.id || ''))}')">Open Day Plan</button>` : ''}
+            </div>
+        </div>
+    `).join('');
+
+    return `
+        <div class="hero-task-modal-head">
+            <div>
+                <h3>Works Overdue</h3>
+                <p>${safeHtml(staffName)} • ${safeHtml(label)}</p>
+            </div>
+            <button type="button" class="dashboard-max-close" onclick="window.app_closeCurrentWeekOverdueWorksModal?.()" aria-label="Close overdue works">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <div class="hero-task-modal-body">
+            ${rows || '<div class="dashboard-activity-empty">No overdue work found for this week.</div>'}
+        </div>
+    `;
+}
+
+window.app_openCurrentWeekOverdueWorksModal = function () {
+    const context = window.app_currentWeekOverdueWorkContext || {};
+    const modalId = 'current-week-overdue-modal';
+    document.getElementById(modalId)?.remove();
+    if (!Array.isArray(context.logs) || context.logs.length === 0) return;
+
+    const html = `
+        <div class="modal-overlay" id="${modalId}" style="display:flex;">
+            <div class="modal-content hero-task-modal-shell" style="max-width:760px;">
+                ${renderCurrentWeekOverdueWorksModalContent(context)}
+            </div>
+        </div>
+    `;
+    if (typeof window.app_showModal === 'function') {
+        window.app_showModal(html, modalId);
+        return;
+    }
+    (document.getElementById('modal-container') || document.body).insertAdjacentHTML('beforeend', html);
+};
+
+window.app_closeCurrentWeekOverdueWorksModal = function () {
+    document.getElementById('current-week-overdue-modal')?.remove();
+};
+
 let dashboardActionDelegatesBound = false;
 
 function ensureDashboardActionDelegates() {
@@ -1238,7 +1406,7 @@ export function renderMissedCheckoutRequests(items) {
     if (!items || items.length === 0) {
         return `
             <div class="card full-width dashboard-tagged-card">
-                <div class="dashboard-tagged-head"><h4>Missed Checkout Requests</h4><span>Pending admin review</span></div>
+                <div class="dashboard-tagged-head"><h4>Missed Tasks Requests</h4><span>Pending admin review</span></div>
                 <div class="dashboard-tagged-list">
                     <div class="dashboard-activity-empty">No missed checkout requests waiting for review.</div>
                 </div>
@@ -1247,7 +1415,7 @@ export function renderMissedCheckoutRequests(items) {
 
     return `
         <div class="card full-width dashboard-tagged-card">
-            <div class="dashboard-tagged-head"><h4>Missed Checkout Requests</h4><span>Pending admin review</span></div>
+            <div class="dashboard-tagged-head"><h4>Missed Tasks Requests</h4><span>Pending admin review</span></div>
             <div class="dashboard-tagged-list">
                 ${items.map((item) => `
                     <div class="dashboard-tagged-item">
@@ -1335,12 +1503,12 @@ export function renderNotificationPanel(_notifications, _history) {
     return '';
 }
 
-export function renderTaggedItems(notifications) {
+export function renderTaggedItems(_notifications) {
     // Tagged items are intentionally shown only in the notification drawer.
     return '';
 }
 
-export function renderStaffDirectory(allUsers, notifications, currentUser) {
+export function renderStaffDirectory(allUsers, _notifications, currentUser) {
     if (!allUsers || allUsers.length === 0) {
         return `
             <div class="card dashboard-staff-directory-card">
@@ -1505,7 +1673,7 @@ export async function renderDashboard() {
     const currentWeekRange = getWeekRange(leaveHistoryDate);
 
     // Parallel Fetch
-    const [status, logs, monthlyStats, yearlyStats, heroDataRaw, heroLeaderboardData, calendarPlans, staffActivitiesRaw, pendingLeaves, allUsers, collaborations, allLeaves, dailySummary, minutesData, attendanceLogs, weeklyAttendanceLogs] = await Promise.all([
+    const [status, logs, monthlyStats, yearlyStats, heroDataRaw, heroLeaderboardData, calendarPlans, staffActivitiesRaw, pendingLeaves, allUsers, collaborations, allLeaves, dailySummary, minutesData, attendanceLogs, weeklyAttendanceLogs, currentWeekWorkPlans] = await Promise.all([
         window.AppAttendance.getStatus(),
         window.AppAttendance.getLogs(targetStaffId),
         window.AppAnalytics.getUserMonthlyStats(targetStaffId),
@@ -1539,7 +1707,16 @@ export async function renderDashboard() {
                     const d = String(row?.date || '');
                     return d >= currentWeekRange.startKey && d <= currentWeekRange.endKey;
                 })))
-            : Promise.resolve([])
+            : Promise.resolve([]),
+        window.AppDB.queryMany
+            ? window.AppDB.queryMany('work_plans', [
+                { field: 'date', operator: '>=', value: currentWeekRange.startKey },
+                { field: 'date', operator: '<=', value: currentWeekRange.endKey }
+            ])
+            : window.AppDB.getAll('work_plans').then((rows) => (rows || []).filter((row) => {
+                const d = String(row?.date || '');
+                return d >= currentWeekRange.startKey && d <= currentWeekRange.endKey;
+            }))
     ]);
     console.timeEnd('DashboardFetch');
 
@@ -1563,6 +1740,11 @@ export async function renderDashboard() {
     }
 
     const heroHTML = renderHeroCard(heroData, heroMeta);
+    const overdueTaskStripHTML = renderCurrentWeekOverdueTaskStrip(
+        (window.app_currentWeekOverdueTaskContext?.logs || []),
+        (window.app_currentWeekOverdueTaskContext?.targetStaff || user),
+        (window.app_currentWeekOverdueTaskContext?.weekRange || {})
+    );
 
     // Update hero card if sharedSummaryTask was slow.
     // If it resolves without hero, optionally run one guarded fallback direct read (once/day).
@@ -1728,6 +1910,18 @@ export async function renderDashboard() {
 
     const isViewingSelf = targetStaffId === user.id;
     const displayUser = (!isViewingSelf && targetStaff) ? targetStaff : user;
+    const currentWeekOverdueLogs = getCurrentWeekOverdueWorkLogs(currentWeekWorkPlans, targetStaffId, currentWeekRange);
+    const currentWeekOverdueTaskRows = getCurrentWeekOverdueTaskRows(currentWeekWorkPlans, targetStaffId, currentWeekRange);
+    window.app_currentWeekOverdueWorkContext = {
+        logs: currentWeekOverdueLogs,
+        targetStaff: displayUser,
+        weekRange: currentWeekRange
+    };
+    window.app_currentWeekOverdueTaskContext = {
+        logs: currentWeekOverdueTaskRows,
+        targetStaff: displayUser,
+        weekRange: currentWeekRange
+    };
     const isReadOnlyView = isAdmin && !isViewingSelf && !isFullAdmin;
     const now = new Date();
     const monthlyStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -1872,7 +2066,6 @@ export async function renderDashboard() {
 
     let summaryHTML = '';
     const renderYearlyPlanHTML = renderYearlyPlan(calendarPlans);
-
     if (isAdmin) {
         const hasExplicitSelection = !!window.app_selectedSummaryStaffId && window.app_selectedSummaryStaffId !== user.id;
         const weekRange = getWeekRange(leaveHistoryDate);
@@ -1898,7 +2091,11 @@ export async function renderDashboard() {
         summaryHTML = `
             <div class="dashboard-summary-row">
                 <div style="flex: 2; min-width: 350px; display: flex; flex-direction: column;">${renderLeaveRequests(pendingLeaves, workFromHomeRows)}${renderMissedCheckoutRequests(missedCheckoutRequests)}${historyHTML}</div>
-                <div style="flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 1rem;">${renderYearlyPlanHTML}${heroHTML}</div>
+                <div style="flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 1rem;">
+                    ${renderYearlyPlanHTML}
+                    <div class="dashboard-hero-missed-corner-wrap">${overdueTaskStripHTML}</div>
+                    ${heroHTML}
+                </div>
             </div>
             <div class="dashboard-stats-row">
                 ${renderStatsCard(isViewingSelf ? monthlyStats.label : `${monthlyStats.label} - ${targetStaff?.name || 'Staff'}`, isViewingSelf ? 'Monthly Stats' : 'Viewing Staff Monthly Stats', monthlyStats, 'monthly')}
@@ -1908,7 +2105,10 @@ export async function renderDashboard() {
         summaryHTML = `
             <div class="dashboard-summary-row">
                 <div class="dashboard-summary-col dashboard-summary-col-wide">${renderActivityLog(staffActivities)}</div>
-                <div class="dashboard-summary-col dashboard-summary-col-narrow">${heroHTML}</div>
+                <div class="dashboard-summary-col dashboard-summary-col-narrow">
+                    <div class="dashboard-hero-missed-corner-wrap">${overdueTaskStripHTML}</div>
+                    ${heroHTML}
+                </div>
             </div>
             <div class="dashboard-stats-row">
                 ${renderStatsCard(monthlyStats.label, 'Monthly Stats', monthlyStats, 'monthly')}

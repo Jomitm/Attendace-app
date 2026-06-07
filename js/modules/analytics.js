@@ -769,7 +769,7 @@ export class Analytics {
     }
 
     getHeroPolicy() {
-        return AppConfig?.HERO_POLICY || {};
+        return window.AppHeroPolicy || AppConfig?.HERO_POLICY || {};
     }
 
     getHeroScoreRange(baseDate = null) {
@@ -796,6 +796,8 @@ export class Analytics {
             taskCompleted: 0,
             taskInProgress: 0,
             taskMissed: 0,
+            taskPostponed: 0,
+            taskPlanningScore: 0,
             completionRate: 0,
             taskScore: 0,
             attendanceFactor: Number((this.getHeroPolicy()?.ATTENDANCE_MODIFIER?.base ?? 0.9).toFixed(3)),
@@ -996,6 +998,7 @@ export class Analytics {
         const wTaskCompletionRate = Number(weights.taskCompletionRate ?? 0.2);
         const wTaskInProgressSupport = Number(weights.taskInProgressSupport ?? 0.1);
         const wTaskMissPenalty = Number(weights.taskMissPenalty ?? 0.1);
+        const wTaskPlanning = Number(weights.taskPlanning ?? 0.08);
 
         const modifierBase = Number(attendanceModifier.base ?? 0.9);
         const modifierMaxBonus = Number(attendanceModifier.maxBonus ?? 0.15);
@@ -1004,6 +1007,7 @@ export class Analytics {
 
         const attendanceMap = new Map(attendanceStats.map((row) => [String(row.userId), row]));
         const allUserIds = new Set([...attendanceMap.keys(), ...taskStats.keys()]);
+        const maxPlannedTasks = Math.max(1, ...Array.from(taskStats.values(), (tasks) => Math.max(0, Number(tasks?.planned) || 0)));
 
         return Array.from(allUserIds).map((userId) => {
             const attendance = attendanceMap.get(String(userId)) || {
@@ -1023,6 +1027,7 @@ export class Analytics {
             const missed = Math.max(0, Number(tasks.missed) || 0);
             const penaltyMissed = missed + postponed;
             const completionRate = planned > 0 ? (completed / planned) * 100 : 0;
+            const planningScore = Math.max(0, Math.min(100, (planned / maxPlannedTasks) * 100));
 
             const taskExecutionScore = planned > 0
                 ? Math.max(0, Math.min(100, ((completed + (inProgress * 0.5) - penaltyMissed) / planned) * 100))
@@ -1035,7 +1040,8 @@ export class Analytics {
             const taskScore = (taskExecutionScore * wTaskExecution)
                 + (completionRate * wTaskCompletionRate)
                 + (inProgressScore * wTaskInProgressSupport)
-                - (missPenaltyScore * wTaskMissPenalty);
+                - (missPenaltyScore * wTaskMissPenalty)
+                + (planningScore * wTaskPlanning);
             const attendanceReliability = ((consistencyScore / 100) * modifierConsistencyImpact)
                 + ((effortScore / 100) * modifierEffortImpact);
             const attendanceBoost = Math.max(0, Math.min(modifierMaxBonus, attendanceReliability * modifierMaxBonus));
@@ -1053,6 +1059,7 @@ export class Analytics {
                 taskInProgress: inProgress,
                 taskMissed: missed,
                 taskPostponed: postponed,
+                taskPlanningScore: Number(planningScore.toFixed(1)),
                 completionRate: Number(completionRate.toFixed(1)),
                 taskScore: Number(Math.max(0, taskScore).toFixed(2)),
                 attendanceFactor: Number(attendanceFactor.toFixed(3)),
@@ -1284,8 +1291,10 @@ export class Analytics {
         const completed = Number(stats?.taskCompleted || 0);
         const inProgress = Number(stats?.taskInProgress || 0);
         const missed = Number(stats?.taskMissed || 0);
+        const planningScore = Number(stats?.taskPlanningScore || 0);
         const completionRate = planned > 0 ? (completed / planned) * 100 : 0;
         const attendanceFactor = Number(stats?.attendanceFactor || 1);
+        if (planned >= 5 && planningScore >= 80 && completionRate >= 70) return "Committed Planner";
         if (planned >= 6 && completionRate >= 80) return "Execution Champion";
         if (completed >= 4 && inProgress >= 2) return "Delivery Momentum";
         if (completionRate >= 70 && attendanceFactor >= 1) return "Reliable Executor";

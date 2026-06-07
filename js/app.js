@@ -64,6 +64,105 @@ const LOCATION_STALE_FALLBACK_TIME = 600000; // 10 minutes fallback when live lo
 const CHECKOUT_LOCATION_FRESH_MS = 120000; // Reuse GPS captured during the checkout modal for 2 minutes
 let checkoutLocationSession = null;
 window.app_annualYear = new Date().getFullYear();
+const APP_UNALLOCATED_BUDGET_HEAD = Object.freeze({
+    id: 'UNALLOCATED',
+    code: 'UNALLOCATED',
+    name: 'Unallocated / To Be Mapped',
+    status: 'active',
+    system: true
+});
+
+const app_normalizeBudgetHeadId = (value) => {
+    const raw = String(value || '').trim();
+    return raw || APP_UNALLOCATED_BUDGET_HEAD.id;
+};
+
+window.app_getActiveBudgetHeads = async function () {
+    const rows = await window.AppDB.getAll('budget_heads').catch(() => []);
+    const normalized = Array.isArray(rows) ? rows
+        .filter((row) => String(row?.status || 'active').toLowerCase() !== 'inactive')
+        .map((row) => ({
+            id: String(row.id || row.code || '').trim(),
+            code: String(row.code || row.id || '').trim(),
+            name: String(row.name || row.code || row.id || '').trim(),
+            status: String(row.status || 'active').toLowerCase(),
+            parentId: String(row.parentId || '').trim()
+        }))
+        .filter((row) => !!row.id) : [];
+    const hasUnallocated = normalized.some((row) => row.id === APP_UNALLOCATED_BUDGET_HEAD.id);
+    if (!hasUnallocated) normalized.unshift({ ...APP_UNALLOCATED_BUDGET_HEAD });
+    const byParent = new Map();
+    normalized.forEach((row) => {
+        const parentKey = row.parentId || '';
+        if (!byParent.has(parentKey)) byParent.set(parentKey, []);
+        byParent.get(parentKey).push(row);
+    });
+    byParent.forEach((list) => list.sort((a, b) => String(a.code || a.id).localeCompare(String(b.code || b.id))));
+    const ordered = [];
+    const visit = (parentId, depth, trail = new Set()) => {
+        const children = byParent.get(parentId) || [];
+        for (const child of children) {
+            const childId = String(child.id || '');
+            if (!childId || trail.has(childId)) continue;
+            ordered.push({ ...child, depth });
+            const nextTrail = new Set(trail);
+            nextTrail.add(childId);
+            visit(childId, depth + 1, nextTrail);
+        }
+    };
+    visit('', 0);
+    // Include orphans with invalid parent links.
+    normalized.forEach((row) => {
+        if (!ordered.some((x) => x.id === row.id)) {
+            ordered.push({ ...row, depth: 0 });
+        }
+    });
+    return ordered;
+};
+
+window.app_ensureBudgetHeadCatalog = async function () {
+    const existing = await window.AppDB.get('budget_heads', APP_UNALLOCATED_BUDGET_HEAD.id).catch(() => null);
+    if (!existing) {
+        await window.AppDB.put('budget_heads', {
+            ...APP_UNALLOCATED_BUDGET_HEAD,
+            owner: 'system',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        }).catch(() => null);
+    }
+};
+
+window.app_getBudgetHeadLabel = async function (budgetHeadId) {
+    const normalizedId = app_normalizeBudgetHeadId(budgetHeadId);
+    if (normalizedId === APP_UNALLOCATED_BUDGET_HEAD.id) return APP_UNALLOCATED_BUDGET_HEAD.name;
+    const row = await window.AppDB.get('budget_heads', normalizedId).catch(() => null);
+    return row?.name || row?.code || normalizedId;
+};
+
+window.app_renderBudgetHeadOptions = function (selectedId = '') {
+    const heads = Array.isArray(window.app_budgetHeadsCache) ? window.app_budgetHeadsCache : [APP_UNALLOCATED_BUDGET_HEAD];
+    const selected = app_normalizeBudgetHeadId(selectedId);
+    const sortedHeads = [...heads].sort((a, b) => {
+        if (String(a?.id || '') === APP_UNALLOCATED_BUDGET_HEAD.id) return -1;
+        if (String(b?.id || '') === APP_UNALLOCATED_BUDGET_HEAD.id) return 1;
+        const aLabel = `${String(a?.code || a?.id || '')} ${String(a?.name || '')}`.trim();
+        const bLabel = `${String(b?.code || b?.id || '')} ${String(b?.name || '')}`.trim();
+        return aLabel.localeCompare(bLabel, undefined, { numeric: true, sensitivity: 'base' });
+    });
+    return sortedHeads.map((head) => {
+        const id = String(head.id || '');
+        const depth = Number(head.depth || 0);
+        const indent = depth > 0 ? `${'  '.repeat(depth)}↳ ` : '';
+        const label = `${indent}${String(head.code || id)} - ${String(head.name || id)}`;
+        return `<option value="${id}" ${id === selected ? 'selected' : ''}>${label}</option>`;
+    }).join('');
+};
+
+window.app_refreshBudgetHeadsCache = async function () {
+    await window.app_ensureBudgetHeadCatalog();
+    window.app_budgetHeadsCache = await window.app_getActiveBudgetHeads();
+    return window.app_budgetHeadsCache;
+};
 
 const getStoredSeenReleaseId = () => {
     try {
@@ -540,6 +639,187 @@ window.app_promptMissedCheckoutReason = (payload = {}) => {
     });
 };
 
+window.app_hasSubmittedCheckoutTasksForDate = async (userId, date) => {
+    if (!window.AppDB || !userId || !date) return false;
+    const attendanceLogs = await window.AppDB.getAll('attendance').catch(() => []);
+    const targetUserId = String(userId);
+    const targetDate = String(date);
+    return (attendanceLogs || []).some((log) => {
+        if (!log) return false;
+        if (String(log.user_id || log.userId || '') !== targetUserId) return false;
+        if (String(log.date || '') !== targetDate) return false;
+        if (Array.isArray(log.taskUpdates) && log.taskUpdates.length > 0) return true;
+        if (log.taskUpdatesSubmittedAt) return true;
+        if (log.taskReconciliationSubmittedAt) return true;
+        return false;
+    });
+};
+
+window.app_openMissedCheckoutTaskReconciliation = async ({ logId, date }) => {
+    if (!logId || !date) return false;
+    if (document.getElementById('missed-checkout-task-modal')) return true;
+
+    const currentUser = window.AppAuth.getUser();
+    if (!currentUser) return false;
+    if (await window.app_hasSubmittedCheckoutTasksForDate(currentUser.id, date)) return false;
+
+    const workPlan = window.AppCalendar?.getWorkPlan
+        ? await window.AppCalendar.getWorkPlan(currentUser.id, date, { includeAnnual: true, mergeAnnual: true })
+        : null;
+
+    const hasPersonalTasks = !!(workPlan && Array.isArray(workPlan.plans) && workPlan.plans.length);
+    if (!hasPersonalTasks) return false;
+
+    if (window.app_checkoutActionDate !== date) {
+        window.app_checkoutActionDate = date;
+        window.app_checkoutTaskActions = {};
+        window.app_checkoutTaskDetails = {};
+        window.app_checkoutTaskMeta = {};
+        window.app_checkoutUserMap = {};
+    }
+
+    const modalContainer = document.getElementById('modal-container') || document.body;
+    if (!modalContainer) return false;
+
+    const dateLabel = new Date(`${date}T00:00:00`).toLocaleDateString();
+    const modalHtml = `
+        <div id="missed-checkout-task-modal" class="modal-overlay checkout-main-modal" style="display:flex;">
+            <div class="modal-content checkout-main-content" style="width:100%; max-width:620px;">
+                <h3 style="margin-bottom:0.75rem;">Task Reconciliation</h3>
+                <p style="color:#6b7280; font-size:0.9rem; margin-bottom:1rem;">
+                    Your checkout was missed for ${escapeDialogHtml(dateLabel)}. Please update the task outcomes that were still pending.
+                </p>
+                <form id="missed-checkout-task-form" novalidate>
+                    <div id="checkout-task-checklist" style="margin-bottom: 1.5rem;">
+                        <label style="display: block; font-size: 0.85rem; font-weight: 700; color: #4b5563; margin-bottom: 0.75rem;">Task Status</label>
+                        <div id="checkout-task-list" style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 260px; overflow-y: auto; padding-right: 5px;"></div>
+                    </div>
+                    <div id="checkout-action-preview" style="margin-bottom: 1.5rem; display: none;">
+                        <label style="display: block; font-size: 0.85rem; font-weight: 700; color: #4b5563; margin-bottom: 0.75rem;">Action Preview</label>
+                        <div id="checkout-action-preview-list" class="checkout-action-preview-list"></div>
+                    </div>
+                    <div id="delegate-panel" style="display:none; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:1rem; margin-bottom:1.5rem;">
+                        <h4 id="delegate-selected-task" style="font-size:0.8rem; color:#1e293b; margin-top:0; margin-bottom:0.75rem; line-height:1.4;"></h4>
+                        <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:0.5rem;">Choose staff member:</label>
+                        <div id="delegate-list" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:0.5rem; max-height:180px; overflow-y:auto; padding:2px;"></div>
+                        <div style="margin-top:1rem; display:flex; justify-content:flex-end;">
+                            <button type="button" onclick="window.app_handleChecklistAction(null, null, null)" class="action-btn secondary" style="font-size:0.75rem; padding:0.4rem 0.8rem;">Cancel Delegation</button>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:1rem;">
+                        <button type="button" onclick="document.getElementById('missed-checkout-task-modal')?.remove()" style="flex:1; padding:0.75rem; background:white; border:1px solid #d1d5db; border-radius:0.5rem; cursor:pointer;">Skip for Now</button>
+                        <button type="submit" class="action-btn" style="flex:1; justify-content:center;">Save Task Updates</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    `;
+    modalContainer.insertAdjacentHTML('beforeend', modalHtml);
+    const modal = document.getElementById('missed-checkout-task-modal');
+    if (!modal) return false;
+
+    const taskListEl = document.getElementById('checkout-task-list');
+    const delegatePanel = document.getElementById('delegate-panel');
+    const delegateList = document.getElementById('delegate-list');
+    const delegateSelTask = document.getElementById('delegate-selected-task');
+
+    const allUsers = await window.AppDB.getAll('users').catch(() => []);
+    window.app_checkoutUserMap = {};
+    (allUsers || []).forEach((u) => {
+        window.app_checkoutUserMap[String(u.id)] = u.name;
+    });
+
+    const candidates = (allUsers || []).filter((u) => String(u.id) !== String(currentUser.id));
+    const renderTaskRows = () => {
+        const rows = [];
+        if (workPlan && Array.isArray(workPlan.plans) && workPlan.plans.length > 0) {
+            workPlan.plans.forEach((p, idx) => {
+                const details = (p.subPlans && p.subPlans.length) ? ` - ${p.subPlans.join(', ')}` : '';
+                const text = `${p.task}${details}`;
+                const planIdForTask = p._planId || workPlan.id;
+                const taskIndexForTask = typeof p._taskIndex === 'number' ? p._taskIndex : idx;
+                const status = window.AppCalendar.getSmartTaskStatus(p._planDate || workPlan.date, p.status);
+                const actionKey = `${planIdForTask}:${taskIndexForTask}`;
+                window.app_checkoutTaskMeta = window.app_checkoutTaskMeta || {};
+                window.app_checkoutTaskMeta[actionKey] = {
+                    text,
+                    planId: planIdForTask,
+                    taskIndex: taskIndexForTask
+                };
+                const rememberedAction = window.app_checkoutTaskActions && window.app_checkoutTaskActions[actionKey]
+                    ? window.app_checkoutTaskActions[actionKey]
+                    : '';
+                const inferredAction = rememberedAction || (
+                    (p.status === 'completed' || status === 'completed') ? 'complete' :
+                        (p.status === 'postponed' ? 'postpone' : '')
+                );
+                const detailState = window.app_initCheckoutTaskDetails(planIdForTask, taskIndexForTask, p);
+                const actionValue = detailState.action || inferredAction || '';
+                if (actionValue && detailState.action !== actionValue) {
+                    detailState.action = actionValue;
+                    if (actionValue === 'complete') {
+                        detailState.progressPercent = 100;
+                        detailState.progressStatus = 'done';
+                    }
+                }
+                if (window.app_checkoutTaskActions && actionValue) {
+                    window.app_checkoutTaskActions[actionKey] = actionValue;
+                }
+                const statusLabel = status === 'completed' ? 'Completed'
+                    : status === 'in-process' ? 'In Process'
+                        : status === 'overdue' ? 'Overdue'
+                            : status === 'to-be-started' ? 'To Be Started'
+                                : (p.status || 'Pending');
+                rows.push(`
+                    <div class="checkout-task-row">
+                        <div class="checkout-task-copy">
+                            <div class="checkout-task-title">${window.app_formatTaskWithPostponeChip(text)}</div>
+                            <div class="checkout-task-status">Status: ${statusLabel}</div>
+                        </div>
+                        <div class="checkout-task-controls">
+                            <select onchange="window.app_handleChecklistAction('${planIdForTask}', ${taskIndexForTask}, this.value)" class="checkout-task-action-select">
+                                <option value="" ${!actionValue ? 'selected' : ''}>Choose Action</option>
+                                <option value="complete" ${actionValue === 'complete' ? 'selected' : ''}>Complete</option>
+                                <option value="postpone" ${actionValue === 'postpone' ? 'selected' : ''}>Postpone</option>
+                                <option value="delegate" ${actionValue === 'delegate' ? 'selected' : ''}>Delegate</option>
+                            </select>
+                            <button type="button" class="checkout-task-detail-btn" data-checkout-detail-key="${app_escapeHtml(actionKey)}" onclick="window.app_openCheckoutActionModal('${app_escapeJsSingleQuote(actionKey)}')" ${actionValue ? '' : 'disabled'}>Details</button>
+                        </div>
+                    </div>`);
+            });
+        }
+        return rows.join('');
+    };
+
+    if (taskListEl) {
+        if (hasPersonalTasks) {
+            taskListEl.innerHTML = renderTaskRows();
+            window.app_renderCheckoutActionPreview();
+        } else {
+            taskListEl.innerHTML = `<div style="font-size:0.8rem; color:#6b7280;">No tasks planned for this date.</div>`;
+            window.app_renderCheckoutActionPreview();
+        }
+    }
+
+    if (delegatePanel && delegateList && delegateSelTask) {
+        delegatePanel.style.display = 'none';
+        delegateList.innerHTML = candidates.map((u) => `
+            <button type="button" data-user-id="${u.id}" class="delegate-user-btn">
+                <img src="${u.avatar}" alt="${u.name}" class="delegate-user-avatar">
+                <span style="flex:1;">${u.name}</span>
+            </button>
+        `).join('');
+    }
+
+    modal.addEventListener('click', (ev) => {
+        if (ev.target === modal) modal.remove();
+    });
+    modal.querySelector('#missed-checkout-task-form')?.addEventListener('submit', async (event) => {
+        await window.app_submitMissedCheckoutTaskReconciliation(event, logId, date);
+    });
+    return true;
+};
+
 window.app_submitMissedCheckoutReason = async (event, logId) => {
     event.preventDefault();
     const form = event.target;
@@ -607,9 +887,79 @@ window.app_submitMissedCheckoutReason = async (event, logId) => {
         document.getElementById('missed-checkout-reason-modal')?.remove();
         if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
         window.app_showSyncToast('Reason submitted for admin verification.');
+        setTimeout(() => {
+            window.app_openMissedCheckoutTaskReconciliation({ logId, date: log.date });
+        }, 0);
     } catch (err) {
         console.error('Missed checkout reason submit failed:', err);
         alert('Failed to submit reason: ' + err.message);
+    }
+};
+
+window.app_submitMissedCheckoutTaskReconciliation = async (event, logId, date) => {
+    event.preventDefault();
+    const form = event.target;
+    const submitBtn = form?.querySelector('button[type="submit"]');
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Saving...`;
+    }
+
+    try {
+        const currentUser = window.AppAuth.getUser();
+        if (!currentUser) throw new Error('User not authenticated');
+
+        const log = await window.AppDB.get('attendance', logId);
+        if (!log) throw new Error('Attendance record not found.');
+
+        const detailKeys = Object.keys(window.app_checkoutTaskDetails || {});
+        detailKeys.forEach((key) => window.app_clearCheckoutTaskError(key));
+        const { updates: taskUpdates, errors: taskErrors } = window.app_collectCheckoutTaskUpdates();
+        if (taskErrors.length > 0) {
+            taskErrors.forEach((err) => window.app_setCheckoutTaskError(err.key, err.message));
+            await window.app_showCheckoutValidationPopup(taskErrors.map((err) => err.message));
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Save Task Updates';
+            }
+            return;
+        }
+
+        const nowIso = new Date().toISOString();
+        const updatedLog = {
+            ...log,
+            taskUpdates: taskUpdates.map((update) => ({
+                planId: update.planId,
+                taskIndex: update.taskIndex,
+                action: update.action,
+                progressPercent: update.progressPercent,
+                progressStatus: update.progressStatus,
+                progressNote: update.progressNote,
+                budgetHeadId: app_normalizeBudgetHeadId(update.budgetHeadId),
+                actionMeta: update.actionMeta || {},
+                timestamp: update.timestamp
+            })),
+            taskUpdatesSubmittedAt: taskUpdates.length ? nowIso : (log.taskUpdatesSubmittedAt || nowIso),
+            taskReconciliationSubmittedAt: nowIso,
+            taskReconciliationCompleted: true
+        };
+        await window.AppDB.put('attendance', updatedLog);
+
+        if (taskUpdates.length > 0) {
+            await window.app_applyCheckoutTaskUpdates(taskUpdates, { effectiveDate: String(date || log.date || '') });
+        }
+
+        document.getElementById('missed-checkout-task-modal')?.remove();
+        window.app_showSyncToast('Task updates saved.');
+        if (window.app_refreshDashboard) await window.app_refreshDashboard();
+    } catch (err) {
+        console.error('Missed checkout task reconciliation failed:', err);
+        alert('Failed to save task updates: ' + err.message);
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Save Task Updates';
+        }
     }
 };
 
@@ -906,7 +1256,7 @@ const showHoverHelpTooltip = (target, originEvent = null) => {
     positionHoverHelpTooltip(originEvent, target);
 };
 
-const initHoverHelp = () => {
+const _initHoverHelp = () => {
     if (window.__appHoverHelpInitialized) return;
     window.__appHoverHelpInitialized = true;
 
@@ -2867,6 +3217,7 @@ async function init() {
         registerSW();
 
         await app_migrateLegacyWorkPlanSchema();
+        await window.app_refreshBudgetHeadsCache();
 
         // Ensure Activity Command Listener starts even if not checked in
         if (window.AppActivity) window.AppActivity.initCommandListener();
@@ -4473,6 +4824,7 @@ window.app_initCheckoutTaskDetails = (planId, taskIndex, task) => {
             progressPercent,
             progressStatus,
             progressNote: task?.progressNote || '',
+            budgetHeadId: app_normalizeBudgetHeadId(task?.budgetHeadId || window.AppAuth.getUser()?.currentBudgetHeadId),
             actionMeta: {},
             lastUpdatedAt: null
         };
@@ -4604,6 +4956,7 @@ window.app_collectCheckoutTaskUpdates = () => {
             progressPercent: detail.progressPercent,
             progressStatus: detail.progressStatus,
             progressNote: detail.progressNote,
+            budgetHeadId: app_normalizeBudgetHeadId(detail.budgetHeadId),
             actionMeta: detail.actionMeta || {},
             timestamp: new Date().toISOString()
         });
@@ -4890,11 +5243,12 @@ window.app_renderCheckoutActionPreview = () => {
     list.innerHTML = items.join('');
 };
 
-window.app_applyCheckoutTaskUpdates = async (updates = []) => {
+window.app_applyCheckoutTaskUpdates = async (updates = [], options = {}) => {
     if (!Array.isArray(updates) || updates.length === 0) return;
     const currentUser = window.AppAuth.getUser();
     const updaterId = currentUser?.id || currentUser?.name || 'staff';
-    const today = new Date().toISOString().split('T')[0];
+    const effectiveDate = String(options.effectiveDate || new Date().toISOString().split('T')[0]);
+    const eventTimestamp = String(options.timestamp || new Date().toISOString());
     for (const update of updates) {
         const plan = await window.AppDB.get('work_plans', update.planId).catch(() => null);
         if (!plan || !Array.isArray(plan.plans)) continue;
@@ -4903,12 +5257,13 @@ window.app_applyCheckoutTaskUpdates = async (updates = []) => {
         task.progressPercent = update.progressPercent;
         task.progressStatus = update.progressStatus;
         task.progressNote = update.progressNote;
+        task.budgetHeadId = app_normalizeBudgetHeadId(update.budgetHeadId || task.budgetHeadId);
         task.lastProgressUpdateAt = update.timestamp;
         task.lastProgressUpdateBy = updaterId;
         task.lastCheckoutAction = update.action;
         if (update.action === 'complete') {
             task.status = 'completed';
-            if (!task.completedDate) task.completedDate = today;
+            if (!task.completedDate) task.completedDate = effectiveDate;
         }
         if (update.action === 'postpone') {
             task.status = 'postponed';
@@ -4920,7 +5275,7 @@ window.app_applyCheckoutTaskUpdates = async (updates = []) => {
             if (postponeDate) {
                 const detailSuffix = (task.subPlans && task.subPlans.length) ? ` - ${task.subPlans.join(', ')}` : '';
                 const baseText = `${task.task}${detailSuffix}`;
-                const fromDate = plan.date || today;
+                const fromDate = plan.date || effectiveDate;
                 const cleanedText = baseText.replace(/\s*\(Postponed from [^)]+\)\s*$/i, '');
                 const postponedText = `${cleanedText} (Postponed from ${fromDate})`;
                 await window.AppCalendar.addWorkPlanTask(postponeDate, currentUser.id, postponedText, [], {
@@ -4940,6 +5295,21 @@ window.app_applyCheckoutTaskUpdates = async (updates = []) => {
                 });
             }
         }
+        await window.AppDB.add('task_activity_events', {
+            id: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            eventType: `task_${update.action}`,
+            taskId: `${update.planId}:${update.taskIndex}`,
+            planId: update.planId,
+            taskIndex: update.taskIndex,
+            userId: currentUser?.id || '',
+            actorId: updaterId,
+            budgetHeadId: app_normalizeBudgetHeadId(update.budgetHeadId || task.budgetHeadId),
+            progressPercent: Number(update.progressPercent || 0),
+            progressStatus: String(update.progressStatus || ''),
+            note: String(update.progressNote || ''),
+            timestamp: update.timestamp || eventTimestamp,
+            effectiveDate
+        }).catch(() => null);
     }
     if (window.AppStore && window.AppStore.invalidatePlans) {
         window.AppStore.invalidatePlans();
@@ -5022,7 +5392,9 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
         const rootIdInput = block.querySelector('.plan-root-id');
         const carryForwardRootId = rootIdInput ? String(rootIdInput.value || '').trim() : '';
         const scopeSelect = block.querySelector('.plan-scope');
+        const budgetHeadSelect = block.querySelector('.plan-budget-head');
         const taskScope = scopeSelect && scopeSelect.value === 'annual' ? 'annual' : 'personal';
+        const budgetHeadId = String(budgetHeadSelect?.value || currentUser.currentBudgetHeadId || 'UNALLOCATED');
 
         if (task) {
             if ((startDate && !endDate) || (!startDate && endDate)) {
@@ -5041,6 +5413,7 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
                 tags,
                 status: status || null,
                 assignedTo: assignedTo || null,
+                budgetHeadId,
                 startDate: taskStartDate,
                 endDate: taskEndDate,
                 planScope: taskScope,
@@ -5063,6 +5436,7 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
             tags: [],
             status: 'not-completed',
             assignedTo: targetId || null,
+            budgetHeadId: currentUser.currentBudgetHeadId || 'UNALLOCATED',
             startDate: date,
             endDate: date,
             planScope: removedScope,
@@ -5877,7 +6251,7 @@ async function handleAttendance() {
             const pos = await app_getAttendanceLocation();
             const checkInAddress = `Lat: ${pos.lat.toFixed(4)}, Lng: ${pos.lng.toFixed(4)}`;
             if (locationText) locationText.innerHTML = `<i class="fa-solid fa-location-dot"></i> ${checkInAddress}`;
-            const checkInResult = await window.AppAttendance.checkIn(pos.lat, pos.lng, checkInAddress);
+            const checkInResult = await window.AppAttendance.checkIn(pos.lat, pos.lng, checkInAddress, {});
             if (checkInResult && checkInResult.conflict) {
                 window.app_showSyncToast(checkInResult.message || 'Status updated from another device.');
                 if (window.app_refreshDashboard) await window.app_refreshDashboard();
@@ -6052,12 +6426,6 @@ async function handleAttendance() {
                                         status === 'overdue' ? 'Overdue' :
                                             status === 'to-be-started' ? 'To Be Started' :
                                                 (p.status || 'Pending');
-                                const postponeDate = app_escapeHtml(detailState.actionMeta?.postponeDate || new Date(Date.now() + 86400000).toISOString().split('T')[0]);
-                                const postponeReason = app_escapeHtml(detailState.actionMeta?.postponeReason || '');
-                                const delegateUserId = app_escapeHtml(detailState.actionMeta?.delegateUserId || '');
-                                const delegateNote = app_escapeHtml(detailState.actionMeta?.delegateNote || '');
-                                const completionNote = app_escapeHtml(detailState.actionMeta?.completionNote || '');
-                                const progressNote = app_escapeHtml(detailState.progressNote || '');
                                 return `
                                         <div class="checkout-task-row">
                                             <div class="checkout-task-copy">
@@ -6246,6 +6614,8 @@ window.app_submitCheckOut = async function (event) {
         return;
     }
     const description = String(form.description?.value || '').trim();
+    const activeUser = window.AppAuth.getUser();
+    const budgetHeadId = app_normalizeBudgetHeadId(activeUser?.currentBudgetHeadId || 'UNALLOCATED');
     const submitBtn = event?.submitter || form.querySelector('button[type="submit"]') || form.querySelector('.action-btn');
     attendanceActionInFlight = true;
 
@@ -6272,10 +6642,11 @@ window.app_submitCheckOut = async function (event) {
             }
             return;
         }
-        const needsSummary = taskUpdates.some((update) => update && (update.action === 'postpone' || update.action === 'delegate'));
-        if (needsSummary && !description) {
-            await window.app_showCheckoutValidationPopup('Please add a short check-out summary when postponing or delegating tasks.');
-            form.description?.focus();
+        // Work summary is optional for checkout.
+        const validationErrors = [];
+        const unallocatedReason = String(activeUser?.currentBudgetHeadUnallocatedReason || '').trim();
+        if (validationErrors.length > 0) {
+            await window.app_showCheckoutValidationPopup(validationErrors);
             if (submitBtn) {
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Complete Check-Out';
@@ -6342,19 +6713,30 @@ window.app_submitCheckOut = async function (event) {
                 progressPercent: update.progressPercent,
                 progressStatus: update.progressStatus,
                 progressNote: update.progressNote,
+                budgetHeadId: app_normalizeBudgetHeadId(update.budgetHeadId || budgetHeadId),
                 actionMeta: update.actionMeta || {},
                 timestamp: update.timestamp
             }));
+            checkOutOptions.taskUpdatesSubmittedAt = new Date().toISOString();
         }
+        checkOutOptions.budgetHeadId = budgetHeadId;
+        checkOutOptions.budgetHeadUnallocatedReason = unallocatedReason;
+        checkOutOptions.validationStatus = validationErrors.length ? 'incomplete' : 'compliant';
+        checkOutOptions.validationErrors = validationErrors;
 
         // Create formatted address string if no address available
         const formattedAddress = `Lat: ${Number(pos.lat).toFixed(4)}, Lng: ${Number(pos.lng).toFixed(4)}`;
         const tomorrowGoal = form.tomorrowGoal ? form.tomorrowGoal.value.trim() : '';
+        const tomorrowBudgetHeadId = app_normalizeBudgetHeadId(
+            form.tomorrowBudgetHeadId?.value || budgetHeadId
+        );
 
         // 1. Save tomorrow's goal if provided
         if (tomorrowGoal) {
             const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
-            await window.AppCalendar.addWorkPlanTask(tomorrow, window.AppAuth.getUser().id, tomorrowGoal);
+            await window.AppCalendar.addWorkPlanTask(tomorrow, window.AppAuth.getUser().id, tomorrowGoal, [], {
+                budgetHeadId: tomorrowBudgetHeadId
+            });
             console.log("Tomorrow's goal saved:", tomorrowGoal);
         }
 
@@ -6442,6 +6824,19 @@ async function handleManualLog(e) {
     }
 
     const manualWorkDescription = String(formData.get('workDescription') || formData.get('location') || '').trim();
+    const manualBudgetHeadId = app_normalizeBudgetHeadId(formData.get('budgetHeadId'));
+    let manualUnallocatedReason = '';
+    if (manualBudgetHeadId === APP_UNALLOCATED_BUDGET_HEAD.id) {
+        manualUnallocatedReason = String(await window.appPrompt(
+            'Enter reason for UNALLOCATED budget head:',
+            '',
+            { title: 'Reason Required', confirmText: 'Continue' }
+        ) || '').trim();
+        if (!manualUnallocatedReason) {
+            alert('Reason is required when budget head is UNALLOCATED.');
+            return;
+        }
+    }
     const logData = {
         date: formData.get('date'),
         checkIn: checkIn,
@@ -6450,6 +6845,10 @@ async function handleManualLog(e) {
         durationMs: durationMs,
         location: 'Manual timesheet entry',
         workDescription: manualWorkDescription,
+        budgetHeadId: manualBudgetHeadId,
+        budgetHeadUnallocatedReason: manualUnallocatedReason,
+        validationStatus: 'compliant',
+        validationErrors: [],
         type: resolvedType,
         dayCredit: resolvedDayCredit,
         lateCountable: false,
@@ -6729,6 +7128,18 @@ window.app_refreshDashboard = refreshDashboardAfterAttendance;
 
 window.app_refreshCurrentPage = async function () {
     await router();
+};
+
+window.app_openTeamActivities = async function () {
+    const targetHash = 'team-activities';
+    const currentHash = String(window.location.hash || '').replace(/^#/, '');
+    if (currentHash !== targetHash) {
+        window.location.hash = targetHash;
+        return;
+    }
+    if (typeof window.app_refreshCurrentPage === 'function') {
+        await window.app_refreshCurrentPage();
+    }
 };
 
 // --- Global Event Delegation ---
@@ -9473,7 +9884,7 @@ window.app_fixCurrentMonthFalseHalfDayLeaves = async (options = {}) => {
     try {
         logs = await window.AppDB.query('attendance', 'date', '>=', startDateStr);
         logs = (logs || []).filter(l => String(l?.date || '') <= endDateStr);
-    } catch (e) {
+    } catch {
         const allLogs = await window.AppDB.getAll('attendance');
         logs = (allLogs || []).filter(l => String(l?.date || '') >= startDateStr && String(l?.date || '') <= endDateStr);
     }

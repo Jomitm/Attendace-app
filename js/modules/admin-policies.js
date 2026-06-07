@@ -1,6 +1,8 @@
 
+import { safeHtml } from '../ui/helpers.js';
 import { AppLeaves } from './leaves.js';
 import { AppAuth } from './auth.js';
+import { AppConfig } from '../config.js';
 
 /**
  * Admin Policy Module
@@ -8,8 +10,15 @@ import { AppAuth } from './auth.js';
  */
 export const AdminPolicies = {
 
+    getHeroPolicy(policy = {}) {
+        return AppLeaves.mergeHeroPolicy?.(policy?.heroPolicy || {}) || (AppConfig?.HERO_POLICY || {});
+    },
+
     async renderPolicyEditor() {
         const policy = await AppLeaves.getPolicy();
+        const heroPolicy = this.getHeroPolicy(policy);
+        const heroWeights = heroPolicy.WEIGHTS || {};
+        const leaveTypes = Object.entries(policy).filter(([key]) => key !== 'heroPolicy');
         // Compact Editor for Policies Page
         return `
         <div class="card full-width" style="margin-top: 2rem; border-top: 4px solid #4f46e5;">
@@ -29,8 +38,7 @@ export const AdminPolicies = {
                             </tr>
                         </thead>
                         <tbody>
-                            ${Object.keys(policy).map(type => {
-            const rules = policy[type];
+                            ${leaveTypes.map(([type, rules]) => {
             return `
                                 <tr>
                                     <td style="padding: 6px 8px;"><strong>${type}</strong></td>
@@ -57,6 +65,46 @@ export const AdminPolicies = {
                      <button type="submit" class="action-btn" style="padding: 6px 16px; font-size: 0.85rem;">
                         <i class="fa-solid fa-save"></i> Save Changes
                      </button>
+                </div>
+            </form>
+        </div>
+        <div class="card full-width" style="margin-top: 1.25rem; border-top: 4px solid #0f6ddf;">
+            <h3 style="margin-bottom: 0.55rem; color: #0f172a; font-size: 1.05rem;">
+                <i class="fa-solid fa-ranking-star" style="margin-right: 8px;"></i> Hero of the Week Control Panel
+            </h3>
+            <p style="margin: 0 0 1rem 0; color: #64748b; font-size: 0.85rem;">
+                Adjust how much each task signal contributes to the weekly hero score. Saving will refresh the hero schema cache.
+            </p>
+            <form onsubmit="window.app_saveHeroPolicyChanges(event)">
+                <div style="display:grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.75rem;">
+                    <label style="display:grid; gap:0.35rem;">
+                        <span style="font-size:0.8rem; font-weight:700; color:#334155;">Task Execution</span>
+                        <input type="number" step="0.01" min="0" name="hero_taskExecution" value="${heroWeights.taskExecution ?? 0.45}" style="padding:0.55rem; border:1px solid #cbd5e1; border-radius:8px;">
+                    </label>
+                    <label style="display:grid; gap:0.35rem;">
+                        <span style="font-size:0.8rem; font-weight:700; color:#334155;">Completion Rate</span>
+                        <input type="number" step="0.01" min="0" name="hero_taskCompletionRate" value="${heroWeights.taskCompletionRate ?? 0.2}" style="padding:0.55rem; border:1px solid #cbd5e1; border-radius:8px;">
+                    </label>
+                    <label style="display:grid; gap:0.35rem;">
+                        <span style="font-size:0.8rem; font-weight:700; color:#334155;">In-Progress Support</span>
+                        <input type="number" step="0.01" min="0" name="hero_taskInProgressSupport" value="${heroWeights.taskInProgressSupport ?? 0.1}" style="padding:0.55rem; border:1px solid #cbd5e1; border-radius:8px;">
+                    </label>
+                    <label style="display:grid; gap:0.35rem;">
+                        <span style="font-size:0.8rem; font-weight:700; color:#334155;">Miss Penalty</span>
+                        <input type="number" step="0.01" min="0" name="hero_taskMissPenalty" value="${heroWeights.taskMissPenalty ?? 0.1}" style="padding:0.55rem; border:1px solid #cbd5e1; border-radius:8px;">
+                    </label>
+                    <label style="display:grid; gap:0.35rem;">
+                        <span style="font-size:0.8rem; font-weight:700; color:#334155;">Planning Bonus</span>
+                        <input type="number" step="0.01" min="0" name="hero_taskPlanning" value="${heroWeights.taskPlanning ?? 0.08}" style="padding:0.55rem; border:1px solid #cbd5e1; border-radius:8px;">
+                    </label>
+                </div>
+                <div style="display:flex; justify-content:space-between; gap:0.75rem; align-items:center; margin-top:0.85rem; flex-wrap:wrap;">
+                    <div style="font-size:0.8rem; color:#64748b;">
+                        Current schema version: <strong>${safeHtml(String(heroPolicy.SCHEMA_VERSION || AppConfig?.HERO_POLICY?.SCHEMA_VERSION || 1))}</strong>
+                    </div>
+                    <button type="submit" class="action-btn" style="padding: 6px 16px; font-size: 0.85rem;">
+                        <i class="fa-solid fa-save"></i> Save Hero Weights
+                    </button>
                 </div>
             </form>
         </div>
@@ -106,6 +154,62 @@ export const AdminPolicies = {
                 }, 1000);
             } catch (err) {
                 alert("Failed to update policy: " + err.message);
+            }
+        };
+
+        window.app_saveHeroPolicyChanges = async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const currentPolicy = await AppLeaves.getPolicy();
+            const currentHeroPolicy = AppLeaves.mergeHeroPolicy?.(currentPolicy.heroPolicy || {}) || (AppConfig?.HERO_POLICY || {});
+            const nextHeroPolicy = {
+                ...currentHeroPolicy,
+                WEIGHTS: {
+                    ...(currentHeroPolicy.WEIGHTS || {})
+                }
+            };
+
+            const getNumber = (name, fallback = undefined) => {
+                const raw = formData.get(name);
+                if (raw === '' || raw === null || raw === undefined) return fallback;
+                const parsed = Number(raw);
+                return Number.isFinite(parsed) ? parsed : fallback;
+            };
+
+            const weightKeys = [
+                'taskExecution',
+                'taskCompletionRate',
+                'taskInProgressSupport',
+                'taskMissPenalty',
+                'taskPlanning'
+            ];
+
+            weightKeys.forEach((key) => {
+                const nextValue = getNumber(`hero_${key}`, nextHeroPolicy.WEIGHTS?.[key]);
+                if (nextValue !== undefined) {
+                    nextHeroPolicy.WEIGHTS[key] = Math.max(0, Number(nextValue));
+                }
+            });
+
+            nextHeroPolicy.SCHEMA_VERSION = Math.max(
+                Number(currentHeroPolicy.SCHEMA_VERSION || AppConfig?.HERO_POLICY?.SCHEMA_VERSION || 1),
+                1
+            ) + 1;
+
+            try {
+                await AppLeaves.updatePolicy({ heroPolicy: nextHeroPolicy });
+                window.AppHeroPolicy = nextHeroPolicy;
+                const btn = e.target.querySelector('button');
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '<i class="fa-solid fa-check"></i> Saved!';
+                btn.style.background = '#166534';
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.style.background = '';
+                    window.location.reload();
+                }, 1000);
+            } catch (err) {
+                alert("Failed to update hero policy: " + err.message);
             }
         };
 

@@ -6,6 +6,9 @@
 export function renderModals() {
     const user = window.AppAuth?.getUser();
     if (!user) return '';
+    const budgetSelectHtml = typeof window.app_renderBudgetHeadOptions === 'function'
+        ? window.app_renderBudgetHeadOptions('')
+        : '<option value="UNALLOCATED">Unallocated / To Be Mapped</option>';
 
     return `
         <!-- Check-Out Modal -->
@@ -55,6 +58,12 @@ export function renderModals() {
                     <div style="margin-bottom:1.5rem;">
                         <label style="display:block; font-size:0.85rem; font-weight:700; color:#4b5563; margin-bottom:0.5rem;">🗓️ What's your top goal for tomorrow? (Optional)</label>
                         <textarea name="tomorrowGoal" placeholder="e.g., Finalize the project report..." style="width:100%; height:60px; padding:0.75rem; border:1px solid #d1d5db; border-radius:0.5rem; resize:none; font-family:inherit;"></textarea>
+                        <div style="margin-top:0.55rem;">
+                            <label style="display:block; font-size:0.78rem; font-weight:700; color:#4b5563; margin-bottom:0.35rem;">Tomorrow Goal Budget Head</label>
+                            <select name="tomorrowBudgetHeadId" style="width:100%; padding:0.62rem; border:1px solid #d1d5db; border-radius:0.5rem; background:#fff;">
+                                ${budgetSelectHtml}
+                            </select>
+                        </div>
                     </div>
 
                     <div id="checkout-location-loading" class="checkout-location-loading" style="display:none;">
@@ -86,6 +95,12 @@ export function renderModals() {
                 </div>
                 
                 <form id="manual-log-form" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem;">
+                    <div>
+                        <label style="display:block; font-size:0.85rem; font-weight:500; color:#374151; margin-bottom:0.5rem;">Budget Head</label>
+                        <select name="budgetHeadId" required style="width:100%; padding:0.75rem; border:1px solid #e5e7eb; border-radius:0.5rem; background:#fff;">
+                            ${budgetSelectHtml}
+                        </select>
+                    </div>
                     <div>
                         <label style="display: block; font-size: 0.85rem; font-weight: 500; color: #374151; margin-bottom: 0.5rem;">Date</label>
                         <input type="date" name="date" id="log-date" required style="width: 100%; padding: 0.75rem; border: 1px solid #e5e7eb; border-radius: 0.5rem; background: #f9fafb; font-family: inherit;">

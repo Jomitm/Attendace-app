@@ -93,6 +93,9 @@ export class Reports {
                     duration: log.duration || '--',
                     workSummary: log.workDescription || '--',
                     taskUpdates: this.summarizeTaskUpdates(log.taskUpdates || []),
+                    budgetHeadId: log.budgetHeadId || 'UNALLOCATED',
+                    validationStatus: log.validationStatus || 'unknown',
+                    validationErrors: Array.isArray(log.validationErrors) ? log.validationErrors.join(' | ') : '',
                     inLocation: locString,
                     outLocation: log.checkOutLocation || '--',
                     type: log.type || 'Standard'
@@ -123,7 +126,8 @@ export class Reports {
 
             // 4. Generate CSV
             const headers = ['Date', 'Staff Name', 'Role', 'Star Rating', 'Completion Rate', 'Check In', 'Check Out', 'Duration', 'Work Summary', 'Task Updates', 'Check-in Location', 'Check-out Location', 'Type'];
-            const keys = ['date', 'name', 'role', 'rating', 'completionRate', 'checkIn', 'checkOut', 'duration', 'workSummary', 'taskUpdates', 'inLocation', 'outLocation', 'type'];
+            const keys = ['date', 'name', 'role', 'rating', 'completionRate', 'checkIn', 'checkOut', 'duration', 'workSummary', 'taskUpdates', 'budgetHeadId', 'validationStatus', 'validationErrors', 'inLocation', 'outLocation', 'type'];
+            headers.splice(10, 0, 'Budget Head', 'Validation Status', 'Validation Errors');
 
             const csvContent = this.convertToCSV(flattenedData, headers, keys);
 
@@ -158,6 +162,9 @@ export class Reports {
                     duration: log.duration || '--',
                     workSummary: log.workDescription || '--',
                     taskUpdates: this.summarizeTaskUpdates(log.taskUpdates || []),
+                    budgetHeadId: log.budgetHeadId || 'UNALLOCATED',
+                    validationStatus: log.validationStatus || 'unknown',
+                    validationErrors: Array.isArray(log.validationErrors) ? log.validationErrors.join(' | ') : '',
                     inLocation: locString,
                     outLocation: log.checkOutLocation || '--',
                     type: log.type || 'Standard'
@@ -167,8 +174,8 @@ export class Reports {
             // Sort by Date (descending)
             flattenedData.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-            const headers = ['Date', 'Staff Name', 'Role', 'Check In', 'Check Out', 'Duration', 'Work Summary', 'Task Updates', 'Check-in Location', 'Check-out Location', 'Type'];
-            const keys = ['date', 'name', 'role', 'checkIn', 'checkOut', 'duration', 'workSummary', 'taskUpdates', 'inLocation', 'outLocation', 'type'];
+            const headers = ['Date', 'Staff Name', 'Role', 'Check In', 'Check Out', 'Duration', 'Work Summary', 'Task Updates', 'Budget Head', 'Validation Status', 'Validation Errors', 'Check-in Location', 'Check-out Location', 'Type'];
+            const keys = ['date', 'name', 'role', 'checkIn', 'checkOut', 'duration', 'workSummary', 'taskUpdates', 'budgetHeadId', 'validationStatus', 'validationErrors', 'inLocation', 'outLocation', 'type'];
 
             const csvContent = this.convertToCSV(flattenedData, headers, keys);
             const fileName = `Attendance_Report_${user.name.replace(/ /g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
@@ -375,6 +382,63 @@ export class Reports {
         } catch (err) {
             console.error("Team Activities Export Failed:", err);
             alert("Export Failed: " + err.message);
+            return false;
+        }
+    }
+
+    async exportComplianceExceptionsCSV({ days = 31, unresolvedOnly = true } = {}) {
+        try {
+            const allUsers = await this.db.getAll('users');
+            const allLogs = await this.db.getAll('attendance');
+            const userMap = new Map((allUsers || []).map((u) => [String(u.id), u]));
+            const cutoff = new Date();
+            cutoff.setDate(cutoff.getDate() - Math.max(1, Number(days) || 31));
+            const cutoffIso = cutoff.toISOString().split('T')[0];
+
+            const rows = (allLogs || [])
+                .filter((log) => String(log?.entrySource || '') === 'checkin_checkout')
+                .filter((log) => String(log?.date || '') >= cutoffIso)
+                .filter((log) => {
+                    const isUnresolved = String(log?.budgetHeadId || '') === 'UNALLOCATED' || String(log?.validationStatus || '').toLowerCase() !== 'compliant';
+                    return unresolvedOnly ? isUnresolved : true;
+                })
+                .map((log) => {
+                    const uid = String(log.user_id || log.userId || '');
+                    const user = userMap.get(uid) || {};
+                    const logDate = new Date(`${String(log.date || '')}T00:00:00`);
+                    const ageDays = Number.isNaN(logDate.getTime()) ? '' : Math.max(0, Math.floor((Date.now() - logDate.getTime()) / 86400000));
+                    const errors = Array.isArray(log.validationErrors) ? log.validationErrors : [];
+                    const budgetFlag = String(log.budgetHeadId || '') === 'UNALLOCATED' || errors.some((msg) => String(msg || '').toLowerCase().includes('budget'));
+                    const checkoutFlag = errors.some((msg) => String(msg || '').toLowerCase().includes('checkout'));
+                    const issueType = budgetFlag
+                        ? 'budget-head'
+                        : (checkoutFlag ? 'checkout-validation' : (String(log.validationStatus || '').toLowerCase() === 'compliant' ? 'none' : 'other-validation'));
+                    return {
+                        date: log.date || '',
+                        staffName: user.name || 'Staff',
+                        staffRole: user.role || '',
+                        issueType,
+                        budgetHeadId: log.budgetHeadId || 'UNALLOCATED',
+                        validationStatus: log.validationStatus || 'unknown',
+                        validationErrors: errors.join(' | '),
+                        unallocatedReason: log.budgetHeadUnallocatedReason || '',
+                        checkIn: log.checkIn || '',
+                        checkOut: log.checkOut || '',
+                        duration: log.duration || '',
+                        ageDays
+                    };
+                })
+                .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+
+            const headers = ['Date', 'Staff Name', 'Role', 'Issue Type', 'Budget Head', 'Validation Status', 'Validation Errors', 'Unallocated Reason', 'Check In', 'Check Out', 'Duration', 'Age (Days)'];
+            const keys = ['date', 'staffName', 'staffRole', 'issueType', 'budgetHeadId', 'validationStatus', 'validationErrors', 'unallocatedReason', 'checkIn', 'checkOut', 'duration', 'ageDays'];
+            const csvContent = this.convertToCSV(rows, headers, keys);
+            const fileName = `Compliance_Exceptions_${new Date().toISOString().split('T')[0]}.csv`;
+            this.downloadFile(csvContent, fileName, 'text/csv');
+            return true;
+        } catch (err) {
+            console.error('Compliance exception export failed:', err);
+            alert('Failed to export compliance exceptions: ' + err.message);
             return false;
         }
     }

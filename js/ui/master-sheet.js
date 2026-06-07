@@ -224,7 +224,7 @@ export async function renderMasterSheet(month = null, year = null) {
         const yearValue = Number(document.getElementById('sheet-year')?.value);
         const month = Number.isFinite(monthValue) ? monthValue + 1 : (new Date().getMonth() + 1);
         const year = Number.isFinite(yearValue) ? yearValue : new Date().getFullYear();
-        const result = await window.app_fixCurrentMonthFalseHalfDayLeaves({
+        await window.app_fixCurrentMonthFalseHalfDayLeaves({
             silent: false,
             year,
             month

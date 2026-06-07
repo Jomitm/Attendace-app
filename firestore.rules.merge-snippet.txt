@@ -1,0 +1,38 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // The application uses pure client-side custom authentication.
+    // request.auth is always null, so we must allow public read/write
+    // to keep the login flow and data syncing functional.
+    
+    // Safety Measure: Restrict arbitrary reads/writes to ONLY
+    // the known collections the application expects and uses.
+    match /{collectionName}/{document=**} {
+      allow read, write: if collectionName in [
+        'users',
+        'attendance',
+        'leaves',
+        'minutes',
+        'staff_messages',
+        'location_audits',
+        'work_plans',
+        'meetings',
+        'salaries',
+        'system_commands',
+        'settings',
+        'events',
+        'daily_summaries',
+        'daily_summaries_meta',
+        'summary_locks',
+        'app_meta',
+        'policies',
+        'admin_policies',
+        'annual_plan',
+        'day_plan',
+        'budget_heads',
+        'task_activity_events'
+      ];
+    }
+  }
+}

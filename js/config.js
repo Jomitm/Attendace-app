@@ -60,7 +60,7 @@ export const AppConfig = {
         STALENESS_MS: 24 * 60 * 60 * 1000,
         TEAM_ACTIVITY_LIMIT: 15,
         LOCK_TTL_MS: 90000,
-        SCHEMA_VERSION: 4,
+        SCHEMA_VERSION: 5,
         GENERATE_ON_FIRST_CHECKIN: true,
         RECOMPUTE_CUTOFF_HOUR_IST: 17,
         FALLBACK_TO_PREVIOUS_DAY: true
@@ -73,7 +73,8 @@ export const AppConfig = {
             taskExecution: 0.45,
             taskCompletionRate: 0.2,
             taskInProgressSupport: 0.1,
-            taskMissPenalty: 0.1
+            taskMissPenalty: 0.1,
+            taskPlanning: 0.08
         },
         ATTENDANCE_MODIFIER: {
             base: 0.9,

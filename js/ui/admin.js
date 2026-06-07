@@ -189,9 +189,11 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
     let pendingNotifications = [];
     let reviewedNotifications = [];
     let currentAdmin = null;
-    let performance = { avgScore: 0, trendData: [0, 0, 0, 0, 0, 0, 0], labels: [] };
     let audits = [];
     let simulationCleanupAudits = [];
+    let budgetHeads = [];
+    let recentAttendanceLogs = [];
+    let recentTeamActivities = [];
 
     try {
         const today = new Date().toISOString().split('T')[0];
@@ -210,7 +212,31 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
             window.AppLeaves.getPendingLeaves(),
             window.AppDB.queryMany
                 ? window.AppDB.queryMany('system_audit_logs', [], { orderBy: [{ field: 'createdAt', direction: 'desc' }], limit: 80 }).catch(() => window.AppDB.getAll('system_audit_logs'))
-                : window.AppDB.getAll('system_audit_logs')
+                : window.AppDB.getAll('system_audit_logs'),
+            window.AppDB.getAll('budget_heads').catch(() => []),
+            window.AppDB.queryMany
+                ? (() => {
+                    const from = new Date();
+                    from.setDate(from.getDate() - 60);
+                    const fromIso = from.toISOString().split('T')[0];
+                    return window.AppDB.queryMany('attendance', [{ field: 'date', operator: '>=', value: fromIso }]).catch(() => window.AppDB.getAll('attendance'));
+                })()
+                : window.AppDB.getAll('attendance'),
+            window.AppAnalytics?.getAllStaffActivities
+                ? (() => {
+                    const from = new Date();
+                    from.setDate(from.getDate() - 60);
+                    const fromIso = from.toISOString().split('T')[0];
+                    const toIso = new Date().toISOString().split('T')[0];
+                    return window.AppAnalytics.getAllStaffActivities({
+                        mode: 'range',
+                        startIso: fromIso,
+                        endIso: toIso,
+                        scope: 'work',
+                        sideEffects: false
+                    }).catch(() => []);
+                })()
+                : Promise.resolve([])
         ]);
 
         const readSettled = (idx, fallback, label) => {
@@ -223,11 +249,14 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         };
 
         allUsers = readSettled(0, [], 'users');
-        performance = readSettled(1, { avgScore: 0, trendData: [0, 0, 0, 0, 0, 0, 0], labels: [] }, 'performance');
+        readSettled(1, { avgScore: 0, trendData: [0, 0, 0, 0, 0, 0, 0], labels: [] }, 'performance');
         audits = readSettled(2, [], 'location_audits');
         allLeaves = readSettled(3, [], 'all_leaves');
         pendingLeaves = readSettled(4, [], 'pending_leaves');
         simulationCleanupAudits = readSettled(5, [], 'system_audit_logs');
+        budgetHeads = readSettled(6, [], 'budget_heads');
+        recentAttendanceLogs = readSettled(7, [], 'recent_attendance');
+        recentTeamActivities = readSettled(8, [], 'recent_team_activities');
 
         audits = audits.filter(a => {
             const d = new Date(a.timestamp).toISOString().split('T')[0];
@@ -278,6 +307,101 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         })
         .slice(0, 5);
     const usersById = new Map(allUsers.map((user) => [String(user.id), user]));
+    const budgetHeadsSorted = (Array.isArray(budgetHeads) ? budgetHeads : [])
+        .filter((head) => head && head.id)
+        .sort((a, b) => String(a.code || a.id).localeCompare(String(b.code || b.id)));
+    const budgetHeadsTreeOrdered = (() => {
+        const byParent = new Map();
+        budgetHeadsSorted.forEach((head) => {
+            const parentId = String(head.parentId || '').trim();
+            if (!byParent.has(parentId)) byParent.set(parentId, []);
+            byParent.get(parentId).push(head);
+        });
+        byParent.forEach((list) => list.sort((a, b) => String(a.code || a.id).localeCompare(String(b.code || b.id))));
+        const out = [];
+        const visit = (parentId, depth, trail = new Set()) => {
+            const children = byParent.get(parentId) || [];
+            for (const child of children) {
+                const id = String(child.id || '');
+                if (!id || trail.has(id)) continue;
+                out.push({ ...child, depth });
+                const nextTrail = new Set(trail);
+                nextTrail.add(id);
+                visit(id, depth + 1, nextTrail);
+            }
+        };
+        visit('', 0);
+        budgetHeadsSorted.forEach((head) => {
+            if (!out.some((row) => row.id === head.id)) out.push({ ...head, depth: 0 });
+        });
+        return out;
+    })();
+    const budgetHeadsParentSelectOptions = budgetHeadsTreeOrdered
+        .filter((head) => String(head.id || '') !== 'UNALLOCATED')
+        .map((head) => {
+            const indent = Number(head.depth || 0) > 0 ? `${'&nbsp;&nbsp;'.repeat(Number(head.depth || 0))}↳ ` : '';
+            return `<option value="${safeHtml(String(head.id || ''))}">${indent}${safeHtml(String(head.code || head.id || ''))} - ${safeHtml(String(head.name || ''))}</option>`;
+        }).join('');
+    const recentEntries = (Array.isArray(recentAttendanceLogs) ? recentAttendanceLogs : [])
+        .filter((row) => row && row.entrySource === 'checkin_checkout');
+    const toEntryTs = (row) => {
+        const isoDate = String(row?.date || '').trim();
+        const updatedAt = Date.parse(String(row?.updatedAt || row?.autoCheckoutAt || row?.missedCheckoutReviewedAt || ''));
+        if (Number.isFinite(updatedAt)) return updatedAt;
+        const dateTs = Date.parse(`${isoDate}T00:00:00`);
+        return Number.isFinite(dateTs) ? dateTs : 0;
+    };
+    const unallocatedEntries = recentEntries
+        .filter((row) => String(row.budgetHeadId || '') === 'UNALLOCATED')
+        .sort((a, b) => toEntryTs(b) - toEntryTs(a));
+    const attendanceIssues = recentEntries
+        .filter((row) => String(row.budgetHeadId || '') === 'UNALLOCATED' || String(row.validationStatus || '').toLowerCase() !== 'compliant')
+        .map((row) => ({
+            ...row,
+            sourceType: 'attendance',
+            sourceLabel: 'Attendance',
+            _issueKey: `att:${String(row.id || '')}`
+        }));
+    const teamActivityRows = (Array.isArray(recentTeamActivities) ? recentTeamActivities : [])
+        .filter((row) => String(row.type || '').toLowerCase() === 'work')
+        .map((row) => ({
+            id: '',
+            date: row.date || '',
+            user_id: row.userId || row.user_id || '',
+            budgetHeadId: row.budgetHeadId || 'UNALLOCATED',
+            validationStatus: row.validationStatus || 'unknown',
+            validationErrors: Array.isArray(row.validationErrors) ? row.validationErrors : [],
+            budgetHeadUnallocatedReason: '',
+            workDescription: row.description || row.task || '',
+            planId: row.planId || '',
+            taskIndex: Number.isInteger(row.taskIndex) ? row.taskIndex : null,
+            sourceType: 'team_activity',
+            sourceLabel: 'Team Activity',
+            _issueKey: `wrk:${String(row.planId || '')}:${String(Number.isInteger(row.taskIndex) ? row.taskIndex : 'x')}:${String(row.date || '')}:${String(row.userId || row.user_id || '')}`
+        }));
+    const teamActivityIssues = teamActivityRows.filter((row) => {
+            const budgetIssue = String(row.budgetHeadId || '') === 'UNALLOCATED';
+            const validationStatus = String(row.validationStatus || '').toLowerCase();
+            const validationIssue = validationStatus && validationStatus !== 'unknown' && validationStatus !== 'compliant';
+            return budgetIssue || validationIssue;
+        });
+    const complianceIssues = [...attendanceIssues, ...teamActivityIssues]
+        .sort((a, b) => toEntryTs(b) - toEntryTs(a));
+    const complianceReasonCounts = complianceIssues.reduce((acc, row) => {
+        const errors = Array.isArray(row.validationErrors) ? row.validationErrors : [];
+        const hasBudgetIssue = String(row.budgetHeadId || '') === 'UNALLOCATED' || errors.some((msg) => String(msg || '').toLowerCase().includes('budget'));
+        const hasCheckoutIssue = errors.some((msg) => String(msg || '').toLowerCase().includes('checkout'));
+        if (hasBudgetIssue) acc.budgetHead += 1;
+        if (hasCheckoutIssue) acc.checkout += 1;
+        if (!hasBudgetIssue && !hasCheckoutIssue) acc.other += 1;
+        return acc;
+    }, { budgetHead: 0, checkout: 0, other: 0 });
+    const staleUnallocated = unallocatedEntries.filter((row) => {
+        const dt = new Date(`${String(row.date || '')}T00:00:00`);
+        if (Number.isNaN(dt.getTime())) return false;
+        const ageDays = Math.floor((Date.now() - dt.getTime()) / 86400000);
+        return ageDays >= 2;
+    });
     const attendanceLogsById = new Map((attendanceLogs || []).filter(Boolean).map((log) => [String(log.id || ''), log]));
     const missedCheckoutItems = pendingNotifications
         .map((notif) => {
@@ -648,6 +772,140 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         <button type="button" class="action-btn" onclick="window.location.hash='birthday-calendar'"><i class="fa-solid fa-cake-candles"></i> Open</button>
     `;
 
+    const renderBudgetHeadsBlock = (isExpanded = false) => `
+        <p class="text-muted">${budgetHeadsSorted.length} budget head(s) configured</p>
+        <form onsubmit="window.app_addBudgetHead(event)" style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr auto; gap:0.5rem; margin-bottom:0.8rem;">
+            <input id="budget-add-code" name="code" placeholder="Code (e.g. OPS001)" required style="padding:0.5rem; border:1px solid #e2e8f0; border-radius:8px;">
+            <input id="budget-add-name" name="name" placeholder="Name (e.g. Operations)" required style="padding:0.5rem; border:1px solid #e2e8f0; border-radius:8px;">
+            <select id="budget-add-type" name="headType" onchange="window.app_toggleBudgetHeadParentInput?.(this.value, this)" style="padding:0.5rem; border:1px solid #e2e8f0; border-radius:8px; background:#fff;">
+                <option value="main">Main Head</option>
+                <option value="sub">Sub Head</option>
+            </select>
+            <select id="budget-add-parent" name="parentId" disabled style="padding:0.5rem; border:1px solid #e2e8f0; border-radius:8px; background:#fff;">
+                <option value="">Main Head (No Parent)</option>
+                ${budgetHeadsParentSelectOptions}
+            </select>
+            <button type="submit" class="action-btn" style="padding:0.5rem 0.8rem;">Add</button>
+        </form>
+        <div class="table-container ${isExpanded ? 'admin-table-expanded' : ''}" style="max-height:${isExpanded ? '420px' : '220px'}; overflow:auto;">
+            <table class="compact-table">
+                <thead>
+                    <tr>
+                        <th>Budget Code</th>
+                        <th>Budget Name</th>
+                        <th>Head Type</th>
+                        <th>Parent Head</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${budgetHeadsTreeOrdered.length ? budgetHeadsTreeOrdered.map((head) => {
+            const id = String(head.id || '');
+            const isSystem = id === 'UNALLOCATED';
+            const parentOptions = ['<option value="">Main Head (No Parent)</option>']
+                .concat(
+                    budgetHeadsTreeOrdered
+                        .filter((candidate) => String(candidate.id || '') !== 'UNALLOCATED' && String(candidate.id || '') !== id)
+                        .map((candidate) => {
+                            const cId = String(candidate.id || '');
+                            const indent = Number(candidate.depth || 0) > 0 ? `${'&nbsp;&nbsp;'.repeat(Number(candidate.depth || 0))}↳ ` : '';
+                            return `<option value="${safeHtml(cId)}" ${String(head.parentId || '') === cId ? 'selected' : ''}>${indent}${safeHtml(String(candidate.code || cId))}</option>`;
+                        })
+                ).join('');
+            return `
+                            <tr data-bh-id="${safeHtml(id)}">
+                                <td><input data-bh-field="code" value="${safeHtml(String(head.code || id))}" ${isSystem ? 'readonly' : ''} style="width:100%; padding:0.4rem; border:1px solid #d1d5db; border-radius:6px;"></td>
+                                <td><input data-bh-field="name" value="${safeHtml(String(head.name || ''))}" ${isSystem ? 'readonly' : ''} style="width:100%; padding:0.4rem; border:1px solid #d1d5db; border-radius:6px;"></td>
+                                <td>${String(head.parentId || '').trim() ? 'Sub Head' : 'Main Head'}</td>
+                                <td>
+                                    <select data-bh-field="parentId" ${isSystem ? 'disabled' : ''} style="width:100%; padding:0.4rem; border:1px solid #d1d5db; border-radius:6px; background:#fff;">
+                                        ${parentOptions}
+                                    </select>
+                                </td>
+                                <td>
+                                    <select data-bh-field="status" ${isSystem ? 'disabled' : ''} style="width:100%; padding:0.4rem; border:1px solid #d1d5db; border-radius:6px; background:#fff;">
+                                        <option value="active" ${String(head.status || 'active') === 'active' ? 'selected' : ''}>active</option>
+                                        <option value="inactive" ${String(head.status || 'active') === 'inactive' ? 'selected' : ''}>inactive</option>
+                                    </select>
+                                </td>
+                                <td>
+                                    ${isSystem ? '<span class="text-muted">System</span>' : `
+                                        <button type="button" class="dashboard-tagged-btn accept" onclick="window.app_saveBudgetHeadRow('${safeHtml(id)}', this)">Save</button>
+                                        ${String(head.parentId || '').trim() ? '' : `<button type="button" class="dashboard-tagged-btn" onclick="window.app_prefillBudgetHeadParent('${safeHtml(id)}')" style="margin-left:0.35rem;">Add Sub</button>`}
+                                    `}
+                                </td>
+                            </tr>
+                        `;
+        }).join('') : '<tr><td colspan="6" class="text-muted">No budget heads found.</td></tr>'}
+                </tbody>
+            </table>
+        </div>
+    `;
+
+    const renderComplianceExceptionsBlock = (isExpanded = false) => {
+        const list = (isExpanded ? complianceIssues : complianceIssues.slice(0, 6));
+        const budgetHeadOptions = (budgetHeadsSorted || [])
+            .filter((head) => String(head.id || '') !== 'UNALLOCATED')
+            .map((head) => `<option value="${safeHtml(String(head.id || ''))}">${safeHtml(String(head.code || head.id || ''))} - ${safeHtml(String(head.name || ''))}</option>`)
+            .join('');
+        return `
+            <div class="admin-kpi-grid" style="margin-bottom:0.7rem;">
+                <div class="admin-kpi-pill"><div class="admin-kpi-pill-value">${complianceIssues.length}</div><div class="admin-kpi-pill-label">Open Issues</div></div>
+                <div class="admin-kpi-pill"><div class="admin-kpi-pill-value">${complianceReasonCounts.budgetHead}</div><div class="admin-kpi-pill-label">Budget Mapping</div></div>
+                <div class="admin-kpi-pill"><div class="admin-kpi-pill-value">${complianceReasonCounts.checkout}</div><div class="admin-kpi-pill-label">Checkout Validation</div></div>
+                <div class="admin-kpi-pill"><div class="admin-kpi-pill-value">${complianceReasonCounts.other}</div><div class="admin-kpi-pill-label">Other Validation</div></div>
+                <div class="admin-kpi-pill"><div class="admin-kpi-pill-value">${staleUnallocated.length}</div><div class="admin-kpi-pill-label">Aged 2+ Days</div></div>
+            </div>
+            <div style="margin-bottom:0.65rem;">
+                <button type="button" class="action-btn secondary" onclick="window.AppReports?.exportComplianceExceptionsCSV?.({ days: 31, unresolvedOnly: true })">
+                    <i class="fa-solid fa-file-csv"></i> Export Open Issues
+                </button>
+            </div>
+            <div style="display:grid; gap:0.45rem; max-height:${isExpanded ? '360px' : '180px'}; overflow:auto;">
+                ${list.map((row) => `
+                    <div class="dashboard-tagged-item">
+                        <div style="display:flex; justify-content:space-between; gap:0.5rem;">
+                            <div class="dashboard-tagged-title">${safeHtml(row.date || '--')} • ${safeHtml(usersById.get(String(row.user_id || row.userId || ''))?.name || row.staffName || 'Staff')}</div>
+                            <span class="badge" style="background:${row.sourceType === 'team_activity' ? '#ecfeff' : '#eef2ff'}; color:${row.sourceType === 'team_activity' ? '#0e7490' : '#3730a3'}; border:1px solid ${row.sourceType === 'team_activity' ? '#a5f3fc' : '#c7d2fe'};">${safeHtml(String(row.sourceLabel || 'Source'))}</span>
+                            <span class="badge" style="background:#fff7ed; color:#9a3412; border:1px solid #fed7aa;">${safeHtml(String(row.budgetHeadId || 'UNALLOCATED'))}</span>
+                        </div>
+                        <div class="dashboard-tagged-desc" style="white-space:normal; overflow:visible; text-overflow:clip; display:block; -webkit-line-clamp:unset; line-clamp:unset; max-height:none;">
+                            ${safeHtml(row.budgetHeadUnallocatedReason || (Array.isArray(row.validationErrors) ? row.validationErrors.join(' | ') : '') || row.workDescription || 'No reason')}
+                        </div>
+                        <div style="margin-top:0.45rem; font-size:0.8rem; color:#334155; white-space:normal; overflow:visible;">
+                            <strong>Task:</strong> ${safeHtml(row.workDescription || 'No task summary')}
+                        </div>
+                        <div style="margin-top:0.55rem; display:grid; grid-template-columns:1fr auto; gap:0.4rem;">
+                            <select id="assign-bh-${safeHtml(String(row._issueKey || row.id || ''))}" onchange="window.app_handleComplianceBudgetHeadSelection && window.app_handleComplianceBudgetHeadSelection('${safeHtml(String(row._issueKey || row.id || ''))}', this)" style="padding:0.45rem; border:1px solid #d1d5db; border-radius:8px;">
+                                <option value="">Select budget head</option>
+                                ${budgetHeadOptions}
+                                <option value="__ADD_NEW__">+ Add new budget head</option>
+                            </select>
+                            ${row.sourceType === 'team_activity'
+                ? `<button type="button" class="dashboard-tagged-btn accept" onclick="window.app_assignBudgetHeadToTeamTask('${safeHtml(String(row.planId || ''))}', ${Number.isInteger(row.taskIndex) ? row.taskIndex : 'null'}, this)">Allocate</button>`
+                : `<button type="button" class="dashboard-tagged-btn accept" onclick="window.app_assignBudgetHeadToAttendance('${safeHtml(String(row.id || ''))}', this)">Allocate</button>`}
+                        </div>
+                    </div>
+                `).join('') || '<div class="text-muted">No exceptions in recent sessions.</div>'}
+            </div>
+            <div style="margin-top:0.85rem; padding-top:0.65rem; border-top:1px solid #e2e8f0;">
+                <div style="font-size:0.84rem; font-weight:700; color:#334155; margin-bottom:0.45rem;">Daily Tasks (Team Activities)</div>
+                <div style="display:grid; gap:0.4rem; max-height:${isExpanded ? '280px' : '150px'}; overflow:auto;">
+                    ${(teamActivityRows.slice(0, isExpanded ? 40 : 12)).map((row) => `
+                        <div style="border:1px solid #e2e8f0; border-radius:10px; padding:0.45rem 0.55rem; background:#f8fafc;">
+                            <div style="display:flex; justify-content:space-between; gap:0.5rem;">
+                                <div style="font-size:0.79rem; font-weight:700; color:#1e293b;">${safeHtml(row.date || '--')} • ${safeHtml(usersById.get(String(row.user_id || row.userId || ''))?.name || 'Staff')}</div>
+                                <span class="badge" style="background:#ecfeff; color:#0e7490; border:1px solid #a5f3fc;">Task</span>
+                            </div>
+                            <div style="font-size:0.8rem; color:#334155; margin-top:0.2rem;">${safeHtml(row.workDescription || 'No task summary')}</div>
+                        </div>
+                    `).join('') || '<div class="text-muted">No team tasks found for selected period.</div>'}
+                </div>
+            </div>
+        `;
+    };
+
     const cards = [];
     const cardTemplates = {};
 
@@ -756,6 +1014,28 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         });
     }
 
+    if (window.app_hasPerm('users', 'admin')) {
+        pushCard({
+            id: 'budget-heads',
+            title: 'Budget Heads',
+            className: 'admin-section-card',
+            accentClass: 'admin-card-accent-blue',
+            compactHtml: renderBudgetHeadsBlock(false),
+            expandedHtml: renderBudgetHeadsBlock(true)
+        });
+    }
+
+    if (window.app_hasPerm('attendance', 'view')) {
+        pushCard({
+            id: 'compliance-exceptions',
+            title: 'Compliance Exceptions',
+            className: 'admin-section-card',
+            accentClass: 'admin-card-accent-amber',
+            compactHtml: renderComplianceExceptionsBlock(false),
+            expandedHtml: renderComplianceExceptionsBlock(true)
+        });
+    }
+
     pushCard({
         id: 'security-audits',
         title: 'Security Audits',
@@ -782,12 +1062,406 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         if (contentArea) contentArea.innerHTML = await renderAdmin(start, end);
     };
 
-    window.app_refreshAdminPage = async () => {
+    window.app_refreshAdminPage = async (opts = {}) => {
         const start = document.getElementById('audit-start')?.value || document.getElementById('audit-start-max')?.value || auditStartDate;
         const end = document.getElementById('audit-end')?.value || document.getElementById('audit-end-max')?.value || auditEndDate;
         const contentArea = document.getElementById('page-content');
-        window.app_closeAdminCardMaximize?.();
+        const requestedCardId = String(opts?.preserveCardId || '').trim();
+        const activeCardId = requestedCardId || (window._adminMaxCardId ? String(window._adminMaxCardId) : '');
+        let activeCardMode = '';
+        if (requestedCardId) {
+            const currentCardEl = document.querySelector(`.dashboard-admin-view .admin-card-compact[data-admin-card="${requestedCardId}"]`);
+            activeCardMode = String(opts?.preserveMode || currentCardEl?.dataset?.adminCardMode || 'original');
+        } else if (activeCardId) {
+            activeCardMode = String((window._adminCardModeState || {})[activeCardId] || 'tile');
+        }
         if (contentArea) contentArea.innerHTML = await renderAdmin(start, end);
+        if (activeCardId && activeCardMode && typeof window.app_toggleAdminCardMode === 'function') {
+            setTimeout(() => {
+                window.app_toggleAdminCardMode(activeCardId, activeCardMode);
+            }, 0);
+        }
+    };
+
+    const createBudgetHead = async ({ code, name, parentId = '' }) => {
+        const safeCode = String(code || '').trim().toUpperCase();
+        const safeName = String(name || '').trim();
+        const safeParentId = String(parentId || '').trim();
+        if (!safeCode || !safeName) {
+            throw new Error('Code and name are required.');
+        }
+        if (safeParentId && safeParentId === safeCode) {
+            throw new Error('A budget head cannot be its own parent.');
+        }
+        const existing = await window.AppDB.getAll('budget_heads').catch(() => []);
+        const dup = (existing || []).some((row) => String(row.id || '').toUpperCase() === safeCode);
+        if (dup) {
+            throw new Error('Budget head code already exists.');
+        }
+        if (safeParentId) {
+            const parent = (existing || []).find((row) => String(row.id || '') === safeParentId);
+            if (!parent) throw new Error('Selected parent budget head not found.');
+            if (String(parent.status || 'active').toLowerCase() === 'inactive') {
+                throw new Error('Cannot use an inactive budget head as parent.');
+            }
+        }
+        await window.AppDB.put('budget_heads', {
+            id: safeCode,
+            code: safeCode,
+            name: safeName,
+            parentId: safeParentId,
+            status: 'active',
+            owner: window.AppAuth.getUser()?.name || 'Admin',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        });
+        if (window.app_refreshBudgetHeadsCache) await window.app_refreshBudgetHeadsCache();
+        return safeCode;
+    };
+
+    const openBudgetHeadCreateModal = ({ initialCode = '', initialName = '' } = {}) => new Promise((resolve) => {
+        const modalId = `admin-budget-head-create-${Date.now()}`;
+        const parentMainHeads = budgetHeadsTreeOrdered
+            .filter((head) => String(head.id || '') !== 'UNALLOCATED' && !String(head.parentId || '').trim());
+        const mainHeadOptions = budgetHeadsTreeOrdered
+            .filter((head) => String(head.id || '') !== 'UNALLOCATED' && !String(head.parentId || '').trim())
+            .map((head) => `<option value="${safeHtml(String(head.id || ''))}">${safeHtml(String(head.code || head.id || ''))} - ${safeHtml(String(head.name || ''))}</option>`)
+            .join('');
+        const html = `
+            <div class="modal-overlay" id="${modalId}" style="display:flex; z-index:30000;">
+                <div class="modal-content" style="max-width:560px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; margin-bottom:0.85rem;">
+                        <h3 style="margin:0;">Add Budget Head</h3>
+                        <button type="button" data-close style="background:none; border:none; font-size:1.2rem; cursor:pointer;">&times;</button>
+                    </div>
+                    <form id="${modalId}-form" style="display:grid; gap:0.75rem;">
+                        <label style="display:grid; gap:0.35rem;">
+                            <span style="font-size:0.82rem; font-weight:700; color:#334155;">Code</span>
+                            <input name="code" value="${safeHtml(String(initialCode || ''))}" placeholder="OPS001" required style="padding:0.62rem; border:1px solid #cbd5e1; border-radius:8px;">
+                        </label>
+                        <label style="display:grid; gap:0.35rem;">
+                            <span style="font-size:0.82rem; font-weight:700; color:#334155;">Name</span>
+                            <input name="name" value="${safeHtml(String(initialName || ''))}" placeholder="Operations" required style="padding:0.62rem; border:1px solid #cbd5e1; border-radius:8px;">
+                        </label>
+                        <label style="display:grid; gap:0.35rem;">
+                            <span style="font-size:0.82rem; font-weight:700; color:#334155;">Parent Main Head (Optional)</span>
+                            <select name="parentId" style="padding:0.62rem; border:1px solid #cbd5e1; border-radius:8px; background:#fff;">
+                                <option value="">Main Head (No Parent)</option>
+                                <option value="__CREATE_MAIN__">+ Create New Main Head</option>
+                                ${mainHeadOptions}
+                            </select>
+                        </label>
+                        <div style="border:1px solid #e2e8f0; border-radius:10px; overflow:hidden;">
+                            <div style="font-size:0.78rem; font-weight:700; color:#334155; padding:0.55rem 0.65rem; background:#f8fafc; border-bottom:1px solid #e2e8f0;">Parent Heads Sheet</div>
+                            <div style="max-height:170px; overflow:auto;">
+                                <table class="compact-table" style="margin:0;">
+                                    <thead>
+                                        <tr><th>Code</th><th>Name</th><th>Status</th><th>Use</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        ${parentMainHeads.length ? parentMainHeads.map((head) => `
+                                            <tr>
+                                                <td>${safeHtml(String(head.code || head.id || ''))}</td>
+                                                <td>${safeHtml(String(head.name || ''))}</td>
+                                                <td>${safeHtml(String(head.status || 'active'))}</td>
+                                                <td><button type="button" class="dashboard-tagged-btn accept" data-parent-pick="${safeHtml(String(head.id || ''))}">Use</button></td>
+                                            </tr>
+                                        `).join('') : '<tr><td colspan="4" class="text-muted">No main heads yet.</td></tr>'}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div id="${modalId}-new-main-wrap" style="display:none; border:1px dashed #cbd5e1; border-radius:10px; padding:0.7rem; background:#f8fafc;">
+                            <div style="font-size:0.78rem; font-weight:700; color:#334155; margin-bottom:0.5rem;">Create Parent Main Head</div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.55rem;">
+                                <input name="newMainCode" placeholder="Parent code (e.g. FIN001)" style="padding:0.62rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                <input name="newMainName" placeholder="Parent name (e.g. Finance)" style="padding:0.62rem; border:1px solid #cbd5e1; border-radius:8px;">
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:0.65rem; justify-content:flex-end; margin-top:0.4rem;">
+                            <button type="button" class="action-btn secondary" data-close>Cancel</button>
+                            <button type="submit" class="action-btn">Create</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        `;
+        if (typeof window.app_showModal === 'function') window.app_showModal(html, modalId);
+        else (document.getElementById('modal-container') || document.body).insertAdjacentHTML('beforeend', html);
+        const modalEl = document.getElementById(modalId);
+        if (modalEl) modalEl.style.zIndex = '30000';
+        const formEl = document.getElementById(`${modalId}-form`);
+        const parentSel = formEl?.querySelector('select[name="parentId"]');
+        const newMainWrap = document.getElementById(`${modalId}-new-main-wrap`);
+        const syncMainSection = () => {
+            const show = String(parentSel?.value || '') === '__CREATE_MAIN__';
+            if (newMainWrap) newMainWrap.style.display = show ? 'block' : 'none';
+        };
+        parentSel?.addEventListener('change', syncMainSection);
+        syncMainSection();
+        formEl?.addEventListener('click', (ev) => {
+            const btn = ev.target?.closest?.('[data-parent-pick]');
+            if (!btn || !parentSel) return;
+            const picked = String(btn.getAttribute('data-parent-pick') || '').trim();
+            if (!picked) return;
+            parentSel.value = picked;
+            syncMainSection();
+        });
+        const cleanup = (result) => {
+            modalEl?.remove();
+            resolve(result);
+        };
+        modalEl?.querySelectorAll('[data-close]').forEach((btn) => btn.addEventListener('click', () => cleanup(null)));
+        modalEl?.addEventListener('click', (ev) => {
+            if (ev.target === modalEl) cleanup(null);
+        });
+        formEl?.addEventListener('submit', (ev) => {
+            ev.preventDefault();
+            const fd = new FormData(formEl);
+            cleanup({
+                code: String(fd.get('code') || ''),
+                name: String(fd.get('name') || ''),
+                parentId: String(fd.get('parentId') || ''),
+                newMainCode: String(fd.get('newMainCode') || ''),
+                newMainName: String(fd.get('newMainName') || '')
+            });
+        });
+    });
+
+    window.app_addBudgetHead = async (event) => {
+        event.preventDefault();
+        try {
+            const fd = new FormData(event.target);
+            const code = String(fd.get('code') || '');
+            const name = String(fd.get('name') || '');
+            const headType = String(fd.get('headType') || 'main');
+            const parentId = headType === 'sub' ? String(fd.get('parentId') || '') : '';
+            if (headType === 'sub' && !parentId) {
+                alert('Select a parent head for sub head.');
+                return;
+            }
+            await createBudgetHead({ code, name, parentId });
+            await window.app_refreshAdminPage();
+        } catch (err) {
+            const raw = String(err?.message || err || '');
+            if (raw.includes('permission-denied') || raw.includes('insufficient permissions')) {
+                alert('Firestore permission denied for budget_heads write. Update security rules to allow admin writes on budget_heads.');
+                return;
+            }
+            alert('Failed to add budget head: ' + raw);
+        }
+    };
+
+    window.app_handleComplianceBudgetHeadSelection = async (logId, selectEl = null) => {
+        const id = String(logId || '').trim();
+        const sel = selectEl || document.getElementById(`assign-bh-${id}`);
+        if (!sel || sel.value !== '__ADD_NEW__') return;
+        try {
+            const details = await openBudgetHeadCreateModal();
+            if (!details) {
+                sel.value = '';
+                return;
+            }
+            let parentId = String(details.parentId || '').trim();
+            if (parentId === '__CREATE_MAIN__') {
+                const newMainCode = String(details.newMainCode || '').trim();
+                const newMainName = String(details.newMainName || '').trim();
+                if (!newMainCode || !newMainName) {
+                    throw new Error('Parent main head code and name are required.');
+                }
+                const createdMainId = await createBudgetHead({ code: newMainCode, name: newMainName, parentId: '' });
+                parentId = createdMainId;
+            }
+            const newId = await createBudgetHead({ code: details.code, name: details.name, parentId });
+            await window.app_refreshAdminPage({ preserveCardId: 'compliance-exceptions' });
+            const nextSel = document.getElementById(`assign-bh-${id}`);
+            if (nextSel) nextSel.value = newId;
+            if (window.app_showSyncToast) window.app_showSyncToast('Budget head created. You can now allocate it.');
+        } catch (err) {
+            sel.value = '';
+            const raw = String(err?.message || err || '');
+            if (raw.includes('permission-denied') || raw.includes('insufficient permissions')) {
+                alert('Firestore permission denied for budget_heads write. Update security rules to allow admin writes on budget_heads.');
+                return;
+            }
+            alert('Failed to add budget head: ' + raw);
+        }
+    };
+
+    window.app_toggleBudgetHeadStatus = async (headId) => {
+        try {
+            const id = String(headId || '').trim();
+            if (!id || id === 'UNALLOCATED') return;
+            const row = await window.AppDB.get('budget_heads', id);
+            if (!row) return;
+            row.status = String(row.status || 'active') === 'inactive' ? 'active' : 'inactive';
+            row.updatedAt = new Date().toISOString();
+            await window.AppDB.put('budget_heads', row);
+            if (window.app_refreshBudgetHeadsCache) await window.app_refreshBudgetHeadsCache();
+            await window.app_refreshAdminPage();
+        } catch (err) {
+            const raw = String(err?.message || err || '');
+            if (raw.includes('permission-denied') || raw.includes('insufficient permissions')) {
+                alert('Firestore permission denied for budget_heads update. Update security rules to allow admin writes on budget_heads.');
+                return;
+            }
+            alert('Failed to update budget head: ' + raw);
+        }
+    };
+
+    window.app_saveBudgetHeadRow = async (headId, triggerEl = null) => {
+        try {
+            const id = String(headId || '').trim();
+            if (!id || id === 'UNALLOCATED') return;
+            const row = await window.AppDB.get('budget_heads', id);
+            if (!row) {
+                alert('Budget head not found.');
+                return;
+            }
+            const rowEl = triggerEl?.closest?.('tr')
+                || Array.from(document.querySelectorAll('tr[data-bh-id]')).find((el) => String(el.getAttribute('data-bh-id') || '') === id)
+                || null;
+            const code = String(rowEl?.querySelector('[data-bh-field="code"]')?.value || '').trim().toUpperCase();
+            const name = String(rowEl?.querySelector('[data-bh-field="name"]')?.value || '').trim();
+            const parentId = String(rowEl?.querySelector('[data-bh-field="parentId"]')?.value || '').trim();
+            const status = String(rowEl?.querySelector('[data-bh-field="status"]')?.value || 'active').trim().toLowerCase();
+            if (!code || !name) {
+                alert('Code and name are required.');
+                return;
+            }
+            if (parentId === id) {
+                alert('A budget head cannot be its own parent.');
+                return;
+            }
+            row.code = code;
+            row.name = name;
+            row.parentId = parentId;
+            row.status = status === 'inactive' ? 'inactive' : 'active';
+            row.updatedAt = new Date().toISOString();
+            await window.AppDB.put('budget_heads', row);
+            if (window.app_refreshBudgetHeadsCache) await window.app_refreshBudgetHeadsCache();
+            if (window.app_showSyncToast) window.app_showSyncToast('Budget head updated.');
+        } catch (err) {
+            const raw = String(err?.message || err || '');
+            if (raw.includes('permission-denied') || raw.includes('insufficient permissions')) {
+                alert('Firestore permission denied for budget_heads update. Update security rules to allow admin writes on budget_heads.');
+                return;
+            }
+            alert('Failed to update budget head: ' + raw);
+        }
+    };
+
+    window.app_toggleBudgetHeadParentInput = (headType = 'main', triggerEl = null) => {
+        const formEl = triggerEl?.closest?.('form') || null;
+        const parentEl = formEl?.querySelector?.('select[name="parentId"]') || document.getElementById('budget-add-parent');
+        if (!parentEl) return;
+        const isSub = String(headType || '').toLowerCase() === 'sub';
+        parentEl.disabled = !isSub;
+        if (!isSub) parentEl.value = '';
+    };
+
+    window.app_prefillBudgetHeadParent = (parentId) => {
+        const forms = Array.from(document.querySelectorAll('.dashboard-admin-view form')).filter((f) => f?.querySelector?.('select[name="headType"]') && f?.querySelector?.('select[name="parentId"]'));
+        forms.forEach((formEl) => {
+            const typeEl = formEl.querySelector('select[name="headType"]');
+            const parentEl = formEl.querySelector('select[name="parentId"]');
+            const codeEl = formEl.querySelector('input[name="code"]');
+            if (typeEl) typeEl.value = 'sub';
+            window.app_toggleBudgetHeadParentInput?.('sub', typeEl || formEl);
+            if (parentEl) parentEl.value = String(parentId || '');
+            if (codeEl && typeof codeEl.focus === 'function') codeEl.focus();
+        });
+    };
+
+    window.app_assignBudgetHeadToAttendance = async (logId, triggerEl = null) => {
+        try {
+            const id = String(logId || '').trim();
+            if (!id) return;
+            const sel = triggerEl?.previousElementSibling?.tagName === 'SELECT'
+                ? triggerEl.previousElementSibling
+                : document.getElementById(`assign-bh-${id}`);
+            const nextBudgetHeadId = String(sel?.value || '').trim();
+            if (!nextBudgetHeadId) {
+                alert('Select a budget head first.');
+                return;
+            }
+            if (nextBudgetHeadId === 'UNALLOCATED') {
+                alert('Please select a mapped budget head.');
+                return;
+            }
+            const log = await window.AppDB.get('attendance', id);
+            if (!log) {
+                alert('Attendance entry not found.');
+                return;
+            }
+            const nextErrors = Array.isArray(log.validationErrors)
+                ? log.validationErrors.filter((msg) => !String(msg || '').toLowerCase().includes('budget head'))
+                : [];
+            const nextValidationStatus = nextErrors.length ? (log.validationStatus || 'incomplete') : 'compliant';
+            const taskUpdates = Array.isArray(log.taskUpdates) ? log.taskUpdates : [];
+            for (const update of taskUpdates) {
+                const planId = String(update?.planId || '').trim();
+                const taskIndex = Number(update?.taskIndex);
+                if (!planId || !Number.isInteger(taskIndex)) continue;
+                const plan = await window.AppDB.get('work_plans', planId).catch(() => null);
+                if (!plan || !Array.isArray(plan.plans) || !plan.plans[taskIndex]) continue;
+                plan.plans[taskIndex].budgetHeadId = nextBudgetHeadId;
+                plan.plans[taskIndex].budgetHeadMappedAt = new Date().toISOString();
+                plan.plans[taskIndex].budgetHeadMappedBy = window.AppAuth.getUser()?.name || 'Admin';
+                plan.updatedAt = new Date().toISOString();
+                await window.AppDB.put('work_plans', plan);
+            }
+            await window.AppDB.put('attendance', {
+                ...log,
+                budgetHeadId: nextBudgetHeadId,
+                budgetHeadUnallocatedReason: '',
+                validationErrors: nextErrors,
+                validationStatus: nextValidationStatus,
+                budgetHeadMappedAt: new Date().toISOString(),
+                budgetHeadMappedBy: window.AppAuth.getUser()?.name || 'Admin'
+            });
+            const rowEl = triggerEl?.closest?.('.dashboard-tagged-item');
+            if (rowEl) rowEl.remove();
+            if (window.app_showSyncToast) window.app_showSyncToast('Budget head allocated.');
+        } catch (err) {
+            console.error('Failed to allocate budget head:', err);
+            alert('Failed to allocate budget head: ' + (err?.message || err));
+        }
+    };
+
+    window.app_assignBudgetHeadToTeamTask = async (planId, taskIndex, triggerEl = null) => {
+        try {
+            const safePlanId = String(planId || '').trim();
+            if (!safePlanId || !Number.isInteger(Number(taskIndex))) {
+                alert('Task reference missing for allocation.');
+                return;
+            }
+            const sel = triggerEl?.previousElementSibling?.tagName === 'SELECT'
+                ? triggerEl.previousElementSibling
+                : null;
+            const nextBudgetHeadId = String(sel?.value || '').trim();
+            if (!nextBudgetHeadId || nextBudgetHeadId === 'UNALLOCATED') {
+                alert('Select a mapped budget head first.');
+                return;
+            }
+            const idx = Number(taskIndex);
+            const plan = await window.AppDB.get('work_plans', safePlanId).catch(() => null);
+            if (!plan || !Array.isArray(plan.plans) || !plan.plans[idx]) {
+                alert('Work-plan task not found.');
+                return;
+            }
+            plan.plans[idx].budgetHeadId = nextBudgetHeadId;
+            plan.plans[idx].budgetHeadMappedAt = new Date().toISOString();
+            plan.plans[idx].budgetHeadMappedBy = window.AppAuth.getUser()?.name || 'Admin';
+            plan.updatedAt = new Date().toISOString();
+            await window.AppDB.put('work_plans', plan);
+            const rowEl = triggerEl?.closest?.('.dashboard-tagged-item');
+            if (rowEl) rowEl.remove();
+            if (window.app_showSyncToast) window.app_showSyncToast('Budget head allocated to team activity task.');
+        } catch (err) {
+            console.error('Failed to allocate budget head for team activity task:', err);
+            alert('Failed to allocate budget head: ' + (err?.message || err));
+        }
     };
 
     return `

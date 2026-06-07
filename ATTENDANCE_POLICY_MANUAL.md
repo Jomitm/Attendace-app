@@ -71,5 +71,6 @@ For afternoon check-ins, result is hours-based:
 ## 9. Notes
 - Missed checkout handling: if a session is auto-closed on the next login/check-in, it is credited as **Half Day only**.
 - The staff member is prompted on next login to submit a reason for the missed checkout, which is sent to admin for verification.
+- After the reason is submitted, the app can optionally reopen the task status section for that day so the staff member can mark tasks as completed, postponed, or delegated if they were not already submitted.
 - Historical records created before policy updates may show old behavior until recalculated.
 - Manual override logs are treated as admin-controlled records.

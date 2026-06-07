@@ -96,9 +96,11 @@ function sanitizeMinutesHtml(rawHtml = '') {
                 // unwrap: move children before the disallowed element
                 const moved = Array.from(child.childNodes);
                 moved.forEach((c) => node.insertBefore(c, child));
-                node.removeChild(child);
-                // re-walk each moved child so nested disallowed tags are caught
-                moved.forEach((c) => walk(c.parentNode === node ? node : c));
+                if (child.parentNode === node) {
+                    node.removeChild(child);
+                }
+                // re-walk moved children so nested disallowed tags are caught
+                moved.forEach((c) => walk(c));
                 return;
             }
 
