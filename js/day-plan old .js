@@ -45,50 +45,11 @@ const formatFriendlyDate = (value) => {
     const date = value instanceof Date ? value : new Date(value);
     if (Number.isNaN(date.getTime())) return '';
     return new Intl.DateTimeFormat('en-US', {
-        weekday: 'short',
+        weekday: 'long',
         month: 'short',
         day: 'numeric'
     }).format(date);
 };
-
-/* ============================================================
-   STATUS INDICATOR — returns a DOM element
-   ============================================================
-   completed     → green tick in green circle
-   not-completed → calendar icon in orange circle (postponed)
-   in-process    → spinner icon in blue circle
-   null / ''     → empty dashed circle (auto-track)
-   ============================================================ */
-function createStatusIndicator(status) {
-    const s = String(status || '').trim().toLowerCase();
-    let iconHTML = '';
-    let cls = 'plan-status-indicator';
-
-    switch (s) {
-        case 'completed':
-            cls += ' plan-status-completed';
-            iconHTML = '<i class="fa-solid fa-check"></i>';
-            break;
-        case 'not-completed':
-            cls += ' plan-status-postponed';
-            iconHTML = '<i class="fa-regular fa-calendar"></i>';
-            break;
-        case 'in-process':
-            cls += ' plan-status-inprogress';
-            iconHTML = '<i class="fa-solid fa-rotate"></i>';
-            break;
-        default:
-            cls += ' plan-status-none';
-            iconHTML = '';
-            break;
-    }
-
-    return createElement('span', {
-        className: cls,
-        innerHTML: iconHTML,
-        attributes: { 'data-status': s || 'none', title: s ? s.replace('-', ' ') : 'Auto-track' }
-    });
-}
 
 // --- UI Components ---
 
@@ -97,7 +58,7 @@ function createDayPlanHeader(date, isEditingOther, headerName, hasAnyExistingPla
     const dateLabel = formatFriendlyDate(date) || date;
     const subtitle = createElement('p', {
         className: 'day-plan-subline',
-        textContent: isEditingOther ? `${dateLabel} · Editing for ${headerName}` : dateLabel
+        textContent: isEditingOther ? `${dateLabel} - Editing for ${headerName}` : dateLabel
     });
 
     const deleteBtn = hasAnyExistingPlan ?
@@ -252,27 +213,11 @@ function createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, ini
         ]
     });
 
-    const teamTitleWrap = createElement('div', {
-        className: 'day-plan-column-title-wrap',
-        children: [
-            createElement('span', { className: 'day-plan-column-icon day-plan-column-icon-muted', innerHTML: '<i class="fa-solid fa-people-group"></i>' }),
-            createElement('div', {
-                children: [
-                    createElement('h4', {
-                        className: 'day-plan-column-title',
-                        innerHTML: 'Shared Plans <span class="team-plan-special-badge"><i class="fa-solid fa-star"></i> TEAM</span>'
-                    }),
-                    createElement('p', { className: 'day-plan-column-subtitle', textContent: 'Annual and referenced work for this day' })
-                ]
-            })
-        ]
-    });
-
     const columns = createElement('div', {
         className: 'day-plan-workspace',
         children: [
             createElement('div', {
-                className: 'day-plan-column day-plan-column-equal',
+                className: 'day-plan-column',
                 children: [
                     createElement('div', {
                         className: 'day-plan-column-head',
@@ -300,7 +245,7 @@ function createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, ini
                 ]
             }),
             createElement('div', {
-                className: 'day-plan-column day-plan-column-equal day-plan-context-column',
+                className: 'day-plan-column day-plan-context-column',
                 children: [
                     contextCard,
                     createElement('div', {
@@ -309,7 +254,18 @@ function createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, ini
                             createElement('div', {
                                 className: 'day-plan-column-head day-plan-column-head-secondary',
                                 children: [
-                                    teamTitleWrap,
+                                    createElement('div', {
+                                        className: 'day-plan-column-title-wrap',
+                                        children: [
+                                            createElement('span', { className: 'day-plan-column-icon day-plan-column-icon-muted', innerHTML: '<i class="fa-solid fa-people-group"></i>' }),
+                                            createElement('div', {
+                                                children: [
+                                                    createElement('h4', { className: 'day-plan-column-title', textContent: 'Shared Plans' }),
+                                                    createElement('p', { className: 'day-plan-column-subtitle', textContent: 'Annual and referenced work for this day' })
+                                                ]
+                                            })
+                                        ]
+                                    }),
                                     createButton({
                                         className: 'day-plan-column-btn day-plan-column-btn-secondary',
                                         innerHTML: '<i class="fa-solid fa-plus"></i><span>Add annual</span>',
@@ -375,12 +331,6 @@ export function openPlanEditor(args) {
     };
 
     const overlay = createElement('div', { className: 'plan-editor-overlay' });
-    const openLayers = Array.from(document.querySelectorAll('.day-plan-modal-overlay, .modal-overlay, .modal, .dashboard-max-overlay, .dashboard-max-window, .hero-task-modal-overlay, .hero-task-modal-shell'));
-    const maxZ = openLayers.reduce((acc, el) => {
-        const z = Number.parseInt(window.getComputedStyle(el).zIndex, 10);
-        return Number.isFinite(z) ? Math.max(acc, z) : acc;
-    }, 10040);
-    overlay.style.zIndex = String(maxZ + 20);
     const modal = createElement('div', { className: 'plan-editor-modal' });
 
     const head = createElement('div', {
@@ -398,18 +348,20 @@ export function openPlanEditor(args) {
     const grid = createElement('div', { className: 'plan-editor-grid' });
     const budgetHeads = Array.isArray(window.app_budgetHeadsCache) ? window.app_budgetHeadsCache : [{ id: 'UNALLOCATED', code: 'UNALLOCATED', name: 'Unallocated / To Be Mapped' }];
 
+    // Status Field
     const statusField = createElement('div', { className: 'plan-editor-field' });
     statusField.innerHTML = '<label>Status</label>';
     const statusSelect = createElement('select', { className: 'plan-editor-select' });
     statusSelect.innerHTML = `
         <option value="" ${!planData.status ? 'selected' : ''}>Auto-Track</option>
-        <option value="completed" ${planData.status === 'completed' ? 'selected' : ''}>✅ Completed</option>
-        <option value="in-process" ${planData.status === 'in-process' ? 'selected' : ''}>🔄 In Progress</option>
-        <option value="not-completed" ${planData.status === 'not-completed' ? 'selected' : ''}>📅 Postponed</option>
+        <option value="completed" ${planData.status === 'completed' ? 'selected' : ''}>Completed</option>
+        <option value="in-process" ${planData.status === 'in-process' ? 'selected' : ''}>In Progress</option>
+        <option value="not-completed" ${planData.status === 'not-completed' ? 'selected' : ''}>Not Completing</option>
     `;
     statusField.appendChild(statusSelect);
     grid.appendChild(statusField);
 
+    // Budget Head Field
     const budgetField = createElement('div', { className: 'plan-editor-field' });
     budgetField.innerHTML = '<label>Budget Head</label>';
     const budgetSelect = createElement('select', { className: 'plan-editor-select' });
@@ -430,6 +382,7 @@ export function openPlanEditor(args) {
     budgetField.appendChild(budgetSelect);
     grid.appendChild(budgetField);
 
+    // Only show Assignee Field for Admins
     let assignSelect = null;
     if (isAdmin) {
         const assignField = createElement('div', { className: 'plan-editor-field' });
@@ -522,21 +475,15 @@ export function dayPlanRenderBlockV3(args) {
     const scope = String(plan.planScope || plan._planScope || defaultScope) === 'annual' ? 'annual' : 'personal';
     const budgetHeadId = String(plan.budgetHeadId || AppAuth.getUser()?.currentBudgetHeadId || 'UNALLOCATED');
     const displayScope = isReference ? (plan.userName ? `${plan.userName}'s Plan` : 'Others Plan') : (scope === 'annual' ? 'Annual Plan' : 'Personal Plan');
-    const summary = task.trim() || 'New task';
-    const durationLabel = startDate && endDate && startDate !== endDate ? `${startDate} → ${endDate}` : (startDate || 'Due today');
-    const planStatus = String(plan.status || '').trim().toLowerCase();
-
-    /* Determine block class based on status */
-    let blockStatusClass = '';
-    if (planStatus === 'completed') blockStatusClass = ' plan-block-done';
-    else if (planStatus === 'not-completed') blockStatusClass = ' plan-block-postponed';
-    else if (planStatus === 'in-process') blockStatusClass = ' plan-block-active';
+    const summary = task.trim() ? (task.trim().length > 120 ? `${task.trim().slice(0, 120)}...` : task.trim()) : 'New task';
+    const durationLabel = startDate && endDate && startDate !== endDate ? `${startDate} to ${endDate}` : (startDate || 'Due today');
 
     const planBlock = createElement('div', {
-        className: (isReference ? 'plan-block-ref' : 'plan-block') + blockStatusClass + (isReference ? ' is-reference-only' : ''),
-        attributes: { 'data-index': idx, 'data-status': planStatus || 'none' }
+        className: (isReference ? 'plan-block-ref' : 'plan-block') + (isReference ? ' is-reference-only' : ''),
+        attributes: { 'data-index': idx }
     });
 
+    // compatibility for window.app_saveDayPlan ( scraper in app.js )
     const hiddenInputs = createElement('div', { className: 'dp-hidden-data', attributes: { style: 'display:none;' } });
     hiddenInputs.innerHTML = `
         <textarea class="plan-task">${esc(task)}</textarea>
@@ -549,12 +496,14 @@ export function dayPlanRenderBlockV3(args) {
         <input class="plan-root-id" value="${esc(plan.carryForwardRootId || '')}">
         <input class="plan-removed-flag" value="${plan.isRemoved === true ? '1' : '0'}">
     `;
+    // Add subplans if any
     if (plan.subPlans) {
         plan.subPlans.forEach(s => {
             const input = createElement('input', { className: 'sub-plan-input', attributes: { value: esc(s) } });
             hiddenInputs.appendChild(input);
         });
     }
+    // Tags for scraping
     if (plan.tags) {
         plan.tags.forEach(t => {
             const chip = createElement('div', {
@@ -573,15 +522,7 @@ export function dayPlanRenderBlockV3(args) {
 
     const header = createElement('div', { className: 'plan-block-header' });
 
-    /* ============================================================
-       TITLE GROUP — now includes STATUS INDICATOR before the badge
-       ============================================================ */
     const titleGroup = createElement('div', { className: 'plan-block-title-group' });
-
-    /* Status indicator circle (replaces plain index badge when status exists) */
-    const statusIndicator = createStatusIndicator(planStatus);
-    titleGroup.appendChild(statusIndicator);
-
     titleGroup.appendChild(createElement('span', { className: 'day-plan-index-badge', textContent: idx + 1 }));
     titleGroup.appendChild(createElement('div', {
         className: 'plan-block-copy',
@@ -610,12 +551,21 @@ export function dayPlanRenderBlockV3(args) {
                 existingBlock: planBlock
             })
         }));
-        headerActions.appendChild(createButton({
-            className: 'day-plan-remove-btn',
-            attributes: { title: 'Remove task' },
-            innerHTML: '<i class="fa-solid fa-trash-can"></i>',
-            onClick: () => window.app_markTaskRemoved(planBlock)
-        }));
+        if (idx > 0) {
+            headerActions.appendChild(createButton({
+                className: 'day-plan-remove-btn',
+                attributes: { title: 'Remove task' },
+                innerHTML: '<i class="fa-solid fa-trash-can"></i>',
+                onClick: () => window.app_markTaskRemoved(planBlock)
+            }));
+        } else {
+            headerActions.appendChild(createButton({
+                className: 'day-plan-remove-btn',
+                attributes: { title: 'Remove task' },
+                innerHTML: '<i class="fa-solid fa-trash-can"></i>',
+                onClick: () => window.app_markTaskRemoved(planBlock)
+            }));
+        }
     }
 
     header.appendChild(titleGroup);
@@ -763,8 +713,7 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
 
     const modalOverlay = createElement('div', {
         id: 'day-plan-modal',
-        className: 'day-plan-modal-overlay',
-        attributes: { 'data-plan-date': date }
+        className: 'day-plan-modal-overlay'
     });
 
     const modalContent = createElement('div', {
@@ -774,6 +723,7 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
     modalContent.appendChild(createDayPlanHeader(date, isEditingOther, headerName, hasAnyExistingPlan, targetId));
     modalContent.appendChild(createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, initialBlocks, allUsers, defaultScope, selectableCollaborators, isAdmin, currentUser));
     modalOverlay.appendChild(modalContent);
+
 
     const container = document.getElementById('modal-container');
     if (!container) return;
@@ -794,6 +744,7 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
 }
 
 export async function addPlanBlockUI(scopeOverride = null) {
+    // Adds a new plan block by opening the plan editor for the requested scope.
     const modal = document.getElementById('day-plan-modal');
     if (!modal) return;
     const scope = scopeOverride || 'personal';
@@ -801,7 +752,8 @@ export async function addPlanBlockUI(scopeOverride = null) {
         modal.querySelector('.others-plans-container') :
         modal.querySelector('.personal-plans-container');
 
-    const date = modal.dataset.planDate || new Date().toISOString().split('T')[0];
+    const dateMatch = modal.querySelector('.day-plan-headline p')?.textContent?.match(/\d{4}-\d{2}-\d{2}/);
+    const date = dateMatch ? dateMatch[0] : new Date().toISOString().split('T')[0];
 
     const allUsers = await AppDB.getAll('users');
     const currentUser = AppAuth.getUser();
@@ -848,3 +800,5 @@ window.app_markTaskRemoved = function (block) {
 };
 
 export { AppDayPlan };
+
+

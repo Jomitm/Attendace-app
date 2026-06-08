@@ -1,0 +1,170 @@
+/* Check-in modal UI */
+
+.checkin-modal-content {
+    max-width: 500px;
+    width: 95%;
+    padding: 1.5rem;
+    border-radius: 16px;
+}
+
+.checkin-modal-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1.5rem;
+}
+
+.checkin-modal-title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.checkin-modal-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+    box-shadow: 0 4px 6px -1px rgba(34, 197, 94, 0.3);
+}
+
+.checkin-modal-icon i {
+    color: #ffffff;
+    font-size: 1.1rem;
+}
+
+.checkin-modal-title-row h3 {
+    font-size: 1.2rem;
+    margin: 0;
+    font-weight: 700;
+    color: #111827;
+}
+
+.checkin-modal-title-row p {
+    font-size: 0.8rem;
+    color: #64748b;
+    margin: 0.25rem 0 0;
+}
+
+.checkin-close-btn {
+    width: 32px;
+    height: 32px;
+    border: 0;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f1f5f9;
+    color: #64748b;
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.checkin-close-btn:hover {
+    background: #e2e8f0;
+    color: #0f172a;
+}
+
+.checkin-plans-panel {
+    margin-bottom: 1.5rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px dashed #cbd5e1;
+}
+
+.checkin-plans-list {
+    max-height: 150px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.checkin-plan-item {
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    border-left: 3px solid #0284c7;
+    border-radius: 6px;
+    background: #f0f9ff;
+    color: #0c4a6e;
+    font-size: 0.9rem;
+}
+
+.checkin-plan-bullet {
+    font-weight: 600;
+}
+
+.checkin-subtask-count {
+    margin-top: 2px;
+    margin-left: 12px;
+    color: #0369a1;
+    font-size: 0.8rem;
+}
+
+.checkin-task-field {
+    margin-bottom: 1.25rem;
+}
+
+.checkin-field-label {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: #334155;
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.checkin-task-input {
+    width: 100%;
+    height: 80px;
+    padding: 0.75rem;
+    border: 2px solid #e2e8f0;
+    border-radius: 10px;
+    resize: none;
+    font-family: inherit;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    transition: border-color 0.2s ease;
+}
+
+.checkin-task-input:focus {
+    outline: none;
+    border-color: #16a34a;
+}
+
+.checkin-actions {
+    display: flex;
+    gap: 1rem;
+}
+
+.checkin-cancel-btn,
+.checkin-submit-btn {
+    padding: 0.75rem;
+    border-radius: 10px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.checkin-cancel-btn {
+    flex: 1;
+    border: 1px solid #e2e8f0;
+    background: #ffffff;
+    color: #64748b;
+}
+
+.checkin-submit-btn {
+    flex: 2;
+    border: 0;
+    background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+    color: #ffffff;
+    box-shadow: 0 4px 6px -1px rgba(22, 163, 74, 0.4);
+}
+
+@media (max-width: 560px) {
+    .checkin-actions {
+        flex-direction: column;
+    }
+
+    .checkin-submit-btn {
+        flex: 1;
+    }
+}

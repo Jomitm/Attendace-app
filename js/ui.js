@@ -30,7 +30,7 @@ import { renderAdmin } from './ui/admin.js';
 import { renderBirthdayCalendar } from './ui/birthday-calendar.js';
 import { renderSalaryProcessing, renderPolicyTest } from './ui/payroll.js';
 import { renderMinutes } from './ui/minutes-ui.js';
-import { renderCheckInModal } from './ui/attendance-modals.js';
+import { renderCheckInModal, renderCheckoutModal } from './ui/attendance-modals.js';
 import { renderLogin } from './ui/auth-pages.js';
 import { renderModals } from './ui/global-modals.js';
 import { renderYearlyPlan } from './ui/team-schedule.js';
@@ -65,6 +65,7 @@ export {
     renderPolicyTest,
     renderMinutes,
     renderCheckInModal,
+    renderCheckoutModal,
     renderLogin,
     renderModals,
     renderYearlyPlan,
@@ -100,6 +101,7 @@ export const AppUI = {
     renderPolicyTest,
     renderMinutes,
     renderCheckInModal,
+    renderCheckoutModal,
     renderLogin,
     renderModals,
     renderYearlyPlan,

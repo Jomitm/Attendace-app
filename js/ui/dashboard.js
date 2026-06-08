@@ -2139,6 +2139,7 @@ export async function renderDashboard() {
                 <div class="dashboard-hero-content">
                     <div class="dashboard-hero-row">
                         <div class="dashboard-hero-copy">
+                            <div class="dashboard-hero-eyebrow">Executive Overview</div>
                             <h2 class="dashboard-hero-title">Welcome back, ${user.name.split(' ')[0]}!</h2>
                             <p class="dashboard-hero-date">${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
                             ${user.rating !== undefined ? `<div class="dashboard-hero-chip-row"><div class="dashboard-hero-chip"><span class="dashboard-hero-chip-label">Your Rating:</span>${renderStarRating(user.rating, true)}</div>${user.completionStats ? `<div class="dashboard-hero-chip"><i class="fa-solid fa-check-circle dashboard-hero-chip-icon"></i><span>${(user.completionStats.completionRate * 100).toFixed(0)}% Complete</span></div>` : ''}</div>` : ''}
@@ -2163,6 +2164,7 @@ export async function renderDashboard() {
                             <div class="dashboard-checkin-status-dot" style="background: ${isCheckedIn ? '#10b981' : '#94a3b8'};"></div>
                         </div>
                         <div class="dashboard-checkin-identity">
+                            <div class="dashboard-checkin-kicker">Attendance command center</div>
                             <h4 class="dashboard-checkin-name">${safeHtml(displayUser.name)}</h4>
                             <p class="text-muted dashboard-checkin-role">${safeHtml(displayUser.role)}</p>
                         </div>

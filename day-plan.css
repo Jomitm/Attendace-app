@@ -1,0 +1,536 @@
+/* 
+  Day Plan Modern UI - Condensed "Web Designer" Refactor
+  Focus: Information density, professional typography, and fixed-height scrolling.
+*/
+
+:root {
+    --dp-bg-gradient: linear-gradient(180deg, #fffefc 0%, #fff9f2 100%);
+    --dp-border: #f6d8b9;
+    --dp-border-light: #fdf2e9;
+    --dp-accent: #7c2d12;
+    --dp-text-main: #431407;
+    --dp-text-sub: #9a3412;
+    --dp-shadow-soft: 0 12px 32px rgba(124, 45, 18, 0.08);
+    --dp-shadow-modal: 0 32px 64px rgba(15, 23, 42, 0.2);
+}
+
+/* --- Base Modal Containers --- */
+.day-plan-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10020;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background: rgba(15, 23, 42, 0.35);
+    backdrop-filter: blur(6px);
+}
+
+.day-plan-content {
+    width: min(1200px, 98vw);
+    /* Changed from fixed height to dynamic height with max-height */
+    height: auto;
+    max-height: min(840px, 90vh);
+    display: flex;
+    flex-direction: column;
+    background: var(--dp-bg-gradient);
+    border: 1px solid var(--dp-border);
+    border-radius: 16px;
+    box-shadow: var(--dp-shadow-modal);
+    padding: 1.25rem;
+    overflow: hidden;
+    position: relative;
+}
+
+/* --- Header Section --- */
+.day-plan-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    flex-shrink: 0;
+}
+
+.day-plan-headline h3 {
+    margin: 0;
+    color: var(--dp-accent);
+    font-size: 1.35rem;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+}
+
+.day-plan-subline {
+    margin: 0.1rem 0 0;
+    color: var(--dp-text-sub);
+    font-size: 0.85rem;
+    font-weight: 600;
+    opacity: 0.7;
+}
+
+.day-plan-header-actions {
+    display: flex;
+    gap: 0.4rem;
+}
+
+.day-plan-close-btn,
+.day-plan-delete-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 1.1rem;
+    color: var(--dp-text-sub);
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    transition: all 150ms ease;
+}
+
+.day-plan-close-btn:hover {
+    background: rgba(0, 0, 0, 0.05);
+    color: #000;
+}
+
+.day-plan-delete-btn:hover {
+    background: #fee2e2;
+    color: #dc2626;
+}
+
+/* --- Layout Grid --- */
+.day-plan-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+    flex: 1;
+    min-height: 0;
+    margin-bottom: 0.5rem;
+}
+
+.day-plan-column {
+    display: flex;
+    flex-direction: column;
+    min-height: 200px;
+    /* Ensure some visibility when empty */
+    background: rgba(255, 255, 255, 0.4);
+    border: 1px solid var(--dp-border-light);
+    border-radius: 14px;
+    padding: 0.75rem;
+}
+
+.day-plan-column-head {
+    margin-bottom: 0.75rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.day-plan-column-title {
+    font-size: 0.85rem;
+    font-weight: 800;
+    color: var(--dp-text-sub);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 0;
+}
+
+/* --- Scroll Area (The core request) --- */
+.day-plan-scroll-area {
+    flex: 1;
+    overflow-y: auto;
+    padding-right: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    min-height: 100px;
+    /* Allow it to shrink but not disappear */
+}
+
+/* --- Plan Blocks (Condensed) --- */
+.plan-block,
+.plan-block-ref {
+    background: #fff;
+    border: 1px solid #f2f2f2;
+    border-radius: 10px;
+    transition: transform 150ms ease, box-shadow 150ms ease;
+    flex-shrink: 0;
+}
+
+.plan-block:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+.plan-block-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 0.4rem 0.6rem;
+    background: #fafafb;
+    border-bottom: 1px solid #f5f5f7;
+    border-radius: 10px 10px 0 0;
+}
+
+.plan-block-title-group {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    min-width: 0;
+    flex: 1;
+}
+
+.day-plan-index-badge {
+    font-size: 0.75rem;
+    font-weight: 800;
+    color: var(--dp-text-sub);
+    opacity: 0.5;
+}
+
+.plan-block-summary {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: #1e293b;
+    white-space: normal;
+    word-break: break-word;
+    line-height: 1.4;
+}
+
+.day-plan-scope-pill {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 1px 5px;
+    background: #f1f5f9;
+    color: #475569;
+    border-radius: 4px;
+    white-space: nowrap;
+    margin-top: 2px;
+}
+
+.plan-block-actions {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    flex-shrink: 0;
+    margin-left: 0.5rem;
+    padding-top: 2px;
+}
+
+.day-plan-edit-btn,
+.day-plan-remove-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: #94a3b8;
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    transition: all 150ms ease;
+}
+
+.day-plan-edit-btn:hover {
+    background: #f1f5f9;
+    color: var(--dp-accent);
+}
+
+.day-plan-remove-btn:hover {
+    background: #fee2e2;
+    color: #ef4444;
+}
+
+/* Tag Pill */
+.plan-block-body {
+    padding: 0.25rem 0.6rem 0.4rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.day-plan-tag-pill {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--dp-accent);
+    background: #fff7ed;
+    padding: 1px 6px;
+    border-radius: 100px;
+}
+
+/* --- Add Button (Dashed Premium) --- */
+.btn-premium-add {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px dashed #cbd5e1;
+    background: #fff;
+    color: #64748b;
+    font-size: 0.85rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 200ms ease;
+}
+
+.btn-premium-add:hover {
+    background: #f0fdf4;
+    border-color: #86efac;
+    color: #166534;
+}
+
+/* --- Pop-out Editor Modal (Premium Designer Feel) --- */
+.plan-editor-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10050;
+    background: rgba(15, 23, 42, 0.45);
+    backdrop-filter: blur(10px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+}
+
+.plan-editor-modal {
+    width: min(640px, 95vw);
+    background: #fff;
+    border-radius: 20px;
+    box-shadow: 0 40px 80px rgba(0, 0, 0, 0.15);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.plan-editor-head {
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.plan-editor-head h4 {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: var(--dp-text-main);
+}
+
+.plan-editor-body {
+    padding: 1.5rem;
+}
+
+.plan-editor-textarea {
+    width: 100%;
+    min-height: 140px;
+    padding: 1rem;
+    font-size: 1rem;
+    line-height: 1.5;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    resize: none;
+    margin-bottom: 1rem;
+    color: #1e293b;
+    background: #fcfcfd;
+}
+
+.plan-editor-textarea:focus {
+    outline: none;
+    border-color: var(--dp-accent);
+    background: #fff;
+}
+
+.plan-editor-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+.plan-editor-field label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    margin-bottom: 0.4rem;
+    letter-spacing: 0.03em;
+}
+
+.plan-editor-field select {
+    width: 100%;
+    padding: 0.6rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.plan-editor-footer {
+    padding: 1rem 1.5rem;
+    background: #f9fafb;
+    border-top: 1px solid #f1f5f9;
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+}
+
+.day-plan-form {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+/* --- Footer Section --- */
+.day-plan-footer {
+    padding: 1rem 0 0.25rem;
+    border-top: 1px solid var(--dp-border-light);
+    display: flex;
+    justify-content: flex-end;
+    flex-shrink: 0;
+}
+
+.day-plan-actions {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.day-plan-discard-btn,
+.day-plan-save-btn {
+    padding: 0.6rem 1.25rem;
+    border-radius: 10px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 150ms ease;
+}
+
+.day-plan-discard-btn {
+    background: #f1f5f9;
+    border: none;
+    color: #475569;
+}
+
+.day-plan-save-btn {
+    background: var(--dp-accent);
+    border: none;
+    color: #fff;
+}
+
+.day-plan-discard-btn:hover {
+    background: #e2e8f0;
+}
+
+.day-plan-save-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(124, 45, 18, 0.2);
+}
+
+/* Custom Scrollbar */
+.day-plan-scroll-area::-webkit-scrollbar {
+    width: 5px;
+}
+
+.day-plan-scroll-area::-webkit-scrollbar-thumb {
+    background: #e2e8f0;
+    border-radius: 10px;
+}
+
+.day-plan-scroll-area::-webkit-scrollbar-thumb:hover {
+    background: #cbd5e1;
+}
+
+/* --- Plan Editor Tags --- */
+.plan-editor-tags-container {
+    margin-bottom: 1.25rem;
+    padding: 0.75rem;
+    background: #f8fafc;
+    border: 1px dashed #e2e8f0;
+    border-radius: 10px;
+}
+
+.plan-editor-tags-label {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+    letter-spacing: 0.05em;
+}
+
+.plan-editor-tags-wrapper {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+@media (max-width: 900px) {
+    .day-plan-columns {
+        grid-template-columns: 1fr;
+    }
+
+    .day-plan-content {
+        width: 100vw;
+        height: 100vh;
+        border-radius: 0;
+        padding: 1rem;
+    }
+}
+
+/* --- Mention Autocomplete --- */
+.mention-dropdown {
+    position: fixed;
+    z-index: 11000;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+    min-width: 220px;
+    max-height: 240px;
+    overflow-y: auto;
+    padding: 6px;
+    display: none;
+    pointer-events: auto;
+}
+
+.mention-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.875rem;
+    color: #475569;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mention-item:hover,
+.mention-item.active {
+    background: #f1f5f9 !important;
+    color: #1e293b !important;
+}
+
+.mention-item-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: #e2e8f0;
+}
+
+.mention-item-name {
+    font-weight: 500;
+}
+
+.mention-item-role {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    margin-left: auto;
+}

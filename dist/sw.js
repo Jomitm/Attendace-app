@@ -1,4 +1,4 @@
-const BUILD_ID = "7718bc9-1780846444029";
+const BUILD_ID = "43b2610-1780944401551";
 const STATIC_CACHE = `crwi-attendance-static-${BUILD_ID}`;
 const RUNTIME_CACHE = `crwi-attendance-runtime-${BUILD_ID}`;
 const OFFLINE_URL = '/offline.html';

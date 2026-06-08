@@ -3,6 +3,8 @@
  * Renders shared modals used across the application.
  */
 
+import { renderCheckoutModal } from './checkout-form.js';
+
 export function renderModals() {
     const user = window.AppAuth?.getUser();
     if (!user) return '';
@@ -11,80 +13,7 @@ export function renderModals() {
         : '<option value="UNALLOCATED">Unallocated / To Be Mapped</option>';
 
     return `
-        <!-- Check-Out Modal -->
-        <div id="checkout-modal" class="modal-overlay checkout-main-modal" style="display: none;">
-            <div class="modal-content checkout-main-content" style="width: 100%; max-width: 620px;">
-                <h3 style="margin-bottom: 1rem;">Check Out</h3>
-                <p style="color: #6b7280; font-size: 0.9rem; margin-bottom: 1rem;">Work summary is optional for completed tasks, but required if you postpone or delegate anything during check-out.</p>
-                <form id="checkout-form" novalidate>
-                    <textarea name="description" placeholder="- Completed monthly report&#10;- Fixed login bug..." style="width: 100%; height: 120px; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem; resize: none; font-family: inherit; margin-bottom: 1.5rem;"></textarea>
-                    <div id="checkout-plan-ref" style="display:none; background:#f0f9ff; padding:12px; border-radius:10px; border:1px solid #bae6fd; margin-bottom:1.5rem;">
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                            <label style="font-size:0.7rem; font-weight:800; color:#0369a1; text-transform:uppercase; letter-spacing:0.5px;">Today's Work Plan</label>
-                            <button type="button" onclick="window.app_useWorkPlan()" style="background:#0284c7; color:white; border:none; padding:3px 8px; border-radius:4px; font-size:0.65rem; font-weight:600; cursor:pointer;">Use This</button>
-                        </div>
-                        <div id="checkout-plan-text" style="font-size:0.85rem; color:#0c4a6e; line-height:1.4;"></div>
-                    </div>
-
-                    <!-- Work Plan Checklist (New for Checkout Flow) -->
-                    <div id="checkout-task-checklist" style="margin-bottom: 1.5rem;">
-                        <label style="display: block; font-size: 0.85rem; font-weight: 700; color: #4b5563; margin-bottom: 0.75rem;">Today's Task Status</label>
-                        <div id="checkout-task-list" style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 200px; overflow-y: auto; padding-right: 5px;">
-                            <!-- Populated by JS -->
-                        </div>
-                    </div>
-
-                    <!-- Action Preview (Inline Summary) -->
-                    <div id="checkout-action-preview" style="margin-bottom: 1.5rem; display: none;">
-                        <label style="display: block; font-size: 0.85rem; font-weight: 700; color: #4b5563; margin-bottom: 0.75rem;">Action Preview</label>
-                        <div id="checkout-action-preview-list" class="checkout-action-preview-list">
-                            <!-- Populated by JS -->
-                        </div>
-                    </div>
-
-                    <!-- Delegate Selection Panel (Initially Hidden) -->
-                    <div id="delegate-panel" style="display:none; background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:1rem; margin-bottom:1.5rem;">
-                        <h4 id="delegate-selected-task" style="font-size:0.8rem; color:#1e293b; margin-top:0; margin-bottom:0.75rem; line-height:1.4;"></h4>
-                        <label style="display:block; font-size:0.75rem; font-weight:600; color:#64748b; margin-bottom:0.5rem;">Choose staff member:</label>
-                        <div id="delegate-list" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:0.5rem; max-height:180px; overflow-y:auto; padding:2px;">
-                            <!-- Populated by JS -->
-                        </div>
-                        <div style="margin-top:1rem; display:flex; justify-content:flex-end;">
-                            <button type="button" onclick="window.app_handleChecklistAction(null, null, null)" class="action-btn secondary" style="font-size:0.75rem; padding:0.4rem 0.8rem;">Cancel Delegation</button>
-                        </div>
-                    </div>
-                    
-                    <!-- Plan for Tomorrow -->
-                    <div style="margin-bottom:1.5rem;">
-                        <label style="display:block; font-size:0.85rem; font-weight:700; color:#4b5563; margin-bottom:0.5rem;">🗓️ What's your top goal for tomorrow? (Optional)</label>
-                        <textarea name="tomorrowGoal" placeholder="e.g., Finalize the project report..." style="width:100%; height:60px; padding:0.75rem; border:1px solid #d1d5db; border-radius:0.5rem; resize:none; font-family:inherit;"></textarea>
-                        <div style="margin-top:0.55rem;">
-                            <label style="display:block; font-size:0.78rem; font-weight:700; color:#4b5563; margin-bottom:0.35rem;">Tomorrow Goal Budget Head</label>
-                            <select name="tomorrowBudgetHeadId" style="width:100%; padding:0.62rem; border:1px solid #d1d5db; border-radius:0.5rem; background:#fff;">
-                                ${budgetSelectHtml}
-                            </select>
-                        </div>
-                    </div>
-
-                    <div id="checkout-location-loading" class="checkout-location-loading" style="display:none;">
-                         <span><i class="fa-solid fa-spinner fa-spin"></i> <span id="checkout-location-message">Capturing location</span></span>
-                         <span id="checkout-location-timer" class="checkout-location-timer">00:00</span>
-                    </div>
-                    <div id="checkout-location-mismatch" style="display:none; background:#fff1f2; padding:12px; border-radius:10px; border:1px solid #fecaca; margin-bottom:1.5rem;">
-                         <div style="color:#991b1b; font-size:0.85rem; font-weight:700; display:flex; gap:6px; align-items:center; margin-bottom:4px;">
-                            <i class="fa-solid fa-triangle-exclamation"></i> Location Mismatch
-                         </div>
-                         <p style="font-size:0.8rem; color:#7f1d1d; margin-bottom:0.75rem;">You are checking out from a different location than where you checked in. Please explain:</p>
-                         <textarea name="locationExplanation" placeholder="e.g. Field visit, Client site..." style="width:100%; height:60px; padding:0.5rem; border:1px solid #fecaca; border-radius:6px; font-size:0.85rem; resize:none; font-family:inherit;"></textarea>
-                    </div>
-
-                    <div style="display: flex; gap: 1rem;">
-                        <button type="button" onclick="document.getElementById('checkout-modal').style.display = 'none'; window.app_resetCheckoutLocationSession?.();" style="flex: 1; padding: 0.75rem; background: white; border: 1px solid #d1d5db; border-radius: 0.5rem; cursor: pointer;">Cancel</button>
-                        <button type="submit" class="action-btn" style="flex: 1; justify-content: center;">Complete Check-Out</button>
-                    </div>
-                </form>
-            </div>
-        </div>
+        ${renderCheckoutModal(budgetSelectHtml)}
 
         <!-- Add Log Modal (Modern) -->
         <div id="log-modal" class="modal-overlay" style="display: none;">

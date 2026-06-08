@@ -5365,7 +5365,7 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
         removedTasks = [];
     }
 
-    const planBlocks = document.querySelectorAll('.plan-block');
+    const planBlocks = form ? form.querySelectorAll('.plan-block') : document.querySelectorAll('.plan-block');
     const plans = [];
     const personalPlans = [];
     const annualPlans = [];
