@@ -137,7 +137,7 @@ async function loadStaffContext(userId) {
     if (!userId) return null;
     if (!AppDB?.get) return null;
     try {
-        return await AppDB.get(CONTEXT_COLLECTION, userId);
+        return await AppDB.get(CONTEXT_COLLECTION, userId, { silentPermissionDenied: true });
     } catch (err) {
         console.warn('AI context feeder: failed to load staff context:', err);
         return null;
@@ -311,7 +311,7 @@ async function rebuildStaffContext(userId, _options = {}) {
     };
 
     try {
-        await AppDB.put(CONTEXT_COLLECTION, record);
+        await AppDB.put(CONTEXT_COLLECTION, record, { silentPermissionDenied: true });
     } catch (err) {
         console.warn('AI context feeder: failed to store staff context:', err);
     }
@@ -385,7 +385,7 @@ async function markStaffContextDirty(userId, payload = {}) {
         dirtyReason: trimText(payload?.reason || payload?.collection || 'db-write', 180)
     };
     try {
-        await AppDB.put(CONTEXT_COLLECTION, next);
+        await AppDB.put(CONTEXT_COLLECTION, next, { silentPermissionDenied: true });
     } catch (err) {
         console.warn('AI context feeder: failed to mark staff context dirty:', err);
     }

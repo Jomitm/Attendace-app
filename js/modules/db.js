@@ -470,6 +470,9 @@ export class Database {
                 return null;
             }
         } catch (error) {
+            if (options?.silentPermissionDenied && this.isPermissionDenied(error)) {
+                return null;
+            }
             console.error(`Error getting ${id} from ${collectionName}:`, error);
             throw error;
         }

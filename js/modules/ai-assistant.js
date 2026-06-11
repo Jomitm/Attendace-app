@@ -101,7 +101,7 @@ async function logAuditToCollection(entry) {
         createdAt: new Date().toISOString()
     };
     try {
-        await AppDB.put(AUDIT_COLLECTION, record);
+        await AppDB.put(AUDIT_COLLECTION, record, { silentPermissionDenied: true });
     } catch (err) {
         console.warn('AI audit log write failed:', err);
     }
