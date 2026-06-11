@@ -170,9 +170,8 @@ function buildSafetyPreamble() {
     ].join(' ');
 }
 
-function buildModePrompt(mode, context = {}) {
+function buildModePrompt(mode) {
     const common = buildSafetyPreamble();
-    const safeContext = sanitizeRecursive(context);
 
     if (mode === 'staff-plan') {
         return [
@@ -181,6 +180,8 @@ function buildModePrompt(mode, context = {}) {
             'Help the staff member draft or refine a daily plan.',
             'Return JSON with: summary, suggestedActions (array), warnings (array), sourceScope, draft.',
             'The draft must include: task, subPlans, status, budgetHeadId, assignedTo, startDate, endDate.',
+            'Use the currentPlan and historySummary to refine the wording, infer sensible steps, and match repeated work patterns.',
+            'If the historySummary suggests a likely budget head, include it in draft.budgetHeadId.',
             'Keep the draft editable. Prefer practical, concise wording and sensible steps.'
         ].join(' ');
     }
@@ -199,7 +200,7 @@ function buildMessages(mode, context = {}) {
     return [
         {
             role: 'system',
-            content: buildModePrompt(mode, safeContext)
+            content: buildModePrompt(mode)
         },
         {
             role: 'user',
@@ -279,7 +280,7 @@ function getOpenRouterHeaders() {
     return headers;
 }
 
-async function callOpenRouter({ mode, context, requestId }) {
+async function callOpenRouter({ mode, context }) {
     const messages = buildMessages(mode, context);
     const model = getDefaultModel();
     const maxTokens = mode === 'staff-plan' ? 700 : 900;
@@ -351,6 +352,27 @@ function buildRequestScope(mode, body) {
                 assignedTo: trimTo(sanitized.currentPlan?.assignedTo || '', 120),
                 startDate: trimTo(sanitized.currentPlan?.startDate || '', 20),
                 endDate: trimTo(sanitized.currentPlan?.endDate || '', 20)
+            },
+            historySummary: {
+                sourceScope: trimTo(sanitized.historySummary?.sourceScope || '', 240),
+                historyAvailable: sanitized.historySummary?.historyAvailable === true,
+                recentPlans: Array.isArray(sanitized.historySummary?.recentPlans)
+                    ? sanitized.historySummary.recentPlans.slice(0, 8).map((plan) => ({
+                        date: trimTo(plan?.date || '', 20),
+                        budgetHeadId: trimTo(plan?.budgetHeadId || '', 80),
+                        budgetHeadLabel: trimTo(plan?.budgetHeadLabel || '', 180),
+                        taskCount: Number(plan?.taskCount || 0),
+                        summary: trimTo(plan?.summary || '', 500)
+                    }))
+                    : [],
+                recurringBudgetHeads: Array.isArray(sanitized.historySummary?.recurringBudgetHeads)
+                    ? sanitized.historySummary.recurringBudgetHeads.slice(0, 5).map((item) => ({
+                        id: trimTo(item?.id || '', 80),
+                        label: trimTo(item?.label || '', 180),
+                        count: Number(item?.count || 0)
+                    }))
+                    : [],
+                recurringSteps: normalizeStringArray(sanitized.historySummary?.recurringSteps, 6, 180)
             },
             collaborators
         };

@@ -66,6 +66,161 @@ async function getCachedDayPlanUsers() {
     return AppDB.getAll('users');
 }
 
+function buildBudgetHeadLookup() {
+    const budgetHeads = Array.isArray(window.app_budgetHeadsCache)
+        ? window.app_budgetHeadsCache
+        : [{ id: 'UNALLOCATED', code: 'UNALLOCATED', name: 'Unallocated / To Be Mapped' }];
+    const lookup = new Map();
+    budgetHeads.forEach((head) => {
+        const id = String(head?.id || '').trim();
+        if (!id) return;
+        lookup.set(id, {
+            id,
+            code: String(head?.code || id).trim(),
+            name: String(head?.name || id).trim()
+        });
+    });
+    return lookup;
+}
+
+function getBudgetHeadLabel(budgetHeadId, lookup = buildBudgetHeadLookup()) {
+    const id = String(budgetHeadId || '').trim();
+    if (!id) return '';
+    const head = lookup.get(id);
+    if (!head) return id;
+    return `${head.code} - ${head.name}`;
+}
+
+async function getRecentPersonalPlanHistory(targetId, beforeDate, targetUserName = '') {
+    const safeTargetId = String(targetId || '').trim();
+    const safeBeforeDate = String(beforeDate || '').trim();
+    if (!safeTargetId || !safeBeforeDate) {
+        return {
+            sourceScope: 'No recent personal plan history available',
+            historyAvailable: false,
+            recentPlans: [],
+            recurringBudgetHeads: [],
+            recurringSteps: []
+        };
+    }
+
+    let historyRows = [];
+    try {
+        const dateScopedRows = await AppDB.queryMany('work_plans', [
+            { field: 'date', operator: '<', value: safeBeforeDate }
+        ], {
+            orderBy: [{ field: 'date', direction: 'desc' }],
+            limit: 30
+        });
+        historyRows = (dateScopedRows || [])
+            .filter((plan) =>
+                String(plan?.userId || '').trim() === safeTargetId
+                && String(plan?.planScope || 'personal').toLowerCase() === 'personal'
+            )
+            .slice(0, 8);
+    } catch (queryErr) {
+        console.warn('Failed to query recent plan history, falling back to cached scan:', queryErr);
+        const allPlans = await AppDB.getAll('work_plans').catch(() => []);
+        historyRows = (allPlans || [])
+            .filter((plan) =>
+                String(plan?.userId || '').trim() === safeTargetId
+                && String(plan?.planScope || 'personal').toLowerCase() === 'personal'
+                && String(plan?.date || '').trim() < safeBeforeDate
+            )
+            .sort((a, b) => String(b?.date || '').localeCompare(String(a?.date || '')))
+            .slice(0, 8);
+    }
+
+    const budgetLookup = buildBudgetHeadLookup();
+    const budgetHeadCounts = new Map();
+    const stepCounts = new Map();
+    const recentPlans = (historyRows || [])
+        .map((plan) => {
+            const validTasks = Array.isArray(plan?.plans)
+                ? plan.plans.filter((task) => task && task.isRemoved !== true)
+                : [];
+            const normalizedTasks = validTasks.map((task) => ({
+                task: String(task?.task || '').trim(),
+                subPlans: Array.isArray(task?.subPlans) ? task.subPlans.map((step) => String(step || '').trim()).filter(Boolean).slice(0, 5) : [],
+                budgetHeadId: String(task?.budgetHeadId || '').trim(),
+                status: String(task?.status || '').trim(),
+                assignedTo: String(task?.assignedTo || '').trim()
+            })).filter((task) => task.task);
+
+            normalizedTasks.forEach((task) => {
+                if (task.budgetHeadId) {
+                    budgetHeadCounts.set(task.budgetHeadId, (budgetHeadCounts.get(task.budgetHeadId) || 0) + 1);
+                }
+                task.subPlans.forEach((step) => {
+                    const key = step.toLowerCase();
+                    stepCounts.set(key, {
+                        text: step,
+                        count: (stepCounts.get(key)?.count || 0) + 1
+                    });
+                });
+            });
+
+            const taskSummary = normalizedTasks.slice(0, 3).map((task) => {
+                const stepText = task.subPlans.length ? ` | Steps: ${task.subPlans.join('; ')}` : '';
+                return `${task.task}${stepText}`;
+            }).join(' || ');
+
+            const planBudgetHeadId = normalizedTasks.find((task) => task.budgetHeadId)?.budgetHeadId
+                || String(plan?.budgetHeadId || '').trim();
+
+            return {
+                date: String(plan?.date || '').trim(),
+                budgetHeadId: planBudgetHeadId,
+                budgetHeadLabel: getBudgetHeadLabel(planBudgetHeadId, budgetLookup),
+                taskCount: normalizedTasks.length,
+                summary: taskSummary || 'No active tasks'
+            };
+        })
+        .filter((plan) => plan.date);
+
+    const recurringBudgetHeads = Array.from(budgetHeadCounts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([id, count]) => ({
+            id,
+            label: getBudgetHeadLabel(id, budgetLookup),
+            count
+        }));
+
+    const recurringSteps = Array.from(stepCounts.values())
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 6)
+        .map((entry) => entry.text);
+
+    return {
+        sourceScope: `Recent personal plans for ${targetUserName || safeTargetId} before ${safeBeforeDate}`,
+        historyAvailable: recentPlans.length > 0,
+        recentPlans,
+        recurringBudgetHeads,
+        recurringSteps
+    };
+}
+
+function buildStaffDraftContext({
+    date,
+    scope,
+    action,
+    currentPlan,
+    collaborators,
+    historySummary,
+    notes
+}) {
+    return {
+        date,
+        scope,
+        action,
+        currentPlan,
+        collaborators,
+        historySummary,
+        notes
+    };
+}
+
 function normalizeDayPlanTargetId(targetUserId) {
     const currentUser = AppAuth.getUser();
     const targetIdRaw = String(targetUserId ?? '').trim();
@@ -788,18 +943,22 @@ export function openPlanEditor(args) {
                 startDate: String(planData.startDate || date || ''),
                 endDate: String(planData.endDate || date || '')
             };
-            const context = {
+            const historySummary = await getRecentPersonalPlanHistory(targetId, date, currentUser?.name || '');
+            const context = buildStaffDraftContext({
                 date,
                 scope,
                 action: String(aiActionSelect.value || 'draft'),
                 currentPlan,
                 collaborators: collabNames,
-                notes: 'Staff should receive editable drafts only.'
-            };
+                historySummary,
+                notes: 'Staff should receive editable drafts only. Compare the draft against recent personal plan patterns.'
+            });
             const previousLabel = aiRunBtn.innerHTML;
             aiRunBtn.disabled = true;
             aiRunBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Drafting...';
-            assistantPreview.textContent = 'Contacting AI assistant...';
+            assistantPreview.textContent = historySummary?.historyAvailable
+                ? 'Contacting AI assistant with your recent personal plan history...'
+                : 'Contacting AI assistant...';
             try {
                 const result = await aiAssistant.requestAssistant({
                     mode: 'staff-plan',
@@ -815,6 +974,7 @@ export function openPlanEditor(args) {
                 `;
                 if (result?.draft?.task) {
                     textarea.value = result.draft.task;
+                    textarea.focus();
                 }
                 const nextSteps = Array.isArray(result?.draft?.subPlans) ? result.draft.subPlans.filter(Boolean) : [];
                 if (nextSteps.length > 0) {
@@ -822,7 +982,11 @@ export function openPlanEditor(args) {
                     nextSteps.forEach((step) => appendSubPlanRow(step));
                 }
                 if (result?.draft?.status) statusSelect.value = result.draft.status;
-                if (result?.draft?.budgetHeadId) budgetSelect.value = result.draft.budgetHeadId;
+                const suggestedBudgetHeadId = String(result?.draft?.budgetHeadId || '').trim()
+                    || (historySummary?.recurringBudgetHeads?.[0]?.count >= 2 ? String(historySummary.recurringBudgetHeads[0].id || '').trim() : '');
+                if (suggestedBudgetHeadId && (!budgetSelect.value || budgetSelect.value === 'UNALLOCATED')) {
+                    budgetSelect.value = suggestedBudgetHeadId;
+                }
                 if (assignSelect && result?.draft?.assignedTo) assignSelect.value = result.draft.assignedTo;
             } catch (err) {
                 console.warn('AI draft generation failed:', err);
