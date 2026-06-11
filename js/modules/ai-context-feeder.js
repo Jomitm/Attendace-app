@@ -349,9 +349,16 @@ function buildStaffMemoryPack(record, currentUser) {
             },
             recentPlans: [],
             recentActivities: [],
+            recentPersonalPlans: [],
+            recentTaskActivityHistory: [],
+            budgetHeadPatterns: [],
             attendanceSummary: null
         };
     }
+
+    const recentPersonalPlans = Array.isArray(record.recentPlans) ? record.recentPlans.slice(0, MAX_RECENT_ITEMS) : [];
+    const recentTaskActivityHistory = Array.isArray(record.recentActivities) ? record.recentActivities.slice(0, MAX_RECENT_ITEMS) : [];
+    const budgetHeadPatterns = Array.isArray(record.summary?.budgetHeads) ? record.summary.budgetHeads.slice(0, MAX_RECENT_ITEMS) : [];
 
     return {
         sourceScope: trimText(record.sourceScope || `Staff memory for ${record.userName || currentUser?.name || 'staff'}`, 240),
@@ -363,8 +370,11 @@ function buildStaffMemoryPack(record, currentUser) {
             role: record.role || currentUser?.role || ''
         },
         summary: sanitizeRecursive(record.summary || {}),
-        recentPlans: Array.isArray(record.recentPlans) ? record.recentPlans.slice(0, MAX_RECENT_ITEMS) : [],
-        recentActivities: Array.isArray(record.recentActivities) ? record.recentActivities.slice(0, MAX_RECENT_ITEMS) : [],
+        recentPlans: recentPersonalPlans,
+        recentPersonalPlans,
+        recentActivities: recentTaskActivityHistory,
+        recentTaskActivityHistory,
+        budgetHeadPatterns,
         attendanceSummary: sanitizeRecursive(record.attendanceSummary || {}),
         tagHistorySummary: Array.isArray(record.tagHistorySummary) ? record.tagHistorySummary.slice(0, MAX_RECENT_ITEMS) : [],
         notificationSummary: Array.isArray(record.notificationSummary) ? record.notificationSummary.slice(0, MAX_RECENT_ITEMS) : []

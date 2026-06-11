@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -35,7 +35,7 @@ function sendJson(res, statusCode, payload) {
     res.end(JSON.stringify(payload));
 }
 
-function createAssistantDevPlugin() {
+function createAssistantDevPlugin(runtimeEnv) {
     return {
         name: 'assistant-dev-api',
         configureServer(server) {
@@ -54,9 +54,9 @@ function createAssistantDevPlugin() {
                             ok: true,
                             route: '/ai/assistant',
                             backendRoute: '/api/assistant',
-                            configured: !!String(process.env.OPENROUTER_API_KEY || '').trim(),
+                            configured: !!String(runtimeEnv.OPENROUTER_API_KEY || '').trim(),
                             modes: ['staff-plan', 'checkout-summary', 'admin-report'],
-                            defaultModel: String(process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini').trim()
+                            defaultModel: String(runtimeEnv.OPENROUTER_MODEL || 'openai/gpt-4o-mini').trim()
                         });
                         return;
                     }
@@ -80,7 +80,11 @@ function createAssistantDevPlugin() {
 
 export default defineConfig({
     root: './',
-    plugins: [createAssistantDevPlugin()],
+    plugins: (() => {
+        const runtimeEnv = loadEnv(process.env.NODE_ENV || 'development', process.cwd(), '');
+        Object.assign(process.env, runtimeEnv);
+        return [createAssistantDevPlugin({ ...process.env, ...runtimeEnv })];
+    })(),
     define: {
         __APP_BUILD_META__: JSON.stringify(buildMeta)
     },

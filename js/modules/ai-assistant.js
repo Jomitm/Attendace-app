@@ -126,7 +126,11 @@ async function getStaffMemoryPackForRequest(currentUser, context = {}) {
 }
 
 async function requestAssistant({ mode, context = {}, user = null, sourceScope = '', requestId = '' }) {
-    const normalizedMode = mode === 'admin-report' ? 'admin-report' : 'staff-plan';
+    const normalizedMode = mode === 'admin-report'
+        ? 'admin-report'
+        : mode === 'checkout-summary'
+            ? 'checkout-summary'
+            : 'staff-plan';
     const currentUser = user || AppAuth?.getUser?.() || null;
     const sanitizedContext = sanitizeRecursive(context);
     const staffMemory = (normalizedMode === 'staff-plan' || normalizedMode === 'checkout-summary')
@@ -147,7 +151,6 @@ async function requestAssistant({ mode, context = {}, user = null, sourceScope =
             ...(staffMemory ? { staffMemory } : {})
         }
     };
-
     let response;
     try {
         response = await fetch(ASSISTANT_ENDPOINT, {
@@ -251,7 +254,6 @@ async function requestAssistant({ mode, context = {}, user = null, sourceScope =
             sourceScope: normalized.sourceScope
         }
     });
-
     return normalized;
 }
 

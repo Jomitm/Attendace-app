@@ -9,3 +9,7 @@ Backup/
 .generated/
 public/sw.js
 public/version.json
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local

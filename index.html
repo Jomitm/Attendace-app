@@ -63,6 +63,31 @@
             throw new Error("Execution halted: Improper protocol (file:// detected). User redirected.");
         }
 
+        const __localHostName = String(window.location.hostname || '').toLowerCase();
+        const __isLocalDevHost = __localHostName === 'localhost' || __localHostName === '127.0.0.1' || __localHostName === '::1';
+        if (__isLocalDevHost && !sessionStorage.getItem('__app_local_sw_cleanup_done__')) {
+            sessionStorage.setItem('__app_local_sw_cleanup_done__', '1');
+            Promise.resolve().then(async () => {
+                try {
+                    const cleanupTasks = [];
+                    if ('serviceWorker' in navigator) {
+                        cleanupTasks.push(
+                            navigator.serviceWorker.getRegistrations().then((regs) => Promise.all(regs.map((reg) => reg.unregister())))
+                        );
+                    }
+                    if ('caches' in window) {
+                        cleanupTasks.push(
+                            caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+                        );
+                    }
+                    await Promise.all(cleanupTasks);
+                    window.location.reload();
+                } catch (cleanupErr) {
+                    console.warn('Local dev service worker cleanup failed:', cleanupErr);
+                }
+            });
+        }
+
         let __syntaxRecoveryTriggered = false;
         window.onerror = function (msg, url, line, col, error) {
             const div = document.createElement('div');

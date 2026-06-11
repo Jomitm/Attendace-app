@@ -233,6 +233,7 @@ function buildModePrompt(mode) {
             'Return JSON with: summary, tomorrowGoal, taskSuggestions (array), warnings (array), sourceScope, draft.',
             'The draft must include: summary, tomorrowGoal, taskSuggestions, budgetHeadId.',
             'Use the current summary text, tomorrowGoal field, taskChecklist state, workPlan, and staffMemory to refine the language and suggest concise follow-up items.',
+            'Use recentPersonalPlans, recentTaskActivityHistory, budgetHeadPatterns, and staffMemory.summary to identify recurring habits and likely budget-head matches.',
             'If a budget head pattern is strong, include draft.budgetHeadId. Otherwise leave it blank.',
             'Keep the output editable and brief. Never include salaries, tokens, private notes, or raw dumps in your response.'
         ].join(' ');

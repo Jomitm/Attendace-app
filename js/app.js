@@ -556,6 +556,28 @@ window.addEventListener('load', () => {
 
 function registerSW() {
     if (!('serviceWorker' in navigator)) return;
+    const host = String(window.location?.hostname || '').toLowerCase();
+    const isLocalHost = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+    if (isLocalHost) {
+        console.log('ServiceWorker registration skipped on localhost');
+        void (async () => {
+            try {
+                const regs = await navigator.serviceWorker.getRegistrations();
+                for (const reg of regs) {
+                    await reg.unregister();
+                }
+                if ('caches' in window) {
+                    const keys = await caches.keys();
+                    for (const key of keys) {
+                        await caches.delete(key);
+                    }
+                }
+            } catch (err) {
+                console.warn('Local dev service worker cleanup failed:', err);
+            }
+        })();
+        return;
+    }
 
     const runRegistration = async () => {
         try {
@@ -6254,6 +6276,9 @@ window.app_requestCheckoutAiDraft = async () => {
             pendingCount: Number(workPlan?.pendingCount || 0)
         }
     };
+    const directStaffMemory = window.AppAIContextFeeder?.getStaffContextPack
+        ? await window.AppAIContextFeeder.getStaffContextPack(activeUser, { force: false })
+        : null;
 
     try {
         const result = await aiAssistant.requestAssistant({
@@ -6266,7 +6291,18 @@ window.app_requestCheckoutAiDraft = async () => {
                 taskChecklist,
                 workPlan: currentPlan.workPlan,
                 notes: 'Checkout draft should remain editable and privacy-safe. Do not include sensitive fields.',
-                currentPlan
+                currentPlan,
+                staffMemory: directStaffMemory ? {
+                    sourceScope: directStaffMemory.sourceScope || '',
+                    historyAvailable: directStaffMemory.historyAvailable === true,
+                    summary: directStaffMemory.summary || {},
+                    recentPersonalPlans: directStaffMemory.recentPersonalPlans || directStaffMemory.recentPlans || [],
+                    recentTaskActivityHistory: directStaffMemory.recentTaskActivityHistory || directStaffMemory.recentActivities || [],
+                    budgetHeadPatterns: directStaffMemory.budgetHeadPatterns || directStaffMemory.summary?.budgetHeads || [],
+                    attendanceSummary: directStaffMemory.attendanceSummary || null,
+                    tagHistorySummary: directStaffMemory.tagHistorySummary || [],
+                    notificationSummary: directStaffMemory.notificationSummary || []
+                } : null
             },
             user: activeUser,
             sourceScope
