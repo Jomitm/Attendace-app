@@ -967,10 +967,10 @@ export function openPlanEditor(args) {
                     sourceScope: currentSourceScope
                 });
                 assistantPreview.innerHTML = `
-                    <div><strong>Summary:</strong> ${esc(result.summary || '')}</div>
-                    ${Array.isArray(result.suggestedActions) && result.suggestedActions.length ? `<ul>${result.suggestedActions.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}
-                    ${Array.isArray(result.warnings) && result.warnings.length ? `<div class="plan-editor-ai-warnings">${result.warnings.map((item) => esc(item)).join(' • ')}</div>` : ''}
-                    <div class="plan-editor-ai-source"><strong>Source Scope:</strong> ${esc(result.sourceScope || currentSourceScope)}</div>
+                    <div class="plan-editor-ai-summary"><strong>Summary:</strong> ${esc(result.summary || '')}</div>
+                    ${Array.isArray(result.suggestedActions) && result.suggestedActions.length ? `<ul class="plan-editor-ai-actions">${result.suggestedActions.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}
+                    ${Array.isArray(result.warnings) && result.warnings.length ? `<div class="plan-editor-ai-warnings"><strong>Warnings:</strong> ${result.warnings.map((item) => esc(item)).join(' • ')}</div>` : ''}
+                    <div class="plan-editor-ai-source"><strong>Source:</strong> ${esc(result.sourceScope || currentSourceScope)}</div>
                 `;
                 if (result?.draft?.task) {
                     textarea.value = result.draft.task;
