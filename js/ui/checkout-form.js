@@ -37,6 +37,33 @@ export function renderCheckoutModal(budgetSelectHtml = '<option value="UNALLOCAT
                         </section>
                     </div>
 
+                    <section id="checkout-ai-panel" class="checkout-ai-panel" aria-live="polite">
+                        <div class="checkout-ai-panel-head">
+                            <div>
+                                <label class="checkout-section-label">AI Draft Assistant</label>
+                                <p class="checkout-ai-copy">Generate an editable draft from your current summary, tomorrow goal, task checklist, and day plan context.</p>
+                            </div>
+                            <span id="checkout-ai-status" class="checkout-ai-status-pill">Ready</span>
+                        </div>
+                        <div class="checkout-ai-controls">
+                            <button type="button" class="checkout-ai-btn" onclick="window.app_requestCheckoutAiDraft?.()">
+                                <i class="fa-solid fa-wand-magic-sparkles"></i> Draft with AI
+                            </button>
+                            <button type="button" id="checkout-ai-apply-btn" class="checkout-ai-btn secondary" onclick="window.app_applyCheckoutAiDraft?.()" disabled>
+                                Apply
+                            </button>
+                            <button type="button" id="checkout-ai-undo-btn" class="checkout-ai-btn ghost" onclick="window.app_undoCheckoutAiDraft?.()" disabled>
+                                Undo AI Draft
+                            </button>
+                            <button type="button" id="checkout-ai-discard-btn" class="checkout-ai-btn ghost" onclick="window.app_discardCheckoutAiDraft?.()" disabled>
+                                Discard
+                            </button>
+                        </div>
+                        <div id="checkout-ai-preview" class="checkout-ai-preview">
+                            <div class="checkout-ai-empty">AI suggestions will appear here after you draft with AI.</div>
+                        </div>
+                    </section>
+
                     <section id="checkout-plan-ref" class="checkout-plan-ref" style="display:none;">
                         <div class="checkout-plan-ref-head">
                             <label>Today’s Work Plan</label>

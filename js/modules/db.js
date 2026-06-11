@@ -483,7 +483,14 @@ export class Database {
             const docRef = await this.db.collection(collectionName).add(item);
             this.telemetry.writes += 1;
             this.invalidateCollectionCache(collectionName);
-            if (window.dispatchEvent) window.dispatchEvent(new CustomEvent('app:db-write', { detail: { collection: collectionName, op: 'add' } }));
+            if (window.dispatchEvent) window.dispatchEvent(new CustomEvent('app:db-write', {
+                detail: {
+                    collection: collectionName,
+                    op: 'add',
+                    id: docRef.id,
+                    item: { ...item, id: docRef.id }
+                }
+            }));
             return docRef.id;
         } catch (error) {
             console.error(`Error adding to ${collectionName}:`, error);
@@ -498,7 +505,14 @@ export class Database {
             await this.db.collection(collectionName).doc(docId).set(item, { merge: true });
             this.telemetry.writes += 1;
             this.invalidateCollectionCache(collectionName);
-            if (window.dispatchEvent) window.dispatchEvent(new CustomEvent('app:db-write', { detail: { collection: collectionName, op: 'put' } }));
+            if (window.dispatchEvent) window.dispatchEvent(new CustomEvent('app:db-write', {
+                detail: {
+                    collection: collectionName,
+                    op: 'put',
+                    id: docId,
+                    item: { ...item }
+                }
+            }));
             return docId;
         } catch (error) {
             if (options?.silentPermissionDenied && this.isPermissionDenied(error)) {
@@ -516,7 +530,13 @@ export class Database {
             await this.db.collection(collectionName).doc(docId).delete();
             this.telemetry.writes += 1;
             this.invalidateCollectionCache(collectionName);
-            if (window.dispatchEvent) window.dispatchEvent(new CustomEvent('app:db-write', { detail: { collection: collectionName, op: 'delete' } }));
+            if (window.dispatchEvent) window.dispatchEvent(new CustomEvent('app:db-write', {
+                detail: {
+                    collection: collectionName,
+                    op: 'delete',
+                    id: docId
+                }
+            }));
         } catch (error) {
             console.error(`Error deleting ${id} from ${collectionName}:`, error);
             throw error;
@@ -542,7 +562,14 @@ export class Database {
             }
             this.telemetry.writes += deletedCount;
             this.invalidateCollectionCache(collectionName);
-            if (window.dispatchEvent) window.dispatchEvent(new CustomEvent('app:db-write', { detail: { collection: collectionName, op: 'deleteMany', count: deletedCount } }));
+            if (window.dispatchEvent) window.dispatchEvent(new CustomEvent('app:db-write', {
+                detail: {
+                    collection: collectionName,
+                    op: 'deleteMany',
+                    count: deletedCount,
+                    ids: uniqueIds
+                }
+            }));
             return deletedCount;
         } catch (error) {
             console.error(`Error deleting many from ${collectionName}:`, error);

@@ -191,6 +191,11 @@ export function renderModals() {
                             <input type="checkbox" class="perm-check" data-module="users" data-level="view" id="edit-perm-users-view">
                             <input type="checkbox" class="perm-check" data-module="users" data-level="admin" id="edit-perm-users-admin">
 
+                            <!-- AI Memory -->
+                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">AI Memory Sheet</div>
+                            <input type="checkbox" name="canAccessStaffAiMemory" id="edit-user-can-access-staff-ai-memory" style="width: 1.1rem; height: 1.1rem;">
+                            <div style="font-size: 0.78rem; color: #475569;">Allow this staff member to open the AI memory sheet.</div>
+
                             <!-- Attendance -->
                             <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Attendance Sheet</div>
                             <input type="checkbox" class="perm-check" data-module="attendance" data-level="view" id="edit-perm-attendance-view">
@@ -357,6 +362,11 @@ export function renderModals() {
                             <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">User Management</div>
                             <input type="checkbox" class="perm-check" data-module="users" data-level="view" id="add-perm-users-view">
                             <input type="checkbox" class="perm-check" data-module="users" data-level="admin" id="add-perm-users-admin">
+
+                            <!-- AI Memory -->
+                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">AI Memory Sheet</div>
+                            <input type="checkbox" name="canAccessStaffAiMemory" id="add-user-can-access-staff-ai-memory" style="width: 1.1rem; height: 1.1rem;">
+                            <div style="font-size: 0.78rem; color: #475569;">Allow this staff member to open the AI memory sheet.</div>
 
                             <!-- Attendance -->
                             <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Attendance Sheet</div>

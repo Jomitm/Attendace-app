@@ -59,7 +59,7 @@ async function handler(req, res) {
             route: '/ai/assistant',
             backendRoute: '/api/assistant',
             configured: hasOpenRouterKey(),
-            modes: ['staff-plan', 'admin-report'],
+            modes: ['staff-plan', 'checkout-summary', 'admin-report'],
             defaultModel: String(process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini').trim()
         });
     }
@@ -84,7 +84,7 @@ async function handler(req, res) {
     }
 
     const mode = String(body?.mode || '').trim();
-    if (!['staff-plan', 'admin-report'].includes(mode)) {
+    if (!['staff-plan', 'checkout-summary', 'admin-report'].includes(mode)) {
         return json(res, 400, { ok: false, error: 'Invalid assistant mode' });
     }
 

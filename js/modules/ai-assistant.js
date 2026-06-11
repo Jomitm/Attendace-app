@@ -1,5 +1,6 @@
 import { AppDB } from './db.js';
 import { AppAuth } from './auth.js';
+import './ai-context-feeder.js';
 
 const ASSISTANT_ENDPOINT = '/ai/assistant';
 const AUDIT_COLLECTION = 'ai_assistant_logs';
@@ -40,10 +41,15 @@ const isLikelyAssistantResponse = (payload, mode) => {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
     if (!trimText(payload.summary, 1)) return false;
     if (!trimText(payload.sourceScope, 1)) return false;
-    if (!Array.isArray(payload.suggestedActions)) return false;
+    const taskSuggestions = Array.isArray(payload.taskSuggestions) ? payload.taskSuggestions : payload.suggestedActions;
+    if (!Array.isArray(taskSuggestions)) return false;
+    if (!Array.isArray(payload.suggestedActions) && mode !== 'checkout-summary') return false;
     if (!Array.isArray(payload.warnings)) return false;
     if (mode === 'staff-plan') {
         return payload.draft && typeof payload.draft === 'object' && !Array.isArray(payload.draft) && !!trimText(payload.draft.task, 1);
+    }
+    if (mode === 'checkout-summary') {
+        return payload.draft && typeof payload.draft === 'object' && !Array.isArray(payload.draft) && !!trimText(payload.draft.summary || payload.summary, 1);
     }
     return true;
 };
@@ -53,6 +59,8 @@ const buildFallback = (mode, reason = 'assistant_unavailable', sourceScope = '')
     mode,
     summary: FALLBACK_MESSAGE,
     suggestedActions: [],
+    taskSuggestions: [],
+    tomorrowGoal: '',
     warnings: [trimText(reason, 180)],
     sourceScope: trimText(sourceScope || 'unknown', 240),
     draft: mode === 'staff-plan' ? {
@@ -63,6 +71,11 @@ const buildFallback = (mode, reason = 'assistant_unavailable', sourceScope = '')
         assignedTo: '',
         startDate: '',
         endDate: ''
+    } : mode === 'checkout-summary' ? {
+        summary: '',
+        tomorrowGoal: '',
+        taskSuggestions: [],
+        budgetHeadId: ''
     } : null,
     audit: {
         fallback: true,
@@ -94,10 +107,31 @@ async function logAuditToCollection(entry) {
     }
 }
 
+async function getStaffMemoryPackForRequest(currentUser, context = {}) {
+    const feeder = window.AppAIContextFeeder || null;
+    if (!feeder?.getStaffContextPack) return null;
+    try {
+        const user = currentUser || AppAuth?.getUser?.() || null;
+        const staffMemory = await feeder.getStaffContextPack(user, { force: false });
+        if (!staffMemory) return null;
+        return {
+            ...sanitizeRecursive(staffMemory),
+            currentPlan: sanitizeRecursive(context?.currentPlan || {}),
+            historySummary: sanitizeRecursive(context?.historySummary || {})
+        };
+    } catch (err) {
+        console.warn('AI assistant: failed to load staff memory pack:', err);
+        return null;
+    }
+}
+
 async function requestAssistant({ mode, context = {}, user = null, sourceScope = '', requestId = '' }) {
     const normalizedMode = mode === 'admin-report' ? 'admin-report' : 'staff-plan';
     const currentUser = user || AppAuth?.getUser?.() || null;
     const sanitizedContext = sanitizeRecursive(context);
+    const staffMemory = (normalizedMode === 'staff-plan' || normalizedMode === 'checkout-summary')
+        ? await getStaffMemoryPackForRequest(currentUser, sanitizedContext)
+        : null;
     const body = {
         requestId: trimText(requestId || `${Date.now()}-${Math.random().toString(16).slice(2)}`, 120),
         mode: normalizedMode,
@@ -108,7 +142,10 @@ async function requestAssistant({ mode, context = {}, user = null, sourceScope =
             isAdmin: currentUser?.isAdmin === true
         }),
         sourceScope: trimText(sourceScope || sanitizedContext?.sourceScope || '', 240),
-        context: sanitizedContext
+        context: {
+            ...sanitizedContext,
+            ...(staffMemory ? { staffMemory } : {})
+        }
     };
 
     let response;
@@ -172,7 +209,9 @@ async function requestAssistant({ mode, context = {}, user = null, sourceScope =
         ok: payload.ok !== false,
         mode: normalizedMode,
         summary: trimText(payload.summary, 700),
-        suggestedActions: normalizeArray(payload.suggestedActions, 8),
+        suggestedActions: normalizeArray(payload.suggestedActions || payload.taskSuggestions, 8),
+        taskSuggestions: normalizeArray(payload.taskSuggestions || payload.suggestedActions, 8),
+        tomorrowGoal: trimText(payload.tomorrowGoal || payload.draft?.tomorrowGoal, 500),
         warnings: normalizeArray(payload.warnings, 8),
         sourceScope: trimText(payload.sourceScope || body.sourceScope, 240),
         draft: normalizedMode === 'staff-plan'
@@ -185,6 +224,13 @@ async function requestAssistant({ mode, context = {}, user = null, sourceScope =
                 startDate: trimText(payload.draft?.startDate, 20),
                 endDate: trimText(payload.draft?.endDate, 20)
             }
+            : normalizedMode === 'checkout-summary'
+                ? {
+                    summary: trimText(payload.draft?.summary || payload.summary, 700),
+                    tomorrowGoal: trimText(payload.draft?.tomorrowGoal || payload.tomorrowGoal, 500),
+                    taskSuggestions: normalizeArray(payload.draft?.taskSuggestions || payload.taskSuggestions || payload.suggestedActions, 8),
+                    budgetHeadId: trimText(payload.draft?.budgetHeadId, 80)
+                }
             : null,
         audit: sanitizeRecursive(payload.audit || {})
     };
@@ -199,6 +245,8 @@ async function requestAssistant({ mode, context = {}, user = null, sourceScope =
             ok: normalized.ok,
             summary: normalized.summary,
             suggestedActions: normalized.suggestedActions,
+            taskSuggestions: normalized.taskSuggestions,
+            tomorrowGoal: normalized.tomorrowGoal,
             warnings: normalized.warnings,
             sourceScope: normalized.sourceScope
         }

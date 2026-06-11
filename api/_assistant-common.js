@@ -89,6 +89,8 @@ function buildFallbackResponse(mode, sourceScope, reason = 'invalid_ai_output') 
         mode,
         summary: FALLBACK_MESSAGE,
         suggestedActions: [],
+        taskSuggestions: [],
+        tomorrowGoal: '',
         warnings: [trimTo(reason, MAX_WARNING_CHARS)],
         sourceScope: trimTo(sourceScope || 'unknown', 200),
         draft: mode === 'staff-plan' ? {
@@ -99,6 +101,11 @@ function buildFallbackResponse(mode, sourceScope, reason = 'invalid_ai_output') 
             assignedTo: '',
             startDate: '',
             endDate: ''
+        } : mode === 'checkout-summary' ? {
+            summary: '',
+            tomorrowGoal: '',
+            taskSuggestions: [],
+            budgetHeadId: ''
         } : null,
         audit: {
             requestId: createRequestId(),
@@ -111,7 +118,9 @@ function buildFallbackResponse(mode, sourceScope, reason = 'invalid_ai_output') 
 function validateResponseShape(mode, payload) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return { valid: false, reason: 'response_not_object' };
     const summary = trimTo(payload.summary, MAX_SUMMARY_CHARS);
-    const suggestedActions = normalizeStringArray(payload.suggestedActions, 8, MAX_ACTION_CHARS);
+    const suggestedActions = normalizeStringArray(payload.suggestedActions || payload.taskSuggestions, 8, MAX_ACTION_CHARS);
+    const taskSuggestions = normalizeStringArray(payload.taskSuggestions || payload.suggestedActions, 8, MAX_ACTION_CHARS);
+    const tomorrowGoal = trimTo(payload.tomorrowGoal || payload.draft?.tomorrowGoal || '', 500);
     const warnings = normalizeStringArray(payload.warnings, 8, MAX_WARNING_CHARS);
     const sourceScope = trimTo(payload.sourceScope, 240);
 
@@ -139,6 +148,34 @@ function validateResponseShape(mode, payload) {
                 mode,
                 summary,
                 suggestedActions,
+                taskSuggestions,
+                tomorrowGoal: '',
+                warnings,
+                sourceScope,
+                draft: normalizedDraft
+            }
+        };
+    }
+
+    if (mode === 'checkout-summary') {
+        const draft = payload.draft && typeof payload.draft === 'object' && !Array.isArray(payload.draft) ? payload.draft : null;
+        if (!draft) return { valid: false, reason: 'missing_checkout_draft' };
+        const normalizedDraft = {
+            summary: trimTo(draft.summary || summary, MAX_SUMMARY_CHARS),
+            tomorrowGoal: trimTo(draft.tomorrowGoal || tomorrowGoal, 500),
+            taskSuggestions: normalizeStringArray(draft.taskSuggestions || taskSuggestions, 8, MAX_ACTION_CHARS),
+            budgetHeadId: trimTo(draft.budgetHeadId || '', 80)
+        };
+        if (!normalizedDraft.summary) return { valid: false, reason: 'missing_checkout_summary' };
+        return {
+            valid: true,
+            value: {
+                ok: payload.ok !== false,
+                mode,
+                summary,
+                suggestedActions,
+                taskSuggestions,
+                tomorrowGoal,
                 warnings,
                 sourceScope,
                 draft: normalizedDraft
@@ -154,6 +191,8 @@ function validateResponseShape(mode, payload) {
             mode,
             summary: executiveTone || summary,
             suggestedActions,
+            taskSuggestions,
+            tomorrowGoal: '',
             warnings,
             sourceScope,
             draft: null
@@ -181,8 +220,22 @@ function buildModePrompt(mode) {
             'Return JSON with: summary, suggestedActions (array), warnings (array), sourceScope, draft.',
             'The draft must include: task, subPlans, status, budgetHeadId, assignedTo, startDate, endDate.',
             'Use the currentPlan and historySummary to refine the wording, infer sensible steps, and match repeated work patterns.',
+            'Use staffMemory when available to understand the staff member’s recurring work style, attendance rhythm, collaborators, and budget-head preferences.',
             'If the historySummary suggests a likely budget head, include it in draft.budgetHeadId.',
             'Keep the draft editable. Prefer practical, concise wording and sensible steps.'
+        ].join(' ');
+    }
+
+    if (mode === 'checkout-summary') {
+        return [
+            common,
+            'Mode: checkout-summary.',
+            'Help a staff member draft a privacy-safe checkout summary using the current summary, tomorrow goal, task checklist, work plan, and staff memory.',
+            'Return JSON with: summary, tomorrowGoal, taskSuggestions (array), warnings (array), sourceScope, draft.',
+            'The draft must include: summary, tomorrowGoal, taskSuggestions, budgetHeadId.',
+            'Use the current summary text, tomorrowGoal field, taskChecklist state, workPlan, and staffMemory to refine the language and suggest concise follow-up items.',
+            'If a budget head pattern is strong, include draft.budgetHeadId. Otherwise leave it blank.',
+            'Keep the output editable and brief. Never include salaries, tokens, private notes, or raw dumps in your response.'
         ].join(' ');
     }
 
@@ -232,6 +285,8 @@ function summarizeAuditOutput(mode, response) {
         sourceScope: trimTo(response?.sourceScope || '', 240),
         summary: trimTo(response?.summary || '', MAX_SUMMARY_CHARS),
         suggestedActions: normalizeStringArray(response?.suggestedActions, 8, MAX_ACTION_CHARS),
+        taskSuggestions: normalizeStringArray(response?.taskSuggestions, 8, MAX_ACTION_CHARS),
+        tomorrowGoal: trimTo(response?.tomorrowGoal || '', 500),
         warnings: normalizeStringArray(response?.warnings, 8, MAX_WARNING_CHARS)
     };
 }
@@ -283,7 +338,7 @@ function getOpenRouterHeaders() {
 async function callOpenRouter({ mode, context }) {
     const messages = buildMessages(mode, context);
     const model = getDefaultModel();
-    const maxTokens = mode === 'staff-plan' ? 700 : 900;
+    const maxTokens = mode === 'staff-plan' ? 700 : (mode === 'checkout-summary' ? 800 : 900);
 
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
@@ -353,6 +408,36 @@ function buildRequestScope(mode, body) {
                 startDate: trimTo(sanitized.currentPlan?.startDate || '', 20),
                 endDate: trimTo(sanitized.currentPlan?.endDate || '', 20)
             },
+            staffMemory: sanitized.staffMemory ? {
+                sourceScope: trimTo(sanitized.staffMemory?.sourceScope || '', 240),
+                historyAvailable: sanitized.staffMemory?.historyAvailable === true,
+                summary: sanitizeRecursive(sanitized.staffMemory?.summary || {}),
+                recentPlans: Array.isArray(sanitized.staffMemory?.recentPlans)
+                    ? sanitized.staffMemory.recentPlans.slice(0, 8).map((item) => ({
+                        date: trimTo(item?.date || '', 20),
+                        task: trimTo(item?.task || '', 220),
+                        budgetHeadId: trimTo(item?.budgetHeadId || '', 80),
+                        budgetHeadLabel: trimTo(item?.budgetHeadLabel || '', 180),
+                        status: trimTo(item?.status || '', 40),
+                        scope: trimTo(item?.scope || '', 20),
+                        assignedTo: trimTo(item?.assignedTo || '', 120),
+                        collaboratorCount: Number(item?.collaboratorCount || 0),
+                        steps: normalizeStringArray(item?.steps, 5, 120)
+                    }))
+                    : [],
+                recentActivities: Array.isArray(sanitized.staffMemory?.recentActivities)
+                    ? sanitized.staffMemory.recentActivities.slice(0, 8).map((item) => ({
+                        date: trimTo(item?.date || '', 20),
+                        eventType: trimTo(item?.eventType || '', 60),
+                        budgetHeadId: trimTo(item?.budgetHeadId || '', 80),
+                        progressStatus: trimTo(item?.progressStatus || '', 40),
+                        note: trimTo(item?.note || '', 180)
+                    }))
+                    : [],
+                attendanceSummary: sanitizeRecursive(sanitized.staffMemory?.attendanceSummary || {}),
+                tagHistorySummary: normalizeStringArray(sanitized.staffMemory?.tagHistorySummary, 8, 180),
+                notificationSummary: normalizeStringArray(sanitized.staffMemory?.notificationSummary, 8, 180)
+            } : null,
             historySummary: {
                 sourceScope: trimTo(sanitized.historySummary?.sourceScope || '', 240),
                 historyAvailable: sanitized.historySummary?.historyAvailable === true,
@@ -375,6 +460,65 @@ function buildRequestScope(mode, body) {
                 recurringSteps: normalizeStringArray(sanitized.historySummary?.recurringSteps, 6, 180)
             },
             collaborators
+        };
+    }
+
+    if (mode === 'checkout-summary') {
+        const taskChecklist = Array.isArray(sanitized.taskChecklist)
+            ? sanitized.taskChecklist.slice(0, 18).map((item) => ({
+                label: trimTo(item?.label || item?.text || item?.task || '', 240),
+                status: trimTo(item?.status || '', 40),
+                action: trimTo(item?.action || '', 40),
+                progressPercent: Number(item?.progressPercent || 0),
+                budgetHeadId: trimTo(item?.budgetHeadId || '', 80),
+                note: trimTo(item?.note || item?.progressNote || '', 180)
+            })).filter((item) => item.label)
+            : [];
+        return {
+            sourceScope: trimTo(body?.sourceScope || sanitized.sourceScope || `Checkout draft for ${sanitized.date || 'selected date'}`, 240),
+            user,
+            date: trimTo(sanitized.date || '', 20),
+            currentSummary: trimTo(sanitized.currentSummary || sanitized.currentPlan?.summary || sanitized.description || '', 1200),
+            tomorrowGoal: trimTo(sanitized.tomorrowGoal || sanitized.currentPlan?.tomorrowGoal || '', 500),
+            currentBudgetHeadId: trimTo(sanitized.currentBudgetHeadId || sanitized.currentPlan?.currentBudgetHeadId || '', 80),
+            taskChecklist,
+            workPlan: {
+                sourceScope: trimTo(sanitized.workPlan?.sourceScope || '', 240),
+                rawText: trimTo(sanitized.workPlan?.rawText || '', 1200),
+                planCount: Number(sanitized.workPlan?.planCount || 0),
+                completedCount: Number(sanitized.workPlan?.completedCount || 0),
+                pendingCount: Number(sanitized.workPlan?.pendingCount || 0)
+            },
+            staffMemory: sanitized.staffMemory ? {
+                sourceScope: trimTo(sanitized.staffMemory?.sourceScope || '', 240),
+                historyAvailable: sanitized.staffMemory?.historyAvailable === true,
+                summary: sanitizeRecursive(sanitized.staffMemory?.summary || {}),
+                recentPlans: Array.isArray(sanitized.staffMemory?.recentPlans)
+                    ? sanitized.staffMemory.recentPlans.slice(0, 8).map((item) => ({
+                        date: trimTo(item?.date || '', 20),
+                        task: trimTo(item?.task || '', 220),
+                        budgetHeadId: trimTo(item?.budgetHeadId || '', 80),
+                        budgetHeadLabel: trimTo(item?.budgetHeadLabel || '', 180),
+                        status: trimTo(item?.status || '', 40),
+                        scope: trimTo(item?.scope || '', 20),
+                        assignedTo: trimTo(item?.assignedTo || '', 120),
+                        collaboratorCount: Number(item?.collaboratorCount || 0),
+                        steps: normalizeStringArray(item?.steps, 5, 120)
+                    }))
+                    : [],
+                recentActivities: Array.isArray(sanitized.staffMemory?.recentActivities)
+                    ? sanitized.staffMemory.recentActivities.slice(0, 8).map((item) => ({
+                        date: trimTo(item?.date || '', 20),
+                        eventType: trimTo(item?.eventType || '', 60),
+                        budgetHeadId: trimTo(item?.budgetHeadId || '', 80),
+                        progressStatus: trimTo(item?.progressStatus || '', 40),
+                        note: trimTo(item?.note || '', 180)
+                    }))
+                    : [],
+                attendanceSummary: sanitizeRecursive(sanitized.staffMemory?.attendanceSummary || {}),
+                tagHistorySummary: normalizeStringArray(sanitized.staffMemory?.tagHistorySummary, 8, 180),
+                notificationSummary: normalizeStringArray(sanitized.staffMemory?.notificationSummary, 8, 180)
+            } : null
         };
     }
 

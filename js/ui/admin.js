@@ -15,6 +15,221 @@ async function getAIAssistant() {
     return aiAssistantModulePromise;
 }
 
+const updateAdminAiWorkspace = (context = {}, sourceScope = '') => {
+    window._adminAiContext = context || {};
+    window._adminAiSourceScope = String(sourceScope || '').trim();
+};
+
+const buildAdminAiReportContext = ({
+    auditStartDate,
+    auditEndDate,
+    allUsers = [],
+    pendingLeaves = [],
+    recentAttendanceLogs = [],
+    recentTeamActivities = []
+}) => {
+    const usersById = new Map((Array.isArray(allUsers) ? allUsers : []).map((user) => [String(user.id), user]));
+    const recentEntries = (Array.isArray(recentAttendanceLogs) ? recentAttendanceLogs : [])
+        .filter((row) => row && row.entrySource === 'checkin_checkout');
+    const toEntryTs = (row) => {
+        const isoDate = String(row?.date || '').trim();
+        const updatedAt = Date.parse(String(row?.updatedAt || row?.autoCheckoutAt || row?.missedCheckoutReviewedAt || ''));
+        if (Number.isFinite(updatedAt)) return updatedAt;
+        const dateTs = Date.parse(`${isoDate}T00:00:00`);
+        return Number.isFinite(dateTs) ? dateTs : 0;
+    };
+    const attendanceIssues = recentEntries
+        .filter((row) => String(row.budgetHeadId || '') === 'UNALLOCATED' || String(row.validationStatus || '').toLowerCase() !== 'compliant')
+        .map((row) => ({
+            ...row,
+            sourceType: 'attendance',
+            sourceLabel: 'Attendance',
+            _issueKey: `att:${String(row.id || '')}`
+        }));
+    const teamActivityRows = (Array.isArray(recentTeamActivities) ? recentTeamActivities : [])
+        .filter((row) => String(row.type || '').toLowerCase() === 'work')
+        .map((row) => ({
+            id: '',
+            date: row.date || '',
+            user_id: row.userId || row.user_id || '',
+            budgetHeadId: row.budgetHeadId || 'UNALLOCATED',
+            validationStatus: row.validationStatus || 'unknown',
+            validationErrors: Array.isArray(row.validationErrors) ? row.validationErrors : [],
+            budgetHeadUnallocatedReason: '',
+            workDescription: row.description || row.task || '',
+            planId: row.planId || '',
+            taskIndex: Number.isInteger(row.taskIndex) ? row.taskIndex : null,
+            sourceType: 'team_activity',
+            sourceLabel: 'Team Activity',
+            _issueKey: `wrk:${String(row.planId || '')}:${String(Number.isInteger(row.taskIndex) ? row.taskIndex : 'x')}:${String(row.date || '')}:${String(row.userId || row.user_id || '')}`
+        }));
+    const teamActivityIssues = teamActivityRows.filter((row) => {
+        const budgetIssue = String(row.budgetHeadId || '') === 'UNALLOCATED';
+        const validationStatus = String(row.validationStatus || '').toLowerCase();
+        const validationIssue = validationStatus && validationStatus !== 'unknown' && validationStatus !== 'compliant';
+        return budgetIssue || validationIssue;
+    });
+    const complianceIssues = [...attendanceIssues, ...teamActivityIssues]
+        .sort((a, b) => toEntryTs(b) - toEntryTs(a));
+    const staleUnallocated = recentEntries
+        .filter((row) => String(row.budgetHeadId || '') === 'UNALLOCATED')
+        .sort((a, b) => toEntryTs(b) - toEntryTs(a));
+    const complianceReasonCounts = complianceIssues.reduce((acc, row) => {
+        const errors = Array.isArray(row.validationErrors) ? row.validationErrors : [];
+        if (String(row.budgetHeadId || '') === 'UNALLOCATED') {
+            acc.budgetHead += 1;
+        }
+        if (String(row.validationStatus || '').toLowerCase() !== 'compliant') {
+            acc.checkout += 1;
+        }
+        if (errors.length) {
+            acc.errors += errors.length;
+        }
+        return acc;
+    }, { budgetHead: 0, checkout: 0, errors: 0 });
+
+    const sourceScope = `Admin report for ${auditStartDate} to ${auditEndDate} using attendance, leave, compliance, and team activity summaries`;
+
+    return {
+        sourceScope,
+        context: {
+            auditStartDate,
+            auditEndDate,
+            view: 'admin-report',
+            sourceScope,
+            metrics: {
+                totalStaff: allUsers.length,
+                activeStaff: allUsers.filter((u) => u.status === 'in').length,
+                adminStaff: allUsers.filter((u) => u.role === 'Administrator' || u.isAdmin === true).length,
+                pendingLeaves: pendingLeaves.length,
+                openIssues: complianceIssues.length,
+                staleUnallocated: staleUnallocated.length,
+                recentAttendanceLogs: recentEntries.length,
+                recentTeamActivities: teamActivityRows.length
+            },
+            highlights: [
+                `Open issues: ${complianceIssues.length}`,
+                `Budget mapping issues: ${complianceReasonCounts.budgetHead}`,
+                `Checkout validation issues: ${complianceReasonCounts.checkout}`,
+                `Aged 2+ days: ${staleUnallocated.length}`
+            ],
+            exceptions: complianceIssues.slice(0, 10).map((row) => ({
+                date: row.date || '',
+                staffName: usersById.get(String(row.user_id || row.userId || ''))?.name || row.staffName || 'Staff',
+                sourceLabel: row.sourceLabel || 'Source',
+                budgetHeadId: row.budgetHeadId || 'UNALLOCATED',
+                validationStatus: row.validationStatus || 'unknown',
+                summary: String(row.budgetHeadUnallocatedReason || (Array.isArray(row.validationErrors) ? row.validationErrors.join(' | ') : '') || row.workDescription || 'No summary').slice(0, 180)
+            })),
+            sampleRows: [
+                ...recentEntries.slice(0, 6).map((row) => ({
+                    date: row.date || '',
+                    staffName: usersById.get(String(row.user_id || row.userId || ''))?.name || row.staffName || 'Staff',
+                    sourceLabel: row.sourceLabel || 'Attendance',
+                    budgetHeadId: row.budgetHeadId || 'UNALLOCATED',
+                    validationStatus: row.validationStatus || 'unknown',
+                    summary: String(row.workDescription || row.location || 'Attendance entry').slice(0, 160)
+                })),
+                ...teamActivityRows.slice(0, 6).map((row) => ({
+                    date: row.date || '',
+                    staffName: usersById.get(String(row.user_id || row.userId || ''))?.name || row.staffName || 'Staff',
+                    sourceLabel: row.sourceLabel || 'Team Activity',
+                    budgetHeadId: row.budgetHeadId || 'UNALLOCATED',
+                    validationStatus: row.validationStatus || 'unknown',
+                    summary: String(row.workDescription || 'Team activity').slice(0, 160)
+                }))
+            ]
+        }
+    };
+};
+
+const renderAdminAiNarrationPanel = ({
+    sourceScope,
+    compact = true,
+    title = 'Report Narration',
+    copy = 'Generate an editable summary from the current admin filter scope.'
+}) => `
+    <div class="admin-ai-panel${compact ? '' : ' admin-ai-panel-expanded'}">
+        <div class="admin-ai-panel-head">
+            <div>
+                <span class="admin-ai-kicker">Privacy-first summary</span>
+                <h4 class="admin-ai-title">${safeHtml(title)}</h4>
+                <p class="admin-ai-copy">${safeHtml(copy)}</p>
+            </div>
+        </div>
+        <div class="admin-ai-controls">
+            <select id="admin-ai-action" class="admin-ai-select">
+                <option value="summary" selected>Attendance summary</option>
+                <option value="exceptions">Exception analysis</option>
+                <option value="executive">Executive narration</option>
+            </select>
+            <button type="button" id="admin-ai-run-btn" class="action-btn secondary" onclick="window.app_requestAdminAiSummary?.()">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> Summarize with AI
+            </button>
+        </div>
+        <textarea id="admin-ai-note" class="admin-ai-note" rows="${compact ? 3 : 4}" placeholder="Optional focus, for example: highlight budget issues and next steps."></textarea>
+        <div id="admin-ai-output" class="admin-ai-output">AI summaries will appear here after you click the button.</div>
+        <div class="admin-ai-source-inline"><strong>Source Scope:</strong> ${safeHtml(sourceScope || 'Unknown')}</div>
+    </div>
+`;
+
+if (typeof window !== 'undefined' && !window.app_requestAdminAiSummary) {
+    window.app_requestAdminAiSummary = async function () {
+        const output = document.getElementById('admin-ai-output');
+        const button = document.getElementById('admin-ai-run-btn');
+        const actionSelect = document.getElementById('admin-ai-action');
+        const noteInput = document.getElementById('admin-ai-note');
+        const action = String(actionSelect?.value || 'summary');
+        const note = String(noteInput?.value || '').trim();
+        const sourceScope = String(window._adminAiSourceScope || '').trim();
+        if (output) output.textContent = 'Contacting AI assistant...';
+        if (button) {
+            button.disabled = true;
+            button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Summarizing...';
+        }
+        try {
+            const aiAssistant = await getAIAssistant();
+            if (!aiAssistant?.requestAssistant) {
+                if (output) output.textContent = 'No AI suggestions available, please draft manually.';
+                return;
+            }
+            const result = await aiAssistant.requestAssistant({
+                mode: 'admin-report',
+                context: {
+                    ...(window._adminAiContext || {}),
+                    action,
+                    promptHint: note,
+                    notes: 'Admin summaries must reference the source scope and remain privacy-first.'
+                },
+                user: window.AppAuth?.getUser?.() || null,
+                sourceScope
+            });
+            if (output) {
+                output.innerHTML = `
+                    <div class="admin-ai-summary-line"><strong>Summary:</strong> ${safeHtml(result.summary || '')}</div>
+                    ${Array.isArray(result.suggestedActions) && result.suggestedActions.length ? `<ul class="admin-ai-action-list">${result.suggestedActions.map((item) => `<li>${safeHtml(item)}</li>`).join('')}</ul>` : ''}
+                    ${Array.isArray(result.warnings) && result.warnings.length ? `<div class="admin-ai-warnings">${safeHtml(result.warnings.join(' | '))}</div>` : ''}
+                    <div class="admin-ai-source"><strong>Source Scope:</strong> ${safeHtml(result.sourceScope || sourceScope || 'Unknown')}</div>
+                `;
+            }
+        } catch (err) {
+            console.warn('Admin AI summary failed:', err);
+            if (output) output.textContent = 'No AI suggestions available, please draft manually.';
+        } finally {
+            if (button) {
+                button.disabled = false;
+                button.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Summarize with AI';
+            }
+        }
+    };
+}
+
+if (typeof window !== 'undefined' && !window.app_openStaffAiMemorySheet) {
+    window.app_openStaffAiMemorySheet = () => {
+        window.location.hash = 'staff-ai-memory';
+    };
+}
+
 const ADMIN_MAX_OVERLAY_ID = 'admin-card-max-overlay';
 const ADMIN_MAX_TITLE_ID = 'admin-card-max-title';
 const ADMIN_MAX_BODY_ID = 'admin-card-max-body';
@@ -574,6 +789,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         <div class="admin-staff-head">
             <div class="admin-staff-head-actions">
                 ${(window.app_isAdminUser?.() || window.app_canManageBirthdays?.()) ? `<button type="button" class="action-btn secondary" onclick="window.location.hash='birthday-calendar'"><i class="fa-solid fa-cake-candles"></i> Birthday Calendar</button>` : ''}
+                <button type="button" class="action-btn secondary" onclick="window.app_openStaffAiMemorySheet?.()"><i class="fa-solid fa-brain"></i> AI Memory Sheet</button>
                 ${window.app_hasPerm('users', 'admin') ? `<button type="button" class="action-btn" onclick="document.getElementById('add-user-modal').style.display='flex'"><i class="fa-solid fa-user-plus"></i> Add Staff</button>` : ''}
             </div>
         </div>
@@ -915,103 +1131,15 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         `;
     };
 
-    const aiSourceScope = `Admin report for ${auditStartDate} to ${auditEndDate} using attendance, leave, compliance, and team activity summaries`;
-    window._adminAiContext = {
+    const adminAiWorkspace = buildAdminAiReportContext({
         auditStartDate,
         auditEndDate,
-        view: 'admin-report',
-        sourceScope: aiSourceScope,
-        metrics: {
-            totalStaff: allUsers.length,
-            activeStaff: activeCount,
-            adminStaff: adminCount,
-            pendingLeaves: pendingLeaves.length,
-            openIssues: complianceIssues.length,
-            staleUnallocated: staleUnallocated.length,
-            recentAttendanceLogs: recentAttendanceLogs.length,
-            recentTeamActivities: recentTeamActivities.length
-        },
-        highlights: [
-            `Open issues: ${complianceIssues.length}`,
-            `Budget mapping issues: ${complianceReasonCounts.budgetHead}`,
-            `Checkout validation issues: ${complianceReasonCounts.checkout}`,
-            `Aged 2+ days: ${staleUnallocated.length}`
-        ],
-        exceptions: complianceIssues.slice(0, 10).map((row) => ({
-            date: row.date || '',
-            staffName: usersById.get(String(row.user_id || row.userId || ''))?.name || row.staffName || 'Staff',
-            sourceLabel: row.sourceLabel || 'Source',
-            budgetHeadId: row.budgetHeadId || 'UNALLOCATED',
-            validationStatus: row.validationStatus || 'unknown',
-            summary: String(row.budgetHeadUnallocatedReason || (Array.isArray(row.validationErrors) ? row.validationErrors.join(' | ') : '') || row.workDescription || 'No summary').slice(0, 180)
-        })),
-        sampleRows: [
-            ...recentEntries.slice(0, 6).map((row) => ({
-                date: row.date || '',
-                staffName: usersById.get(String(row.user_id || row.userId || ''))?.name || row.staffName || 'Staff',
-                sourceLabel: row.sourceLabel || 'Attendance',
-                budgetHeadId: row.budgetHeadId || 'UNALLOCATED',
-                validationStatus: row.validationStatus || 'unknown',
-                summary: String(row.workDescription || row.location || 'Attendance entry').slice(0, 160)
-            })),
-            ...teamActivityRows.slice(0, 6).map((row) => ({
-                date: row.date || '',
-                staffName: usersById.get(String(row.user_id || row.userId || ''))?.name || row.staffName || 'Staff',
-                sourceLabel: row.sourceLabel || 'Team Activity',
-                budgetHeadId: row.budgetHeadId || 'UNALLOCATED',
-                validationStatus: row.validationStatus || 'unknown',
-                summary: String(row.workDescription || 'Team activity').slice(0, 160)
-            }))
-        ]
-    };
-
-    window.app_requestAdminAiSummary = async function () {
-        const output = document.getElementById('admin-ai-output');
-        const button = document.getElementById('admin-ai-run-btn');
-        const actionSelect = document.getElementById('admin-ai-action');
-        const noteInput = document.getElementById('admin-ai-note');
-        const action = String(actionSelect?.value || 'summary');
-        const note = String(noteInput?.value || '').trim();
-        if (output) output.textContent = 'Contacting AI assistant...';
-        if (button) {
-            button.disabled = true;
-            button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Summarizing...';
-        }
-        try {
-            const aiAssistant = await getAIAssistant();
-            if (!aiAssistant?.requestAssistant) {
-                if (output) output.textContent = 'No AI suggestions available, please draft manually.';
-                return;
-            }
-            const result = await aiAssistant.requestAssistant({
-                mode: 'admin-report',
-                context: {
-                    ...window._adminAiContext,
-                    action,
-                    promptHint: note,
-                    notes: 'Admin summaries must reference the source scope and remain privacy-first.'
-                },
-                user: window.AppAuth?.getUser?.() || null,
-                sourceScope: aiSourceScope
-            });
-            if (output) {
-                output.innerHTML = `
-                    <div class="admin-ai-summary-line"><strong>Summary:</strong> ${safeHtml(result.summary || '')}</div>
-                    ${Array.isArray(result.suggestedActions) && result.suggestedActions.length ? `<ul class="admin-ai-action-list">${result.suggestedActions.map((item) => `<li>${safeHtml(item)}</li>`).join('')}</ul>` : ''}
-                    ${Array.isArray(result.warnings) && result.warnings.length ? `<div class="admin-ai-warnings">${safeHtml(result.warnings.join(' | '))}</div>` : ''}
-                    <div class="admin-ai-source"><strong>Source Scope:</strong> ${safeHtml(result.sourceScope || aiSourceScope)}</div>
-                `;
-            }
-        } catch (err) {
-            console.warn('Admin AI summary failed:', err);
-            if (output) output.textContent = 'No AI suggestions available, please draft manually.';
-        } finally {
-            if (button) {
-                button.disabled = false;
-                button.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Summarize with AI';
-            }
-        }
-    };
+        allUsers,
+        pendingLeaves,
+        recentAttendanceLogs,
+        recentTeamActivities
+    });
+    updateAdminAiWorkspace(adminAiWorkspace.context, adminAiWorkspace.sourceScope);
 
     const cards = [];
     const cardTemplates = {};
@@ -1066,61 +1194,6 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                     <div class="admin-kpi-pill-value">${adminCount}</div>
                     <div class="admin-kpi-pill-label">Admins</div>
                 </div>
-            </div>
-        `
-    });
-
-    pushCard({
-        id: 'ai-assistant',
-        title: 'AI Assistant',
-        className: 'admin-section-card admin-ai-card',
-        accentClass: 'admin-card-accent-blue',
-        compactHtml: `
-            <div class="admin-ai-panel">
-                <div class="admin-ai-panel-head">
-                    <div>
-                        <span class="admin-ai-kicker">Privacy-first summary</span>
-                        <h4 class="admin-ai-title">Report Narration</h4>
-                        <p class="admin-ai-copy">Generate an editable summary from the current admin filter scope.</p>
-                    </div>
-                </div>
-                <div class="admin-ai-controls">
-                    <select id="admin-ai-action" class="admin-ai-select">
-                        <option value="summary" selected>Attendance summary</option>
-                        <option value="exceptions">Exception analysis</option>
-                        <option value="executive">Executive narration</option>
-                    </select>
-                    <button type="button" id="admin-ai-run-btn" class="action-btn secondary" onclick="window.app_requestAdminAiSummary?.()">
-                        <i class="fa-solid fa-wand-magic-sparkles"></i> Summarize with AI
-                    </button>
-                </div>
-                <textarea id="admin-ai-note" class="admin-ai-note" rows="3" placeholder="Optional focus, for example: highlight budget issues and next steps."></textarea>
-                <div id="admin-ai-output" class="admin-ai-output">AI summaries will appear here after you click the button.</div>
-                <div class="admin-ai-source-inline"><strong>Source Scope:</strong> ${safeHtml(aiSourceScope)}</div>
-            </div>
-        `,
-        expandedHtml: `
-            <div class="admin-ai-panel admin-ai-panel-expanded">
-                <div class="admin-ai-panel-head">
-                    <div>
-                        <span class="admin-ai-kicker">Privacy-first summary</span>
-                        <h4 class="admin-ai-title">Report Narration</h4>
-                        <p class="admin-ai-copy">Generate a summary from the filtered admin dataset. Output stays editable and scoped.</p>
-                    </div>
-                </div>
-                <div class="admin-ai-controls">
-                    <select id="admin-ai-action" class="admin-ai-select">
-                        <option value="summary" selected>Attendance summary</option>
-                        <option value="exceptions">Exception analysis</option>
-                        <option value="executive">Executive narration</option>
-                    </select>
-                    <button type="button" id="admin-ai-run-btn" class="action-btn secondary" onclick="window.app_requestAdminAiSummary?.()">
-                        <i class="fa-solid fa-wand-magic-sparkles"></i> Summarize with AI
-                    </button>
-                </div>
-                <textarea id="admin-ai-note" class="admin-ai-note" rows="4" placeholder="Optional focus, for example: highlight budget issues and next steps."></textarea>
-                <div id="admin-ai-output" class="admin-ai-output">AI summaries will appear here after you click the button.</div>
-                <div class="admin-ai-source-inline"><strong>Source Scope:</strong> ${safeHtml(aiSourceScope)}</div>
             </div>
         `
     });
@@ -1630,4 +1703,271 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         <div class="dashboard-grid dashboard-modern dashboard-admin-view admin-grid-compact">
             ${cards.join('')}
         </div>`;
+}
+
+export async function renderStaffAiMemorySheet(auditStartDate = null, auditEndDate = null) {
+    const currentUser = window.AppAuth?.getUser?.();
+    if (!currentUser) {
+        return '<div class="card">User state lost. Please sign in again.</div>';
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    auditStartDate = String(auditStartDate || window.app_staffAiMemoryStartDate || today).trim() || today;
+    auditEndDate = String(auditEndDate || window.app_staffAiMemoryEndDate || today).trim() || today;
+
+    const canBrowseStaff = window.app_hasPerm('users', 'view', currentUser) || window.app_canSeeAdminPanel(currentUser);
+    const [allUsers, pendingLeaves, recentAttendanceLogs, recentTeamActivities] = await Promise.all([
+        window.AppDB.getAll('users').catch(() => []),
+        window.AppLeaves?.getPendingLeaves ? window.AppLeaves.getPendingLeaves().catch(() => []) : Promise.resolve([]),
+        window.AppDB.queryMany
+            ? window.AppDB.queryMany('attendance', [{ field: 'date', operator: '>=', value: auditStartDate }]).catch(() => window.AppDB.getAll('attendance'))
+            : window.AppDB.getAll('attendance'),
+        window.AppAnalytics?.getAllStaffActivities
+            ? window.AppAnalytics.getAllStaffActivities({
+                mode: 'range',
+                startIso: auditStartDate,
+                endIso: auditEndDate,
+                scope: 'work',
+                sideEffects: false
+            }).catch(() => [])
+            : Promise.resolve([])
+    ]);
+
+    const allStaff = Array.isArray(allUsers) ? allUsers : [];
+    const filteredAttendanceLogs = (Array.isArray(recentAttendanceLogs) ? recentAttendanceLogs : [])
+        .filter((row) => {
+            const rowDate = String(row?.date || '').trim();
+            if (!rowDate) return true;
+            return rowDate <= auditEndDate;
+        });
+    const canSwitchStaff = canBrowseStaff && (window.app_isAdminUser?.(currentUser) || window.app_hasPerm('users', 'admin', currentUser));
+    const selectedStaffId = canSwitchStaff
+        ? String(window.app_staffAiMemoryTargetUserId || currentUser.id || '').trim() || String(currentUser.id || '')
+        : String(currentUser.id || '');
+    const selectedStaff = canSwitchStaff
+        ? (allStaff.find((user) => String(user.id || '') === selectedStaffId) || currentUser)
+        : currentUser;
+    const staffMemory = await (window.AppAIContextFeeder?.getStaffContextPack
+        ? window.AppAIContextFeeder.getStaffContextPack(selectedStaff, { force: false })
+        : Promise.resolve(null));
+    const staffMemoryPack = staffMemory || {
+        sourceScope: 'No staff memory available yet',
+        historyAvailable: false,
+        summary: {
+            narrative: '',
+            taskTypes: [],
+            budgetHeads: [],
+            collaborators: [],
+            steps: [],
+            events: [],
+            attendance: ''
+        },
+        recentPlans: [],
+        recentActivities: [],
+        attendanceSummary: null,
+        tagHistorySummary: [],
+        notificationSummary: []
+    };
+
+    const adminAiWorkspace = buildAdminAiReportContext({
+        auditStartDate,
+        auditEndDate,
+        allUsers: allStaff,
+        pendingLeaves,
+        recentAttendanceLogs: filteredAttendanceLogs,
+        recentTeamActivities
+    });
+    updateAdminAiWorkspace(adminAiWorkspace.context, adminAiWorkspace.sourceScope);
+
+    const pickerOptions = canBrowseStaff
+        ? allStaff.map((u) => `<option value="${safeHtml(String(u.id || ''))}" ${String(u.id || '') === String(selectedStaffId) ? 'selected' : ''}>${safeHtml(String(u.name || 'Staff'))}</option>`).join('')
+        : '';
+
+    const formatDateTime = (value) => {
+        const date = new Date(value || '');
+        if (Number.isNaN(date.getTime())) return '--';
+        return date.toLocaleString();
+    };
+
+    const renderPlanItems = (items = []) => {
+        if (!Array.isArray(items) || !items.length) {
+            return '<div class="staff-ai-memory-empty">No recent plans captured yet.</div>';
+        }
+        return items.slice(0, 6).map((plan) => `
+            <div class="staff-ai-memory-item">
+                <div class="staff-ai-memory-item-head">
+                    <strong>${safeHtml(plan.date || '--')}</strong>
+                    ${plan.budgetHeadLabel ? `<span class="staff-ai-memory-pill">${safeHtml(plan.budgetHeadLabel)}</span>` : ''}
+                </div>
+                <div class="staff-ai-memory-item-title">${safeHtml(plan.task || 'Untitled task')}</div>
+                ${Array.isArray(plan.steps) && plan.steps.length ? `<div class="staff-ai-memory-mini-list">${plan.steps.slice(0, 3).map((step) => `<span>${safeHtml(step)}</span>`).join('')}</div>` : ''}
+            </div>
+        `).join('');
+    };
+
+    const renderActivityItems = (items = []) => {
+        if (!Array.isArray(items) || !items.length) {
+            return '<div class="staff-ai-memory-empty">No recent activity events captured yet.</div>';
+        }
+        return items.slice(0, 6).map((event) => `
+            <div class="staff-ai-memory-item">
+                <div class="staff-ai-memory-item-head">
+                    <strong>${safeHtml(event.date || '--')}</strong>
+                    <span class="staff-ai-memory-pill">${safeHtml(event.eventType || 'event')}</span>
+                </div>
+                <div class="staff-ai-memory-item-title">${safeHtml(event.note || 'No note')}</div>
+            </div>
+        `).join('');
+    };
+
+    const renderChipList = (items = [], emptyLabel = 'No data yet') => {
+        if (!Array.isArray(items) || !items.length) {
+            return `<div class="staff-ai-memory-empty">${safeHtml(emptyLabel)}</div>`;
+        }
+        return `<div class="staff-ai-memory-chip-list">${items.slice(0, 8).map((item) => `<span class="staff-ai-memory-chip">${safeHtml(String(item))}</span>`).join('')}</div>`;
+    };
+
+    const headerNote = canSwitchStaff
+        ? 'Select one staff member to inspect their curated memory, then refresh or jump back to the staff dashboard anytime.'
+        : 'You are viewing your own curated staff memory. Staff management users can switch between staff members.';
+    const backHash = window.app_canSeeAdminPanel(currentUser) ? 'admin' : 'dashboard';
+
+    window.app_refreshStaffAiMemorySheet = async (opts = {}) => {
+        const start = String(opts?.startDate || document.getElementById('staff-ai-memory-start')?.value || auditStartDate || today).trim() || today;
+        const end = String(opts?.endDate || document.getElementById('staff-ai-memory-end')?.value || auditEndDate || today).trim() || today;
+        window.app_staffAiMemoryStartDate = start;
+        window.app_staffAiMemoryEndDate = end;
+        const contentArea = document.getElementById('page-content');
+        if (contentArea) contentArea.innerHTML = await renderStaffAiMemorySheet(start, end);
+    };
+
+    window.app_changeStaffAiMemoryTarget = async (staffId) => {
+        window.app_staffAiMemoryTargetUserId = String(staffId || currentUser.id || '').trim();
+        const contentArea = document.getElementById('page-content');
+        const start = String(document.getElementById('staff-ai-memory-start')?.value || auditStartDate || today).trim() || today;
+        const end = String(document.getElementById('staff-ai-memory-end')?.value || auditEndDate || today).trim() || today;
+        if (contentArea) contentArea.innerHTML = await renderStaffAiMemorySheet(start, end);
+    };
+
+    return `
+        <div class="dashboard-admin-view staff-ai-memory-sheet">
+            <section class="staff-ai-memory-hero card">
+                <div class="staff-ai-memory-hero-copy">
+                    <span class="staff-ai-memory-kicker">Staff Management</span>
+                    <h2 class="staff-ai-memory-title">AI Memory Viewer</h2>
+                    <p class="staff-ai-memory-note">${safeHtml(headerNote)}</p>
+                </div>
+                <div class="staff-ai-memory-hero-actions">
+                    <label class="staff-ai-memory-field">
+                        <span>From</span>
+                        <input id="staff-ai-memory-start" type="date" value="${safeHtml(auditStartDate)}">
+                    </label>
+                    <label class="staff-ai-memory-field">
+                        <span>To</span>
+                        <input id="staff-ai-memory-end" type="date" value="${safeHtml(auditEndDate)}">
+                    </label>
+                    <button type="button" class="action-btn secondary" onclick="window.app_refreshStaffAiMemorySheet?.()"><i class="fa-solid fa-arrows-rotate"></i> Refresh</button>
+                    <button type="button" class="action-btn secondary" onclick="window.location.hash='${backHash}'"><i class="fa-solid fa-arrow-left"></i> Back</button>
+                </div>
+            </section>
+
+            <div class="staff-ai-memory-grid">
+                <section class="card staff-ai-memory-card">
+                    <div class="staff-ai-memory-card-head">
+                        <div>
+                            <h3>Selected Staff Memory</h3>
+                            <p>Curated from plans, activity, attendance, tags, and notifications. Raw dumps stay out.</p>
+                        </div>
+                        <div class="staff-ai-memory-meta">
+                            <span class="staff-ai-memory-badge">${safeHtml(selectedStaff.name || 'Staff')}</span>
+                            <span class="staff-ai-memory-badge">${safeHtml(selectedStaff.role || 'Employee')}</span>
+                            ${canSwitchStaff ? `
+                                <select id="staff-ai-memory-user" class="staff-ai-memory-select" onchange="window.app_changeStaffAiMemoryTarget?.(this.value)">
+                                    ${pickerOptions}
+                                </select>
+                            ` : ''}
+                        </div>
+                    </div>
+
+                    <div class="staff-ai-memory-summary">
+                        <div class="staff-ai-memory-summary-title">Memory Snapshot</div>
+                        <p>${safeHtml(staffMemoryPack.summary?.narrative || 'No memory summary available yet.')}</p>
+                    </div>
+
+                    <div class="staff-ai-memory-chip-group">
+                        <div>
+                            <div class="staff-ai-memory-label">Source Scope</div>
+                            <div class="staff-ai-memory-muted">${safeHtml(staffMemoryPack.sourceScope || 'No staff memory available yet')}</div>
+                        </div>
+                        <div>
+                            <div class="staff-ai-memory-label">Updated</div>
+                            <div class="staff-ai-memory-muted">${safeHtml(formatDateTime(staffMemoryPack.updatedAt || ''))}</div>
+                        </div>
+                        <div>
+                            <div class="staff-ai-memory-label">History</div>
+                            <div class="staff-ai-memory-muted">${staffMemoryPack.historyAvailable ? 'Available' : 'Empty or rebuilding'}</div>
+                        </div>
+                    </div>
+
+                    <div class="staff-ai-memory-section">
+                        <div class="staff-ai-memory-section-title">Recurring Task Types</div>
+                        ${renderChipList(staffMemoryPack.summary?.taskTypes || [], 'No task patterns yet.')}
+                    </div>
+
+                    <div class="staff-ai-memory-section">
+                        <div class="staff-ai-memory-section-title">Frequent Budget Heads</div>
+                        ${renderChipList((staffMemoryPack.summary?.budgetHeads || []).map((item) => item?.label || item?.value || item), 'No budget-head pattern yet.')}
+                    </div>
+
+                    <div class="staff-ai-memory-section">
+                        <div class="staff-ai-memory-section-title">Recurring Collaborators</div>
+                        ${renderChipList(staffMemoryPack.summary?.collaborators || [], 'No collaborators recorded yet.')}
+                    </div>
+
+                    <div class="staff-ai-memory-section">
+                        <div class="staff-ai-memory-section-title">Recent Step Patterns</div>
+                        ${renderChipList(staffMemoryPack.summary?.steps || [], 'No step patterns captured yet.')}
+                    </div>
+
+                    <div class="staff-ai-memory-section">
+                        <div class="staff-ai-memory-section-title">Attendance Summary</div>
+                        <p class="staff-ai-memory-muted">${safeHtml(staffMemoryPack.summary?.attendance || 'No attendance summary available yet.')}</p>
+                    </div>
+
+                    <div class="staff-ai-memory-two-col">
+                        <div class="staff-ai-memory-section">
+                            <div class="staff-ai-memory-section-title">Recent Plans</div>
+                            <div class="staff-ai-memory-list">${renderPlanItems(staffMemoryPack.recentPlans || [])}</div>
+                        </div>
+                        <div class="staff-ai-memory-section">
+                            <div class="staff-ai-memory-section-title">Recent Activities</div>
+                            <div class="staff-ai-memory-list">${renderActivityItems(staffMemoryPack.recentActivities || [])}</div>
+                        </div>
+                    </div>
+
+                    <div class="staff-ai-memory-section staff-ai-memory-footnote">
+                        Only curated summaries are shown here. Salaries, tokens, private notes, and raw database dumps are excluded by design.
+                    </div>
+                </section>
+
+                <section class="card staff-ai-memory-card">
+                    <div class="staff-ai-memory-card-head">
+                        <div>
+                            <h3>Privacy-first summary</h3>
+                            <p>Report Narration from the selected source scope. The output stays editable and scoped.</p>
+                        </div>
+                    </div>
+                    ${renderAdminAiNarrationPanel({
+                        sourceScope: adminAiWorkspace.sourceScope,
+                        compact: false,
+                        title: 'Report Narration',
+                        copy: 'Generate an editable summary from the selected source scope.'
+                    })}
+                    <div class="staff-ai-memory-section staff-ai-memory-footnote">
+                        Source scope: ${safeHtml(adminAiWorkspace.sourceScope || 'Unknown')}
+                    </div>
+                </section>
+            </div>
+        </div>
+    `;
 }
