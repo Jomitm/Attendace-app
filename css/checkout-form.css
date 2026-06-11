@@ -439,6 +439,11 @@
     line-height: 1.45;
 }
 
+.checkout-ai-reason {
+    color: #b45309;
+    font-weight: 700;
+}
+
 .checkout-ai-editor {
     display: grid;
     gap: 0.6rem;

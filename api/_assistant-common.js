@@ -159,12 +159,11 @@ function validateResponseShape(mode, payload) {
 
     if (mode === 'checkout-summary') {
         const draft = payload.draft && typeof payload.draft === 'object' && !Array.isArray(payload.draft) ? payload.draft : null;
-        if (!draft) return { valid: false, reason: 'missing_checkout_draft' };
         const normalizedDraft = {
-            summary: trimTo(draft.summary || summary, MAX_SUMMARY_CHARS),
-            tomorrowGoal: trimTo(draft.tomorrowGoal || tomorrowGoal, 500),
-            taskSuggestions: normalizeStringArray(draft.taskSuggestions || taskSuggestions, 8, MAX_ACTION_CHARS),
-            budgetHeadId: trimTo(draft.budgetHeadId || '', 80)
+            summary: trimTo(draft?.summary || summary, MAX_SUMMARY_CHARS),
+            tomorrowGoal: trimTo(draft?.tomorrowGoal || tomorrowGoal, 500),
+            taskSuggestions: normalizeStringArray(draft?.taskSuggestions || taskSuggestions, 8, MAX_ACTION_CHARS),
+            budgetHeadId: trimTo(draft?.budgetHeadId || '', 80)
         };
         if (!normalizedDraft.summary) return { valid: false, reason: 'missing_checkout_summary' };
         return {

@@ -5997,6 +5997,7 @@ const app_checkoutAiDefaultState = () => ({
     requestId: '',
     sourceScope: '',
     status: 'idle',
+    reason: '',
     applied: false,
     loading: false
 });
@@ -6096,7 +6097,7 @@ const app_checkoutRenderAiDraftPanel = () => {
 
     if (!state.draft) {
         preview.innerHTML = state.status === 'fallback'
-            ? '<div class="checkout-ai-empty">No AI suggestions available, please draft manually.</div>'
+            ? `<div class="checkout-ai-empty">No AI suggestions available, please draft manually.${state.reason ? ` <span class="checkout-ai-reason">(${app_escapeHtml(state.reason)})</span>` : ''}</div>`
             : '<div class="checkout-ai-empty">AI suggestions will appear here after you draft with AI.</div>';
         return;
     }
@@ -6274,6 +6275,7 @@ window.app_requestCheckoutAiDraft = async () => {
         state.loading = false;
         state.requestId = result?.audit?.requestId || '';
         state.sourceScope = result?.sourceScope || sourceScope;
+        state.reason = result?.audit?.reason || result?.warnings?.[0] || '';
         state.status = result?.ok === false || !result?.draft?.summary ? 'fallback' : 'ready';
         state.applied = false;
 
@@ -6301,6 +6303,7 @@ window.app_requestCheckoutAiDraft = async () => {
         console.warn('Checkout AI draft generation failed:', err);
         state.loading = false;
         state.status = 'fallback';
+        state.reason = String(err?.message || err || 'assistant_unavailable');
         state.draft = null;
         app_checkoutRenderAiDraftPanel();
     }
@@ -6350,6 +6353,7 @@ window.app_discardCheckoutAiDraft = () => {
     state.loading = false;
     state.requestId = '';
     state.sourceScope = '';
+    state.reason = '';
     state.status = 'idle';
     app_checkoutSyncDraftStorage();
     app_checkoutRenderAiDraftPanel();
