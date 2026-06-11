@@ -3,6 +3,15 @@ import { AppDB } from './db.js';
 import { AppCalendar } from './calendar.js';
 import { AppConfig } from '../config.js';
 
+let aiAssistantModulePromise = null;
+async function getAIAssistant() {
+    if (window.AppAIAssistant) return window.AppAIAssistant;
+    if (!aiAssistantModulePromise) {
+        aiAssistantModulePromise = import('./ai-assistant.js').then((mod) => mod.AppAIAssistant || mod.default || window.AppAIAssistant);
+    }
+    return aiAssistantModulePromise;
+}
+
 // --- Helper Functions ---
 
 function createElement(tag, options = {}) {
@@ -689,6 +698,152 @@ export function openPlanEditor(args) {
     body.appendChild(textarea);
     body.appendChild(grid);
 
+    const secondaryStrip = createElement('div', { className: 'plan-editor-secondary-strip' });
+
+    const subPlanField = createElement('div', { className: 'plan-editor-subplans' });
+    subPlanField.innerHTML = `
+        <div class="plan-editor-section-head">
+            <div>
+                <label>Break into steps</label>
+                <p class="plan-editor-section-copy">Split the task into clear, editable steps.</p>
+            </div>
+        </div>
+    `;
+    const subPlanList = createElement('div', { className: 'plan-editor-subplans-list' });
+    const appendSubPlanRow = (value = '') => {
+        const row = createElement('div', { className: 'plan-editor-subplan-row' });
+        const input = createElement('input', {
+            className: 'plan-editor-subplan-input',
+            attributes: {
+                type: 'text',
+                placeholder: 'Add a step...',
+                value: value
+            }
+        });
+        const removeBtn = createButton({
+            className: 'day-plan-remove-step-btn plan-editor-subplan-remove',
+            attributes: { title: 'Remove step' },
+            innerHTML: '<i class="fa-solid fa-circle-xmark"></i>',
+            onClick: () => row.remove()
+        });
+        row.appendChild(input);
+        row.appendChild(removeBtn);
+        subPlanList.appendChild(row);
+        return input;
+    };
+    const initialSubPlans = Array.isArray(planData.subPlans) ? planData.subPlans.filter(Boolean) : [];
+    if (initialSubPlans.length > 0) {
+        initialSubPlans.forEach((step) => appendSubPlanRow(step));
+    } else {
+        appendSubPlanRow('');
+    }
+    const addSubPlanBtn = createButton({
+        className: 'day-plan-add-step-btn plan-editor-add-step-btn',
+        innerHTML: '<i class="fa-solid fa-plus"></i> Add step',
+        onClick: () => appendSubPlanRow('')
+    });
+    subPlanField.appendChild(subPlanList);
+    subPlanField.appendChild(addSubPlanBtn);
+    secondaryStrip.appendChild(subPlanField);
+
+    const assistantField = createElement('div', { className: 'plan-editor-ai-panel' });
+    assistantField.innerHTML = `
+        <div class="plan-editor-section-head">
+            <div>
+                <label>AI Draft Assistant</label>
+                <p class="plan-editor-section-copy">Generate an editable draft from the current plan context.</p>
+            </div>
+        </div>
+    `;
+    const assistantControls = createElement('div', { className: 'plan-editor-ai-controls' });
+    const aiActionSelect = createElement('select', { className: 'plan-editor-select plan-editor-ai-select' });
+    aiActionSelect.innerHTML = `
+        <option value="draft" selected>Draft from context</option>
+        <option value="refine">Refine this draft</option>
+        <option value="breakdown">Break into steps</option>
+        <option value="compress">Shorten wording</option>
+    `;
+    const aiRunBtn = createButton({
+        className: 'action-btn secondary plan-editor-ai-btn',
+        innerHTML: '<i class="fa-solid fa-wand-magic-sparkles"></i> Draft with AI',
+        onClick: async () => {
+            const aiAssistant = await getAIAssistant();
+            if (!aiAssistant?.requestAssistant) {
+                assistantPreview.textContent = 'No AI suggestions available, please draft manually.';
+                return;
+            }
+            const currentSourceScope = `Day plan for ${date} (${scope === 'annual' ? 'annual' : 'personal'})`;
+            const collabNames = Array.isArray(selectableCollaborators)
+                ? selectableCollaborators.slice(0, 12).map((u) => ({ id: u.id, name: u.name }))
+                : [];
+            const currentSubPlans = Array.from(subPlanList.querySelectorAll('.plan-editor-subplan-input'))
+                .map((input) => String(input.value || '').trim())
+                .filter(Boolean);
+            const currentPlan = {
+                task: String(textarea.value || '').trim(),
+                subPlans: currentSubPlans,
+                status: String(statusSelect.value || ''),
+                budgetHeadId: String(budgetSelect.value || ''),
+                assignedTo: String(assignSelect ? assignSelect.value : (planData.assignedTo || targetId) || ''),
+                startDate: String(planData.startDate || date || ''),
+                endDate: String(planData.endDate || date || '')
+            };
+            const context = {
+                date,
+                scope,
+                action: String(aiActionSelect.value || 'draft'),
+                currentPlan,
+                collaborators: collabNames,
+                notes: 'Staff should receive editable drafts only.'
+            };
+            const previousLabel = aiRunBtn.innerHTML;
+            aiRunBtn.disabled = true;
+            aiRunBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Drafting...';
+            assistantPreview.textContent = 'Contacting AI assistant...';
+            try {
+                const result = await aiAssistant.requestAssistant({
+                    mode: 'staff-plan',
+                    context,
+                    user: currentUser,
+                    sourceScope: currentSourceScope
+                });
+                assistantPreview.innerHTML = `
+                    <div><strong>Summary:</strong> ${esc(result.summary || '')}</div>
+                    ${Array.isArray(result.suggestedActions) && result.suggestedActions.length ? `<ul>${result.suggestedActions.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}
+                    ${Array.isArray(result.warnings) && result.warnings.length ? `<div class="plan-editor-ai-warnings">${result.warnings.map((item) => esc(item)).join(' • ')}</div>` : ''}
+                    <div class="plan-editor-ai-source"><strong>Source Scope:</strong> ${esc(result.sourceScope || currentSourceScope)}</div>
+                `;
+                if (result?.draft?.task) {
+                    textarea.value = result.draft.task;
+                }
+                const nextSteps = Array.isArray(result?.draft?.subPlans) ? result.draft.subPlans.filter(Boolean) : [];
+                if (nextSteps.length > 0) {
+                    subPlanList.innerHTML = '';
+                    nextSteps.forEach((step) => appendSubPlanRow(step));
+                }
+                if (result?.draft?.status) statusSelect.value = result.draft.status;
+                if (result?.draft?.budgetHeadId) budgetSelect.value = result.draft.budgetHeadId;
+                if (assignSelect && result?.draft?.assignedTo) assignSelect.value = result.draft.assignedTo;
+            } catch (err) {
+                console.warn('AI draft generation failed:', err);
+                assistantPreview.textContent = aiAssistant.FALLBACK_MESSAGE || 'No AI suggestions available, please draft manually.';
+            } finally {
+                aiRunBtn.disabled = false;
+                aiRunBtn.innerHTML = previousLabel;
+            }
+        }
+    });
+    assistantControls.appendChild(aiActionSelect);
+    assistantControls.appendChild(aiRunBtn);
+    const assistantPreview = createElement('div', {
+        className: 'plan-editor-ai-preview',
+        textContent: 'AI suggestions will appear here after you draft with AI.'
+    });
+    assistantField.appendChild(assistantControls);
+    assistantField.appendChild(assistantPreview);
+    secondaryStrip.appendChild(assistantField);
+    body.appendChild(secondaryStrip);
+
     const footer = createElement('div', { className: 'plan-editor-footer' });
     const cancelBtn = createButton({
         className: 'day-plan-discard-btn',
@@ -708,7 +863,10 @@ export function openPlanEditor(args) {
                 status: statusSelect.value,
                 budgetHeadId: String(budgetSelect.value || 'UNALLOCATED'),
                 assignedTo: assignSelect ? assignSelect.value : (planData.assignedTo || targetId),
-                tags: Array.isArray(planData.tags) ? planData.tags : []
+                tags: Array.isArray(planData.tags) ? planData.tags : [],
+                subPlans: Array.from(subPlanList.querySelectorAll('.plan-editor-subplan-input'))
+                    .map((input) => String(input.value || '').trim())
+                    .filter(Boolean)
             };
 
             const blockArgs = {

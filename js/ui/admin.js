@@ -6,6 +6,15 @@
 import { safeHtml } from './helpers.js';
 import { AppConfig } from '../config.js';
 
+let aiAssistantModulePromise = null;
+async function getAIAssistant() {
+    if (window.AppAIAssistant) return window.AppAIAssistant;
+    if (!aiAssistantModulePromise) {
+        aiAssistantModulePromise = import('../modules/ai-assistant.js').then((mod) => mod.AppAIAssistant || mod.default || window.AppAIAssistant);
+    }
+    return aiAssistantModulePromise;
+}
+
 const ADMIN_MAX_OVERLAY_ID = 'admin-card-max-overlay';
 const ADMIN_MAX_TITLE_ID = 'admin-card-max-title';
 const ADMIN_MAX_BODY_ID = 'admin-card-max-body';
@@ -906,6 +915,104 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         `;
     };
 
+    const aiSourceScope = `Admin report for ${auditStartDate} to ${auditEndDate} using attendance, leave, compliance, and team activity summaries`;
+    window._adminAiContext = {
+        auditStartDate,
+        auditEndDate,
+        view: 'admin-report',
+        sourceScope: aiSourceScope,
+        metrics: {
+            totalStaff: allUsers.length,
+            activeStaff: activeCount,
+            adminStaff: adminCount,
+            pendingLeaves: pendingLeaves.length,
+            openIssues: complianceIssues.length,
+            staleUnallocated: staleUnallocated.length,
+            recentAttendanceLogs: recentAttendanceLogs.length,
+            recentTeamActivities: recentTeamActivities.length
+        },
+        highlights: [
+            `Open issues: ${complianceIssues.length}`,
+            `Budget mapping issues: ${complianceReasonCounts.budgetHead}`,
+            `Checkout validation issues: ${complianceReasonCounts.checkout}`,
+            `Aged 2+ days: ${staleUnallocated.length}`
+        ],
+        exceptions: complianceIssues.slice(0, 10).map((row) => ({
+            date: row.date || '',
+            staffName: usersById.get(String(row.user_id || row.userId || ''))?.name || row.staffName || 'Staff',
+            sourceLabel: row.sourceLabel || 'Source',
+            budgetHeadId: row.budgetHeadId || 'UNALLOCATED',
+            validationStatus: row.validationStatus || 'unknown',
+            summary: String(row.budgetHeadUnallocatedReason || (Array.isArray(row.validationErrors) ? row.validationErrors.join(' | ') : '') || row.workDescription || 'No summary').slice(0, 180)
+        })),
+        sampleRows: [
+            ...recentEntries.slice(0, 6).map((row) => ({
+                date: row.date || '',
+                staffName: usersById.get(String(row.user_id || row.userId || ''))?.name || row.staffName || 'Staff',
+                sourceLabel: row.sourceLabel || 'Attendance',
+                budgetHeadId: row.budgetHeadId || 'UNALLOCATED',
+                validationStatus: row.validationStatus || 'unknown',
+                summary: String(row.workDescription || row.location || 'Attendance entry').slice(0, 160)
+            })),
+            ...teamActivityRows.slice(0, 6).map((row) => ({
+                date: row.date || '',
+                staffName: usersById.get(String(row.user_id || row.userId || ''))?.name || row.staffName || 'Staff',
+                sourceLabel: row.sourceLabel || 'Team Activity',
+                budgetHeadId: row.budgetHeadId || 'UNALLOCATED',
+                validationStatus: row.validationStatus || 'unknown',
+                summary: String(row.workDescription || 'Team activity').slice(0, 160)
+            }))
+        ]
+    };
+
+    window.app_requestAdminAiSummary = async function () {
+        const output = document.getElementById('admin-ai-output');
+        const button = document.getElementById('admin-ai-run-btn');
+        const actionSelect = document.getElementById('admin-ai-action');
+        const noteInput = document.getElementById('admin-ai-note');
+        const action = String(actionSelect?.value || 'summary');
+        const note = String(noteInput?.value || '').trim();
+        if (output) output.textContent = 'Contacting AI assistant...';
+        if (button) {
+            button.disabled = true;
+            button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Summarizing...';
+        }
+        try {
+            const aiAssistant = await getAIAssistant();
+            if (!aiAssistant?.requestAssistant) {
+                if (output) output.textContent = 'No AI suggestions available, please draft manually.';
+                return;
+            }
+            const result = await aiAssistant.requestAssistant({
+                mode: 'admin-report',
+                context: {
+                    ...window._adminAiContext,
+                    action,
+                    promptHint: note,
+                    notes: 'Admin summaries must reference the source scope and remain privacy-first.'
+                },
+                user: window.AppAuth?.getUser?.() || null,
+                sourceScope: aiSourceScope
+            });
+            if (output) {
+                output.innerHTML = `
+                    <div class="admin-ai-summary-line"><strong>Summary:</strong> ${safeHtml(result.summary || '')}</div>
+                    ${Array.isArray(result.suggestedActions) && result.suggestedActions.length ? `<ul class="admin-ai-action-list">${result.suggestedActions.map((item) => `<li>${safeHtml(item)}</li>`).join('')}</ul>` : ''}
+                    ${Array.isArray(result.warnings) && result.warnings.length ? `<div class="admin-ai-warnings">${safeHtml(result.warnings.join(' | '))}</div>` : ''}
+                    <div class="admin-ai-source"><strong>Source Scope:</strong> ${safeHtml(result.sourceScope || aiSourceScope)}</div>
+                `;
+            }
+        } catch (err) {
+            console.warn('Admin AI summary failed:', err);
+            if (output) output.textContent = 'No AI suggestions available, please draft manually.';
+        } finally {
+            if (button) {
+                button.disabled = false;
+                button.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Summarize with AI';
+            }
+        }
+    };
+
     const cards = [];
     const cardTemplates = {};
 
@@ -959,6 +1066,61 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                     <div class="admin-kpi-pill-value">${adminCount}</div>
                     <div class="admin-kpi-pill-label">Admins</div>
                 </div>
+            </div>
+        `
+    });
+
+    pushCard({
+        id: 'ai-assistant',
+        title: 'AI Assistant',
+        className: 'admin-section-card admin-ai-card',
+        accentClass: 'admin-card-accent-blue',
+        compactHtml: `
+            <div class="admin-ai-panel">
+                <div class="admin-ai-panel-head">
+                    <div>
+                        <span class="admin-ai-kicker">Privacy-first summary</span>
+                        <h4 class="admin-ai-title">Report Narration</h4>
+                        <p class="admin-ai-copy">Generate an editable summary from the current admin filter scope.</p>
+                    </div>
+                </div>
+                <div class="admin-ai-controls">
+                    <select id="admin-ai-action" class="admin-ai-select">
+                        <option value="summary" selected>Attendance summary</option>
+                        <option value="exceptions">Exception analysis</option>
+                        <option value="executive">Executive narration</option>
+                    </select>
+                    <button type="button" id="admin-ai-run-btn" class="action-btn secondary" onclick="window.app_requestAdminAiSummary?.()">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> Summarize with AI
+                    </button>
+                </div>
+                <textarea id="admin-ai-note" class="admin-ai-note" rows="3" placeholder="Optional focus, for example: highlight budget issues and next steps."></textarea>
+                <div id="admin-ai-output" class="admin-ai-output">AI summaries will appear here after you click the button.</div>
+                <div class="admin-ai-source-inline"><strong>Source Scope:</strong> ${safeHtml(aiSourceScope)}</div>
+            </div>
+        `,
+        expandedHtml: `
+            <div class="admin-ai-panel admin-ai-panel-expanded">
+                <div class="admin-ai-panel-head">
+                    <div>
+                        <span class="admin-ai-kicker">Privacy-first summary</span>
+                        <h4 class="admin-ai-title">Report Narration</h4>
+                        <p class="admin-ai-copy">Generate a summary from the filtered admin dataset. Output stays editable and scoped.</p>
+                    </div>
+                </div>
+                <div class="admin-ai-controls">
+                    <select id="admin-ai-action" class="admin-ai-select">
+                        <option value="summary" selected>Attendance summary</option>
+                        <option value="exceptions">Exception analysis</option>
+                        <option value="executive">Executive narration</option>
+                    </select>
+                    <button type="button" id="admin-ai-run-btn" class="action-btn secondary" onclick="window.app_requestAdminAiSummary?.()">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> Summarize with AI
+                    </button>
+                </div>
+                <textarea id="admin-ai-note" class="admin-ai-note" rows="4" placeholder="Optional focus, for example: highlight budget issues and next steps."></textarea>
+                <div id="admin-ai-output" class="admin-ai-output">AI summaries will appear here after you click the button.</div>
+                <div class="admin-ai-source-inline"><strong>Source Scope:</strong> ${safeHtml(aiSourceScope)}</div>
             </div>
         `
     });
