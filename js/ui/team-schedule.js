@@ -39,7 +39,16 @@ export const renderYearlyPlan = (plans) => {
 
         calendarHTML += `
             <div class="cal-day ${isToday ? 'today' : ''} ${hasLeave ? 'has-leave' : ''} ${hasEvent ? 'has-event' : ''} ${hasWork ? 'has-work' : ''} ${dayType === 'Holiday' ? 'is-holiday' : ''} ${dayType === 'Half Day' ? 'is-half-day' : ''}" 
-                    onclick="window.app_openDayPlan('${dStr}')" style="cursor:pointer;" title="${dayType}">
+                    onmousedown="window.app_prefetchDayPlan?.('${dStr}')"
+                    onpointerdown="window.app_prefetchDayPlan?.('${dStr}')"
+                    onclick="window.app_openDayPlan('${dStr}')"
+                    onmouseenter="window.app_prefetchDayPlan?.('${dStr}')"
+                    onpointerenter="window.app_prefetchDayPlan?.('${dStr}')"
+                    onfocus="window.app_prefetchDayPlan?.('${dStr}')"
+                    tabindex="0"
+                    role="button"
+                    style="cursor:pointer;"
+                    title="${dayType}">
                 ${d}
             </div>
         `;
@@ -47,6 +56,13 @@ export const renderYearlyPlan = (plans) => {
 
     // Global data for the handlers in app.js
     window._currentPlans = plans;
+
+    if (typeof window.app_prefetchDayPlan === 'function') {
+        const currentDateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        if (year === today.getFullYear() && month === today.getMonth()) {
+            setTimeout(() => window.app_prefetchDayPlan(currentDateStr), 0);
+        }
+    }
 
     return `
         <div class="card dashboard-team-schedule-card" style="padding: 0.75rem; display:flex; flex-direction:column;">

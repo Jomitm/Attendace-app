@@ -5365,6 +5365,10 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
         removedTasks = [];
     }
 
+    if (form && typeof form._dayPlanFlushPending === 'function') {
+        form._dayPlanFlushPending();
+    }
+
     const planBlocks = form ? form.querySelectorAll('.plan-block') : document.querySelectorAll('.plan-block');
     const plans = [];
     const personalPlans = [];

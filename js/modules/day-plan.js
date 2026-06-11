@@ -1,6 +1,7 @@
 import { AppAuth } from './auth.js';
 import { AppDB } from './db.js';
 import { AppCalendar } from './calendar.js';
+import { AppConfig } from '../config.js';
 
 // --- Helper Functions ---
 
@@ -32,6 +33,149 @@ function createButton(options = {}) {
     });
     if (options.onClick) btn.addEventListener('click', options.onClick);
     return btn;
+}
+
+function scheduleNextPaint(callback) {
+    if (typeof window.requestAnimationFrame === 'function') {
+        window.requestAnimationFrame(() => window.setTimeout(callback, 0));
+        return;
+    }
+    window.setTimeout(callback, 0);
+}
+
+const DAY_PLAN_PREFETCH_TTL_MS = 15000;
+const dayPlanPrefetchCache = new Map();
+
+async function getCachedDayPlanUsers() {
+    const cacheKey = AppDB.getCacheKey
+        ? AppDB.getCacheKey('dayPlanUsers', 'users', { scope: 'day-plan' })
+        : 'dayPlanUsers:users:scope';
+    const ttl = Number(AppConfig?.READ_CACHE_TTLS?.users || 60000);
+    if (AppDB.getCached) {
+        return AppDB.getCached(cacheKey, ttl, () => AppDB.getAll('users'));
+    }
+    return AppDB.getAll('users');
+}
+
+function normalizeDayPlanTargetId(targetUserId) {
+    const currentUser = AppAuth.getUser();
+    const targetIdRaw = String(targetUserId ?? '').trim();
+    return (!targetIdRaw || targetIdRaw === 'undefined' || targetIdRaw === 'null')
+        ? currentUser?.id
+        : targetIdRaw;
+}
+
+function getDayPlanPrefetchKey(date, targetUserId = null, forcedScope = null, options = {}) {
+    const targetId = normalizeDayPlanTargetId(targetUserId);
+    return JSON.stringify({
+        date: String(date || '').trim(),
+        targetId: String(targetId || ''),
+        forcedScope: forcedScope === 'annual' ? 'annual' : 'personal',
+        hideAutoForwardedTasks: options?.hideAutoForwardedTasks === true,
+        skipCarryForwardSync: options?.skipCarryForwardSync === true,
+        skipCarryForwardCleanup: options?.skipCarryForwardCleanup === true
+    });
+}
+
+function getDayPlanPrefetchRecord(date, targetUserId = null, forcedScope = null, options = {}) {
+    const currentUser = AppAuth.getUser();
+    if (!currentUser) return null;
+
+    const targetId = normalizeDayPlanTargetId(targetUserId) || currentUser.id;
+    const key = getDayPlanPrefetchKey(date, targetId, forcedScope, options);
+    const now = Date.now();
+    const existing = dayPlanPrefetchCache.get(key);
+    if (existing && existing.expiresAt > now) return existing;
+
+    const todayKey = AppCalendar?.getTodayKey ? AppCalendar.getTodayKey() : '';
+    const safeDate = String(date || '').trim();
+    const canPrefetchPlans = !!todayKey && safeDate > todayKey;
+    const usersPromise = getCachedDayPlanUsers();
+    const record = {
+        key,
+        date: safeDate,
+        targetId,
+        forcedScope: forcedScope === 'annual' ? 'annual' : 'personal',
+        options: {
+            hideAutoForwardedTasks: options?.hideAutoForwardedTasks === true,
+            skipCarryForwardSync: options?.skipCarryForwardSync === true,
+            skipCarryForwardCleanup: options?.skipCarryForwardCleanup === true
+        },
+        expiresAt: now + DAY_PLAN_PREFETCH_TTL_MS,
+        usersPromise,
+        dataPromise: null,
+        promise: null
+    };
+
+    if (canPrefetchPlans) {
+        record.dataPromise = (async () => {
+            const [allUsers, personalWorkPlan, annualWorkPlan, allDayPlans] = await Promise.all([
+                usersPromise,
+                AppCalendar.getWorkPlan(targetId, safeDate, { planScope: 'personal' }),
+                AppCalendar.getWorkPlan(targetId, safeDate, { planScope: 'annual' }),
+                AppDB.queryMany('work_plans', [{ field: 'date', operator: '==', value: safeDate }])
+            ]);
+            return {
+                allUsers,
+                personalWorkPlan,
+                annualWorkPlan,
+                allDayPlans
+            };
+        })();
+        record.promise = record.dataPromise;
+    } else {
+        record.promise = usersPromise.then((allUsers) => ({ allUsers }));
+    }
+
+    record.promise.catch(() => {
+        dayPlanPrefetchCache.delete(key);
+    });
+    dayPlanPrefetchCache.set(key, record);
+    return record;
+}
+
+function createDayPlanLoadingState(message = 'Loading Plan Your Day...') {
+    const loader = createElement('div', { className: 'day-plan-loading-state' });
+    loader.style.display = 'flex';
+    loader.style.alignItems = 'center';
+    loader.style.justifyContent = 'center';
+    loader.style.minHeight = '260px';
+    loader.style.padding = '1.25rem';
+    loader.style.textAlign = 'center';
+
+    const panel = createElement('div', { className: 'day-plan-loading-panel' });
+    panel.style.display = 'flex';
+    panel.style.flexDirection = 'column';
+    panel.style.alignItems = 'center';
+    panel.style.gap = '0.75rem';
+    panel.style.maxWidth = '420px';
+
+    const icon = createElement('span', {
+        className: 'day-plan-loading-icon',
+        innerHTML: '<i class="fa-solid fa-spinner fa-spin"></i>'
+    });
+    icon.style.fontSize = '1.25rem';
+    icon.style.color = '#1d4ed8';
+
+    const text = createElement('div', {
+        className: 'day-plan-loading-copy',
+        textContent: message
+    });
+    text.style.fontWeight = '600';
+    text.style.color = '#1f2937';
+
+    const hint = createElement('div', {
+        className: 'day-plan-loading-hint',
+        textContent: 'We are preparing your day plan now.'
+    });
+    hint.style.fontSize = '0.92rem';
+    hint.style.color = '#64748b';
+
+    panel.appendChild(icon);
+    panel.appendChild(text);
+    panel.appendChild(hint);
+    loader.appendChild(panel);
+    return loader;
 }
 
 const esc = (v) => String(v ?? '')
@@ -138,45 +282,107 @@ function createDayPlanHeader(date, isEditingOther, headerName, hasAnyExistingPla
 }
 
 function createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, initialBlocks, allUsers, defaultScope, selectableCollaborators, isAdmin, currentUser) {
+    const batchSize = 4;
+    const scopeBuckets = {
+        personal: [],
+        annual: [],
+        context: 0
+    };
+    initialBlocks.forEach((plan, idx) => {
+        const scope = plan.planScope || plan._planScope || defaultScope;
+        const normalizedPlan = { ...plan, _lazyIndex: idx };
+        if (scope === 'annual' || plan.isReference) {
+            scopeBuckets.annual.push(normalizedPlan);
+        } else {
+            scopeBuckets.personal.push(normalizedPlan);
+        }
+        if (plan.isReference === true) scopeBuckets.context += 1;
+    });
+
+    const renderState = {
+        personal: { pending: [...scopeBuckets.personal], nextIndex: 0, done: false },
+        annual: { pending: [...scopeBuckets.annual], nextIndex: 0, done: false }
+    };
+
     const personalContainer = createElement('div', {
         className: 'day-plan-scroll-area personal-plans-container',
         attributes: { 'data-scope': 'personal' }
     });
+    const personalExistingContainer = createElement('div', {
+        className: 'day-plan-existing-blocks',
+        attributes: { 'data-scope': 'personal-existing' }
+    });
+    const personalSentinel = createElement('div', {
+        className: 'day-plan-load-sentinel',
+        attributes: { 'aria-hidden': 'true' }
+    });
+    const personalNewContainer = createElement('div', {
+        className: 'day-plan-new-blocks',
+        attributes: { 'data-scope': 'personal-new' }
+    });
+    personalContainer.appendChild(personalExistingContainer);
+    personalContainer.appendChild(personalSentinel);
+    personalContainer.appendChild(personalNewContainer);
 
     const othersContainer = createElement('div', {
         className: 'day-plan-scroll-area others-plans-container',
         attributes: { 'data-scope': 'annual' }
     });
-
-    initialBlocks.forEach((plan, idx) => {
-        const block = dayPlanRenderBlockV3({
-            plan,
-            idx,
-            allUsers,
-            targetId,
-            defaultScope,
-            selectableCollaborators,
-            isAdmin,
-            currentUserId: currentUser.id,
-            isReference: plan.isReference
-        });
-        const scope = plan.planScope || plan._planScope || defaultScope;
-        if (scope === 'annual' || plan.isReference) {
-            othersContainer.appendChild(block);
-        } else {
-            personalContainer.appendChild(block);
-        }
+    const othersExistingContainer = createElement('div', {
+        className: 'day-plan-existing-blocks',
+        attributes: { 'data-scope': 'annual-existing' }
     });
+    const othersSentinel = createElement('div', {
+        className: 'day-plan-load-sentinel',
+        attributes: { 'aria-hidden': 'true' }
+    });
+    const othersNewContainer = createElement('div', {
+        className: 'day-plan-new-blocks',
+        attributes: { 'data-scope': 'annual-new' }
+    });
+    othersContainer.appendChild(othersExistingContainer);
+    othersContainer.appendChild(othersSentinel);
+    othersContainer.appendChild(othersNewContainer);
 
-    const personalCount = initialBlocks.filter((plan) => {
-        const scope = plan.planScope || plan._planScope || defaultScope;
-        return scope !== 'annual' && !plan.isReference;
-    }).length;
-    const annualCount = initialBlocks.filter((plan) => {
-        const scope = plan.planScope || plan._planScope || defaultScope;
-        return scope === 'annual' && !plan.isReference;
-    }).length;
-    const contextCount = initialBlocks.filter((plan) => plan.isReference === true).length;
+    const renderBatch = (scope, forceAll = false) => {
+        const container = scope === 'annual' ? othersExistingContainer : personalExistingContainer;
+        const state = renderState[scope];
+        if (!state || state.done) return false;
+        const limit = forceAll ? state.pending.length : Math.min(batchSize, state.pending.length);
+        if (limit <= 0) {
+            state.done = true;
+            return false;
+        }
+        const frag = document.createDocumentFragment();
+        const startIndex = state.nextIndex;
+        const batch = state.pending.splice(0, limit);
+        batch.forEach((plan, offset) => {
+            frag.appendChild(dayPlanRenderBlockV3({
+                plan,
+                idx: startIndex + offset,
+                allUsers,
+                targetId,
+                defaultScope,
+                selectableCollaborators,
+                isAdmin,
+                currentUserId: currentUser.id,
+                isReference: plan.isReference
+            }));
+        });
+        state.nextIndex += batch.length;
+        container.appendChild(frag);
+        if (state.pending.length === 0) state.done = true;
+        return state.pending.length > 0;
+    };
+
+    const flushAllPending = () => {
+        renderBatch('personal', true);
+        renderBatch('annual', true);
+    };
+
+    const personalCount = scopeBuckets.personal.length;
+    const annualCount = scopeBuckets.annual.length;
+    const contextCount = scopeBuckets.context;
 
     const toolbar = createElement('div', {
         className: 'day-plan-toolbar',
@@ -195,7 +401,7 @@ function createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, ini
             createButton({
                 className: 'day-plan-new-task-btn',
                 innerHTML: '<i class="fa-solid fa-plus"></i><span>New Task</span>',
-                onClick: () => openPlanEditor({ date, targetId, scope: 'personal', allUsers, selectableCollaborators, isAdmin, container: personalContainer })
+                onClick: () => openPlanEditor({ date, targetId, scope: 'personal', allUsers, selectableCollaborators, isAdmin, container: personalNewContainer })
             })
         ]
     });
@@ -313,7 +519,7 @@ function createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, ini
                                     createButton({
                                         className: 'day-plan-column-btn day-plan-column-btn-secondary',
                                         innerHTML: '<i class="fa-solid fa-plus"></i><span>Add annual</span>',
-                                        onClick: () => openPlanEditor({ date, targetId, scope: 'annual', allUsers, selectableCollaborators, isAdmin, container: othersContainer })
+                                        onClick: () => openPlanEditor({ date, targetId, scope: 'annual', allUsers, selectableCollaborators, isAdmin, container: othersNewContainer })
                                     })
                                 ]
                             }),
@@ -350,10 +556,47 @@ function createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, ini
             'data-had-personal': personalWorkPlan ? '1' : '0',
             'data-had-annual': annualWorkPlan ? '1' : '0',
             'data-removed-tasks': '[]',
+            'data-next-plan-index': String(initialBlocks.length)
         },
         children: [toolbar, columns, footer]
     });
     form.addEventListener('submit', (e) => window.app_saveDayPlan(e, date, targetId));
+    form._dayPlanFlushPending = flushAllPending;
+
+    const loadMoreIntoScope = (scope) => {
+        const state = renderState[scope];
+        if (!state || state.done || state.pending.length === 0) return;
+        window.requestAnimationFrame?.(() => renderBatch(scope, false)) || window.setTimeout(() => renderBatch(scope, false), 0);
+    };
+
+    const observeSentinel = (root, sentinel, scope) => {
+        if (!root || !sentinel || typeof IntersectionObserver !== 'function') return;
+        const observer = new IntersectionObserver((entries) => {
+            if (entries.some((entry) => entry.isIntersecting)) {
+                loadMoreIntoScope(scope);
+            }
+        }, { root, rootMargin: '120px 0px', threshold: 0.01 });
+        observer.observe(sentinel);
+        form._dayPlanObservers = form._dayPlanObservers || [];
+        form._dayPlanObservers.push(observer);
+    };
+
+    observeSentinel(personalContainer, personalSentinel, 'personal');
+    observeSentinel(othersContainer, othersSentinel, 'annual');
+
+    const loadMoreFallback = createButton({
+        className: 'day-plan-load-more-btn',
+        textContent: 'Load more',
+        onClick: () => {
+            loadMoreIntoScope('personal');
+            loadMoreIntoScope('annual');
+        }
+    });
+    loadMoreFallback.style.display = (scopeBuckets.personal.length > batchSize || scopeBuckets.annual.length > batchSize) ? 'inline-flex' : 'none';
+    footer.appendChild(createElement('div', { className: 'day-plan-load-more-wrap', children: [loadMoreFallback] }));
+
+    renderBatch('personal', false);
+    renderBatch('annual', false);
 
     return form;
 }
@@ -481,8 +724,13 @@ export function openPlanEditor(args) {
                 const newBlock = dayPlanRenderBlockV3({ ...blockArgs, idx: Number.parseInt(existingBlock.getAttribute('data-index')) });
                 existingBlock.replaceWith(newBlock);
             } else {
-                const newBlock = dayPlanRenderBlockV3({ ...blockArgs, idx: container.querySelectorAll('.plan-block').length });
+                const form = container?.closest?.('.day-plan-form');
+                const nextIndex = Number.parseInt(form?.dataset?.nextPlanIndex || container.querySelectorAll('.plan-block').length, 10);
+                const newBlock = dayPlanRenderBlockV3({ ...blockArgs, idx: Number.isFinite(nextIndex) ? nextIndex : container.querySelectorAll('.plan-block').length });
                 container.appendChild(newBlock);
+                if (form) {
+                    form.dataset.nextPlanIndex = String((Number.isFinite(nextIndex) ? nextIndex : container.querySelectorAll('.plan-block').length) + 1);
+                }
             }
             overlay.remove();
         }
@@ -681,10 +929,10 @@ const isAutoForwardedTask = (task) => {
 };
 
 export async function openDayPlan(date, targetUserId = null, forcedScope = null, options = {}) {
+    if (window.performance?.mark) window.performance.mark('day-plan-open-start');
     const currentUser = AppAuth.getUser();
     const targetIdRaw = String(targetUserId ?? '').trim();
     const targetId = (!targetIdRaw || targetIdRaw === 'undefined' || targetIdRaw === 'null') ? currentUser.id : targetIdRaw;
-    const allUsers = await AppDB.getAll('users');
     const isAdmin = currentUser.role === 'Administrator' || currentUser.isAdmin;
     const isEditingOther = targetId !== currentUser.id;
     const defaultScope = forcedScope === 'annual' ? 'annual' : 'personal';
@@ -692,74 +940,8 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
     const skipCarryForwardSync = options?.skipCarryForwardSync === true;
     const skipCarryForwardCleanup = options?.skipCarryForwardCleanup === true;
     window.app_currentDayPlanTargetId = targetId;
-
-    if (!skipCarryForwardSync && AppCalendar?.ensureCarryForwardForDate && date <= AppCalendar.getTodayKey()) {
-        await AppCalendar.ensureCarryForwardForDate(date, { userIds: [targetId] });
-    }
-
     const todayKey = AppCalendar?.getTodayKey ? AppCalendar.getTodayKey() : '';
-    if (!skipCarryForwardCleanup && AppCalendar?.cleanupInvalidTodayCarryForward && date === todayKey) {
-        try {
-            const cleanupResult = await AppCalendar.cleanupInvalidTodayCarryForward(targetId, date, { onlyToday: true });
-            if ((cleanupResult?.removed || 0) > 0) {
-                console.log(`Day plan cleanup removed ${cleanupResult.removed} invalid carry-forward task(s) for ${targetId} on ${date}.`);
-            }
-        } catch (cleanupErr) {
-            console.warn('Failed to cleanup invalid today carry-forward tasks:', cleanupErr);
-        }
-    }
-
-    const [personalWorkPlan, annualWorkPlan, allDayPlans] = await Promise.all([
-        AppCalendar.getWorkPlan(targetId, date, { planScope: 'personal' }),
-        AppCalendar.getWorkPlan(targetId, date, { planScope: 'annual' }),
-        AppDB.queryMany('work_plans', [{ field: 'date', operator: '==', value: date }])
-    ]);
-    const hasAnyExistingPlan = !!(personalWorkPlan || annualWorkPlan);
-    const targetUser = allUsers.find(u => u.id === targetId);
-    const headerName = targetUser ? targetUser.name : 'Staff';
-    const selectableCollaborators = allUsers.filter(u => u.id !== targetId);
-
-    const normalizeScopedPlans = (workPlan, scope, userName = null) => {
-        if (!workPlan) return [];
-        if (Array.isArray(workPlan.plans) && workPlan.plans.length > 0) {
-            return workPlan.plans.map(p => ({
-                ...p,
-                planScope: scope,
-                userName: userName || workPlan.userName,
-                isReference: !!userName
-            })).filter(p => p.isRemoved !== true && (!hideAutoForwardedTasks || !isAutoForwardedTask(p)));
-        }
-        return [];
-    };
-
-    const othersPlans = (allDayPlans || []).filter(p =>
-        p.id !== AppCalendar.getWorkPlanId(date, targetId, 'personal') &&
-        p.id !== AppCalendar.getWorkPlanId(date, targetId, 'annual')
-    );
-
-    const othersBlocks = [];
-    othersPlans.forEach(p => {
-        othersBlocks.push(...normalizeScopedPlans(p, p.planScope, p.userName));
-    });
-
-    const initialBlocks = [
-        ...normalizeScopedPlans(personalWorkPlan, 'personal'),
-        ...normalizeScopedPlans(annualWorkPlan, 'annual'),
-        ...othersBlocks
-    ];
-    if (initialBlocks.length === 0) {
-        initialBlocks.push({
-            task: '',
-            subPlans: [],
-            tags: [],
-            status: null,
-            budgetHeadId: AppAuth.getUser()?.currentBudgetHeadId || 'UNALLOCATED',
-            assignedTo: targetId,
-            startDate: date,
-            endDate: date,
-            planScope: defaultScope
-        });
-    }
+    const prefetchRecord = getDayPlanPrefetchRecord(date, targetId, forcedScope, options);
 
     const modalOverlay = createElement('div', {
         id: 'day-plan-modal',
@@ -771,8 +953,14 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
         className: 'day-plan-content'
     });
 
-    modalContent.appendChild(createDayPlanHeader(date, isEditingOther, headerName, hasAnyExistingPlan, targetId));
-    modalContent.appendChild(createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, initialBlocks, allUsers, defaultScope, selectableCollaborators, isAdmin, currentUser));
+    const headerWrap = createElement('div', { className: 'day-plan-header-wrap' });
+    headerWrap.appendChild(createDayPlanHeader(date, isEditingOther, 'Staff', false, targetId));
+
+    const bodyWrap = createElement('div', { className: 'day-plan-body-wrap' });
+    bodyWrap.appendChild(createDayPlanLoadingState());
+
+    modalContent.appendChild(headerWrap);
+    modalContent.appendChild(bodyWrap);
     modalOverlay.appendChild(modalContent);
 
     const container = document.getElementById('modal-container');
@@ -781,6 +969,14 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
     if (existing) existing.remove();
 
     container.appendChild(modalOverlay);
+    if (window.performance?.mark) window.performance.mark('day-plan-shell-mounted');
+    if (window.performance?.measure) {
+        try {
+            window.performance.measure('day-plan:shell', 'day-plan-open-start', 'day-plan-shell-mounted');
+        } catch {
+            // Ignore duplicate or missing marks.
+        }
+    }
     const modalEl = document.getElementById('day-plan-modal');
     if (modalEl) {
         const overlays = Array.from(document.querySelectorAll('.modal-overlay, .modal, .dashboard-max-overlay, .dashboard-max-window, .hero-task-modal-overlay, .hero-task-modal-shell'))
@@ -791,6 +987,123 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
         }, 1000);
         modalEl.style.zIndex = String(maxZ + 20);
     }
+
+    scheduleNextPaint(async () => {
+        const activeModal = document.getElementById('day-plan-modal');
+        if (!activeModal || !activeModal.isConnected) return;
+
+        if (window.performance?.mark) window.performance.mark('day-plan-hydrate-start');
+        try {
+            const usersPromise = prefetchRecord?.usersPromise || getCachedDayPlanUsers();
+            if (!skipCarryForwardSync && AppCalendar?.ensureCarryForwardForDate && date <= todayKey) {
+                await AppCalendar.ensureCarryForwardForDate(date, { userIds: [targetId] });
+            }
+
+            if (!skipCarryForwardCleanup && AppCalendar?.cleanupInvalidTodayCarryForward && date === todayKey) {
+                try {
+                    const cleanupResult = await AppCalendar.cleanupInvalidTodayCarryForward(targetId, date, { onlyToday: true });
+                    if ((cleanupResult?.removed || 0) > 0) {
+                        console.log(`Day plan cleanup removed ${cleanupResult.removed} invalid carry-forward task(s) for ${targetId} on ${date}.`);
+                    }
+                } catch (cleanupErr) {
+                    console.warn('Failed to cleanup invalid today carry-forward tasks:', cleanupErr);
+                }
+            }
+
+            const canUsePrefetchedPlans = !!todayKey && String(date || '').trim() > todayKey;
+            let allUsers = null;
+            let personalWorkPlan = null;
+            let annualWorkPlan = null;
+            let allDayPlans = null;
+
+            if (canUsePrefetchedPlans && prefetchRecord?.dataPromise) {
+                const prefetched = await prefetchRecord.dataPromise;
+                allUsers = prefetched?.allUsers || null;
+                personalWorkPlan = prefetched?.personalWorkPlan || null;
+                annualWorkPlan = prefetched?.annualWorkPlan || null;
+                allDayPlans = prefetched?.allDayPlans || null;
+            } else {
+                allUsers = await usersPromise;
+            }
+            if (!activeModal.isConnected) return;
+
+            if (!canUsePrefetchedPlans) {
+                [personalWorkPlan, annualWorkPlan, allDayPlans] = await Promise.all([
+                    AppCalendar.getWorkPlan(targetId, date, { planScope: 'personal' }),
+                    AppCalendar.getWorkPlan(targetId, date, { planScope: 'annual' }),
+                    AppDB.queryMany('work_plans', [{ field: 'date', operator: '==', value: date }])
+                ]);
+            }
+            if (!activeModal.isConnected) return;
+
+            const hasAnyExistingPlan = !!(personalWorkPlan || annualWorkPlan);
+            const targetUser = allUsers.find(u => u.id === targetId);
+            const headerName = targetUser ? targetUser.name : 'Staff';
+            const selectableCollaborators = allUsers.filter(u => u.id !== targetId);
+
+            const normalizeScopedPlans = (workPlan, scope, userName = null) => {
+                if (!workPlan) return [];
+                if (Array.isArray(workPlan.plans) && workPlan.plans.length > 0) {
+                    return workPlan.plans.map(p => ({
+                        ...p,
+                        planScope: scope,
+                        userName: userName || workPlan.userName,
+                        isReference: !!userName
+                    })).filter(p => p.isRemoved !== true && (!hideAutoForwardedTasks || !isAutoForwardedTask(p)));
+                }
+                return [];
+            };
+
+            const othersPlans = (allDayPlans || []).filter(p =>
+                p.id !== AppCalendar.getWorkPlanId(date, targetId, 'personal') &&
+                p.id !== AppCalendar.getWorkPlanId(date, targetId, 'annual')
+            );
+
+            const othersBlocks = [];
+            othersPlans.forEach(p => {
+                othersBlocks.push(...normalizeScopedPlans(p, p.planScope, p.userName));
+            });
+
+            const initialBlocks = [
+                ...normalizeScopedPlans(personalWorkPlan, 'personal'),
+                ...normalizeScopedPlans(annualWorkPlan, 'annual'),
+                ...othersBlocks
+            ];
+            if (initialBlocks.length === 0) {
+                initialBlocks.push({
+                    task: '',
+                    subPlans: [],
+                    tags: [],
+                    status: null,
+                    budgetHeadId: AppAuth.getUser()?.currentBudgetHeadId || 'UNALLOCATED',
+                    assignedTo: targetId,
+                    startDate: date,
+                    endDate: date,
+                    planScope: defaultScope
+                });
+            }
+
+            headerWrap.replaceChildren(createDayPlanHeader(date, isEditingOther, headerName, hasAnyExistingPlan, targetId));
+            bodyWrap.replaceChildren(createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, initialBlocks, allUsers, defaultScope, selectableCollaborators, isAdmin, currentUser));
+            const subtitle = modalContent.querySelector('.day-plan-subline');
+            if (subtitle) {
+                subtitle.textContent = isEditingOther ? `${formatFriendlyDate(date) || date} · Editing for ${headerName}` : (formatFriendlyDate(date) || date);
+            }
+            const kicker = modalContent.querySelector('.day-plan-kicker');
+            if (kicker) kicker.textContent = 'Today';
+            if (window.performance?.mark) window.performance.mark('day-plan-hydrate-end');
+            if (window.performance?.measure) {
+                try {
+                    window.performance.measure('day-plan:hydrate', 'day-plan-hydrate-start', 'day-plan-hydrate-end');
+                } catch {
+                    // Ignore duplicate or missing marks.
+                }
+            }
+        } catch (err) {
+            console.error('Failed to open day plan:', err);
+            bodyWrap.replaceChildren(createDayPlanLoadingState(`Unable to load the day plan${err?.message ? `: ${err.message}` : ''}`));
+        }
+    });
 }
 
 export async function addPlanBlockUI(scopeOverride = null) {
@@ -803,7 +1116,7 @@ export async function addPlanBlockUI(scopeOverride = null) {
 
     const date = modal.dataset.planDate || new Date().toISOString().split('T')[0];
 
-    const allUsers = await AppDB.getAll('users');
+    const allUsers = await getCachedDayPlanUsers();
     const currentUser = AppAuth.getUser();
     const targetId = window.app_currentDayPlanTargetId || currentUser.id;
     const isAdmin = currentUser.role === 'Administrator' || currentUser.isAdmin;
@@ -812,12 +1125,18 @@ export async function addPlanBlockUI(scopeOverride = null) {
     openPlanEditor({ date, targetId, scope, allUsers, selectableCollaborators, isAdmin, container });
 }
 
+export function prefetchDayPlan(date, targetUserId = null, forcedScope = null, options = {}) {
+    const record = getDayPlanPrefetchRecord(date, targetUserId, forcedScope, options);
+    return record?.promise || Promise.resolve(null);
+}
+
 // Global exposure
 const AppDayPlan = {
     openDayPlan,
     dayPlanRenderBlockV3,
     addPlanBlockUI,
     openPlanEditor,
+    prefetchDayPlan,
     app_extractBlockData
 };
 
@@ -825,6 +1144,7 @@ window.AppDayPlan = AppDayPlan;
 window.app_openDayPlan = openDayPlan;
 window.app_dayPlanRenderBlockV3 = dayPlanRenderBlockV3;
 window.app_addPlanBlockUI = addPlanBlockUI;
+window.app_prefetchDayPlan = prefetchDayPlan;
 window.app_extractBlockData = app_extractBlockData;
 window.app_markTaskRemoved = function (block) {
     if (!block) return;

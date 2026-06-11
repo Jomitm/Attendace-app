@@ -3,7 +3,19 @@ import { AppDB } from './db.js';
 import { AppConfig } from '../config.js';
 
 const hasValidCoordinatePair = (lat, lng) => Number.isFinite(Number(lat)) && Number.isFinite(Number(lng));
+const normalizeDateKey = (value) => {
+    if (!value) return '';
+    const raw = String(value || '').trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toISOString().split('T')[0];
+};
+
 export class Attendance {
+    constructor() {
+        this.logsCacheTtlMs = AppConfig?.READ_CACHE_TTLS?.attendanceSummary || 30000;
+    }
     async getStatus() {
         // If AppAuth is already syncing in realtime, AppAuth.getUser() is likely more up-to-date
         // than a slow DB fetch. refreshCurrentUserFromDB now handles this optimization internally,
@@ -483,64 +495,85 @@ export class Attendance {
         return newLog;
     }
 
-    async getLogs(userId = null) {
+    async getLogs(userId = null, options = {}) {
         const targetId = userId || AppAuth.getUser()?.id;
         if (!targetId) return [];
 
+        const startDate = normalizeDateKey(options?.startDate);
+        const endDate = normalizeDateKey(options?.endDate);
+        const limitValue = Number(options?.limit);
+        const normalizedLimit = Number.isFinite(limitValue) && limitValue > 0 ? Math.floor(limitValue) : 50;
+        const cacheKey = AppDB.getCacheKey("attendanceLogs", "attendance", {
+            targetId: String(targetId),
+            startDate,
+            endDate,
+            limit: normalizedLimit,
+            source: String(options?.source || "").trim().toLowerCase()
+        });
+
         try {
-            const db = window.AppFirestore;
-            if (!db) return [];
-            let query = db.collection('attendance');
-            query = query.where('user_id', '==', targetId);
-
-            const snapshot = await query.get();
-            const userLogs = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-
-            const sortedLogs = userLogs.sort((a, b) => b.id - a.id).map(log => {
-                if ((!log.location || log.location === 'Unknown Location') && log.lat && log.lng) {
-                    log.location = `Lat: ${Number(log.lat).toFixed(4)}, Lng: ${Number(log.lng).toFixed(4)}`;
+            return await AppDB.getCached(cacheKey, this.logsCacheTtlMs, async () => {
+                let userLogs = [];
+                if (AppDB.queryMany) {
+                    const filters = [{ field: "user_id", operator: "==", value: targetId }];
+                    if (startDate) filters.push({ field: "date", operator: ">=", value: startDate });
+                    if (endDate) filters.push({ field: "date", operator: "<=", value: endDate });
+                    userLogs = await AppDB.queryMany("attendance", filters).catch(() => []);
                 }
-                return log;
-            });
 
-            // ── Deduplication ──────────────────────────────────────────────────────
-            // If Firestore has two documents for the same date & checkIn time (e.g.
-            // caused by a sync-conflict or double-write), keep only the one with the
-            // numerically highest ID (most recently written). sortedLogs is already
-            // sorted descending by ID, so the first occurrence wins.
-            const seen = new Set();
-            const dedupedLogs = sortedLogs.filter(log => {
-                const fingerprint = `${log.date}|${log.checkIn}`;
-                if (seen.has(fingerprint)) return false;
-                seen.add(fingerprint);
-                return true;
-            });
-            // ──────────────────────────────────────────────────────────────────────
-
-            try {
-                const currentUserState = await AppDB.get('users', targetId);
-                if (currentUserState && currentUserState.status === 'in' && currentUserState.lastCheckIn) {
-                    const checkInTime = new Date(currentUserState.lastCheckIn);
-                    const virtualLog = {
-                        id: 'active_now',
-                        date: checkInTime.toLocaleDateString(),
-                        checkIn: checkInTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                        checkOut: 'Active Now',
-                        duration: 'Working...',
-                        type: 'Office',
-                        location: currentUserState.currentLocation?.address && currentUserState.currentLocation.address !== 'Unknown Location'
-                            ? currentUserState.currentLocation.address
-                            : (currentUserState.currentLocation?.lat && currentUserState.currentLocation?.lng
-                                ? `Lat: ${Number(currentUserState.currentLocation.lat).toFixed(4)}, Lng: ${Number(currentUserState.currentLocation.lng).toFixed(4)}`
-                                : 'Current Session')
-                    };
-                    dedupedLogs.unshift(virtualLog);
+                if (!Array.isArray(userLogs) || userLogs.length === 0) {
+                    const db = window.AppFirestore;
+                    if (!db) return [];
+                    let query = db.collection("attendance").where("user_id", "==", targetId);
+                    if (startDate) query = query.where("date", ">=", startDate);
+                    if (endDate) query = query.where("date", "<=", endDate);
+                    const snapshot = await query.get();
+                    userLogs = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
                 }
-            } catch (err) {
-                console.warn("Could not fetch active status for logs", err);
-            }
 
-            return dedupedLogs.slice(0, 50);
+                const sortedLogs = (userLogs || []).sort((a, b) => String(b.id || "").localeCompare(String(a.id || ""))).map((log) => {
+                    const nextLog = { ...log };
+                    if ((!nextLog.location || nextLog.location === "Unknown Location") && nextLog.lat && nextLog.lng) {
+                        nextLog.location = "Lat: " + Number(nextLog.lat).toFixed(4) + ", Lng: " + Number(nextLog.lng).toFixed(4);
+                    }
+                    return nextLog;
+                });
+
+                const seen = new Set();
+                const dedupedLogs = sortedLogs.filter((log) => {
+                    const fingerprint = String(log.date || "") + "|" + String(log.checkIn || "");
+                    if (seen.has(fingerprint)) return false;
+                    seen.add(fingerprint);
+                    return true;
+                });
+
+                try {
+                    const currentUserState = await AppDB.get("users", targetId);
+                    if (currentUserState && currentUserState.status === "in" && currentUserState.lastCheckIn) {
+                        const checkInTime = new Date(currentUserState.lastCheckIn);
+                        const virtualLog = {
+                            id: "active_now",
+                            date: checkInTime.toLocaleDateString(),
+                            checkIn: checkInTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                            checkOut: "Active Now",
+                            duration: "Working...",
+                            type: "Office",
+                            location: currentUserState.currentLocation?.address && currentUserState.currentLocation.address !== "Unknown Location"
+                                ? currentUserState.currentLocation.address
+                                : (currentUserState.currentLocation?.lat && currentUserState.currentLocation?.lng
+                                    ? "Lat: " + Number(currentUserState.currentLocation.lat).toFixed(4) + ", Lng: " + Number(currentUserState.currentLocation.lng).toFixed(4)
+                                    : "Current Session")
+                        };
+                        const virtualDate = normalizeDateKey(virtualLog.date);
+                        const withinRange = (!startDate || virtualDate >= startDate) && (!endDate || virtualDate <= endDate);
+                        if (withinRange) dedupedLogs.unshift(virtualLog);
+                    }
+                } catch (err) {
+                    console.warn("Could not fetch active status for logs", err);
+                }
+
+                return dedupedLogs.slice(0, normalizedLimit);
+            });
         } catch (e) {
             console.warn("Optimized log fetch failed, falling back to simple filter", e);
             return [];

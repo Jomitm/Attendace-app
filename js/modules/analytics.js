@@ -30,9 +30,17 @@ export class Analytics {
         const now = Date.now();
         const cached = this.memo.get(key);
         if (cached && cached.expiresAt > now) return cached.value;
-        const value = await fn();
-        this.memo.set(key, { value, expiresAt: now + Math.max(0, Number(ttlMs) || 0) });
-        return value;
+        const expiresAt = now + Math.max(0, Number(ttlMs) || 0);
+        const pending = Promise.resolve().then(fn);
+        this.memo.set(key, { value: pending, expiresAt });
+        try {
+            const value = await pending;
+            this.memo.set(key, { value, expiresAt });
+            return value;
+        } catch (err) {
+            this.memo.delete(key);
+            throw err;
+        }
     }
 
     clearMemo(prefix = '') {
@@ -785,6 +793,38 @@ export class Analytics {
         return { start, end };
     }
 
+    async getHeroSharedDataset(options = {}) {
+        const policy = this.getHeroPolicy();
+        const { start, end } = this.getHeroScoreRange(options.baseDate);
+        const startIso = start.toISOString().split('T')[0];
+        const endIso = end.toISOString().split('T')[0];
+        const ttl = this.getTtls().attendanceSummary || 30000;
+        const cacheKey = `analytics:heroShared:${startIso}:${endIso}`;
+        return this.memoize(cacheKey, ttl, async () => {
+            const [logs, workPlans, users] = await Promise.all([
+                this.getAttendanceInRange(start, end, 'hero_yesterday_window'),
+                this.db.queryMany
+                    ? this.db.queryMany('work_plans', [
+                        { field: 'date', operator: '>=', value: startIso },
+                        { field: 'date', operator: '<=', value: endIso }
+                    ])
+                    : this.db.getAll('work_plans'),
+                this.getUsersCached()
+            ]);
+            return {
+                policy,
+                start,
+                end,
+                startIso,
+                endIso,
+                windowDays: Math.max(1, Number(policy.WINDOW_DAYS || 7)),
+                logs,
+                workPlans,
+                users
+            };
+        });
+    }
+
     createZeroHeroStats(userId = '') {
         return {
             userId: String(userId || ''),
@@ -1144,20 +1184,7 @@ export class Analytics {
 
     async getHeroOfTheWeek(options = {}) {
         try {
-            const policy = this.getHeroPolicy();
-            const windowDays = Math.max(1, Number(policy.WINDOW_DAYS || 7));
-            const { start, end } = this.getHeroScoreRange(options.baseDate);
-
-            const [logs, workPlans, users] = await Promise.all([
-                this.getAttendanceInRange(start, end, 'hero_yesterday_window'),
-                this.db.queryMany
-                    ? this.db.queryMany('work_plans', [
-                        { field: 'date', operator: '>=', value: start.toISOString().split('T')[0] },
-                        { field: 'date', operator: '<=', value: end.toISOString().split('T')[0] }
-                    ])
-                    : this.db.getAll('work_plans'),
-                this.getUsersCached()
-            ]);
+            const { policy, start, end, windowDays, logs, workPlans, users } = await this.getHeroSharedDataset(options);
 
             const weeklyHero = this.scoreHeroFromLogs(logs, users, {
                 period: 'yesterday_back_7_days',
@@ -1204,23 +1231,11 @@ export class Analytics {
 
     async getHeroLeaderboard(options = {}) {
         try {
-            const policy = this.getHeroPolicy();
+            const { policy, start, end, logs, workPlans, users } = await this.getHeroSharedDataset(options);
             const minEvidence = policy.MIN_EVIDENCE || {};
             const minDays = Math.max(1, Number(minEvidence.minDays || 1));
             const minDurationMs = Math.max(0, Number(minEvidence.minDurationMs || 1));
             const minPlannedTasks = Math.max(0, Number(minEvidence.minPlannedTasks || 1));
-            const { start, end } = this.getHeroScoreRange(options.baseDate);
-
-            const [logs, workPlans, users] = await Promise.all([
-                this.getAttendanceInRange(start, end, 'hero_yesterday_window'),
-                this.db.queryMany
-                    ? this.db.queryMany('work_plans', [
-                        { field: 'date', operator: '>=', value: start.toISOString().split('T')[0] },
-                        { field: 'date', operator: '<=', value: end.toISOString().split('T')[0] }
-                    ])
-                    : this.db.getAll('work_plans'),
-                this.getUsersCached()
-            ]);
 
             const normalizedLogs = this.normalizeHeroLogs(logs);
             const normalizedTasks = this.normalizeHeroTasks(workPlans);

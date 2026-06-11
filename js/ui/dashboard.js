@@ -17,6 +17,8 @@ const DASHBOARD_CARD_MODE_ORIGINAL = 'original';
 const DASHBOARD_CARD_MODE_FULLSCREEN = 'fullscreen';
 const DASHBOARD_CARD_MODES = new Set([DASHBOARD_CARD_MODE_TILE, DASHBOARD_CARD_MODE_ORIGINAL, DASHBOARD_CARD_MODE_FULLSCREEN]);
 const DASHBOARD_CARD_CONTROL_EXCLUDED_CLASSES = ['dashboard-hero-card'];
+const DASHBOARD_MAX_RENDER_DELAY_MS = 0;
+const WORKLOG_PAGE_SIZE = 25;
 const DASHBOARD_SECTION_ROUTE_CARD_IDS = new Set([
     'checkin',
     'worklog',
@@ -29,6 +31,22 @@ const DASHBOARD_SECTION_ROUTE_CARD_IDS = new Set([
     'stats-monthly',
     'stats-yearly'
 ]);
+
+const markPerf = (name) => {
+    try {
+        if (window?.performance?.mark) window.performance.mark(name);
+    } catch {
+        /* ignore */
+    }
+};
+
+const measurePerf = (name, startMark, endMark) => {
+    try {
+        if (window?.performance?.measure) window.performance.measure(name, startMark, endMark);
+    } catch {
+        /* ignore */
+    }
+};
 
 const ensureDashboardMaxOverlay = () => {
     let overlay = document.getElementById(DASHBOARD_MAX_OVERLAY_ID);
@@ -62,6 +80,7 @@ const setDashboardBodyScrollLock = (locked) => {
 
 const closeDashboardMaxOverlay = () => {
     const closingCardId = window._dashboardMaxCardId ? String(window._dashboardMaxCardId) : '';
+    window._dashboardMaxRenderToken = 0;
     const overlay = document.getElementById(DASHBOARD_MAX_OVERLAY_ID);
     if (overlay) {
         overlay.classList.remove('open');
@@ -97,15 +116,47 @@ const openDashboardMaxOverlay = (cardId, triggerEl = null) => {
     const title = document.getElementById(DASHBOARD_MAX_TITLE_ID);
     const body = document.getElementById(DASHBOARD_MAX_BODY_ID);
     if (!title || !body) return;
+    const renderToken = Date.now() + Math.random();
     title.textContent = template.title || 'Dashboard Card';
-    body.innerHTML = `<div class="dashboard-max-card-content">${template.expandedHtml || template.originalHtml || template.tileHtml || ''}</div>`;
+    body.innerHTML = `
+        <div class="dashboard-max-shell">
+            <div class="dashboard-max-loading">
+                <span class="dashboard-max-loading-dot"></span>
+                <span class="dashboard-max-loading-dot"></span>
+                <span class="dashboard-max-loading-dot"></span>
+            </div>
+        </div>
+    `;
     window._dashboardMaxTriggerEl = triggerEl;
     window._dashboardMaxCardId = cardId;
+    window._dashboardMaxRenderToken = renderToken;
     setDashboardBodyScrollLock(true);
     overlay.classList.add('open');
     const closeBtn = overlay.querySelector('.dashboard-max-close');
     if (closeBtn) {
         try { closeBtn.focus(); } catch { /* ignore */ }
+    }
+    markPerf(`dashboard:max:${cardId}:shell`);
+    const renderBody = () => {
+        if (window._dashboardMaxRenderToken !== renderToken) return;
+        const currentBody = document.getElementById(DASHBOARD_MAX_BODY_ID);
+        if (!currentBody) return;
+        const html = template.expandedHtml || template.originalHtml || template.tileHtml || '';
+        currentBody.innerHTML = `<div class="dashboard-max-card-content">${html}</div>`;
+        if (cardId === 'hero-week') updateHeroExpandedOverlay();
+        markPerf(`dashboard:max:${cardId}:content`);
+        measurePerf(`dashboard:max:${cardId}`, `dashboard:max:${cardId}:shell`, `dashboard:max:${cardId}:content`);
+    };
+    if (typeof window.requestAnimationFrame === 'function') {
+        window.requestAnimationFrame(() => {
+            if (DASHBOARD_MAX_RENDER_DELAY_MS > 0) {
+                setTimeout(renderBody, DASHBOARD_MAX_RENDER_DELAY_MS);
+            } else {
+                renderBody();
+            }
+        });
+    } else {
+        setTimeout(renderBody, DASHBOARD_MAX_RENDER_DELAY_MS);
     }
 };
 
@@ -182,7 +233,10 @@ const buildExpandedCardTemplate = (cardEl) => {
             .replace(/id="act-start"/g, 'id="act-start-max"')
             .replace(/id="act-end"/g, 'id="act-end-max"')
             .replace(/id="activity-list"/g, 'id="activity-list-max"')
-            .replace(/window\.app_filterActivity\(\)/g, "window.app_filterActivity?.('act-start-max','act-end-max','activity-list-max')");
+            .replace(/id="dashboard-worklog-load-more"/g, 'id="dashboard-worklog-load-more-max"')
+            .replace(/window\.app_filterActivity\(\)/g, "window.app_filterActivity?.('act-start-max','act-end-max','activity-list-max')")
+            .replace(/window\.app_loadMoreActivity\?\.\('activity-list'\)/g, "window.app_loadMoreActivity?.('activity-list-max')")
+            .replace(/window\.app_loadMoreActivity\('activity-list'\)/g, "window.app_loadMoreActivity?.('activity-list-max')");
     }
     if (cardEl.classList.contains('dashboard-team-activity-card')) {
         html = html
@@ -657,20 +711,24 @@ export function renderWorkLog(logs, collabs = [], targetStaff = null, minutes = 
                  <h4>Work Log <span class="dashboard-worklog-staff">(${safeHtml(workLogStaffName)})</span></h4>
                  <span>Ongoing & Historical Tasks</span>
             </div>
-             <div class="dashboard-worklog-filter-row">
+            <div class="dashboard-worklog-filter-row">
                 <input type="date" id="act-start" value="${startDefault}" class="dashboard-worklog-date-input">
                 <span class="dashboard-worklog-to">to</span>
                 <input type="date" id="act-end" value="${endDefault}" class="dashboard-worklog-date-input">
                 <button onclick="window.app_filterActivity()" class="dashboard-worklog-go-btn">Go</button>
             </div>
             <div id="activity-list" class="dashboard-worklog-list">
-                ${renderActivityList(logs, startDefault, endDefault, targetUserId, collabs, minutes)}
+                ${renderActivityList(logs, startDefault, endDefault, targetUserId, collabs, minutes, { page: 1, pageSize: WORKLOG_PAGE_SIZE, listId: 'activity-list' })}
             </div>
         </div>
     `;
 }
 
-export function renderActivityList(allLogs, startStr, endStr, targetStaffId, collabs = [], minutes = []) {
+export function renderActivityList(allLogs, startStr, endStr, targetStaffId, collabs = [], minutes = [], options = {}) {
+    const pageSize = Math.max(1, Number(options.pageSize) || WORKLOG_PAGE_SIZE);
+    const page = Math.max(1, Number(options.page) || 1);
+    const listId = String(options.listId || 'activity-list');
+    const visibleLimit = page * pageSize;
     const start = new Date(startStr);
     const end = new Date(endStr);
     end.setHours(23, 59, 59, 999);
@@ -731,6 +789,7 @@ export function renderActivityList(allLogs, startStr, endStr, targetStaffId, col
 
     if (merged.length === 0) return '<div class="dashboard-activity-empty">No activity descriptions found.</div>';
 
+    const visibleRows = merged.slice(0, visibleLimit);
     let html = '';
     let lastDate = '';
     const currentUser = window.AppAuth.getUser();
@@ -738,7 +797,8 @@ export function renderActivityList(allLogs, startStr, endStr, targetStaffId, col
     const isSelfView = currentUser && String(targetStaffId || '') === String(currentUser.id || '');
     const canEditRows = !!(isAdminUser || isSelfView);
 
-    merged.forEach(log => {
+    markPerf(`dashboard:worklog:${listId}:start`);
+    visibleRows.forEach(log => {
         const showDate = log.date !== lastDate;
         if (showDate) {
             html += `<div class="dashboard-activity-date">${log.date}</div>`;
@@ -770,6 +830,18 @@ export function renderActivityList(allLogs, startStr, endStr, targetStaffId, col
         }
         html += `<div class="dashboard-activity-item ${collabClass}" style="border-left-color:${borderColor};"><div class="dashboard-activity-desc">${safeHtml(log._displayDesc)}</div>${progressMeta}${statusBadge}<div class="dashboard-activity-meta">${safeHtml(log.checkOut || (log.status === 'completed' ? 'Completed' : 'Planned Activity'))}</div></div>`;
     });
+    const hasMore = visibleLimit < merged.length;
+    if (hasMore) {
+        html += `
+            <div class="dashboard-worklog-footer">
+                <button type="button" class="dashboard-worklog-load-more" id="dashboard-worklog-load-more" onclick="window.app_loadMoreActivity?.('${listId}')">
+                    Load more ${Math.min(pageSize, merged.length - visibleLimit)} item${Math.min(pageSize, merged.length - visibleLimit) === 1 ? '' : 's'}
+                </button>
+            </div>
+        `;
+    }
+    markPerf(`dashboard:worklog:${listId}:end`);
+    measurePerf(`dashboard:worklog:${listId}`, `dashboard:worklog:${listId}:start`, `dashboard:worklog:${listId}:end`);
     return html;
 }
 
@@ -1559,6 +1631,7 @@ export function renderStaffDirectory(allUsers, _notifications, currentUser) {
 }
 
 export async function renderDashboard() {
+    markPerf('dashboard:render:start');
     window.app_closeDashboardCardMaximize?.();
     const user = window.AppAuth.getUser();
     const isAdmin = window.app_hasPerm('dashboard', 'view', user);
@@ -1581,6 +1654,7 @@ export async function renderDashboard() {
     const targetStaffId = (isAdmin && window.app_selectedSummaryStaffId) ? window.app_selectedSummaryStaffId : user.id;
 
     console.time('DashboardFetch');
+    markPerf('dashboard:fetch:start');
     const readDirectHeroCached = async () => {
         try {
             return await window.AppDB.getOrGenerateSummary(
@@ -1675,7 +1749,7 @@ export async function renderDashboard() {
     // Parallel Fetch
     const [status, logs, monthlyStats, yearlyStats, heroDataRaw, heroLeaderboardData, calendarPlans, staffActivitiesRaw, pendingLeaves, allUsers, collaborations, allLeaves, dailySummary, minutesData, attendanceLogs, weeklyAttendanceLogs, currentWeekWorkPlans] = await Promise.all([
         window.AppAttendance.getStatus(),
-        window.AppAttendance.getLogs(targetStaffId),
+        window.AppAttendance.getLogs(targetStaffId, { limit: 200 }),
         window.AppAnalytics.getUserMonthlyStats(targetStaffId),
         window.AppAnalytics.getUserYearlyStats(targetStaffId),
         heroPromise,
@@ -1718,6 +1792,8 @@ export async function renderDashboard() {
                 return d >= currentWeekRange.startKey && d <= currentWeekRange.endKey;
             }))
     ]);
+    markPerf('dashboard:fetch:end');
+    measurePerf('dashboard:fetch', 'dashboard:fetch:start', 'dashboard:fetch:end');
     console.timeEnd('DashboardFetch');
 
     const heroMeta = sharedSummaryEnabled
@@ -2123,10 +2199,15 @@ export async function renderDashboard() {
         logs: Array.isArray(logs) ? logs : [],
         collaborations: Array.isArray(collaborations) ? collaborations : [],
         minutesData: Array.isArray(minutesData) ? minutesData : [],
-        targetStaffId
+        targetStaffId,
+        page: 1,
+        pageSize: WORKLOG_PAGE_SIZE
     };
     setTimeout(() => initWorklogAutoScroll(document), 0);
     setTimeout(() => initDashboardCardControls(), 0);
+
+    markPerf('dashboard:render:end');
+    measurePerf('dashboard:render', 'dashboard:render:start', 'dashboard:render:end');
 
     return `
         <div class="dashboard-grid dashboard-modern dashboard-staff-view">
@@ -2577,13 +2658,34 @@ if (typeof window !== 'undefined') {
         const list = document.getElementById(listId);
         const ctx = window.app_dashboardWorklogContext || {};
         if (!start || !end || !list) return;
+        ctx.page = 1;
         list.innerHTML = renderActivityList(
             Array.isArray(ctx.logs) ? ctx.logs : [],
             start,
             end,
             ctx.targetStaffId || window.AppAuth?.getUser?.()?.id || '',
             Array.isArray(ctx.collaborations) ? ctx.collaborations : [],
-            Array.isArray(ctx.minutesData) ? ctx.minutesData : []
+            Array.isArray(ctx.minutesData) ? ctx.minutesData : [],
+            { page: ctx.page || 1, pageSize: ctx.pageSize || WORKLOG_PAGE_SIZE, listId }
+        );
+        initWorklogAutoScroll(document);
+    };
+
+    window.app_loadMoreActivity = function (listId = 'activity-list') {
+        const ctx = window.app_dashboardWorklogContext || {};
+        const list = document.getElementById(listId);
+        const start = document.getElementById(listId === 'activity-list-max' ? 'act-start-max' : 'act-start')?.value;
+        const end = document.getElementById(listId === 'activity-list-max' ? 'act-end-max' : 'act-end')?.value;
+        if (!list || !start || !end) return;
+        ctx.page = Math.max(1, Number(ctx.page || 1) + 1);
+        list.innerHTML = renderActivityList(
+            Array.isArray(ctx.logs) ? ctx.logs : [],
+            start,
+            end,
+            ctx.targetStaffId || window.AppAuth?.getUser?.()?.id || '',
+            Array.isArray(ctx.collaborations) ? ctx.collaborations : [],
+            Array.isArray(ctx.minutesData) ? ctx.minutesData : [],
+            { page: ctx.page, pageSize: ctx.pageSize || WORKLOG_PAGE_SIZE, listId }
         );
         initWorklogAutoScroll(document);
     };

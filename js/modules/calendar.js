@@ -10,6 +10,17 @@ import { AppRating } from './rating.js';
 export class Calendar {
     constructor() {
         this.db = AppDB;
+        this._carryForwardRangeCache = new Map();
+        this._carryForwardCleanupCache = new Map();
+        this._carryForwardExceptionCache = new Map();
+        this._carryForwardCacheVersion = 0;
+    }
+
+    invalidateCarryForwardCache() {
+        this._carryForwardRangeCache.clear();
+        this._carryForwardCleanupCache.clear();
+        this._carryForwardExceptionCache = new Map();
+        this._carryForwardCacheVersion += 1;
     }
 
     getTodayKey() {
@@ -177,6 +188,16 @@ export class Calendar {
         const targetUserIds = Array.isArray(options.userIds)
             ? options.userIds.map(v => String(v || '').trim()).filter(Boolean)
             : null;
+        const cacheKey = JSON.stringify({
+            version: this._carryForwardCacheVersion,
+            startDate: safeStartDate,
+            endDate: effectiveEndDate,
+            userIds: targetUserIds || []
+        });
+        const cached = this._carryForwardRangeCache.get(cacheKey);
+        if (cached && cached.expiresAt > Date.now()) {
+            return cached.value;
+        }
         this._carryForwardExceptionCache = new Map();
 
         const allPlans = (await this.getAllWorkPlansUntil(effectiveEndDate))
@@ -262,10 +283,15 @@ export class Calendar {
             }
         }
 
-        return {
+        const result = {
             created: updatedPlans.length,
             updatedPlans
         };
+        this._carryForwardRangeCache.set(cacheKey, {
+            value: result,
+            expiresAt: Date.now() + 10000
+        });
+        return result;
     }
 
     async ensureCarryForwardForDate(date, options = {}) {
@@ -374,7 +400,9 @@ export class Calendar {
             createdByName: currentUser.name || 'Admin',
             updatedAt: new Date().toISOString()
         };
-        return await this.db.put('work_plans', workPlan);
+        const saved = await this.db.put('work_plans', workPlan);
+        this.invalidateCarryForwardCache();
+        return saved;
     }
 
     /**
@@ -420,7 +448,9 @@ export class Calendar {
                 existing.endDate = meta.endDate || existing.endDate || existing.startDate || date;
                 existing.updatedAt = new Date().toISOString();
                 workPlan.updatedAt = new Date().toISOString();
-                return await this.db.put('work_plans', workPlan);
+                const saved = await this.db.put('work_plans', workPlan);
+                this.invalidateCarryForwardCache();
+                return saved;
             }
         }
 
@@ -440,7 +470,9 @@ export class Calendar {
         });
 
         workPlan.updatedAt = new Date().toISOString();
-        return await this.db.put('work_plans', workPlan);
+        const saved = await this.db.put('work_plans', workPlan);
+        this.invalidateCarryForwardCache();
+        return saved;
     }
 
     extractDateFromPlanToken(token = '') {
@@ -585,6 +617,17 @@ export class Calendar {
             return { ok: true, removed: 0, reason: 'not_today' };
         }
 
+        const cacheKey = JSON.stringify({
+            version: this._carryForwardCacheVersion,
+            targetUserId,
+            targetDate,
+            onlyToday
+        });
+        const cached = this._carryForwardCleanupCache.get(cacheKey);
+        if (cached && cached.expiresAt > Date.now()) {
+            return cached.value;
+        }
+
         const previousDate = this.getPreviousDateKey(targetDate);
         const personalPlan = await this.getWorkPlan(targetUserId, targetDate, { planScope: 'personal' });
         if (!personalPlan || !Array.isArray(personalPlan.plans) || personalPlan.plans.length === 0) {
@@ -631,13 +674,24 @@ export class Calendar {
         }
 
         if (removed === 0) {
-            return { ok: true, removed: 0, reason: 'no_matches' };
+            const result = { ok: true, removed: 0, reason: 'no_matches' };
+            this._carryForwardCleanupCache.set(cacheKey, {
+                value: result,
+                expiresAt: Date.now() + 10000
+            });
+            return result;
         }
 
         personalPlan.plans = kept;
         personalPlan.updatedAt = new Date().toISOString();
         await this.db.put('work_plans', personalPlan);
-        return { ok: true, removed, planId: personalPlan.id, date: targetDate };
+        const result = { ok: true, removed, planId: personalPlan.id, date: targetDate };
+        this.invalidateCarryForwardCache();
+        this._carryForwardCleanupCache.set(cacheKey, {
+            value: result,
+            expiresAt: Date.now() + 10000
+        });
+        return result;
     }
 
     async cleanupInvalidTodayCarryForwardForDate(date, options = {}) {
@@ -687,7 +741,9 @@ export class Calendar {
         if (!currentUser) throw new Error("Not authenticated");
         const planScope = this.normalizePlanScope(options.planScope);
         const targetId = targetUserId || currentUser.id;
-        return await this.db.delete('work_plans', this.getWorkPlanId(date, targetId, planScope));
+        const deleted = await this.db.delete('work_plans', this.getWorkPlanId(date, targetId, planScope));
+        this.invalidateCarryForwardCache();
+        return deleted;
     }
 
     async purgeWorkPlansByDate(date, options = {}) {
@@ -712,6 +768,7 @@ export class Calendar {
             plan.updatedAt = new Date().toISOString();
             await this.db.put('work_plans', plan);
         }
+        this.invalidateCarryForwardCache();
 
         return { ok: true, removedPlans: dayPlans.length, date: targetDate };
     }
@@ -746,6 +803,7 @@ export class Calendar {
                 await this.db.put('work_plans', plan);
             }
         }
+        if (removedTasks > 0) this.invalidateCarryForwardCache();
 
         return { ok: true, removedTasks, touchedPlans, date: targetDate };
     }
@@ -842,6 +900,7 @@ export class Calendar {
             plan.updatedAt = new Date().toISOString();
 
             await this.db.put('work_plans', plan);
+            this.invalidateCarryForwardCache();
 
             // Trigger rating recalculation
             if (AppRating) {
@@ -873,6 +932,7 @@ export class Calendar {
             plan.updatedAt = new Date().toISOString();
 
             await this.db.put('work_plans', plan);
+            this.invalidateCarryForwardCache();
             return plan;
         } catch (err) {
             console.error('Failed to remove task:', err);
@@ -900,6 +960,7 @@ export class Calendar {
             plan.updatedAt = new Date().toISOString();
 
             await this.db.put('work_plans', plan);
+            this.invalidateCarryForwardCache();
             return plan;
         } catch (err) {
             console.error('Failed to reassign task:', err);
