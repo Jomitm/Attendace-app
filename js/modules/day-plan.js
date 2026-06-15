@@ -725,6 +725,17 @@ function createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, ini
         children: [toolbar, columns, footer]
     });
     form.addEventListener('submit', (e) => window.app_saveDayPlan(e, date, targetId));
+    form.addEventListener('input', () => {
+        form.dataset.dayPlanTouched = '1';
+    });
+    form.addEventListener('change', () => {
+        form.dataset.dayPlanTouched = '1';
+    });
+    form.addEventListener('click', (e) => {
+        if (e.target?.closest?.('.day-plan-edit-btn, .day-plan-remove-btn, .day-plan-new-task-btn, .day-plan-column-btn')) {
+            form.dataset.dayPlanTouched = '1';
+        }
+    });
     form._dayPlanFlushPending = flushAllPending;
 
     const loadMoreIntoScope = (scope) => {
@@ -972,8 +983,10 @@ export function openPlanEditor(args) {
                     ${Array.isArray(result.warnings) && result.warnings.length ? `<div class="plan-editor-ai-warnings"><strong>Warnings:</strong> ${result.warnings.map((item) => esc(item)).join(' • ')}</div>` : ''}
                     <div class="plan-editor-ai-source"><strong>Source:</strong> ${esc(result.sourceScope || currentSourceScope)}</div>
                 `;
-                if (result?.draft?.task) {
-                    textarea.value = result.draft.task;
+                const suggestedTaskText = String(result?.draft?.task || result?.summary || result?.suggestedActions?.[0] || '').trim();
+                if (suggestedTaskText) {
+                    textarea.value = suggestedTaskText;
+                    textarea.dispatchEvent(new Event('input', { bubbles: true }));
                     textarea.focus();
                 }
                 const nextSteps = Array.isArray(result?.draft?.subPlans) ? result.draft.subPlans.filter(Boolean) : [];
@@ -1250,6 +1263,49 @@ const isAutoForwardedTask = (task) => {
         || !!task.autoForwardedAt;
 };
 
+function scheduleDayPlanMaintenance({ date, targetId, forcedScope, options, modalContent }) {
+    const todayKey = AppCalendar?.getTodayKey ? AppCalendar.getTodayKey() : '';
+    const needsCarryForward = !options?.skipCarryForwardSync && AppCalendar?.ensureCarryForwardForDate && date <= todayKey;
+    const needsCleanup = !options?.skipCarryForwardCleanup && AppCalendar?.cleanupInvalidTodayCarryForward && date === todayKey;
+    if (!needsCarryForward && !needsCleanup) return;
+
+    window.setTimeout(async () => {
+        try {
+            let changed = false;
+            if (needsCarryForward) {
+                const result = await AppCalendar.ensureCarryForwardForDate(date, { userIds: [targetId] });
+                changed = changed || Number(result?.created || 0) > 0 || (result?.updatedPlans || []).length > 0;
+            }
+
+            if (needsCleanup) {
+                const cleanupResult = await AppCalendar.cleanupInvalidTodayCarryForward(targetId, date, { onlyToday: true });
+                changed = changed || Number(cleanupResult?.removed || 0) > 0;
+                if ((cleanupResult?.removed || 0) > 0) {
+                    console.log(`Day plan cleanup removed ${cleanupResult.removed} invalid carry-forward task(s) for ${targetId} on ${date}.`);
+                }
+            }
+
+            if (!changed) return;
+            dayPlanPrefetchCache.clear();
+
+            const activeModal = document.getElementById('day-plan-modal');
+            const activeForm = activeModal?.querySelector('.day-plan-form');
+            const editorOpen = !!document.querySelector('.plan-editor-overlay');
+            const stillShowingSamePlan = activeModal?.dataset?.planDate === date && modalContent?.isConnected;
+            const userHasStartedEditing = activeForm?.dataset?.dayPlanTouched === '1';
+            if (!stillShowingSamePlan || editorOpen || userHasStartedEditing) return;
+
+            await openDayPlan(date, targetId, forcedScope, {
+                ...options,
+                skipCarryForwardSync: true,
+                skipCarryForwardCleanup: true
+            });
+        } catch (err) {
+            console.warn('Day plan background maintenance failed:', err);
+        }
+    }, 0);
+}
+
 export async function openDayPlan(date, targetUserId = null, forcedScope = null, options = {}) {
     if (window.performance?.mark) window.performance.mark('day-plan-open-start');
     const currentUser = AppAuth.getUser();
@@ -1259,8 +1315,6 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
     const isEditingOther = targetId !== currentUser.id;
     const defaultScope = forcedScope === 'annual' ? 'annual' : 'personal';
     const hideAutoForwardedTasks = options?.hideAutoForwardedTasks === true;
-    const skipCarryForwardSync = options?.skipCarryForwardSync === true;
-    const skipCarryForwardCleanup = options?.skipCarryForwardCleanup === true;
     window.app_currentDayPlanTargetId = targetId;
     const todayKey = AppCalendar?.getTodayKey ? AppCalendar.getTodayKey() : '';
     const prefetchRecord = getDayPlanPrefetchRecord(date, targetId, forcedScope, options);
@@ -1317,20 +1371,6 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
         if (window.performance?.mark) window.performance.mark('day-plan-hydrate-start');
         try {
             const usersPromise = prefetchRecord?.usersPromise || getCachedDayPlanUsers();
-            if (!skipCarryForwardSync && AppCalendar?.ensureCarryForwardForDate && date <= todayKey) {
-                await AppCalendar.ensureCarryForwardForDate(date, { userIds: [targetId] });
-            }
-
-            if (!skipCarryForwardCleanup && AppCalendar?.cleanupInvalidTodayCarryForward && date === todayKey) {
-                try {
-                    const cleanupResult = await AppCalendar.cleanupInvalidTodayCarryForward(targetId, date, { onlyToday: true });
-                    if ((cleanupResult?.removed || 0) > 0) {
-                        console.log(`Day plan cleanup removed ${cleanupResult.removed} invalid carry-forward task(s) for ${targetId} on ${date}.`);
-                    }
-                } catch (cleanupErr) {
-                    console.warn('Failed to cleanup invalid today carry-forward tasks:', cleanupErr);
-                }
-            }
 
             const canUsePrefetchedPlans = !!todayKey && String(date || '').trim() > todayKey;
             let allUsers = null;
@@ -1421,6 +1461,7 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
                     // Ignore duplicate or missing marks.
                 }
             }
+            scheduleDayPlanMaintenance({ date, targetId, forcedScope, options, modalContent });
         } catch (err) {
             console.error('Failed to open day plan:', err);
             bodyWrap.replaceChildren(createDayPlanLoadingState(`Unable to load the day plan${err?.message ? `: ${err.message}` : ''}`));

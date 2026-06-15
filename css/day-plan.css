@@ -36,6 +36,7 @@
 .day-plan-content {
     width: min(1560px, calc(100vw - 0.8rem));
     height: min(96vh, 960px);
+    height: min(96dvh, 960px);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -45,6 +46,27 @@
         radial-gradient(circle at top left, rgba(219, 234, 254, 0.95), transparent 34%),
         linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
     box-shadow: var(--day-plan-shadow);
+}
+
+.day-plan-header-wrap {
+    flex-shrink: 0;
+}
+
+.day-plan-body-wrap {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.day-plan-body-wrap > * {
+    flex: 1;
+    min-width: 0;
+}
+
+.day-plan-body-wrap > .day-plan-loading-state {
+    width: 100%;
+    align-self: stretch;
 }
 
 /* ===== HEADER ===== */
@@ -153,7 +175,12 @@
     min-height: 0;
     flex: 1;
     padding: 0.5rem 0.65rem 0;
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: #94a3b8 #e5edf8;
+    -webkit-overflow-scrolling: touch;
 }
 
 /* ===== TOOLBAR ===== */

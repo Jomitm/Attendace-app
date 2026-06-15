@@ -6334,6 +6334,10 @@ window.app_requestCheckoutAiDraft = async () => {
             budgetHeadId: String(result?.draft?.budgetHeadId || '').trim()
         };
 
+        state.snapshot = app_checkoutCollectFormSnapshot();
+        state.applied = true;
+        state.status = 'applied';
+        app_checkoutSyncFormFromDraftState();
         app_checkoutRenderAiDraftPanel();
     } catch (err) {
         console.warn('Checkout AI draft generation failed:', err);
@@ -11219,7 +11223,6 @@ window.app_forceRefresh = async () => {
 init();
 
 console.log("App.js Loaded & Globals Ready");
-
 
 
 
