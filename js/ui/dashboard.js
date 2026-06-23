@@ -265,6 +265,53 @@ const buildOriginalCardTemplate = (cardEl) => {
     return html;
 };
 
+function normalizeHeroDisplayBundle(heroData, leaderboardData) {
+    const rows = Array.isArray(leaderboardData?.rows) ? leaderboardData.rows : [];
+    if (!rows.length) return { heroData, leaderboardData };
+
+    const declaredWinnerId = String(leaderboardData?.winnerUserId || '').trim();
+    const currentHeroId = String(heroData?.user?.id || '').trim();
+    const declaredWinner = declaredWinnerId
+        ? rows.find((row) => String(row?.user?.id || '') === declaredWinnerId)
+        : null;
+    const currentHeroWinner = currentHeroId
+        ? rows.find((row) => String(row?.user?.id || '') === currentHeroId)
+        : null;
+    const rankOneWinner = rows.find((row) => Number(row?.rank) === 1) || rows[0];
+    const winnerEntry = declaredWinner || currentHeroWinner || rankOneWinner;
+    const winnerId = String(winnerEntry?.user?.id || '').trim();
+    if (!winnerId) return { heroData, leaderboardData };
+
+    const normalizedHeroData = {
+        ...(heroData || {}),
+        state: 'winner',
+        user: {
+            ...(heroData?.user || {}),
+            ...(winnerEntry.user || {})
+        },
+        stats: {
+            ...(heroData?.stats || {}),
+            ...(winnerEntry.stats || {})
+        }
+    };
+
+    const normalizedLeaderboardData = leaderboardData
+        ? { ...leaderboardData, winnerUserId: winnerId }
+        : leaderboardData;
+
+    return {
+        heroData: normalizedHeroData,
+        leaderboardData: normalizedLeaderboardData
+    };
+}
+
+function setDashboardHeroBundle(heroData, leaderboardData, heroMeta = window.app_dashboardHeroMeta || {}) {
+    const normalized = normalizeHeroDisplayBundle(heroData, leaderboardData);
+    window.app_dashboardHeroData = normalized.heroData;
+    window.app_dashboardHeroLeaderboard = normalized.leaderboardData;
+    window.app_dashboardHeroMeta = heroMeta;
+    return normalized;
+}
 const renderHeroExpandedAuditMarkup = () => {
     return `${renderHeroCard(window.app_dashboardHeroData, window.app_dashboardHeroMeta || {})}${renderHeroLeaderboardExpanded(window.app_dashboardHeroLeaderboard, window.app_dashboardHeroData)}`;
 };
@@ -397,6 +444,9 @@ function getWeekRange(dateStr) {
     };
 }
 
+function isCurrentWeekMissedTaskStatus(statusValue = '') {
+    return ['overdue', 'missed', 'not-completed'].includes(String(statusValue || '').toLowerCase().trim());
+}
 function getCurrentWeekOverdueWorkLogs(logs, targetStaffId, weekRange) {
     const startKey = String(weekRange?.startKey || '');
     const endKey = String(weekRange?.endKey || '');
@@ -456,7 +506,7 @@ function getCurrentWeekOverdueWorkLogs(logs, targetStaffId, weekRange) {
             const dateKey = String(log.date || '');
             if (startKey && dateKey < startKey) return false;
             if (endKey && dateKey > endKey) return false;
-            return String(log.status || '').toLowerCase() === 'overdue';
+            return isCurrentWeekMissedTaskStatus(log.status);
         })
         .sort((a, b) => {
             const dateDiff = String(b.date || '').localeCompare(String(a.date || ''));
@@ -466,23 +516,10 @@ function getCurrentWeekOverdueWorkLogs(logs, targetStaffId, weekRange) {
 }
 
 function getCurrentWeekOverdueTaskRows(activityRows, targetStaffId, weekRange) {
-    const startKey = String(weekRange?.startKey || '');
-    const endKey = String(weekRange?.endKey || '');
-    const selectedStaffId = String(targetStaffId || '');
     const sourceRows = Array.isArray(window.app_teamActivitiesOverdueRows) && window.app_teamActivitiesOverdueRows.length
         ? window.app_teamActivitiesOverdueRows
         : (Array.isArray(activityRows) ? activityRows : []);
-    return sourceRows
-        .filter((row) => {
-            if (!row) return false;
-            const rowUserId = String(row.userId || row.user_id || '');
-            if (selectedStaffId && rowUserId !== selectedStaffId) return false;
-            const dateKey = String(row.date || '');
-            if (startKey && dateKey < startKey) return false;
-            if (endKey && dateKey > endKey) return false;
-            return String(row.status || '').toLowerCase() === 'overdue';
-        })
-        .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+    return getCurrentWeekOverdueWorkLogs(sourceRows, targetStaffId, weekRange);
 }
 
 function renderCurrentWeekOverdueTaskStrip(overdueLogs) {
@@ -612,6 +649,26 @@ function ensureDashboardActionDelegates() {
 
 export function renderHeroCard(heroData, heroMeta = {}) {
     const heroState = heroData?.state || (heroData?.user ? 'winner' : 'no_eligible_data');
+    const currentUser = window.AppAuth?.getUser();
+    const isFullAdmin = currentUser && window.app_hasPerm?.('dashboard', 'admin', currentUser);
+    let refreshButtonHTML = '';
+    if (isFullAdmin) {
+        const refreshCount = Number(heroMeta?.heroRefreshCount || 0);
+        const MAX_REFRESHES = 3;
+        if (refreshCount >= MAX_REFRESHES) {
+            refreshButtonHTML = `
+                <button class="hero-refresh-btn" disabled title="Max daily refreshes (${MAX_REFRESHES}) reached" style="background:none; border:none; color:#cbd5e1; cursor:not-allowed; padding:4px;">
+                    <i class="fa-solid fa-arrows-rotate"></i>
+                </button>`;
+        } else {
+            const remaining = MAX_REFRESHES - refreshCount;
+            refreshButtonHTML = `
+                <button class="hero-refresh-btn" onclick="window.app_forceRefreshHero(event)" title="Recalculate and refresh hero (${remaining} refresh${remaining === 1 ? '' : 'es'} remaining today)" style="background:none; border:none; color:#3b82f6; cursor:pointer; padding:4px; transition: transform 0.2s;" onmouseover="this.style.transform='rotate(45deg)'" onmouseout="this.style.transform='none'">
+                    <i class="fa-solid fa-arrows-rotate"></i>
+                </button>`;
+        }
+    }
+
     if (!heroData || heroState !== 'winner') {
         const emptyReason = heroData?.reason || (heroState === 'fetch_error'
             ? 'Hero stats are temporarily unavailable.'
@@ -619,9 +676,12 @@ export function renderHeroCard(heroData, heroMeta = {}) {
         const chipText = heroState === 'fetch_error' ? 'Fetch Error' : 'No Eligible Data';
         return `
             <div class="card dashboard-hero-stats-card hero-slot">
-                <div class="dashboard-hero-stats-head">
+                <div class="dashboard-hero-stats-head" style="display:flex; justify-content:space-between; align-items:center;">
                     <div class="hero-label-badge">Hero of the Week</div>
-                    ${heroMeta.generatedAt ? `<span class="hero-sync-time" title="Source: ${heroMeta.source || heroData?.source || 'unknown'}">Synced ${timeAgo(heroMeta.generatedAt)}</span>` : ''}
+                    <div style="display:flex; align-items:center; gap:0.5rem;">
+                        ${heroMeta.generatedAt ? `<span class="hero-sync-time" title="Source: ${heroMeta.source || heroData?.source || 'unknown'}">Synced ${timeAgo(heroMeta.generatedAt)}</span>` : ''}
+                        ${refreshButtonHTML}
+                    </div>
                 </div>
                 <div class="dashboard-activity-empty">
                     ${safeHtml(emptyReason)}
@@ -651,9 +711,12 @@ export function renderHeroCard(heroData, heroMeta = {}) {
 
     return `
         <div class="card dashboard-hero-stats-card hero-slot ${isNew ? 'is-new-summary' : ''}">
-            <div class="dashboard-hero-stats-head">
+            <div class="dashboard-hero-stats-head" style="display:flex; justify-content:space-between; align-items:center;">
                 <div class="hero-label-badge">Hero of the Week</div>
-                ${heroMeta.generatedAt ? `<span class="hero-sync-time" title="Source: ${heroMeta.source || heroData?.source || 'unknown'}">Synced ${timeAgo(heroMeta.generatedAt)}</span>` : ''}
+                <div style="display:flex; align-items:center; gap:0.5rem;">
+                    ${heroMeta.generatedAt ? `<span class="hero-sync-time" title="Source: ${heroMeta.source || heroData?.source || 'unknown'}">Synced ${timeAgo(heroMeta.generatedAt)}</span>` : ''}
+                    ${refreshButtonHTML}
+                </div>
             </div>
             <div class="dashboard-hero-stats-body">
                 <div class="hero-profile">
@@ -691,9 +754,10 @@ export function renderHeroCard(heroData, heroMeta = {}) {
                     <span class="hero-attendance-pill">Factor <strong>x${attendanceFactor.toFixed(2)}</strong></span>
                 </div>
             </div>
-            <div class="dashboard-hero-stats-foot">
+            <div class="dashboard-hero-stats-foot" style="position: relative;">
                 <span class="dashboard-kpi-tag">${safeHtml(periodLabel)}</span>
                 <span class="dashboard-kpi-tag">Confidence ${confidencePct}%</span>
+                <span style="position: absolute; bottom: 4px; right: 8px; font-size: 0.65rem; color: #94a3b8; opacity: 0.7;" title="Hero Calculation Algorithm Version">v5</span>
             </div>
         </div>`;
 }
@@ -1283,7 +1347,7 @@ function attachHeroCardHandlers() {
         card.setAttribute('role', 'button');
         card.setAttribute('aria-label', 'Open Hero of the Week details');
         card.addEventListener('click', (event) => {
-            if (event.target && event.target.closest && event.target.closest('.dashboard-card-mode-controls')) return;
+            if (event.target && event.target.closest && (event.target.closest('.dashboard-card-mode-controls') || event.target.closest('.hero-refresh-btn'))) return;
             window.app_toggleDashboardCardMode?.('hero-week', DASHBOARD_CARD_MODE_FULLSCREEN, card);
         });
         card.addEventListener('keydown', (event) => {
@@ -1645,55 +1709,12 @@ export async function renderDashboard() {
     };
     const todayStr = dateKeys.todayKey;
     const yesterdayStr = dateKeys.yesterdayKey;
-    const sharedSummaryEnabled = !!AppConfig?.READ_OPT_FLAGS?.FF_SHARED_DAILY_SUMMARY;
-    const heroSchemaVersion = Number(window.AppAnalytics?.getHeroPolicy?.()?.SCHEMA_VERSION || AppConfig?.HERO_POLICY?.SCHEMA_VERSION || 1);
-    const heroCacheKey = `hero_stats_v${heroSchemaVersion}_${todayStr}`;
-    const heroLeaderboardCacheKey = `hero_leaderboard_v${heroSchemaVersion}_${todayStr}`;
-    const heroCacheTtl = 24 * 60 * 60 * 1000;
-
     const targetStaffId = (isAdmin && window.app_selectedSummaryStaffId) ? window.app_selectedSummaryStaffId : user.id;
 
     console.time('DashboardFetch');
     markPerf('dashboard:fetch:start');
-    const readDirectHeroCached = async () => {
-        try {
-            return await window.AppDB.getOrGenerateSummary(
-                heroCacheKey,
-                async () => {
-                    const hero = await window.AppAnalytics.getHeroOfTheWeek({ source: 'direct_cache' });
-                    if (!hero || hero.state === 'fetch_error') throw new Error('direct hero unavailable');
-                    return hero;
-                },
-                heroCacheTtl
-            );
-        } catch (err) {
-            console.warn('Direct hero cache read failed:', err);
-            return null;
-        }
-    };
 
-    const heroPromise = sharedSummaryEnabled
-        ? Promise.resolve(null)
-        : readDirectHeroCached();
-    const heroLeaderboardPromise = !sharedSummaryEnabled && window.AppDB?.getOrGenerateSummary
-        ? window.AppDB.getOrGenerateSummary(
-            heroLeaderboardCacheKey,
-            async () => window.AppAnalytics.getHeroLeaderboard({ source: 'direct_cache' }),
-            heroCacheTtl
-        ).catch((err) => {
-            console.warn('Hero leaderboard cache read failed:', err);
-            return null;
-        })
-        : Promise.resolve(null);
-
-    const staffActivityPromise = sharedSummaryEnabled
-        ? Promise.resolve([])
-        : window.AppDB.getOrGenerateSummary(
-            `team_activity_${selectedMonth}_${todayStr}_all_v2`,
-            () => window.AppAnalytics.getAllStaffActivities({ mode: 'month', month: selectedMonth, scope: 'all', sideEffects: false })
-        );
-
-    const sharedSummaryTask = sharedSummaryEnabled && window.AppDB.getOrCreateDailySummary
+    const sharedSummaryTask = window.AppDB.getOrCreateDailySummary
         ? window.AppDB.getOrCreateDailySummary({
             dateKey: todayStr,
             yesterdayKey: yesterdayStr,
@@ -1706,6 +1727,8 @@ export async function renderDashboard() {
         })
         : null;
 
+    // Race the shared summary against a 1.5s timeout so the dashboard
+    // does not stall on slow generation; the async block below catches up.
     const dailySummaryPromise = sharedSummaryTask
         ? Promise.race([
             sharedSummaryTask,
@@ -1734,6 +1757,29 @@ export async function renderDashboard() {
         }
     }
 
+    // Auto-refresh hero at EOD
+    if (!window._heroEodRefreshScheduled) {
+        window._heroEodRefreshScheduled = true;
+        try {
+            const eodHour = AppConfig?.SUMMARY_POLICY?.RECOMPUTE_CUTOFF_HOUR_IST || 17;
+            const istNow = window.AppDB.getIstNow();
+            if (istNow.getHours() < eodHour) {
+                const eod = new Date(istNow);
+                eod.setHours(eodHour, 0, 0, 0);
+                const msUntilEod = eod.getTime() - istNow.getTime();
+                setTimeout(() => {
+                    // Try to trigger a quiet background refresh if we can, otherwise just fetch
+                    if (window.app_forceRefreshHero && window.AppAuth?.getUser() && window.app_hasPerm('dashboard', 'admin', window.AppAuth.getUser())) {
+                        window.app_forceRefreshHero({ stopPropagation: () => {}, preventDefault: () => {} }).catch(() => {});
+                    }
+                    window._heroEodRefreshScheduled = false;
+                }, Math.max(0, msUntilEod));
+            }
+        } catch (err) {
+            console.warn('failed to schedule EOD hero refresh', err);
+        }
+    }
+
     const pendingMissedCheckoutNotifications = isAdmin
         ? (Array.isArray(user.notifications) ? user.notifications : []).filter((notif) =>
             notif
@@ -1747,15 +1793,12 @@ export async function renderDashboard() {
     const currentWeekRange = getWeekRange(leaveHistoryDate);
 
     // Parallel Fetch
-    const [status, logs, monthlyStats, yearlyStats, heroDataRaw, heroLeaderboardData, calendarPlans, staffActivitiesRaw, pendingLeaves, allUsers, collaborations, allLeaves, dailySummary, minutesData, attendanceLogs, weeklyAttendanceLogs, currentWeekWorkPlans] = await Promise.all([
+    const [status, logs, monthlyStats, yearlyStats, calendarPlans, pendingLeaves, allUsers, collaborations, allLeaves, dailySummary, minutesData, attendanceLogs, weeklyAttendanceLogs, currentWeekWorkPlans] = await Promise.all([
         window.AppAttendance.getStatus(),
         window.AppAttendance.getLogs(targetStaffId, { limit: 200 }),
         window.AppAnalytics.getUserMonthlyStats(targetStaffId),
         window.AppAnalytics.getUserYearlyStats(targetStaffId),
-        heroPromise,
-        heroLeaderboardPromise,
         window.AppCalendar ? window.AppCalendar.getPlans() : { leaves: [], events: [] },
-        staffActivityPromise,
         window.app_hasPerm('leaves', 'view') ? window.AppLeaves.getPendingLeaves() : Promise.resolve([]),
         window.AppDB.getCached
             ? window.AppDB.getCached(window.AppDB.getCacheKey('dashboardUsers', 'users', {}), (AppConfig?.READ_CACHE_TTLS?.users || 60000), () => window.AppDB.getAll('users'))
@@ -1796,183 +1839,55 @@ export async function renderDashboard() {
     measurePerf('dashboard:fetch', 'dashboard:fetch:start', 'dashboard:fetch:end');
     console.timeEnd('DashboardFetch');
 
-    const heroMeta = sharedSummaryEnabled
-        ? {
-            lowRead: false,
-            generatedAt: dailySummary?.generatedAt || dailySummary?.meta?.generatedAt || 0,
-            source: dailySummary?._source || ''
-        }
-        : {};
-    let heroData = sharedSummaryEnabled ? (dailySummary?.hero || null) : heroDataRaw;
-    let staffActivities = sharedSummaryEnabled ? (Array.isArray(dailySummary?.teamActivityPreview) ? dailySummary.teamActivityPreview : []) : staffActivitiesRaw;
-    window.app_dashboardHeroLeaderboard = sharedSummaryEnabled
-        ? (dailySummary?.heroLeaderboard || null)
-        : heroLeaderboardData;
-    window.app_dashboardHeroData = heroData;
-    window.app_dashboardHeroMeta = heroMeta;
+    const heroMeta = {
+        lowRead: false,
+        generatedAt: dailySummary?.generatedAt || dailySummary?.meta?.generatedAt || 0,
+        source: dailySummary?._source || '',
+        heroRefreshCount: Number(dailySummary?.heroRefreshCount || 0)
+    };
+    let heroData = dailySummary?.hero || null;
+    let staffActivities = Array.isArray(dailySummary?.teamActivityPreview) ? dailySummary.teamActivityPreview : [];
+    const initialHeroBundle = setDashboardHeroBundle(heroData, dailySummary?.heroLeaderboard || null, heroMeta);
+    heroData = initialHeroBundle.heroData;
 
-    if (sharedSummaryEnabled && (!dailySummary || !Array.isArray(dailySummary.teamActivityPreview))) {
+    if (!dailySummary || !Array.isArray(dailySummary.teamActivityPreview)) {
         setTimeout(() => refreshStaffActivityWidget(true), 0);
     }
 
-    const heroHTML = renderHeroCard(heroData, heroMeta);
-    const overdueTaskStripHTML = renderCurrentWeekOverdueTaskStrip(
-        (window.app_currentWeekOverdueTaskContext?.logs || []),
-        (window.app_currentWeekOverdueTaskContext?.targetStaff || user),
-        (window.app_currentWeekOverdueTaskContext?.weekRange || {})
-    );
 
-    // Update hero card if sharedSummaryTask was slow.
-    // If it resolves without hero, optionally run one guarded fallback direct read (once/day).
-    if (sharedSummaryEnabled && heroData == null && sharedSummaryTask) {
-        const fallbackKey = 'app_hero_fallback_attempted_date';
-        const hasFallbackAttemptForToday = () => {
-            try {
-                return localStorage.getItem(fallbackKey) === todayStr;
-            } catch {
-                return false;
-            }
-        };
-        const markFallbackAttemptForToday = () => {
-            try { localStorage.setItem(fallbackKey, todayStr); } catch { /* ignore storage failures */ }
-        };
+    // If the 1.5s race timed out and heroData is null, wait for the shared
+    // summary task to finish and patch the hero slot when it arrives.
+    if (heroData == null && sharedSummaryTask) {
         const replaceHeroSlot = (html) => {
-            const slot = document.querySelector('.hero-slot');
-            if (slot) {
-                slot.outerHTML = html;
-                setTimeout(() => {
-                    initDashboardCardControls();
-                    attachHeroCardHandlers();
-                }, 0);
-            }
-        };
-
-        sharedSummaryTask.then(async (ds) => {
-            const latestHero = ds && ds.hero ? ds.hero : null;
-            const latestHeroLeaderboard = ds && ds.heroLeaderboard ? ds.heroLeaderboard : null;
-            if (latestHero) {
-                const updatedMeta = { ...heroMeta, lowRead: false, generatedAt: ds.generatedAt || heroMeta.generatedAt, source: ds._source || heroMeta.source };
-                window.app_dashboardHeroLeaderboard = latestHeroLeaderboard;
-                window.app_dashboardHeroData = latestHero;
-                window.app_dashboardHeroMeta = updatedMeta;
-                replaceHeroSlot(renderHeroCard(latestHero, updatedMeta));
-                return;
-            }
-
-            // Step 2: shared summary missing hero -> use cached direct hero.
-            const directCachedHero = await readDirectHeroCached();
-            if (directCachedHero) {
-                const directCachedLeaderboard = !sharedSummaryEnabled
-                    ? await heroLeaderboardPromise
-                    : await window.AppAnalytics.getHeroLeaderboard({ source: 'direct_cache' }).catch(() => null);
-                window.app_dashboardHeroLeaderboard = directCachedLeaderboard;
-                window.app_dashboardHeroData = directCachedHero;
-                window.app_dashboardHeroMeta = {
-                    ...heroMeta,
-                    lowRead: false,
-                    generatedAt: Date.now(),
-                    source: 'direct_cache'
-                };
-                replaceHeroSlot(renderHeroCard(directCachedHero, {
-                    ...heroMeta,
-                    lowRead: false,
-                    generatedAt: Date.now(),
-                    source: 'direct_cache'
-                }));
-                return;
-            }
-
-            replaceHeroSlot(renderHeroCard({
-                state: 'no_eligible_data',
-                reason: 'No eligible hero data available.',
-                source: 'shared_summary'
-            }, {
-                ...heroMeta,
-                lowRead: false,
-                generatedAt: ds?.generatedAt || heroMeta.generatedAt,
-                source: ds?._source || 'shared_missing'
-            }));
-
-            if (hasFallbackAttemptForToday()) return;
-            markFallbackAttemptForToday();
-
-            try {
-                // Step 3: one/day fallback direct read, then cache the result.
-                const directHero = await window.AppAnalytics.getHeroOfTheWeek({ source: 'direct_fallback' });
-                const directHeroLeaderboard = await window.AppAnalytics.getHeroLeaderboard({ source: 'direct_fallback' });
-                if (!directHero || directHero.state === 'fetch_error') {
-                    window.app_dashboardHeroLeaderboard = directHeroLeaderboard && directHeroLeaderboard.state !== 'fetch_error'
-                        ? directHeroLeaderboard
-                        : null;
-                    window.app_dashboardHeroData = {
-                        state: 'fetch_error',
-                        reason: 'Hero stats are temporarily unavailable.',
-                        source: 'direct_fallback'
-                    };
-                    window.app_dashboardHeroMeta = {
-                        ...heroMeta,
-                        lowRead: false,
-                        generatedAt: Date.now(),
-                        source: 'direct_fallback'
-                    };
-                    replaceHeroSlot(renderHeroCard({
-                        state: 'fetch_error',
-                        reason: 'Hero stats are temporarily unavailable.',
-                        source: 'direct_fallback'
-                    }, {
-                        ...heroMeta,
-                        lowRead: false,
-                        generatedAt: Date.now(),
-                        source: 'direct_fallback'
-                    }));
-                    return;
+            const attemptPatch = (retries) => {
+                const slot = document.querySelector('.hero-slot');
+                if (slot) {
+                    slot.outerHTML = html;
+                    setTimeout(() => { initDashboardCardControls(); attachHeroCardHandlers(); }, 0);
+                } else if (retries > 0) {
+                    setTimeout(() => attemptPatch(retries - 1), 100);
                 }
-                await window.AppDB.getOrGenerateSummary(heroCacheKey, async () => directHero, heroCacheTtl);
-                const fallbackMeta = { ...heroMeta, lowRead: false, generatedAt: Date.now(), source: 'direct_fallback' };
-                window.app_dashboardHeroLeaderboard = directHeroLeaderboard && directHeroLeaderboard.state !== 'fetch_error'
-                    ? directHeroLeaderboard
-                    : null;
-                window.app_dashboardHeroData = directHero;
-                window.app_dashboardHeroMeta = fallbackMeta;
-                replaceHeroSlot(renderHeroCard(directHero, fallbackMeta));
-            } catch (err) {
-                console.warn('Hero fallback direct fetch failed:', err);
-                window.app_dashboardHeroLeaderboard = null;
-                window.app_dashboardHeroData = {
-                    state: 'fetch_error',
-                    reason: 'Hero stats are temporarily unavailable.',
-                    source: 'direct_fallback'
-                };
-                window.app_dashboardHeroMeta = {
-                    ...heroMeta,
-                    lowRead: false,
-                    generatedAt: Date.now(),
-                    source: 'direct_fallback'
-                };
-                replaceHeroSlot(renderHeroCard({
-                    state: 'fetch_error',
-                    reason: 'Hero stats are temporarily unavailable.',
-                    source: 'direct_fallback'
-                }, {
-                    ...heroMeta,
-                    lowRead: false,
-                    generatedAt: Date.now(),
-                    source: 'direct_fallback'
-                }));
-            }
-        }).catch(() => {
-            window.app_dashboardHeroLeaderboard = null;
-            window.app_dashboardHeroData = {
-                state: 'fetch_error',
-                reason: 'Hero stats are temporarily unavailable.',
-                source: 'shared_error'
             };
-            window.app_dashboardHeroMeta = { ...heroMeta, lowRead: false, source: 'shared_error' };
+            attemptPatch(20); // Retry for up to 2 seconds
+        };
+        sharedSummaryTask.then((ds) => {
+            const latestHero = ds?.hero || null;
+            const latestLeaderboard = ds?.heroLeaderboard || null;
+            const updatedMeta = {
+                ...heroMeta,
+                generatedAt: ds?.generatedAt || heroMeta.generatedAt,
+                source: ds?._source || heroMeta.source,
+                heroRefreshCount: Number(ds?.heroRefreshCount || 0)
+            };
+            const bundle = setDashboardHeroBundle(latestHero, latestLeaderboard, updatedMeta);
+            replaceHeroSlot(renderHeroCard(bundle.heroData, updatedMeta));
+        }).catch((err) => {
+            console.warn('Hero shared summary deferred load failed:', err);
             replaceHeroSlot(renderHeroCard({
                 state: 'fetch_error',
                 reason: 'Hero stats are temporarily unavailable.',
                 source: 'shared_error'
-            }, { ...heroMeta, lowRead: false, source: 'shared_error' }));
+            }, heroMeta));
         });
     }
 
@@ -1998,6 +1913,12 @@ export async function renderDashboard() {
         targetStaff: displayUser,
         weekRange: currentWeekRange
     };
+    const heroHTML = renderHeroCard(heroData, heroMeta);
+    const overdueTaskStripHTML = renderCurrentWeekOverdueTaskStrip(
+        currentWeekOverdueTaskRows,
+        displayUser,
+        currentWeekRange
+    );
     const isReadOnlyView = isAdmin && !isViewingSelf && !isFullAdmin;
     const now = new Date();
     const monthlyStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -2761,17 +2682,15 @@ if (typeof window !== 'undefined') {
                 window.AppAnalytics.getHeroOfTheWeek({ source: 'live_audit' }),
                 window.AppAnalytics.getHeroLeaderboard({ source: 'live_audit' })
             ]);
-            if (liveHero && liveHero.state !== 'fetch_error') {
-                window.app_dashboardHeroData = liveHero;
-            }
-            if (liveLeaderboard && liveLeaderboard.state !== 'fetch_error') {
-                window.app_dashboardHeroLeaderboard = liveLeaderboard;
-            }
-            window.app_dashboardHeroMeta = {
-                ...(window.app_dashboardHeroMeta || {}),
-                generatedAt: Date.now(),
-                source: 'live_audit'
-            };
+            setDashboardHeroBundle(
+                liveHero && liveHero.state !== 'fetch_error' ? liveHero : window.app_dashboardHeroData,
+                liveLeaderboard && liveLeaderboard.state !== 'fetch_error' ? liveLeaderboard : window.app_dashboardHeroLeaderboard,
+                {
+                    ...(window.app_dashboardHeroMeta || {}),
+                    generatedAt: Date.now(),
+                    source: 'live_audit'
+                }
+            );
             updateHeroExpandedOverlay();
             if (reopenTaskList && window.app_heroTaskModalState?.userId && window.app_heroTaskModalState?.bucketKey) {
                 window.app_openHeroTaskList(window.app_heroTaskModalState.userId, window.app_heroTaskModalState.bucketKey);
@@ -2954,6 +2873,97 @@ if (typeof window !== 'undefined') {
             modal.remove();
             document.body.style.overflow = '';
             window.removeEventListener('keydown', window._teamActivityEscHandler);
+        }
+    };
+
+    window.app_forceRefreshHero = async function (event) {
+        if (event) {
+            event.stopPropagation();
+            event.preventDefault();
+        }
+        
+        const currentUser = window.AppAuth.getUser();
+        const isFullAdmin = window.app_hasPerm('dashboard', 'admin', currentUser);
+        if (!isFullAdmin) {
+            alert("Only admins can refresh the hero stats.");
+            return;
+        }
+
+        const dateKeys = window.AppDB?.getISTDateKeys ? window.AppDB.getISTDateKeys() : {
+            todayKey: new Date().toISOString().split('T')[0]
+        };
+        const todayStr = dateKeys.todayKey;
+
+        // Visual feedback
+        const btn = document.querySelector('.hero-refresh-btn');
+        let originalContent = '';
+        if (btn) {
+            originalContent = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+        }
+
+        try {
+            // Fetch latest daily summary directly from Firestore to check if already refreshed
+            const ds = await window.AppDB.get('daily_summaries', todayStr, { source: 'server' });
+            const refreshCount = Number(ds?.heroRefreshCount || 0);
+            const MAX_REFRESHES = 3;
+            if (refreshCount >= MAX_REFRESHES) {
+                alert(`The Hero of the Week has already been refreshed ${MAX_REFRESHES} times today.`);
+                // Reload dashboard to update UI
+                const html = await renderDashboard();
+                const content = document.getElementById('page-content');
+                if (content) {
+                    content.innerHTML = html;
+                    window.setupDashboardEvents?.();
+                }
+                return;
+            }
+
+            // Step 1: Clear ALL memory caches FIRST so fresh data is fetched from Firestore
+            window.AppDB.cache.clear();            // clears DB read cache (attendance, users, work_plans, daily_summaries)
+            window.AppAnalytics?.clearMemo?.();    // clears analytics memoized datasets (hero shared, attendance ranges etc)
+
+            // Generate fresh summary data — runs against cleared caches, so Firestore is re-queried
+            const freshData = await window.AppAnalytics.buildDailyDashboardSummary({ dateKey: todayStr, selectedMonth: todayStr.slice(0, 7) });
+            
+            // Mark as refreshed
+            const payload = {
+                ...(freshData || {}),
+                heroRefreshCount: refreshCount + 1,
+                generatedAt: Date.now(),
+                generatedBy: currentUser.id,
+                version: Number(AppConfig?.SUMMARY_POLICY?.SCHEMA_VERSION || 1)
+            };
+
+            // Save to Firestore
+            await window.AppDB.putDailySummary(todayStr, payload);
+            await window.AppDB.setLatestSuccessfulSummaryMeta({
+                dateKey: todayStr,
+                generatedAt: payload.generatedAt,
+                version: payload.version
+            });
+
+            // Clear again so the re-render reads the newly-written Firestore doc, not a cached version
+            window.AppDB.invalidateCollectionCache('daily_summaries');
+            window.AppAnalytics?.clearMemo?.('analytics:heroShared');
+
+            alert("Hero stats refreshed successfully!");
+            
+            // Re-render
+            const html = await renderDashboard();
+            const content = document.getElementById('page-content');
+            if (content) {
+                content.innerHTML = html;
+                window.setupDashboardEvents?.();
+            }
+        } catch (err) {
+            console.error("Failed to force refresh hero:", err);
+            alert("Failed to refresh hero stats: " + err.message);
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = originalContent;
+            }
         }
     };
 }

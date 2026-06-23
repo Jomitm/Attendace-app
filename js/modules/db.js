@@ -65,9 +65,15 @@ export class Database {
     }
 
     invalidateCollectionCache(collectionName) {
+        // Evict legacy keys + new doc/all keys for this collection.
         const needle = `:${collectionName}:`;
+        const docNeedle = `doc:${collectionName}:`;
+        const allNeedle = `all:${collectionName}:`;
+
         for (const key of this.cache.keys()) {
-            if (key.includes(needle)) this.cache.delete(key);
+            if (key.includes(needle) || key.startsWith(docNeedle) || key.startsWith(allNeedle)) {
+                this.cache.delete(key);
+            }
         }
     }
 
@@ -357,7 +363,24 @@ export class Database {
             staleAfterMs: staleMs
         });
         if (fallback.summary && fallback.source === 'today' && this.isSummaryFresh(fallback.summary, staleMs)) {
-            return { ...fallback.summary, _source: 'shared_today' };
+            // Force recalculation after the cutoff hour if the summary was generated
+            // before the cutoff — ensures hero is scored with complete daily task data.
+            const cutoffHour = Number(AppConfig?.SUMMARY_POLICY?.RECOMPUTE_CUTOFF_HOUR_IST || 17);
+            const istNow = this.getIstNow();
+            const generatedAt = Number(fallback.summary.generatedAt || 0);
+            const generatedDate = generatedAt ? new Date(generatedAt) : null;
+            const generatedHourIST = generatedDate
+                ? new Date(generatedDate.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })).getHours()
+                : 0;
+            const needsPostCutoffRefresh = istNow.getHours() >= cutoffHour && generatedHourIST < cutoffHour;
+            if (!needsPostCutoffRefresh) {
+                return { ...fallback.summary, _source: 'shared_today' };
+            }
+            // Fall through to regeneration — clear analytics memo so generatorFn fetches fresh Firestore data
+            if (typeof window !== 'undefined' && window.AppAnalytics?.clearMemo) {
+                window.AppAnalytics.clearMemo('analytics:heroShared');
+                window.AppAnalytics.clearMemo('analytics:attendance');
+            }
         }
 
         const shouldGateOnFirstCheckIn = AppConfig?.SUMMARY_POLICY?.GENERATE_ON_FIRST_CHECKIN !== false;
@@ -439,6 +462,38 @@ export class Database {
         try {
             const source = String(options?.source || '').trim().toLowerCase();
             const canUseSource = source === 'server' || source === 'cache';
+
+            // Only cache the large, reused "work_plans" collection by default to avoid memory bloat.
+            const isWorkPlans = String(collectionName) === 'work_plans';
+            const ttlByCollection = AppConfig?.READ_CACHE_TTLS || {};
+            const shouldCache = isWorkPlans && source !== 'server';
+
+            const cacheKey = this.getCacheKey(
+                'all',
+                collectionName,
+                { source: canUseSource ? source : 'none' }
+            );
+
+            if (shouldCache) {
+                // expose where data came from (only for work_plans)
+                const wasHit = this.cache.has(cacheKey);
+                if (wasHit && this.cache.get(cacheKey)?.expiresAt > Date.now()) {
+                    window.app_workPlansLoadSource = 'hit';
+                } else {
+                    window.app_workPlansLoadSource = 'miss';
+                }
+
+                const ttlMs = ttlByCollection.workPlansAllReadMs || 60000;
+                return this.getCached(cacheKey, ttlMs, async () => {
+                    const snapshot = canUseSource
+                        ? await this.db.collection(collectionName).get({ source })
+                        : await this.db.collection(collectionName).get();
+                    const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+                    this.track('getAll', collectionName, data.length);
+                    return data;
+                });
+            }
+
             const snapshot = canUseSource
                 ? await this.db.collection(collectionName).get({ source })
                 : await this.db.collection(collectionName).get();
@@ -459,8 +514,43 @@ export class Database {
         try {
             const docId = String(id);
             const docRef = this.db.collection(collectionName).doc(docId);
+
             const source = String(options?.source || '').trim().toLowerCase();
             const canUseSource = source === 'server' || source === 'cache';
+
+            // Only cache work_plans doc reads by default to reuse full day plan payload.
+            const isWorkPlans = String(collectionName) === 'work_plans';
+            const ttlByCollection = AppConfig?.READ_CACHE_TTLS || {};
+            const shouldCache = isWorkPlans && source !== 'server';
+
+            const cacheKey = this.getCacheKey(
+                'doc',
+                collectionName,
+                { id: docId, source: canUseSource ? source : 'none' }
+            );
+
+            if (shouldCache) {
+                // expose where data came from (only for work_plans)
+                const wasHit = this.cache.has(cacheKey);
+                if (wasHit && this.cache.get(cacheKey)?.expiresAt > Date.now()) {
+                    window.app_workPlansLoadSource = 'hit';
+                } else {
+                    window.app_workPlansLoadSource = 'miss';
+                }
+
+                const ttlMs = ttlByCollection.workPlanReadMs || 60000;
+                return this.getCached(cacheKey, ttlMs, async () => {
+                    const doc = canUseSource ? await docRef.get({ source }) : await docRef.get();
+                    if (doc.exists) {
+                        this.track('get', collectionName, 1);
+                        return { ...doc.data(), id: doc.id };
+                    } else {
+                        this.track('get', collectionName, 0);
+                        return null;
+                    }
+                });
+            }
+
             const doc = canUseSource ? await docRef.get({ source }) : await docRef.get();
             if (doc.exists) {
                 this.track('get', collectionName, 1);
@@ -599,6 +689,26 @@ export class Database {
         }
     }
 
+
+    async queryManyStrict(collectionName, filters = [], options = {}) {
+        if (!this.db) throw new Error('Firestore is not initialized.');
+        let ref = this.db.collection(collectionName);
+        ref = this.applyFilters(ref, filters);
+        ref = this.applyOptions(ref, options);
+        const snapshot = await ref.get();
+        const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+        this.track('queryMany', collectionName, data.length);
+        return data;
+    }
+
+    async getDayPlansByDate(dateKey) {
+        const safeDate = String(dateKey || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(safeDate)) return [];
+        const plans = await this.queryManyStrict('work_plans', [
+            { field: 'date', operator: '==', value: safeDate }
+        ]);
+        return plans.filter((plan) => String(plan?.date || '').trim() === safeDate);
+    }
     async queryMany(collectionName, filters = [], options = {}) {
         const flags = this.getFlags();
         if (!flags.FF_READ_OPT_DB_QUERIES) return this.getAll(collectionName, { ...options, silentPermissionDenied: true });

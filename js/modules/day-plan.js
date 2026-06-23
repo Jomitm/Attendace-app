@@ -4,6 +4,12 @@ import { AppCalendar } from './calendar.js';
 import { AppConfig } from '../config.js';
 
 let aiAssistantModulePromise = null;
+const DAY_PLAN_OVERLAY_BASE_Z_INDEX = 10060;
+const DAY_PLAN_OVERLAY_STEP = 20;
+let dayPlanOverlaySequence = 0;
+let activeDayPlanRequestId = 0;
+const activeDayPlanLayers = new Set();
+const dayPlanLayerReleases = new WeakMap();
 async function getAIAssistant() {
     if (window.AppAIAssistant) return window.AppAIAssistant;
     if (!aiAssistantModulePromise) {
@@ -52,6 +58,35 @@ function scheduleNextPaint(callback) {
     window.setTimeout(callback, 0);
 }
 
+export function acquireOverlayLayer(element) {
+    if (!element) return () => {};
+    const token = Symbol('day-plan-overlay-layer');
+    activeDayPlanLayers.add(token);
+    dayPlanOverlaySequence += 1;
+    element.style.zIndex = String(DAY_PLAN_OVERLAY_BASE_Z_INDEX + (dayPlanOverlaySequence * DAY_PLAN_OVERLAY_STEP));
+
+    let released = false;
+    const release = () => {
+        if (released) return;
+        released = true;
+        activeDayPlanLayers.delete(token);
+        dayPlanLayerReleases.delete(element);
+        if (activeDayPlanLayers.size === 0) dayPlanOverlaySequence = 0;
+    };
+    dayPlanLayerReleases.set(element, release);
+    return release;
+}
+
+function releaseOverlayLayer(element) {
+    dayPlanLayerReleases.get(element)?.();
+}
+
+function removeOverlay(element) {
+    if (!element) return;
+    releaseOverlayLayer(element);
+    element.remove();
+}
+
 const DAY_PLAN_PREFETCH_TTL_MS = 15000;
 const dayPlanPrefetchCache = new Map();
 
@@ -64,6 +99,45 @@ async function getCachedDayPlanUsers() {
         return AppDB.getCached(cacheKey, ttl, () => AppDB.getAll('users'));
     }
     return AppDB.getAll('users');
+}
+
+async function getReferencedDayPlanUsers(dayPlans, targetId) {
+    const ids = new Set();
+    const fallbackUsers = new Map();
+    const safeTargetId = String(targetId || '').trim();
+    if (safeTargetId) ids.add(safeTargetId);
+
+    (dayPlans || []).forEach((plan) => {
+        const ownerId = String(plan?.userId || '').trim();
+        if (ownerId && ownerId !== 'annual_shared') {
+            ids.add(ownerId);
+            fallbackUsers.set(ownerId, {
+                id: ownerId,
+                name: String(plan?.userName || 'Staff')
+            });
+        }
+        (plan?.plans || []).forEach((task) => {
+            const assigneeId = String(task?.assignedTo || '').trim();
+            if (assigneeId && assigneeId !== 'annual_shared') ids.add(assigneeId);
+        });
+    });
+
+    const currentUser = AppAuth.getUser();
+    if (currentUser?.id) fallbackUsers.set(String(currentUser.id), currentUser);
+    const users = await Promise.all(Array.from(ids, async (id) => {
+        const user = await AppDB.get('users', id).catch(() => null);
+        return user || fallbackUsers.get(id) || { id, name: 'Staff' };
+    }));
+    return users.filter(Boolean);
+}
+
+async function loadDayPlanData(date, targetId) {
+    const [personalWorkPlan, annualWorkPlan, allDayPlans] = await Promise.all([
+        AppCalendar.getWorkPlan(targetId, date, { planScope: 'personal' }),
+        AppCalendar.getWorkPlan(targetId, date, { planScope: 'annual' }),
+        AppDB.getDayPlansByDate(date)
+    ]);
+    return { personalWorkPlan, annualWorkPlan, allDayPlans };
 }
 
 function buildBudgetHeadLookup() {
@@ -106,7 +180,8 @@ async function getRecentPersonalPlanHistory(targetId, beforeDate, targetUserName
 
     let historyRows = [];
     try {
-        const dateScopedRows = await AppDB.queryMany('work_plans', [
+        const dateScopedRows = await AppDB.queryManyStrict('work_plans', [
+            { field: 'userId', operator: '==', value: safeTargetId },
             { field: 'date', operator: '<', value: safeBeforeDate }
         ], {
             orderBy: [{ field: 'date', direction: 'desc' }],
@@ -114,21 +189,12 @@ async function getRecentPersonalPlanHistory(targetId, beforeDate, targetUserName
         });
         historyRows = (dateScopedRows || [])
             .filter((plan) =>
-                String(plan?.userId || '').trim() === safeTargetId
-                && String(plan?.planScope || 'personal').toLowerCase() === 'personal'
+                String(plan?.planScope || 'personal').toLowerCase() === 'personal'
             )
-            .slice(0, 8);
+            .slice(0, 30);
     } catch (queryErr) {
-        console.warn('Failed to query recent plan history, falling back to cached scan:', queryErr);
-        const allPlans = await AppDB.getAll('work_plans').catch(() => []);
-        historyRows = (allPlans || [])
-            .filter((plan) =>
-                String(plan?.userId || '').trim() === safeTargetId
-                && String(plan?.planScope || 'personal').toLowerCase() === 'personal'
-                && String(plan?.date || '').trim() < safeBeforeDate
-            )
-            .sort((a, b) => String(b?.date || '').localeCompare(String(a?.date || '')))
-            .slice(0, 8);
+        console.warn('Failed to query recent plan history:', queryErr);
+        historyRows = [];
     }
 
     const budgetLookup = buildBudgetHeadLookup();
@@ -254,7 +320,6 @@ function getDayPlanPrefetchRecord(date, targetUserId = null, forcedScope = null,
     const todayKey = AppCalendar?.getTodayKey ? AppCalendar.getTodayKey() : '';
     const safeDate = String(date || '').trim();
     const canPrefetchPlans = !!todayKey && safeDate > todayKey;
-    const usersPromise = getCachedDayPlanUsers();
     const record = {
         key,
         date: safeDate,
@@ -266,29 +331,19 @@ function getDayPlanPrefetchRecord(date, targetUserId = null, forcedScope = null,
             skipCarryForwardCleanup: options?.skipCarryForwardCleanup === true
         },
         expiresAt: now + DAY_PLAN_PREFETCH_TTL_MS,
-        usersPromise,
         dataPromise: null,
         promise: null
     };
 
     if (canPrefetchPlans) {
         record.dataPromise = (async () => {
-            const [allUsers, personalWorkPlan, annualWorkPlan, allDayPlans] = await Promise.all([
-                usersPromise,
-                AppCalendar.getWorkPlan(targetId, safeDate, { planScope: 'personal' }),
-                AppCalendar.getWorkPlan(targetId, safeDate, { planScope: 'annual' }),
-                AppDB.queryMany('work_plans', [{ field: 'date', operator: '==', value: safeDate }])
-            ]);
-            return {
-                allUsers,
-                personalWorkPlan,
-                annualWorkPlan,
-                allDayPlans
-            };
+            const data = await loadDayPlanData(safeDate, targetId);
+            const allUsers = await getReferencedDayPlanUsers(data.allDayPlans, targetId);
+            return { ...data, allUsers };
         })();
         record.promise = record.dataPromise;
     } else {
-        record.promise = usersPromise.then((allUsers) => ({ allUsers }));
+        record.promise = Promise.resolve(null);
     }
 
     record.promise.catch(() => {
@@ -421,7 +476,7 @@ function createDayPlanHeader(date, isEditingOther, headerName, hasAnyExistingPla
         className: 'day-plan-close-btn',
         attributes: { title: 'Close' },
         innerHTML: '<i class="fa-solid fa-xmark"></i>',
-        onClick: (e) => e.currentTarget.closest('.day-plan-modal-overlay').remove()
+        onClick: (e) => removeOverlay(e.currentTarget.closest('.day-plan-modal-overlay'))
     });
 
     const headerActions = createElement('div', {
@@ -445,7 +500,8 @@ function createDayPlanHeader(date, isEditingOther, headerName, hasAnyExistingPla
     });
 }
 
-function createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, initialBlocks, allUsers, defaultScope, selectableCollaborators, isAdmin, currentUser) {
+function createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, initialBlocks, allUsers, defaultScope, selectableCollaborators, isAdmin, currentUser, uiOptions = {}) {
+    const personalOnly = uiOptions?.personalOnly === true;
     const batchSize = 4;
     const scopeBuckets = {
         personal: [],
@@ -566,7 +622,16 @@ function createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, ini
                 className: 'day-plan-new-task-btn',
                 innerHTML: '<i class="fa-solid fa-plus"></i><span>New Task</span>',
                 onClick: () => openPlanEditor({ date, targetId, scope: 'personal', allUsers, selectableCollaborators, isAdmin, container: personalNewContainer })
-            })
+            }),
+            ...(personalOnly ? [createButton({
+                className: 'day-plan-context-link',
+                attributes: { title: 'Open Team Activity' },
+                innerHTML: '<i class="fa-solid fa-chart-line"></i><span>Team Activity</span>',
+                onClick: () => {
+                    removeOverlay(document.getElementById('day-plan-modal'));
+                    window.app_openTeamActivitiesForStaff?.(targetId, date, 'time-desc');
+                }
+            })] : [])
         ]
     });
 
@@ -611,7 +676,7 @@ function createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, ini
                 attributes: { title: 'Open Team Schedule' },
                 innerHTML: '<i class="fa-solid fa-calendar-days"></i><span>Schedule</span>',
                 onClick: () => {
-                    document.getElementById('day-plan-modal')?.remove();
+                    removeOverlay(document.getElementById('day-plan-modal'));
                     if (typeof window.app_openDashboardSection === 'function') {
                         window.app_openDashboardSection('team-schedule');
                     } else {
@@ -698,7 +763,7 @@ function createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, ini
     const discardBtn = createButton({
         className: 'day-plan-discard-btn',
         textContent: 'Discard',
-        onClick: (e) => e.currentTarget.closest('.day-plan-modal-overlay').remove()
+        onClick: (e) => removeOverlay(e.currentTarget.closest('.day-plan-modal-overlay'))
     });
 
     const saveBtn = createButton({
@@ -776,8 +841,21 @@ function createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, ini
     return form;
 }
 
-export function openPlanEditor(args) {
-    const { date, targetId, scope, allUsers, selectableCollaborators, isAdmin, container, existingBlock = null } = args;
+export async function openPlanEditor(args) {
+    const {
+        date,
+        targetId,
+        scope,
+        allUsers: initialUsers = [],
+        selectableCollaborators: initialCollaborators = [],
+        isAdmin,
+        container,
+        existingBlock = null
+    } = args;
+    const allUsers = isAdmin ? await getCachedDayPlanUsers() : initialUsers;
+    const selectableCollaborators = isAdmin
+        ? allUsers.filter((user) => user.id !== targetId)
+        : initialCollaborators;
     const currentUser = AppAuth.getUser();
     const planData = existingBlock ? window.app_extractBlockData(existingBlock) : {
         task: '',
@@ -793,18 +871,15 @@ export function openPlanEditor(args) {
     };
 
     const overlay = createElement('div', { className: 'plan-editor-overlay' });
-    const openLayers = Array.from(document.querySelectorAll('.day-plan-modal-overlay, .modal-overlay, .modal, .dashboard-max-overlay, .dashboard-max-window, .hero-task-modal-overlay, .hero-task-modal-shell'));
-    const maxZ = openLayers.reduce((acc, el) => {
-        const z = Number.parseInt(window.getComputedStyle(el).zIndex, 10);
-        return Number.isFinite(z) ? Math.max(acc, z) : acc;
-    }, 10040);
-    overlay.style.zIndex = String(maxZ + 20);
+    acquireOverlayLayer(overlay);
     const modal = createElement('div', { className: 'plan-editor-modal' });
 
+    const headTitle = `${existingBlock ? 'Edit' : 'Add'} ${scope === 'annual' ? 'Annual' : 'Personal'} Plan`;
     const head = createElement('div', {
         className: 'plan-editor-head',
-        innerHTML: `<h4>${existingBlock ? 'Edit' : 'Add'} ${scope === 'annual' ? 'Annual' : 'Personal'} Plan</h4>`
+        children: [createElement('h4', { textContent: headTitle })]
     });
+
 
     const body = createElement('div', { className: 'plan-editor-body' });
     const textarea = createElement('textarea', {
@@ -933,83 +1008,97 @@ export function openPlanEditor(args) {
         className: 'action-btn secondary plan-editor-ai-btn',
         innerHTML: '<i class="fa-solid fa-wand-magic-sparkles"></i> Draft with AI',
         onClick: async () => {
-            const aiAssistant = await getAIAssistant();
-            if (!aiAssistant?.requestAssistant) {
-                assistantPreview.textContent = 'No AI suggestions available, please draft manually.';
-                return;
-            }
-            const currentSourceScope = `Day plan for ${date} (${scope === 'annual' ? 'annual' : 'personal'})`;
-            const collabNames = Array.isArray(selectableCollaborators)
-                ? selectableCollaborators.slice(0, 12).map((u) => ({ id: u.id, name: u.name }))
-                : [];
-            const currentSubPlans = Array.from(subPlanList.querySelectorAll('.plan-editor-subplan-input'))
-                .map((input) => String(input.value || '').trim())
-                .filter(Boolean);
-            const currentPlan = {
-                task: String(textarea.value || '').trim(),
-                subPlans: currentSubPlans,
-                status: String(statusSelect.value || ''),
-                budgetHeadId: String(budgetSelect.value || ''),
-                assignedTo: String(assignSelect ? assignSelect.value : (planData.assignedTo || targetId) || ''),
-                startDate: String(planData.startDate || date || ''),
-                endDate: String(planData.endDate || date || '')
-            };
-            const historySummary = await getRecentPersonalPlanHistory(targetId, date, currentUser?.name || '');
-            const context = buildStaffDraftContext({
-                date,
-                scope,
-                action: String(aiActionSelect.value || 'draft'),
-                currentPlan,
-                collaborators: collabNames,
-                historySummary,
-                notes: 'Staff should receive editable drafts only. Compare the draft against recent personal plan patterns.'
-            });
             const previousLabel = aiRunBtn.innerHTML;
             aiRunBtn.disabled = true;
-            aiRunBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Drafting...';
-            assistantPreview.textContent = historySummary?.historyAvailable
-                ? 'Contacting AI assistant with your recent personal plan history...'
-                : 'Contacting AI assistant...';
             try {
+                const aiAssistant = await getAIAssistant();
+                if (!aiAssistant?.requestAssistant) {
+                    assistantPreview.textContent = 'No AI suggestions available, please draft manually.';
+                    return;
+                }
+
+                aiRunBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Drafting...';
+
+                const currentSourceScope = `Day plan for ${date} (${scope === 'annual' ? 'annual' : 'personal'})`;
+                const collabNames = Array.isArray(selectableCollaborators)
+                    ? selectableCollaborators.slice(0, 12).map((u) => ({ id: u.id, name: u.name }))
+                    : [];
+
+                const currentSubPlans = Array.from(subPlanList.querySelectorAll('.plan-editor-subplan-input'))
+                    .map((input) => String(input.value || '').trim())
+                    .filter(Boolean);
+
+                const currentPlan = {
+                    task: String(textarea.value || '').trim(),
+                    subPlans: currentSubPlans,
+                    status: String(statusSelect.value || ''),
+                    budgetHeadId: String(budgetSelect.value || ''),
+                    assignedTo: String(assignSelect ? assignSelect.value : (planData.assignedTo || targetId) || ''),
+                    startDate: String(planData.startDate || date || ''),
+                    endDate: String(planData.endDate || date || '')
+                };
+
+                const historySummary = await getRecentPersonalPlanHistory(targetId, date, currentUser?.name || '');
+                assistantPreview.textContent = historySummary?.historyAvailable
+                    ? 'Contacting AI assistant with your recent personal plan history...'
+                    : 'Contacting AI assistant...';
+
+                const context = buildStaffDraftContext({
+                    date,
+                    scope,
+                    action: String(aiActionSelect.value || 'draft'),
+                    currentPlan,
+                    collaborators: collabNames,
+                    historySummary,
+                    notes: 'Staff should receive editable drafts only. Compare the draft against recent personal plan patterns.'
+                });
+
                 const result = await aiAssistant.requestAssistant({
                     mode: 'staff-plan',
                     context,
                     user: currentUser,
                     sourceScope: currentSourceScope
                 });
+
                 assistantPreview.innerHTML = `
                     <div class="plan-editor-ai-summary"><strong>Summary:</strong> ${esc(result.summary || '')}</div>
                     ${Array.isArray(result.suggestedActions) && result.suggestedActions.length ? `<ul class="plan-editor-ai-actions">${result.suggestedActions.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}
                     ${Array.isArray(result.warnings) && result.warnings.length ? `<div class="plan-editor-ai-warnings"><strong>Warnings:</strong> ${result.warnings.map((item) => esc(item)).join(' • ')}</div>` : ''}
                     <div class="plan-editor-ai-source"><strong>Source:</strong> ${esc(result.sourceScope || currentSourceScope)}</div>
                 `;
+
                 const suggestedTaskText = String(result?.draft?.task || result?.summary || result?.suggestedActions?.[0] || '').trim();
                 if (suggestedTaskText) {
                     textarea.value = suggestedTaskText;
                     textarea.dispatchEvent(new Event('input', { bubbles: true }));
                     textarea.focus();
                 }
+
                 const nextSteps = Array.isArray(result?.draft?.subPlans) ? result.draft.subPlans.filter(Boolean) : [];
                 if (nextSteps.length > 0) {
                     subPlanList.innerHTML = '';
                     nextSteps.forEach((step) => appendSubPlanRow(step));
                 }
+
                 if (result?.draft?.status) statusSelect.value = result.draft.status;
+
                 const suggestedBudgetHeadId = String(result?.draft?.budgetHeadId || '').trim()
                     || (historySummary?.recurringBudgetHeads?.[0]?.count >= 2 ? String(historySummary.recurringBudgetHeads[0].id || '').trim() : '');
                 if (suggestedBudgetHeadId && (!budgetSelect.value || budgetSelect.value === 'UNALLOCATED')) {
                     budgetSelect.value = suggestedBudgetHeadId;
                 }
+
                 if (assignSelect && result?.draft?.assignedTo) assignSelect.value = result.draft.assignedTo;
             } catch (err) {
                 console.warn('AI draft generation failed:', err);
-                assistantPreview.textContent = aiAssistant.FALLBACK_MESSAGE || 'No AI suggestions available, please draft manually.';
+                assistantPreview.textContent = 'No AI suggestions available, please draft manually.';
             } finally {
                 aiRunBtn.disabled = false;
                 aiRunBtn.innerHTML = previousLabel;
             }
         }
     });
+
     assistantControls.appendChild(aiActionSelect);
     assistantControls.appendChild(aiRunBtn);
     const assistantPreview = createElement('div', {
@@ -1025,7 +1114,7 @@ export function openPlanEditor(args) {
     const cancelBtn = createButton({
         className: 'day-plan-discard-btn',
         textContent: 'Cancel',
-        onClick: () => overlay.remove()
+        onClick: () => removeOverlay(overlay)
     });
     const confirmBtn = createButton({
         className: 'day-plan-save-btn',
@@ -1067,7 +1156,7 @@ export function openPlanEditor(args) {
                     form.dataset.nextPlanIndex = String((Number.isFinite(nextIndex) ? nextIndex : container.querySelectorAll('.plan-block').length) + 1);
                 }
             }
-            overlay.remove();
+            removeOverlay(overlay);
         }
     });
 
@@ -1079,8 +1168,205 @@ export function openPlanEditor(args) {
     modal.appendChild(footer);
     overlay.appendChild(modal);
 
-    document.getElementById('modal-container').appendChild(overlay);
+    const modalContainer = document.getElementById('modal-container');
+    if (!modalContainer || !container?.isConnected) {
+        releaseOverlayLayer(overlay);
+        return;
+    }
+    modalContainer.appendChild(overlay);
     textarea.focus();
+}
+
+export async function quickAddPersonalPlan(date = null, targetUserId = null) {
+    const currentUser = AppAuth.getUser();
+    if (!currentUser?.id) return;
+    const safeDate = String(date || AppCalendar.getTodayKey?.() || new Date().toISOString().slice(0, 10)).trim();
+    const targetId = String(targetUserId || currentUser.id).trim() || currentUser.id;
+
+    document.getElementById('quick-personal-plan-modal')?.remove();
+    document.getElementById('quick-personal-plan-overlay')?.remove();
+
+    const overlay = createElement('div', {
+        id: 'quick-personal-plan-overlay',
+        className: 'plan-editor-overlay quick-personal-plan-overlay'
+    });
+    acquireOverlayLayer(overlay);
+
+    const modal = createElement('div', {
+        id: 'quick-personal-plan-modal',
+        className: 'plan-editor-modal quick-personal-plan-modal'
+    });
+
+    const head = createElement('div', {
+        className: 'plan-editor-head',
+        children: [
+            createElement('h4', { textContent: 'Add Personal Plan' }),
+            createElement('p', {
+                className: 'plan-editor-section-copy',
+                textContent: 'Add one personal task directly without loading the full schedule.'
+            })
+        ]
+    });
+
+    const body = createElement('div', { className: 'plan-editor-body' });
+    const taskField = createElement('textarea', {
+        className: 'plan-editor-textarea',
+        attributes: {
+            placeholder: 'What do you want to add to your personal plan?',
+            required: true
+        }
+    });
+    body.appendChild(taskField);
+
+    const grid = createElement('div', { className: 'plan-editor-grid' });
+
+    const dateField = createElement('div', { className: 'plan-editor-field' });
+    dateField.innerHTML = '<label>Date</label>';
+    const dateInput = createElement('input', {
+        className: 'plan-editor-select',
+        attributes: {
+            type: 'date',
+            value: safeDate
+        }
+    });
+    dateField.appendChild(dateInput);
+    grid.appendChild(dateField);
+
+    const statusField = createElement('div', { className: 'plan-editor-field' });
+    statusField.innerHTML = '<label>Status</label>';
+    const statusSelect = createElement('select', { className: 'plan-editor-select' });
+    statusSelect.innerHTML = `
+        <option value="" selected>Auto-Track</option>
+        <option value="completed">Completed</option>
+        <option value="in-process">In Progress</option>
+        <option value="not-completed">Postponed</option>
+    `;
+    statusField.appendChild(statusSelect);
+    grid.appendChild(statusField);
+    body.appendChild(grid);
+
+    const stepsField = createElement('div', { className: 'plan-editor-subplans' });
+    stepsField.innerHTML = `
+        <div class="plan-editor-section-head">
+            <div>
+                <label>Break into steps</label>
+                <p class="plan-editor-section-copy">Optional. Keep the task small and actionable.</p>
+            </div>
+        </div>
+    `;
+    const subPlanList = createElement('div', { className: 'plan-editor-subplans-list' });
+    const appendStepRow = (value = '') => {
+        const row = createElement('div', { className: 'plan-editor-subplan-row' });
+        const input = createElement('input', {
+            className: 'plan-editor-subplan-input',
+            attributes: {
+                type: 'text',
+                placeholder: 'Add a step...',
+                value
+            }
+        });
+        const removeBtn = createButton({
+            className: 'day-plan-remove-step-btn plan-editor-subplan-remove',
+            attributes: { title: 'Remove step' },
+            innerHTML: '<i class="fa-solid fa-circle-xmark"></i>',
+            onClick: () => row.remove()
+        });
+        row.appendChild(input);
+        row.appendChild(removeBtn);
+        subPlanList.appendChild(row);
+        return input;
+    };
+    appendStepRow('');
+    const addStepBtn = createButton({
+        className: 'day-plan-add-step-btn plan-editor-add-step-btn',
+        innerHTML: '<i class="fa-solid fa-plus"></i> Add step',
+        onClick: () => appendStepRow('').focus()
+    });
+    stepsField.appendChild(subPlanList);
+    stepsField.appendChild(addStepBtn);
+    body.appendChild(stepsField);
+
+    const footer = createElement('div', { className: 'plan-editor-footer' });
+    const cancelBtn = createButton({
+        className: 'day-plan-discard-btn',
+        textContent: 'Cancel',
+        onClick: () => removeOverlay(overlay)
+    });
+    const saveBtn = createButton({
+        className: 'day-plan-save-btn',
+        textContent: 'Add Personal Plan',
+        onClick: async () => {
+            const taskText = String(taskField.value || '').trim();
+            if (!taskText) {
+                alert('Please enter a task description');
+                taskField.focus();
+                return;
+            }
+
+            const selectedDate = String(dateInput.value || safeDate || '').trim();
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(selectedDate)) {
+                alert('Please choose a valid date');
+                dateInput.focus();
+                return;
+            }
+
+            const stepItems = Array.from(subPlanList.querySelectorAll('.plan-editor-subplan-input'))
+                .map((input) => String(input.value || '').trim())
+                .filter(Boolean);
+
+            try {
+                const existingPlan = await AppCalendar.getWorkPlan(targetId, selectedDate, { planScope: 'personal' });
+                const nextPlans = Array.isArray(existingPlan?.plans)
+                    ? existingPlan.plans.filter((task) => task && task.isRemoved !== true)
+                    : [];
+
+                nextPlans.push({
+                    task: taskText,
+                    subPlans: stepItems,
+                    tags: [],
+                    status: statusSelect.value || null,
+                    assignedTo: targetId,
+                    budgetHeadId: currentUser.currentBudgetHeadId || 'UNALLOCATED',
+                    startDate: selectedDate,
+                    endDate: selectedDate,
+                    planScope: 'personal',
+                    carryForwardRootId: '',
+                    isRemoved: false
+                });
+
+                await AppCalendar.setWorkPlan(selectedDate, nextPlans, targetId, { planScope: 'personal' });
+                if (window.AppStore?.invalidatePlans) window.AppStore.invalidatePlans();
+                removeOverlay(overlay);
+                if (typeof window.app_refreshCurrentPage === 'function') {
+                    await window.app_refreshCurrentPage();
+                } else if (typeof window.app_refreshDashboard === 'function') {
+                    await window.app_refreshDashboard();
+                }
+            } catch (err) {
+                console.error('Quick add personal plan failed:', err);
+                alert(err?.message || 'Unable to save the personal plan.');
+            }
+        }
+    });
+    footer.appendChild(cancelBtn);
+    footer.appendChild(saveBtn);
+
+    modal.appendChild(head);
+    modal.appendChild(body);
+    modal.appendChild(footer);
+    overlay.appendChild(modal);
+
+    const modalContainer = document.getElementById('modal-container') || document.body;
+    modalContainer.appendChild(overlay);
+    taskField.focus();
+}
+
+export async function quickEditPersonalPlan(date = null, targetUserId = null) {
+    const currentUser = AppAuth.getUser();
+    if (!currentUser?.id) return;
+    const safeDate = String(date || AppCalendar.getTodayKey?.() || new Date().toISOString().slice(0, 10)).trim();
+    const targetId = String(targetUserId || currentUser.id).trim() || currentUser.id;
+    window.app_openTeamActivitiesForStaff?.(targetId, safeDate, 'time-desc');
 }
 
 // --- Main Functions ---
@@ -1308,6 +1594,12 @@ function scheduleDayPlanMaintenance({ date, targetId, forcedScope, options, moda
 
 export async function openDayPlan(date, targetUserId = null, forcedScope = null, options = {}) {
     if (window.performance?.mark) window.performance.mark('day-plan-open-start');
+    const dateKey = String(date || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+        console.warn('Cannot open day plan for invalid date:', date);
+        return;
+    }
+    const requestId = ++activeDayPlanRequestId;
     const currentUser = AppAuth.getUser();
     const targetIdRaw = String(targetUserId ?? '').trim();
     const targetId = (!targetIdRaw || targetIdRaw === 'undefined' || targetIdRaw === 'null') ? currentUser.id : targetIdRaw;
@@ -1317,20 +1609,43 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
     const hideAutoForwardedTasks = options?.hideAutoForwardedTasks === true;
     window.app_currentDayPlanTargetId = targetId;
     const todayKey = AppCalendar?.getTodayKey ? AppCalendar.getTodayKey() : '';
-    const prefetchRecord = getDayPlanPrefetchRecord(date, targetId, forcedScope, options);
+    const prefetchRecord = getDayPlanPrefetchRecord(dateKey, targetId, forcedScope, options);
 
     const modalOverlay = createElement('div', {
         id: 'day-plan-modal',
         className: 'day-plan-modal-overlay',
-        attributes: { 'data-plan-date': date }
+        attributes: { 'data-plan-date': dateKey }
     });
+
+    const sourceBadge = createElement('div', {
+        className: 'day-plan-db-source-badge',
+        textContent: 'work_plans: ...',
+        attributes: { 'aria-hidden': 'true' }
+    });
+
+    // Ensure badge is visible even if modal content overflows.
+    sourceBadge.style.position = 'fixed';
+    sourceBadge.style.right = '16px';
+    sourceBadge.style.bottom = '16px';
+    sourceBadge.style.zIndex = '999999';
+    sourceBadge.style.fontSize = '12px';
+    sourceBadge.style.fontWeight = '800';
+    sourceBadge.style.padding = '6px 10px';
+    sourceBadge.style.borderRadius = '999px';
+    sourceBadge.style.background = 'rgba(15, 23, 42, 0.92)';
+    sourceBadge.style.color = '#fff';
+    sourceBadge.style.pointerEvents = 'none';
+    sourceBadge.style.boxShadow = '0 6px 18px rgba(0,0,0,0.25)';
+
+    // Attach immediately; then we update after hydration.
+    modalOverlay.appendChild(sourceBadge);
 
     const modalContent = createElement('div', {
         className: 'day-plan-content'
     });
 
     const headerWrap = createElement('div', { className: 'day-plan-header-wrap' });
-    headerWrap.appendChild(createDayPlanHeader(date, isEditingOther, 'Staff', false, targetId));
+    headerWrap.appendChild(createDayPlanHeader(dateKey, isEditingOther, 'Staff', false, targetId));
 
     const bodyWrap = createElement('div', { className: 'day-plan-body-wrap' });
     bodyWrap.appendChild(createDayPlanLoadingState());
@@ -1342,8 +1657,9 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
     const container = document.getElementById('modal-container');
     if (!container) return;
     const existing = document.getElementById('day-plan-modal');
-    if (existing) existing.remove();
+    if (existing) removeOverlay(existing);
 
+    acquireOverlayLayer(modalOverlay);
     container.appendChild(modalOverlay);
     if (window.performance?.mark) window.performance.mark('day-plan-shell-mounted');
     if (window.performance?.measure) {
@@ -1353,50 +1669,49 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
             // Ignore duplicate or missing marks.
         }
     }
-    const modalEl = document.getElementById('day-plan-modal');
-    if (modalEl) {
-        const overlays = Array.from(document.querySelectorAll('.modal-overlay, .modal, .dashboard-max-overlay, .dashboard-max-window, .hero-task-modal-overlay, .hero-task-modal-shell'))
-            .filter(el => el !== modalEl);
-        const maxZ = overlays.reduce((acc, el) => {
-            const z = Number.parseInt(window.getComputedStyle(el).zIndex, 10);
-            return Number.isFinite(z) ? Math.max(acc, z) : acc;
-        }, 1000);
-        modalEl.style.zIndex = String(maxZ + 20);
-    }
+    const isCurrentRequest = () =>
+        requestId === activeDayPlanRequestId
+        && modalOverlay.isConnected
+        && document.getElementById('day-plan-modal') === modalOverlay;
 
     scheduleNextPaint(async () => {
-        const activeModal = document.getElementById('day-plan-modal');
-        if (!activeModal || !activeModal.isConnected) return;
+        if (!isCurrentRequest()) return;
 
         if (window.performance?.mark) window.performance.mark('day-plan-hydrate-start');
         try {
-            const usersPromise = prefetchRecord?.usersPromise || getCachedDayPlanUsers();
 
-            const canUsePrefetchedPlans = !!todayKey && String(date || '').trim() > todayKey;
+            const canUsePrefetchedPlans = !!todayKey && dateKey > todayKey;
             let allUsers = null;
             let personalWorkPlan = null;
             let annualWorkPlan = null;
             let allDayPlans = null;
 
-            if (canUsePrefetchedPlans && prefetchRecord?.dataPromise) {
+            if (options?.personalOnly === true) {
+                personalWorkPlan = await AppCalendar.getWorkPlan(targetId, dateKey, { planScope: 'personal' });
+                annualWorkPlan = null;
+                allDayPlans = [];
+                allUsers = [currentUser];
+                if (targetId !== currentUser.id) {
+                    const targetUser = await AppDB.get('users', targetId).catch(() => null);
+                    if (targetUser) allUsers.push(targetUser);
+                }
+            } else if (canUsePrefetchedPlans && prefetchRecord?.dataPromise) {
                 const prefetched = await prefetchRecord.dataPromise;
                 allUsers = prefetched?.allUsers || null;
                 personalWorkPlan = prefetched?.personalWorkPlan || null;
                 annualWorkPlan = prefetched?.annualWorkPlan || null;
                 allDayPlans = prefetched?.allDayPlans || null;
             } else {
-                allUsers = await usersPromise;
+                // Fire personal & annual plan fetches immediately — they don't depend on allUsers.
+                const data = await loadDayPlanData(dateKey, targetId);
+                personalWorkPlan = data.personalWorkPlan;
+                annualWorkPlan = data.annualWorkPlan;
+                allDayPlans = data.allDayPlans;
             }
-            if (!activeModal.isConnected) return;
+            if (!isCurrentRequest()) return;
+            if (!allUsers) allUsers = await getReferencedDayPlanUsers(allDayPlans, targetId);
+            if (!isCurrentRequest()) return;
 
-            if (!canUsePrefetchedPlans) {
-                [personalWorkPlan, annualWorkPlan, allDayPlans] = await Promise.all([
-                    AppCalendar.getWorkPlan(targetId, date, { planScope: 'personal' }),
-                    AppCalendar.getWorkPlan(targetId, date, { planScope: 'annual' }),
-                    AppDB.queryMany('work_plans', [{ field: 'date', operator: '==', value: date }])
-                ]);
-            }
-            if (!activeModal.isConnected) return;
 
             const hasAnyExistingPlan = !!(personalWorkPlan || annualWorkPlan);
             const targetUser = allUsers.find(u => u.id === targetId);
@@ -1417,8 +1732,8 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
             };
 
             const othersPlans = (allDayPlans || []).filter(p =>
-                p.id !== AppCalendar.getWorkPlanId(date, targetId, 'personal') &&
-                p.id !== AppCalendar.getWorkPlanId(date, targetId, 'annual')
+                p.id !== AppCalendar.getWorkPlanId(dateKey, targetId, 'personal') &&
+                p.id !== AppCalendar.getWorkPlanId(dateKey, targetId, 'annual')
             );
 
             const othersBlocks = [];
@@ -1439,20 +1754,30 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
                     status: null,
                     budgetHeadId: AppAuth.getUser()?.currentBudgetHeadId || 'UNALLOCATED',
                     assignedTo: targetId,
-                    startDate: date,
-                    endDate: date,
+                    startDate: dateKey,
+                    endDate: dateKey,
                     planScope: defaultScope
                 });
             }
 
-            headerWrap.replaceChildren(createDayPlanHeader(date, isEditingOther, headerName, hasAnyExistingPlan, targetId));
-            bodyWrap.replaceChildren(createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, initialBlocks, allUsers, defaultScope, selectableCollaborators, isAdmin, currentUser));
+            headerWrap.replaceChildren(createDayPlanHeader(dateKey, isEditingOther, headerName, hasAnyExistingPlan, targetId));
+            bodyWrap.replaceChildren(createDayPlanForm(dateKey, targetId, personalWorkPlan, annualWorkPlan, initialBlocks, allUsers, defaultScope, selectableCollaborators, isAdmin, currentUser, options));
+            if (options?.personalOnly === true) {
+                const workspace = modalContent.querySelector('.day-plan-workspace');
+                const contextColumn = modalContent.querySelector('.day-plan-context-column');
+                if (workspace) workspace.style.gridTemplateColumns = '1fr';
+                contextColumn?.remove();
+            }
             const subtitle = modalContent.querySelector('.day-plan-subline');
             if (subtitle) {
-                subtitle.textContent = isEditingOther ? `${formatFriendlyDate(date) || date} · Editing for ${headerName}` : (formatFriendlyDate(date) || date);
+                subtitle.textContent = isEditingOther ? `${formatFriendlyDate(dateKey) || dateKey} · Editing for ${headerName}` : (formatFriendlyDate(dateKey) || dateKey);
             }
             const kicker = modalContent.querySelector('.day-plan-kicker');
             if (kicker) kicker.textContent = 'Today';
+            if (sourceBadge) {
+                const src = window.app_workPlansLoadSource === 'hit' ? 'cache hit' : 'firestore read';
+                sourceBadge.textContent = `work_plans: ${src}`;
+            }
             if (window.performance?.mark) window.performance.mark('day-plan-hydrate-end');
             if (window.performance?.measure) {
                 try {
@@ -1461,10 +1786,21 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
                     // Ignore duplicate or missing marks.
                 }
             }
-            scheduleDayPlanMaintenance({ date, targetId, forcedScope, options, modalContent });
+            // After personal/annual are ready, the shared/others blocks are rendered progressively
+            // by IntersectionObserver inside createDayPlanForm().
+            // (We intentionally avoid an additional “others” hydration pass here to prevent duplicates
+            // and extra Firestore reads.)
+
+            // Mark personal/annual hydration complete.
+            if (window.performance?.mark) window.performance.mark('day-plan-personal-annual-hydrate-done');
+            scheduleDayPlanMaintenance({ date: dateKey, targetId, forcedScope, options, modalContent });
+
+
         } catch (err) {
             console.error('Failed to open day plan:', err);
-            bodyWrap.replaceChildren(createDayPlanLoadingState(`Unable to load the day plan${err?.message ? `: ${err.message}` : ''}`));
+            if (isCurrentRequest()) {
+                bodyWrap.replaceChildren(createDayPlanLoadingState(`Unable to load the day plan${err?.message ? `: ${err.message}` : ''}`));
+            }
         }
     });
 }
@@ -1500,6 +1836,8 @@ const AppDayPlan = {
     addPlanBlockUI,
     openPlanEditor,
     prefetchDayPlan,
+    quickAddPersonalPlan,
+    quickEditPersonalPlan,
     app_extractBlockData
 };
 
@@ -1508,6 +1846,8 @@ window.app_openDayPlan = openDayPlan;
 window.app_dayPlanRenderBlockV3 = dayPlanRenderBlockV3;
 window.app_addPlanBlockUI = addPlanBlockUI;
 window.app_prefetchDayPlan = prefetchDayPlan;
+window.app_quickAddPersonalPlan = quickAddPersonalPlan;
+window.app_quickEditPersonalPlan = quickEditPersonalPlan;
 window.app_extractBlockData = app_extractBlockData;
 window.app_markTaskRemoved = function (block) {
     if (!block) return;

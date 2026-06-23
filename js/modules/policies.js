@@ -41,6 +41,10 @@ export const AppPolicies = {
         const fy = await AppLeaves.getFinancialYear();
         const isFullAdmin = window.app_hasPerm('policies', 'admin', user);
         const canManageHolidays = this.canManageHolidays(user);
+        const canManageAttendance = !!(
+            window.app_canManageAttendanceSheet?.(user)
+            || window.app_hasPerm?.('attendance', 'admin', user)
+        );
 
         let lateCount = 0;
         try {
@@ -63,12 +67,16 @@ export const AppPolicies = {
             console.warn('Error calc lates', e);
         }
 
-        const balancePromises = Object.keys(policy).map(async type => {
+        const leaveTypes = Object.entries(policy).filter(([type, rules]) =>
+            type !== 'heroPolicy' && rules && typeof rules === 'object' && Object.prototype.hasOwnProperty.call(rules, 'total')
+        );
+
+        const balancePromises = leaveTypes.map(async ([type, rules]) => {
             const usage = await AppLeaves.getLeaveUsage(user.id, type, fy);
             return {
                 type,
                 usage,
-                total: policy[type].total,
+                total: rules.total,
                 icon: this.getIconForType(type),
                 color: this.getColorForType(type)
             };
@@ -99,9 +107,16 @@ export const AppPolicies = {
                                 <h2>My Leave Balance</h2>
                                 <p class="text-muted">Financial Year ${fy.label}</p>
                             </div>
-                            <button onclick="document.getElementById('leave-modal').style.display='flex'" class="action-btn policies-request-btn">
-                                <i class="fa-solid fa-paper-plane"></i> Request Leave
-                            </button>
+                            <div style="display:flex; gap:0.5rem; flex-wrap:wrap; justify-content:flex-end;">
+                                ${canManageAttendance ? `
+                                    <button onclick="window.app_syncLeaveCategoriesFromAttendance({ silent: false })" class="action-btn secondary policies-request-btn">
+                                        <i class="fa-solid fa-arrows-rotate"></i> Sync Leave Categories
+                                    </button>
+                                ` : ''}
+                                <button onclick="document.getElementById('leave-modal').style.display='flex'" class="action-btn policies-request-btn">
+                                    <i class="fa-solid fa-paper-plane"></i> Request Leave
+                                </button>
+                            </div>
                         </div>
 
                         <div class="policies-late-chip">
@@ -455,4 +470,3 @@ export const AppPolicies = {
 };
 
 if (typeof window !== 'undefined') window.AppPolicies = AppPolicies;
-

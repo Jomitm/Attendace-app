@@ -252,6 +252,9 @@ export async function renderMasterSheet(month = null, year = null) {
                         <button onclick="window.app_runHalfDayLeaveFixForVisibleMonth()" class="action-btn secondary" style="padding:0.4rem 0.75rem; font-size:0.8rem;">
                             <i class="fa-solid fa-wand-magic-sparkles"></i> Fix Incorrect Half Day Leaves
                         </button>
+                        <button onclick="window.app_syncLeaveCategoriesForVisibleMonth()" class="action-btn secondary" style="padding:0.4rem 0.75rem; font-size:0.8rem;">
+                            <i class="fa-solid fa-arrows-rotate"></i> Sync Leave Categories
+                        </button>
                         <button onclick="window.app_exportMasterSheet()" class="action-btn secondary" style="padding:0.4rem 0.75rem; font-size:0.8rem;">
                             <i class="fa-solid fa-file-excel"></i> Export Excel
                         </button>
@@ -376,4 +379,3 @@ export async function renderMasterSheet(month = null, year = null) {
             </div>
         </div>`;
 }
-

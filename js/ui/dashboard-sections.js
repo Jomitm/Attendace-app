@@ -372,7 +372,13 @@ const renderTeamScheduleSection = async (from, to) => {
         title: 'Team Schedule',
         html: `
             <div class="card">
-                <h4>Planned Work</h4>
+                <div class="dashboard-section-inline-actions" style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+                    <h4 style="margin:0;">Planned Work</h4>
+                    <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                        <button type="button" class="action-btn secondary" onclick="window.app_quickAddPersonalPlan?.()" title="Add Personal Plan">Add Personal Plan</button>
+                        <button type="button" class="action-btn secondary" onclick="window.app_quickEditPersonalPlan?.()" title="Edit Personal Plan">Edit Personal Plan</button>
+                    </div>
+                </div>
                 <div class="table-container"><table class="data-table"><thead><tr><th>Date</th><th>Staff</th><th>Tasks</th><th>Action</th></tr></thead><tbody>${planRows || '<tr><td colspan="4">No planned work in range.</td></tr>'}</tbody></table></div>
             </div>
             <div class="card">

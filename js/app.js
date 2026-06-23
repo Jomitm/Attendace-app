@@ -9243,11 +9243,12 @@ window.app_submitCellOverride = async (e, userId, dateStr, logId) => {
     const selectedType = String(fd.get('type') || '').trim();
     const finalType = isManualOverride && selectedType ? selectedType : statusMeta.status;
     const eightHoursMs = 8 * 60 * 60 * 1000;
+    let existingLog = null;
 
     let isSystemAutoClosed = false;
     if (logId) {
-        const existing = await window.AppDB.get('attendance', logId).catch(() => null);
-        isSystemAutoClosed = !!existing?.autoCheckout;
+        existingLog = await window.AppDB.get('attendance', logId).catch(() => null);
+        isSystemAutoClosed = !!existingLog?.autoCheckout;
     }
 
     if (selectedType === 'Half Day Leave' && durationMs >= eightHoursMs && !isSystemAutoClosed) {
@@ -9284,6 +9285,21 @@ window.app_submitCellOverride = async (e, userId, dateStr, logId) => {
     };
 
     try {
+        const linkedLeaveId = String(existingLog?.leaveRequestId || '').trim();
+        const actorId = window.AppAuth?.getUser?.()?.id || '';
+        const shouldSyncLeaveType = !!(
+            linkedLeaveId
+            && selectedType
+            && selectedType.includes('Leave')
+            && window.AppLeaves?.updateLeaveType
+        );
+        if (shouldSyncLeaveType) {
+            const linkedLeave = await window.AppDB.get('leaves', linkedLeaveId).catch(() => null);
+            if (linkedLeave && String(linkedLeave.type || '').trim() !== selectedType) {
+                await window.AppLeaves.updateLeaveType(linkedLeaveId, selectedType, actorId);
+            }
+        }
+
         if (logId) {
             await window.AppAttendance.updateLog(logId, logData);
         } else {
@@ -9623,6 +9639,115 @@ window.app_runAttendancePolicyMigration = async () => {
         console.error("Attendance migration failed:", err);
         alert("Migration failed: " + err.message);
     }
+};
+
+window.app_syncLeaveCategoriesFromAttendance = async (options = {}) => {
+    if (!window.app_canManageAttendanceSheet()) {
+        return { updated: 0, scanned: 0 };
+    }
+
+    const silent = options?.silent !== false;
+    const hasRange = Number.isFinite(Number(options?.year)) && Number.isFinite(Number(options?.month));
+    const year = Number(options?.year);
+    const monthOneBased = Number(options?.month);
+    let logs = [];
+    if (hasRange) {
+        const startDateStr = `${year}-${String(monthOneBased).padStart(2, '0')}-01`;
+        const endDateStr = `${year}-${String(monthOneBased).padStart(2, '0')}-31`;
+
+        try {
+            logs = await window.AppDB.query('attendance', 'date', '>=', startDateStr);
+            logs = (logs || []).filter(l => String(l?.date || '') <= endDateStr);
+        } catch {
+            const allLogs = await window.AppDB.getAll('attendance');
+            logs = (allLogs || []).filter(l => String(l?.date || '') >= startDateStr && String(l?.date || '') <= endDateStr);
+        }
+    } else {
+        logs = await window.AppDB.getAll('attendance');
+    }
+
+    const selectedLeaves = new Map();
+    const candidateScore = (log) => {
+        let score = 0;
+        if (log?.isManualOverride) score += 100;
+        if (String(log?.entrySource || '') === 'admin_override') score += 50;
+        if (log?.leaveGenerated) score += 10;
+        const idScore = Number(String(log?.id || '').replace(/\D/g, '').slice(-10)) || 0;
+        return score + idScore;
+    };
+
+    let scanned = 0;
+    let updated = 0;
+    let skipped = 0;
+    let missingLink = 0;
+    const reviewCandidates = [];
+
+    for (const log of (logs || [])) {
+        if (!log || !log.id) continue;
+        scanned++;
+
+        const leaveId = String(log.leaveRequestId || '').trim();
+        const logType = String(log.type || '').trim();
+        if (!leaveId || !logType || !logType.includes('Leave')) {
+            skipped++;
+            continue;
+        }
+
+        const current = selectedLeaves.get(leaveId);
+        const score = candidateScore(log);
+        if (!current || score >= current.score) {
+            selectedLeaves.set(leaveId, { score, type: logType, log });
+        }
+    }
+
+    for (const [leaveId, selected] of selectedLeaves.entries()) {
+        const leave = await window.AppDB.get('leaves', leaveId).catch(() => null);
+        if (!leave) {
+            missingLink++;
+            reviewCandidates.push({
+                leaveId,
+                userId: selected.log?.user_id || selected.log?.userId || '',
+                date: selected.log?.date || '',
+                reason: 'missing linked leave record'
+            });
+            continue;
+        }
+
+        if (String(leave.type || '').trim() === selected.type) {
+            continue;
+        }
+
+        await window.AppLeaves.updateLeaveType(leaveId, selected.type, window.AppAuth?.getUser?.()?.id || '');
+        updated++;
+    }
+
+    if (!silent) {
+        const sample = reviewCandidates.slice(0, 8).map((c) => `- ${c.date} | ${c.userId || 'unknown'} | ${c.reason}`).join('\n');
+        alert(
+            `Leave categories synced${hasRange ? ` for ${year}-${String(monthOneBased).padStart(2, '0')}` : ' across all attendance logs'}.\n` +
+            `Scanned logs: ${scanned}\n` +
+            `Updated leaves: ${updated}\n` +
+            `Skipped logs: ${skipped}\n` +
+            `Missing leave links: ${missingLink}\n` +
+            `${sample ? `\nSample issues:\n${sample}` : ''}`
+        );
+    }
+
+    return { updated, scanned, skipped, missingLink, reviewCandidates };
+};
+
+window.app_syncLeaveCategoriesForVisibleMonth = async () => {
+    if (!window.app_canManageAttendanceSheet()) return;
+    const monthValue = Number(document.getElementById('sheet-month')?.value);
+    const yearValue = Number(document.getElementById('sheet-year')?.value);
+    const month = Number.isFinite(monthValue) ? monthValue + 1 : (new Date().getMonth() + 1);
+    const year = Number.isFinite(yearValue) ? yearValue : new Date().getFullYear();
+    await window.app_syncLeaveCategoriesFromAttendance({
+        silent: false,
+        year,
+        month
+    });
+    await window.app_refreshMasterSheet();
 };
 
 
@@ -11223,6 +11348,3 @@ window.app_forceRefresh = async () => {
 init();
 
 console.log("App.js Loaded & Globals Ready");
-
-
-

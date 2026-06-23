@@ -3,8 +3,9 @@
 ## Hero Selection Rule
 - The hero is selected from a rolling window of the last `7` completed days in the organization's default timezone.
 - Config placeholders: `minPlannedTasks = policy.MIN_EVIDENCE.minPlannedTasks || 1`, `minDays = policy.MIN_EVIDENCE.minDays || 1`, `minDurationMs = policy.MIN_EVIDENCE.minDurationMs || 1`.
-- Candidates must pass the minimum evidence gate: at least `minPlannedTasks` planned tasks and either `minDays` active days or `minDurationMs` tracked time.
-- `taskScore = (taskExecutionScore * wTaskExecution) + (completionRate * wTaskCompletionRate) + (inProgressScore * wTaskInProgressSupport) - (missPenaltyScore * wTaskMissPenalty) + (planningScore * wTaskPlanning)`.
+- Candidates must pass the minimum evidence gate: at least `minPlannedTasks` planned tasks, `minDays` active days AND `minDurationMs` tracked time.
+- `taskScore = (completionRate * wCompletionRate) + (absoluteVolumeScore * wAbsoluteVolume) + (executionQualityScore * wExecutionQuality) - (missPenaltyScore * wMissPenalty) - (postponedPenaltyScore * wPostponedPenalty) + (planningScore * wPlanningBreadth)`.
+- Postponed tasks that are later completed within the same week are auto-neutralized and excluded from the postponed penalty.
 - `attendanceFactor = max(0.5, modifierBase + min(modifierMaxBonus, attendanceReliability * modifierMaxBonus))`.
 - `attendanceReliability = ((consistencyScore / 100) * modifierConsistencyImpact) + ((effortScore / 100) * modifierEffortImpact)`.
 - `finalScore = taskScore * attendanceFactor`.
@@ -38,9 +39,20 @@
 - The avatar image must always have a meaningful `alt` text using the staff member's name.
 - The card must remain keyboard accessible with `tabindex="0"` and activate on `Enter` or `Space`.
 
+## Admin Manual Refresh
+- An admin-only refresh button (🔄 icon) is rendered in the Hero Card header when `app_hasPerm('dashboard', 'admin', currentUser)` is true.
+- Clicking the button triggers `window.app_forceRefreshHero(event)` which:
+  1. Checks `heroRefreshedToday` on the current Firestore daily summary to enforce once-per-day.
+  2. Invalidates local caches for `daily_summaries`, `attendance`, `work_plans`, and `users`.
+  3. Calls `AppAnalytics.buildDailyDashboardSummary()` with fresh data.
+  4. Writes the updated summary (with `heroRefreshedToday: true`) back to Firestore.
+  5. Clears the entire in-memory cache and re-renders the dashboard.
+- After a successful refresh, the button is rendered in a disabled/greyed-out state for the rest of the day.
+
 ## Key Code Hooks
 - Card renderer: `js/ui/dashboard.js` -> `renderHeroCard()`
 - Expanded audit renderer: `js/ui/dashboard.js` -> `renderHeroExpandedAuditMarkup()`
+- Admin refresh handler: `js/ui/dashboard.js` -> `app_forceRefreshHero()`
 - Fullscreen card id: `hero-week`
 - Card title label: `Hero of the Week`
 - Hero scoring: `js/modules/analytics.js` -> `scoreHeroFromLogs()`

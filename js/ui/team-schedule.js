@@ -79,7 +79,27 @@ export const renderYearlyPlan = (plans) => {
                     </div>
                     <button onclick="window.app_changeCalMonth(1)" style="background:none; border:none; color:#6b7280; cursor:pointer; padding:2px;"><i class="fa-solid fa-chevron-right"></i></button>
                     </div>
-                    ${canManageHoliday ? `<button onclick="window.app_openEventModal()" style="background:none; border:none; color:var(--primary); cursor:pointer;" title="Add Holiday / Event"><i class="fa-solid fa-plus-circle"></i></button>` : ''}
+                    <div style="display:flex; align-items:center; gap:0.35rem;">
+                        <button
+                            type="button"
+                            onclick="window.app_quickAddPersonalPlan?.()"
+                            title="Add Personal Plan"
+                            style="display:inline-flex; align-items:center; gap:0.3rem; padding:0.3rem 0.55rem; border:1px solid #bfdbfe; border-radius:999px; background:linear-gradient(135deg,#eff6ff,#dbeafe); color:#1d4ed8; font-size:0.64rem; font-weight:800; cursor:pointer; white-space:nowrap;"
+                        >
+                            <i class="fa-solid fa-plus"></i>
+                            <span>Add Personal Plan</span>
+                        </button>
+                        <button
+                            type="button"
+                            onclick="window.app_quickEditPersonalPlan?.()"
+                            title="Edit Personal Plan"
+                            style="display:inline-flex; align-items:center; gap:0.3rem; padding:0.3rem 0.55rem; border:1px solid #cbd5e1; border-radius:999px; background:linear-gradient(135deg,#ffffff,#f8fafc); color:#475569; font-size:0.64rem; font-weight:800; cursor:pointer; white-space:nowrap;"
+                        >
+                            <i class="fa-regular fa-pen-to-square"></i>
+                            <span>Edit Personal Plan</span>
+                        </button>
+                        ${canManageHoliday ? `<button onclick="window.app_openEventModal()" style="background:none; border:none; color:var(--primary); cursor:pointer;" title="Add Holiday / Event"><i class="fa-solid fa-plus-circle"></i></button>` : ''}
+                    </div>
             </div>
             <div class="calendar-grid-mini" style="display:grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align:center; font-size: 0.65rem;">
                 <div style="font-weight:700; color:#9ca3af;">S</div>

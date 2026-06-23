@@ -63,6 +63,15 @@
       ]
     },
     {
+      "collectionGroup": "work_plans",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "DESCENDING" }
+      ]
+    },
+
+    {
       "collectionGroup": "minutes",
       "queryScope": "COLLECTION",
       "fields": [

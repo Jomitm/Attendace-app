@@ -339,6 +339,58 @@ export class Leaves {
         return leave;
     }
 
+    async updateLeaveType(leaveId, nextType, actorId = '') {
+        const leave = await this.db.get('leaves', leaveId);
+        if (!leave) throw new Error("Leave not found");
+
+        const rawType = String(nextType || '').trim();
+        if (!rawType) throw new Error("Leave type is required");
+
+        const compactType = rawType.toLowerCase().replace(/\s+/g, '');
+        const normalizedType = (
+            compactType === 'work-home' ||
+            compactType === 'workfromhome' ||
+            compactType === 'wfh'
+        ) ? 'Work - Home' : rawType;
+
+        if (String(leave.type || '').trim() === normalizedType) {
+            return leave;
+        }
+
+        const previousLeave = { ...leave };
+        const nowIso = new Date().toISOString();
+        const wasApproved = String(previousLeave.status || '').trim() === 'Approved';
+
+        if (wasApproved) {
+            await this.removeApprovedLeaveAttendance(previousLeave);
+        }
+
+        const updatedLeave = {
+            ...previousLeave,
+            type: normalizedType,
+            actionDate: nowIso,
+            actionBy: actorId || previousLeave.actionBy || '',
+            reviewHistory: Array.isArray(previousLeave.reviewHistory) ? previousLeave.reviewHistory.slice() : []
+        };
+
+        updatedLeave.reviewHistory.unshift({
+            id: `leave_type_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            previousType: String(previousLeave.type || ''),
+            nextType: normalizedType,
+            at: nowIso,
+            by: actorId || '',
+            comment: 'Leave category updated from attendance sheet.'
+        });
+
+        await this.db.put('leaves', updatedLeave);
+
+        if (wasApproved) {
+            await this.generateApprovedLeaveAttendance(updatedLeave);
+        }
+
+        return updatedLeave;
+    }
+
     async generateApprovedLeaveAttendance(leave) {
         const start = new Date(leave.startDate);
         const end = new Date(leave.endDate);

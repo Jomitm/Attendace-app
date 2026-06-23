@@ -768,6 +768,36 @@ function buildCSV(rows) {
 
 // --- Global Actions ---
 if (typeof window !== 'undefined') {
+    window.app_openTeamActivitiesForStaff = function (staffId, dateKey = '', sortKey = 'date-desc') {
+        const state = getTeamActivitiesState();
+        const safeStaffId = String(staffId || '').trim();
+        const safeDate = String(dateKey || '').trim();
+        state.staffIds = safeStaffId ? [safeStaffId] : [];
+        state.search = '';
+        state.page = 1;
+        state.sortKey = String(sortKey || 'date-desc').trim() || 'date-desc';
+        if (/^\d{4}-\d{2}-\d{2}$/.test(safeDate)) {
+            state.startIso = safeDate;
+            state.endIso = safeDate;
+            state.columnFilters = {
+                ...(state.columnFilters || {}),
+                date: safeDate,
+                staff: '',
+                description: '',
+                time: '',
+                type: '',
+                status: ''
+            };
+        }
+        const targetHash = 'team-activities';
+        const currentHash = String(window.location.hash || '').replace(/^#/, '');
+        if (currentHash !== targetHash) {
+            window.location.hash = targetHash;
+        } else if (typeof window.app_teamActivitiesRefresh === 'function') {
+            window.app_teamActivitiesRefresh();
+        }
+    };
+
     window.app_initTeamActivities = async function () {
         const state = getTeamActivitiesState();
         const users = await window.AppAnalytics.getUsersCached();

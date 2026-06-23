@@ -1,4 +1,4 @@
-﻿$port = 3004
+$port = 3004
 $listener = New-Object System.Net.HttpListener
 $listener.Prefixes.Add("http://localhost:${port}/")
 
@@ -29,7 +29,7 @@ while ($listener.IsListening) {
             continue
         }
 
-        $path = Join-Path $PWD $localPath
+        $path = Join-Path (Join-Path $PWD "dist") $localPath
 
         if (Test-Path $path -PathType Container) {
             $path = Join-Path $path "index.html"

@@ -839,6 +839,7 @@ export class Analytics {
             taskPostponed: 0,
             taskPlanningScore: 0,
             completionRate: 0,
+            absoluteVolumeScore: 0,
             taskScore: 0,
             attendanceFactor: Number((this.getHeroPolicy()?.ATTENDANCE_MODIFIER?.base ?? 0.9).toFixed(3)),
             finalScore: 0
@@ -890,12 +891,25 @@ export class Analytics {
         return Math.max(0, Number(durationMs) || 0);
     }
 
+    /**
+     * Returns true if the attendance log represents a leave or absent day
+     * (should not be counted as a "worked day" in hero scoring).
+     */
+    isHeroLeaveLog(log) {
+        const type = String(log?.type || '');
+        return type.toLowerCase().includes('leave') ||
+            type === 'Absent' ||
+            log?.location === 'On Leave';
+    }
+
     normalizeHeroLogs(logs = []) {
         return (logs || [])
             .map((log) => {
                 const logDate = this.parseHeroLogDate(log?.date);
                 const userId = this.resolveHeroUserId(log);
                 if (!logDate || !userId) return null;
+                // Skip leave/absent days — they should not count as worked days in hero scoring
+                if (this.isHeroLeaveLog(log)) return null;
                 const durationMs = this.resolveHeroDurationMs(log);
                 const activityScore = Number(log?.activityScore);
                 return {
@@ -948,7 +962,7 @@ export class Analytics {
     }
 
     normalizeHeroTasks(workPlans = []) {
-        const rows = [];
+        let rows = [];
         (workPlans || []).forEach((wp) => {
             const userId = String(wp?.userId || wp?.user_id || '').trim();
             if (!userId || !Array.isArray(wp?.plans)) return;
@@ -970,6 +984,24 @@ export class Analytics {
                 });
             });
         });
+
+        const completedTasksByUserAndName = new Set();
+        rows.forEach(row => {
+            if (row.status === 'completed') {
+                completedTasksByUserAndName.add(`${row.userId}::${row.task.toLowerCase().trim()}`);
+            }
+        });
+
+        rows = rows.filter(row => {
+            if (row.status === 'postponed') {
+                const key = `${row.userId}::${row.task.toLowerCase().trim()}`;
+                if (completedTasksByUserAndName.has(key)) {
+                    return false;
+                }
+            }
+            return true;
+        });
+
         return rows;
     }
 
@@ -1034,11 +1066,13 @@ export class Analytics {
         const hourCap = Math.max(1, Number(caps.hours || 40));
         const attendanceModifier = policy.ATTENDANCE_MODIFIER || {};
 
-        const wTaskExecution = Number(weights.taskExecution ?? 0.45);
-        const wTaskCompletionRate = Number(weights.taskCompletionRate ?? 0.2);
-        const wTaskInProgressSupport = Number(weights.taskInProgressSupport ?? 0.1);
-        const wTaskMissPenalty = Number(weights.taskMissPenalty ?? 0.1);
-        const wTaskPlanning = Number(weights.taskPlanning ?? 0.08);
+        const wCompletionRate = Number(weights.completionRate ?? 0.20);
+        const wAbsoluteVolume = Number(weights.absoluteVolume ?? 0.30);
+        const wExecutionQuality = Number(weights.executionQuality ?? 0.20);
+        const wMissPenalty = Number(weights.missPenalty ?? 0.10);
+        const wPostponedPenalty = Number(weights.postponedPenalty ?? 0.02);
+        const wPlanningBreadth = Number(weights.planningBreadth ?? 0.15);
+        const expectedWeeklyTasks = Math.max(1, Number(policy.EXPECTED_WEEKLY_TASKS || 5));
 
         const modifierBase = Number(attendanceModifier.base ?? 0.9);
         const modifierMaxBonus = Number(attendanceModifier.maxBonus ?? 0.15);
@@ -1065,23 +1099,31 @@ export class Analytics {
             const postponed = Math.max(0, Number(tasks.postponed) || 0);
             const inProgress = Math.max(0, Number(tasks.inProgress) || 0);
             const missed = Math.max(0, Number(tasks.missed) || 0);
-            const penaltyMissed = missed + postponed;
+            
             const completionRate = planned > 0 ? (completed / planned) * 100 : 0;
             const planningScore = Math.max(0, Math.min(100, (planned / maxPlannedTasks) * 100));
 
-            const taskExecutionScore = planned > 0
-                ? Math.max(0, Math.min(100, ((completed + (inProgress * 0.5) - penaltyMissed) / planned) * 100))
+            const absoluteVolumeScore = Math.min(completed / expectedWeeklyTasks, 1) * 100;
+            const executionQualityScore = planned > 0
+                ? Math.max(0, Math.min(100, ((completed + (inProgress * 0.3)) / planned) * 100))
                 : 0;
-            const inProgressScore = planned > 0 ? Math.max(0, Math.min(100, (inProgress / planned) * 100)) : 0;
-            const missPenaltyScore = planned > 0 ? Math.max(0, Math.min(100, (penaltyMissed / planned) * 100)) : 0;
+            const missPenaltyScore = planned > 0
+                ? Math.max(0, Math.min(100, (missed / planned) * 100))
+                : 0;
+            const postponedPenaltyScore = planned > 0
+                ? Math.max(0, Math.min(100, (postponed / planned) * 100))
+                : 0;
+
             const consistencyScore = (days / windowDays) * 100;
             const effortScore = Math.min((hoursValue / hourCap) * 100, 100);
 
-            const taskScore = (taskExecutionScore * wTaskExecution)
-                + (completionRate * wTaskCompletionRate)
-                + (inProgressScore * wTaskInProgressSupport)
-                - (missPenaltyScore * wTaskMissPenalty)
-                + (planningScore * wTaskPlanning);
+            const taskScore = (completionRate * wCompletionRate)
+                + (absoluteVolumeScore * wAbsoluteVolume)
+                + (executionQualityScore * wExecutionQuality)
+                - (missPenaltyScore * wMissPenalty)
+                - (postponedPenaltyScore * wPostponedPenalty)
+                + (planningScore * wPlanningBreadth);
+            
             const attendanceReliability = ((consistencyScore / 100) * modifierConsistencyImpact)
                 + ((effortScore / 100) * modifierEffortImpact);
             const attendanceBoost = Math.max(0, Math.min(modifierMaxBonus, attendanceReliability * modifierMaxBonus));
@@ -1101,6 +1143,7 @@ export class Analytics {
                 taskPostponed: postponed,
                 taskPlanningScore: Number(planningScore.toFixed(1)),
                 completionRate: Number(completionRate.toFixed(1)),
+                absoluteVolumeScore: Number(absoluteVolumeScore.toFixed(1)),
                 taskScore: Number(Math.max(0, taskScore).toFixed(2)),
                 attendanceFactor: Number(attendanceFactor.toFixed(3)),
                 finalScore: Number(Math.max(0, finalScore).toFixed(2))
@@ -1151,7 +1194,8 @@ export class Analytics {
         );
         const eligible = ranked.filter((row) =>
             row.taskPlanned >= minPlannedTasks &&
-            (row.days >= minDays || row.totalDurationMs >= minDurationMs)
+            row.days >= minDays &&
+            row.totalDurationMs >= minDurationMs
         );
         if (eligible.length === 0) {
             return this.createNoHeroPayload({ reason: 'No staff met the minimum hero criteria this period.', period, source });
@@ -1163,9 +1207,8 @@ export class Analytics {
             return this.createNoHeroPayload({ reason: 'No valid user mapping found for hero candidates.', period, source });
         }
 
-        const confidenceTasks = winnerStats.taskPlanned > 0
-            ? Math.min(1, winnerStats.taskCompleted / winnerStats.taskPlanned)
-            : 0;
+        const expectedWeeklyTasks = Math.max(1, Number(policy.EXPECTED_WEEKLY_TASKS || 5));
+        const confidenceTasks = Math.min(1, winnerStats.taskCompleted / expectedWeeklyTasks);
         const confidenceDays = Math.min(1, winnerStats.days / Math.max(1, Number(policy.WINDOW_DAYS || 7)));
         const confidenceHours = Math.min(1, winnerStats.totalDurationMs / (1000 * 60 * 60 * Math.max(1, Number(policy?.CAPS?.hours || 40))));
         const confidence = Number(((confidenceTasks + confidenceDays + confidenceHours) / 3).toFixed(2));
@@ -1250,7 +1293,8 @@ export class Analytics {
                 const userId = String(user?.id || '').trim();
                 const stats = rankedMap.get(userId) || { ...this.createZeroHeroStats(userId), rank: null };
                 const isEligible = stats.taskPlanned >= minPlannedTasks
-                    && (stats.days >= minDays || stats.totalDurationMs >= minDurationMs);
+                    && stats.days >= minDays
+                    && stats.totalDurationMs >= minDurationMs;
                 return {
                     user,
                     stats,
@@ -1264,7 +1308,7 @@ export class Analytics {
                     },
                     eligibilityReason: isEligible
                         ? 'Eligible'
-                        : `Needs at least ${minPlannedTasks} planned task${minPlannedTasks === 1 ? '' : 's'} and ${minDays} day${minDays === 1 ? '' : 's'} or tracked time.`,
+                        : `Needs at least ${minPlannedTasks} planned task${minPlannedTasks === 1 ? '' : 's'}, ${minDays} day${minDays === 1 ? '' : 's'}, and ${Math.round(minDurationMs / 3600000)} hours tracked.`,
                     period: 'yesterday_back_7_days'
                 };
             }).sort((a, b) => {
@@ -1302,17 +1346,19 @@ export class Analytics {
     }
 
     determineHeroReason(stats) {
+        const policy = this.getHeroPolicy();
+        const expected = Math.max(1, Number(policy.EXPECTED_WEEKLY_TASKS || 5));
         const planned = Number(stats?.taskPlanned || 0);
         const completed = Number(stats?.taskCompleted || 0);
         const inProgress = Number(stats?.taskInProgress || 0);
         const missed = Number(stats?.taskMissed || 0);
-        const planningScore = Number(stats?.taskPlanningScore || 0);
         const completionRate = planned > 0 ? (completed / planned) * 100 : 0;
-        const attendanceFactor = Number(stats?.attendanceFactor || 1);
-        if (planned >= 5 && planningScore >= 80 && completionRate >= 70) return "Committed Planner";
-        if (planned >= 6 && completionRate >= 80) return "Execution Champion";
-        if (completed >= 4 && inProgress >= 2) return "Delivery Momentum";
-        if (completionRate >= 70 && attendanceFactor >= 1) return "Reliable Executor";
+        const volumeRatio = completed / expected;
+
+        if (volumeRatio >= 1.2 && completionRate >= 80) return "Execution Champion";
+        if (volumeRatio >= 1.0 && completionRate >= 70 && missed === 0) return "Committed Planner";
+        if (completed >= expected && inProgress >= 2) return "Delivery Momentum";
+        if (volumeRatio >= 0.8 && completionRate >= 70) return "Reliable Executor";
         if (planned > 0 && missed === 0 && completionRate >= 60) return "Reliable Finisher";
         return "Top Performer";
     }
