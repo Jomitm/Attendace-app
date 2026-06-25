@@ -912,6 +912,11 @@ if (typeof window !== 'undefined') {
             if (window.app_showSyncToast) {
                 window.app_showSyncToast('Task marked as completed.');
             }
+            if (typeof window.app_refreshDashboard === 'function') {
+                window.app_refreshDashboard().catch((refreshErr) => {
+                    console.warn('Dashboard refresh after complete failed:', refreshErr);
+                });
+            }
         } catch (err) {
             console.error('Complete task failed', err);
             alert('Failed to complete task.');
@@ -981,6 +986,11 @@ if (typeof window !== 'undefined') {
             await refreshData();
             if (window.app_showSyncToast) {
                 window.app_showSyncToast(`Task postponed to ${nextDate}.`);
+            }
+            if (typeof window.app_refreshDashboard === 'function') {
+                window.app_refreshDashboard().catch((refreshErr) => {
+                    console.warn('Dashboard refresh after postpone failed:', refreshErr);
+                });
             }
         } catch (err) {
             console.error('Postpone task failed', err);

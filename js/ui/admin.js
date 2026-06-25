@@ -5,6 +5,7 @@
 
 import { safeHtml } from './helpers.js';
 import { AppConfig } from '../config.js';
+import { SiteAnnouncement } from './site-announcement.js';
 
 let aiAssistantModulePromise = null;
 async function getAIAssistant() {
@@ -1140,6 +1141,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         recentTeamActivities
     });
     updateAdminAiWorkspace(adminAiWorkspace.context, adminAiWorkspace.sourceScope);
+    const siteAnnouncementSettings = await SiteAnnouncement.getSettings().catch(() => null);
 
     const cards = [];
     const cardTemplates = {};
@@ -1197,6 +1199,17 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
             </div>
         `
     });
+
+    if (window.app_isAdminUser?.(currentAdmin) || currentAdmin?.role === 'Administrator') {
+        pushCard({
+            id: 'site-announcement',
+            title: 'Site Announcement',
+            className: 'admin-section-card full-width site-announcement-card',
+            accentClass: 'admin-card-accent-blue',
+            compactHtml: SiteAnnouncement.renderAdminBody(siteAnnouncementSettings || {}),
+            expandedHtml: SiteAnnouncement.renderAdminBody(siteAnnouncementSettings || {})
+        });
+    }
 
     if (window.app_hasPerm('users', 'admin')) {
         pushCard({

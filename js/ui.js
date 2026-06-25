@@ -37,6 +37,7 @@ import { renderYearlyPlan } from './ui/team-schedule.js';
 import { renderTeamActivitiesPage } from './ui/team-activities.js';
 import { renderDashboardSectionPage, initDashboardSectionPage } from './ui/dashboard-sections.js';
 import { renderLetterPad } from './ui/letter-pad.js';
+import { renderJourneyReflectionCard } from './ui/journey-reflection.js';
 
 // Re-export for ESM usage
 export {
@@ -73,7 +74,8 @@ export {
     renderTeamActivitiesPage,
     renderDashboardSectionPage,
     initDashboardSectionPage,
-    renderLetterPad
+    renderLetterPad,
+    renderJourneyReflectionCard
 };
 
 export const AppUI = {
@@ -110,7 +112,8 @@ export const AppUI = {
     renderTeamActivitiesPage,
     renderDashboardSectionPage,
     initDashboardSectionPage,
-    renderLetterPad
+    renderLetterPad,
+    renderJourneyReflectionCard
 };
 
 

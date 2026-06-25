@@ -19,6 +19,7 @@ import './modules/policies.js';
 import './modules/admin-policies.js';
 import './modules/day-plan.js';
 import './modules/widget.js';
+import './ui/site-announcement.js';
 
 /**
  * App State
@@ -3249,6 +3250,7 @@ async function init() {
             lastSyncedAttendanceStatus = initialUser.status || 'out';
             startReleaseSignalListener();
             startRoutineUpdateChecks();
+            window.AppSiteAnnouncement?.start?.();
         }
         registerSW();
 
@@ -3308,6 +3310,7 @@ async function router() {
     if (!user) {
         stopReleaseSignalListener();
         stopRoutineUpdateChecks();
+        window.AppSiteAnnouncement?.stop?.();
         clearReleaseUpdateState(false);
         if (sidebar) sidebar.style.display = 'none';
         if (mobileHeader) mobileHeader.style.display = 'none';
@@ -3321,6 +3324,7 @@ async function router() {
     }
     startReleaseSignalListener();
     startRoutineUpdateChecks();
+    window.AppSiteAnnouncement?.start?.();
 
     // LOGGED IN
     // Clear mobile specific states on route change
@@ -10625,6 +10629,7 @@ const APP_STAFF_DATA_RESET_COLLECTIONS = [
     'daily_summaries',
     'daily_summaries_meta',
     'summary_locks',
+    'journey_reflections',
     'ai_staff_context'
 ];
 

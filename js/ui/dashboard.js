@@ -6,6 +6,8 @@
 import { safeHtml, safeUrl, timeAgo } from './helpers.js';
 import { renderStarRating, renderTaskStatusBadge } from './common.js';
 import { renderYearlyPlan } from './team-schedule.js';
+import { AppJourneyReflection } from '../modules/journey-reflection.js';
+import { renderJourneyReflectionCard } from './journey-reflection.js';
 import { AppConfig } from '../config.js';
 
 const escapeJsSingleQuote = (value) => String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
@@ -16,9 +18,20 @@ const DASHBOARD_CARD_MODE_TILE = 'tile';
 const DASHBOARD_CARD_MODE_ORIGINAL = 'original';
 const DASHBOARD_CARD_MODE_FULLSCREEN = 'fullscreen';
 const DASHBOARD_CARD_MODES = new Set([DASHBOARD_CARD_MODE_TILE, DASHBOARD_CARD_MODE_ORIGINAL, DASHBOARD_CARD_MODE_FULLSCREEN]);
-const DASHBOARD_CARD_CONTROL_EXCLUDED_CLASSES = ['dashboard-hero-card'];
+const DASHBOARD_CARD_CONTROL_EXCLUDED_CLASSES = ['dashboard-hero-card', 'dashboard-journey-card'];
 const DASHBOARD_MAX_RENDER_DELAY_MS = 0;
 const WORKLOG_PAGE_SIZE = 25;
+const DASHBOARD_IST_TIME_ZONE = 'Asia/Kolkata';
+const DASHBOARD_WORK_PLAN_STATUS_PRIORITY = {
+    'in-process': 0,
+    overdue: 1,
+    'to-be-started': 2,
+    completed: 3,
+    'not-completed': 4,
+    cancelled: 5,
+    canceled: 5,
+    removed: 6
+};
 const DASHBOARD_SECTION_ROUTE_CARD_IDS = new Set([
     'checkin',
     'worklog',
@@ -47,6 +60,201 @@ const measurePerf = (name, startMark, endMark) => {
         /* ignore */
     }
 };
+
+const getDashboardTodayIso = () => {
+    try {
+        return new Intl.DateTimeFormat('en-CA', { timeZone: DASHBOARD_IST_TIME_ZONE }).format(new Date());
+    } catch {
+        return new Date().toISOString().slice(0, 10);
+    }
+};
+
+const isActionablePlannedTaskStatus = (status) => {
+    const normalized = String(status || '').toLowerCase().trim();
+    return !['completed', 'not-completed', 'cancelled', 'canceled', 'removed'].includes(normalized);
+};
+
+const normalizeDashboardPlannedTaskRows = (workPlans, targetStaffId, fromIso = '', toIso = '') => {
+    const rows = [];
+    const selectedStaffId = String(targetStaffId || '').trim();
+    const fromKey = String(fromIso || '').trim();
+    const toKey = String(toIso || '').trim();
+
+    (Array.isArray(workPlans) ? workPlans : []).forEach((plan) => {
+        if (!plan) return;
+        const planDate = String(plan.date || '').trim();
+        if (!planDate) return;
+        if (fromKey && planDate < fromKey) return;
+        if (toKey && planDate > toKey) return;
+        if (selectedStaffId && String(plan.userId || '') !== selectedStaffId) return;
+
+        const taskItems = Array.isArray(plan.plans) ? plan.plans : [];
+        taskItems.forEach((task, taskIndex) => {
+            if (!task || task.isRemoved === true) return;
+            const rawStatus = String(task.status || '').trim();
+            const status = window.AppCalendar
+                ? window.AppCalendar.getSmartTaskStatus(planDate, rawStatus)
+                : (rawStatus || 'to-be-started');
+            rows.push({
+                date: planDate,
+                userId: String(plan.userId || selectedStaffId || ''),
+                userName: String(plan.userName || ''),
+                planId: String(plan.id || ''),
+                taskIndex,
+                task: String(task.task || task.description || 'Planned task'),
+                status,
+                rawStatus,
+                planScope: String(task.planScope || plan.planScope || 'personal'),
+                subPlans: Array.isArray(task.subPlans) ? task.subPlans : [],
+                completedDate: task.completedDate || '',
+                updatedAt: plan.updatedAt || '',
+                isActionable: isActionablePlannedTaskStatus(status),
+                originalIndex: taskIndex
+            });
+        });
+    });
+
+    rows.sort((a, b) => {
+        const aRank = DASHBOARD_WORK_PLAN_STATUS_PRIORITY[a.status] ?? 99;
+        const bRank = DASHBOARD_WORK_PLAN_STATUS_PRIORITY[b.status] ?? 99;
+        if (aRank !== bRank) return aRank - bRank;
+        const dateDiff = new Date(a.date) - new Date(b.date);
+        if (dateDiff !== 0) return dateDiff;
+        if (a.originalIndex !== b.originalIndex) return a.originalIndex - b.originalIndex;
+        return String(a.task || '').localeCompare(String(b.task || ''));
+    });
+
+    return rows;
+};
+
+const renderPlannedTaskItem = (row, index, currentUserId, isAdmin) => {
+    const ownerId = String(row.userId || '').trim();
+    const isOwner = !!currentUserId && currentUserId === ownerId;
+    const canComplete = !!row.planId && Number.isInteger(row.taskIndex) && (isOwner || isAdmin) && row.isActionable;
+    const canPostpone = !!row.planId && Number.isInteger(row.taskIndex) && isOwner && row.isActionable;
+    const dateLabel = safeHtml(row.date || '--');
+    const stepCount = Array.isArray(row.subPlans) ? row.subPlans.length : 0;
+    const stepChip = stepCount ? `<span class="dashboard-planned-task-chip">${stepCount} step${stepCount === 1 ? '' : 's'}</span>` : '';
+    const scopeChip = row.planScope ? `<span class="dashboard-planned-task-chip">${safeHtml(row.planScope)}</span>` : '';
+    const completedChip = row.completedDate ? `<span class="dashboard-planned-task-chip is-complete">Done ${safeHtml(row.completedDate)}</span>` : '';
+    const actionDate = escapeJsSingleQuote(String(row.date || ''));
+    const actionUserId = escapeJsSingleQuote(String(ownerId || ''));
+    const actionPlanId = escapeJsSingleQuote(String(row.planId || ''));
+    const actionTaskIndex = Number.isInteger(row.taskIndex) ? row.taskIndex : 0;
+
+    return `
+        <div class="dashboard-planned-task-item ${safeHtml(String(row.status || '').toLowerCase().replace(/\s+/g, '-'))}" tabindex="0" role="button" aria-label="Toggle actions for ${safeHtml(row.task || 'planned task')}">
+            <div class="dashboard-planned-task-main">
+                <div class="dashboard-planned-task-title">${index + 1}. ${safeHtml(row.task || 'Planned task')}</div>
+                <div class="dashboard-planned-task-meta">
+                    ${renderTaskStatusBadge(row.status)}
+                    <span class="dashboard-planned-task-chip">${dateLabel}</span>
+                    ${scopeChip}
+                    ${stepChip}
+                    ${completedChip}
+                </div>
+            </div>
+            <div class="dashboard-planned-task-actions">
+                <button type="button" class="dashboard-planned-task-btn edit" onclick="window.app_editDashboardActivity?.('plan','','${actionDate}','${actionUserId}','')">
+                    <i class="fa-solid fa-pen-to-square"></i><span>Edit</span>
+                </button>
+                ${canPostpone ? `
+                    <button type="button" class="dashboard-planned-task-btn postpone" data-plan-id="${actionPlanId}" data-task-index="${actionTaskIndex}" data-plan-scope="${safeHtml(row.planScope || 'personal')}" data-user-id="${actionUserId}" data-date="${actionDate}" onclick="window.app_teamActivitiesPostponeTask?.(this)">
+                        <i class="fa-solid fa-clock"></i><span>Postpone</span>
+                    </button>
+                ` : ''}
+                ${canComplete ? `
+                    <button type="button" class="dashboard-planned-task-btn complete" data-plan-id="${actionPlanId}" data-task-index="${actionTaskIndex}" data-user-id="${actionUserId}" onclick="window.app_teamActivitiesCompleteTask?.(this)">
+                        <i class="fa-solid fa-check"></i><span>Complete</span>
+                    </button>
+                ` : ''}
+            </div>
+        </div>
+    `;
+};
+
+let plannedTaskInteractionsBound = false;
+const ensurePlannedTaskInteractions = () => {
+    if (plannedTaskInteractionsBound || typeof document === 'undefined') return;
+    plannedTaskInteractionsBound = true;
+
+    const closeAll = (exceptEl = null) => {
+        document.querySelectorAll('.dashboard-planned-task-item.is-action-open').forEach((item) => {
+            if (item !== exceptEl) item.classList.remove('is-action-open');
+        });
+    };
+
+    document.addEventListener('click', (event) => {
+        const actionBtn = event.target?.closest?.('.dashboard-planned-task-btn');
+        if (actionBtn) return;
+        const item = event.target?.closest?.('.dashboard-planned-task-item');
+        if (!item) {
+            closeAll();
+            return;
+        }
+        item.classList.toggle('is-action-open');
+        if (item.classList.contains('is-action-open')) {
+            closeAll(item);
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            closeAll();
+            return;
+        }
+        const item = event.target?.closest?.('.dashboard-planned-task-item');
+        if (!item) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            item.classList.toggle('is-action-open');
+            if (item.classList.contains('is-action-open')) {
+                closeAll(item);
+            }
+        }
+    });
+};
+
+export function renderPlannedTasksCard(workPlans, targetStaff = null, options = {}) {
+    ensurePlannedTaskInteractions();
+    const todayKey = String(options.from || options.to || getDashboardTodayIso() || '').trim() || getDashboardTodayIso();
+    const fromKey = String(options.from || todayKey).trim() || todayKey;
+    const toKey = String(options.to || todayKey).trim() || todayKey;
+    const currentUser = window.AppAuth?.getUser?.() || null;
+    const targetUserId = String(options.targetStaffId || targetStaff?.id || currentUser?.id || '').trim();
+    const targetStaffName = String(options.targetStaffName || targetStaff?.name || currentUser?.name || 'Staff');
+    const title = String(options.title || "Today's Planned Tasks").trim();
+    const subtitle = String(options.subtitle || `${fromKey}${fromKey === toKey ? '' : ` to ${toKey}`}`).trim();
+    const emptyMessage = String(options.emptyMessage || 'No planned tasks found.').trim();
+    const filteredRows = normalizeDashboardPlannedTaskRows(workPlans, targetUserId, fromKey, toKey);
+    const total = filteredRows.length;
+    const completed = filteredRows.filter((row) => String(row.status || '').toLowerCase() === 'completed').length;
+    const open = filteredRows.filter((row) => row.isActionable).length;
+    const isAdmin = !!(currentUser && window.app_hasPerm?.('dashboard', 'admin', currentUser));
+    const cardClass = String(options.cardClass || 'dashboard-worklog-card').trim() || 'dashboard-worklog-card';
+    const listClass = String(options.listClass || 'dashboard-planned-task-list').trim() || 'dashboard-planned-task-list';
+
+    return `
+        <div class="card ${cardClass}">
+            <div class="dashboard-worklog-head dashboard-planned-task-head">
+                <div class="dashboard-planned-task-head-copy">
+                    <h4>${safeHtml(title)} <span class="dashboard-worklog-staff">(${safeHtml(targetStaffName)})</span></h4>
+                    <span>${safeHtml(subtitle)}</span>
+                </div>
+                <div class="dashboard-planned-task-summary">
+                    <span class="dashboard-planned-task-chip">Total <strong>${total}</strong></span>
+                    <span class="dashboard-planned-task-chip">Open <strong>${Math.max(0, open)}</strong></span>
+                    <span class="dashboard-planned-task-chip">Done <strong>${completed}</strong></span>
+                </div>
+            </div>
+            <div class="${safeHtml(listClass)}">
+                ${filteredRows.length
+                    ? filteredRows.map((row, index) => renderPlannedTaskItem(row, index, targetUserId, isAdmin)).join('')
+                    : `<div class="dashboard-activity-empty">${safeHtml(emptyMessage)}</div>`}
+            </div>
+        </div>
+    `;
+}
 
 const ensureDashboardMaxOverlay = () => {
     let overlay = document.getElementById(DASHBOARD_MAX_OVERLAY_ID);
@@ -762,30 +970,16 @@ export function renderHeroCard(heroData, heroMeta = {}) {
         </div>`;
 }
 
-export function renderWorkLog(logs, collabs = [], targetStaff = null, minutes = []) {
-    const currentWeek = getWeekRange(new Date().toISOString().slice(0, 10));
-    const startDefault = currentWeek.startKey;
-    const endDefault = currentWeek.endKey;
-    const targetUserId = targetStaff ? targetStaff.id : window.AppAuth.getUser().id;
-    const workLogStaffName = (targetStaff && targetStaff.name) || window.AppAuth.getUser().name;
-
-    return `
-        <div class="card dashboard-worklog-card">
-            <div class="dashboard-worklog-head">
-                 <h4>Work Log <span class="dashboard-worklog-staff">(${safeHtml(workLogStaffName)})</span></h4>
-                 <span>Ongoing & Historical Tasks</span>
-            </div>
-            <div class="dashboard-worklog-filter-row">
-                <input type="date" id="act-start" value="${startDefault}" class="dashboard-worklog-date-input">
-                <span class="dashboard-worklog-to">to</span>
-                <input type="date" id="act-end" value="${endDefault}" class="dashboard-worklog-date-input">
-                <button onclick="window.app_filterActivity()" class="dashboard-worklog-go-btn">Go</button>
-            </div>
-            <div id="activity-list" class="dashboard-worklog-list">
-                ${renderActivityList(logs, startDefault, endDefault, targetUserId, collabs, minutes, { page: 1, pageSize: WORKLOG_PAGE_SIZE, listId: 'activity-list' })}
-            </div>
-        </div>
-    `;
+export function renderWorkLog(workPlans, collabs = [], targetStaff = null, minutes = [], options = {}) {
+    return renderPlannedTasksCard(workPlans, targetStaff, {
+        title: options.title || "Today's Planned Tasks",
+        subtitle: options.subtitle || 'From team activities',
+        from: options.from || getDashboardTodayIso(),
+        to: options.to || getDashboardTodayIso(),
+        emptyMessage: options.emptyMessage || 'No planned tasks for today.',
+        cardClass: options.cardClass || 'dashboard-worklog-card',
+        listClass: options.listClass || 'dashboard-planned-task-list'
+    });
 }
 
 export function renderActivityList(allLogs, startStr, endStr, targetStaffId, collabs = [], minutes = [], options = {}) {
@@ -1919,6 +2113,13 @@ export async function renderDashboard() {
         displayUser,
         currentWeekRange
     );
+    const journeyReflectionState = await AppJourneyReflection.buildDashboardState({
+        viewerUser: user,
+        targetUserId: targetStaffId,
+        targetUserName: displayUser?.name || user.name,
+        dateKey: todayStr
+    });
+    const journeyReflectionHTML = renderJourneyReflectionCard(journeyReflectionState);
     const isReadOnlyView = isAdmin && !isViewingSelf && !isFullAdmin;
     const now = new Date();
     const monthlyStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -2087,7 +2288,10 @@ export async function renderDashboard() {
 
         summaryHTML = `
             <div class="dashboard-summary-row">
-                <div style="flex: 2; min-width: 350px; display: flex; flex-direction: column;">${renderLeaveRequests(pendingLeaves, workFromHomeRows)}${renderMissedCheckoutRequests(missedCheckoutRequests)}${historyHTML}</div>
+                <div style="flex: 2; min-width: 350px; display: flex; flex-direction: column; gap: 0.7rem;">
+                    ${journeyReflectionHTML}
+                    ${renderLeaveRequests(pendingLeaves, workFromHomeRows)}${renderMissedCheckoutRequests(missedCheckoutRequests)}${historyHTML}
+                </div>
                 <div style="flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 1rem;">
                     ${renderYearlyPlanHTML}
                     <div class="dashboard-hero-missed-corner-wrap">${overdueTaskStripHTML}</div>
@@ -2101,7 +2305,10 @@ export async function renderDashboard() {
     } else {
         summaryHTML = `
             <div class="dashboard-summary-row">
-                <div class="dashboard-summary-col dashboard-summary-col-wide">${renderActivityLog(staffActivities)}</div>
+                <div class="dashboard-summary-col dashboard-summary-col-wide" style="display: flex; flex-direction: column; gap: 0.7rem;">
+                    ${journeyReflectionHTML}
+                    ${renderActivityLog(staffActivities)}
+                </div>
                 <div class="dashboard-summary-col dashboard-summary-col-narrow">
                     <div class="dashboard-hero-missed-corner-wrap">${overdueTaskStripHTML}</div>
                     ${heroHTML}
@@ -2120,6 +2327,7 @@ export async function renderDashboard() {
         logs: Array.isArray(logs) ? logs : [],
         collaborations: Array.isArray(collaborations) ? collaborations : [],
         minutesData: Array.isArray(minutesData) ? minutesData : [],
+        workPlans: Array.isArray(currentWeekWorkPlans) ? currentWeekWorkPlans : [],
         targetStaffId,
         page: 1,
         pageSize: WORKLOG_PAGE_SIZE
@@ -2189,7 +2397,13 @@ export async function renderDashboard() {
                     </div>
                     <div class="location-text dashboard-checkin-location" id="location-text"><i class="fa-solid fa-location-dot"></i><span>${isCheckedIn && displayUser.currentLocation ? `Lat: ${Number(displayUser.currentLocation.lat).toFixed(4)}, Lng: ${Number(displayUser.currentLocation.lng).toFixed(4)}` : 'Waiting for location...'}</span></div>
                 </div>
-                <div class="dashboard-primary-col ${!isViewingSelf ? 'dashboard-primary-col-highlight' : ''}">${renderWorkLog(logs, collaborations, targetStaff, minutesData)}</div>
+                <div class="dashboard-primary-col ${!isViewingSelf ? 'dashboard-primary-col-highlight' : ''}">${renderWorkLog(currentWeekWorkPlans, collaborations, targetStaff, minutesData, {
+                    title: "Today's Planned Tasks",
+                    subtitle: `For ${todayStr}`,
+                    from: todayStr,
+                    to: todayStr,
+                    emptyMessage: 'No planned tasks for today.'
+                })}</div>
                 <div class="dashboard-primary-col">${primaryRowThirdCard}</div>
             </div>
             ${summaryHTML}

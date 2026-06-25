@@ -1,5 +1,5 @@
 import { safeHtml } from './helpers.js';
-import { renderActivityList, renderLeaveHistory, renderLeaveRequests, renderStatsCard } from './dashboard.js';
+import { renderLeaveHistory, renderLeaveRequests, renderPlannedTasksCard, renderStatsCard } from './dashboard.js';
 import { renderStaffDirectoryPage } from './staff-directory.js';
 
 const SECTION_CACHE_TTL_MS = 45000;
@@ -63,6 +63,15 @@ const getCurrentWeekRange = () => {
     };
 };
 
+const getCurrentDayRange = () => {
+    const now = toIstDate();
+    const iso = toIsoDate(now);
+    return {
+        from: iso,
+        to: iso
+    };
+};
+
 const getSectionState = () => {
     if (!window.app_dashboardSectionState) {
         window.app_dashboardSectionState = {
@@ -77,7 +86,9 @@ const getSectionState = () => {
 const getRangeForSection = (sectionKey) => {
     const state = getSectionState();
     if (!state.rangeBySection[sectionKey]) {
-        state.rangeBySection[sectionKey] = getCurrentWeekRange();
+        state.rangeBySection[sectionKey] = sectionKey === 'worklog'
+            ? getCurrentDayRange()
+            : getCurrentWeekRange();
     }
     return state.rangeBySection[sectionKey];
 };
@@ -233,7 +244,7 @@ const computeRangeStats = (logs, label) => {
     };
 };
 
-const buildSectionShell = ({ sectionKey, title, from, to, bodyHtml }) => {
+const buildSectionShell = ({ sectionKey, title, from, to, bodyHtml, resetLabel = 'Reset to Current Week' }) => {
     const error = getErrorForSection(sectionKey);
     return `
         <div class="dashboard-section-page" data-dashboard-section="${safeHtml(sectionKey)}">
@@ -250,7 +261,7 @@ const buildSectionShell = ({ sectionKey, title, from, to, bodyHtml }) => {
                 <label>From <input id="dashboard-section-from-${safeHtml(sectionKey)}" type="date" value="${safeHtml(from)}"></label>
                 <label>To <input id="dashboard-section-to-${safeHtml(sectionKey)}" type="date" value="${safeHtml(to)}"></label>
                 <button class="action-btn" type="button" onclick="window.app_applyDashboardSectionDateRange('${safeHtml(sectionKey)}')">Apply</button>
-                <button class="action-btn secondary" type="button" onclick="window.app_setDashboardSectionDateRange('${safeHtml(sectionKey)}','','')">Reset to Current Week</button>
+                <button class="action-btn secondary" type="button" onclick="window.app_setDashboardSectionDateRange('${safeHtml(sectionKey)}','','')">${safeHtml(resetLabel)}</button>
             </div>
             ${error ? `<div class="dashboard-section-error">${safeHtml(error)}</div>` : ''}
             <div class="dashboard-section-body">${bodyHtml}</div>
@@ -296,19 +307,23 @@ const renderCheckinSection = async (from, to) => {
 
 const renderWorklogSection = async (from, to) => {
     const targetStaffId = getTargetStaffId();
-    const logs = await getAttendanceForTarget(targetStaffId, from, to);
+    const users = window.AppAnalytics?.getUsersCached ? await window.AppAnalytics.getUsersCached() : [];
+    const targetStaff = (Array.isArray(users) ? users : []).find((u) => String(u.id || '') === String(targetStaffId || ''))
+        || window.AppAuth?.getUser?.()
+        || {};
+    const plans = await getWorkPlansForRange(from, to);
     return {
-        title: 'Work Log',
+        title: 'Planned Tasks',
         html: `
-            <div class="card dashboard-worklog-card dashboard-section-card-no-shadow">
-                <div class="dashboard-worklog-head">
-                    <h4>Work Log</h4>
-                    <span>Date-bounded results (${safeHtml(from)} to ${safeHtml(to)})</span>
-                </div>
-                <div id="dashboard-section-worklog-list" class="dashboard-worklog-list">
-                    ${renderActivityList(logs, from, to, targetStaffId, [], [])}
-                </div>
-            </div>`
+            ${renderPlannedTasksCard(plans, targetStaff, {
+                title: 'Planned Tasks',
+                subtitle: `${from} to ${to}`,
+                from,
+                to,
+                emptyMessage: 'No planned tasks in this range.',
+                cardClass: 'dashboard-worklog-card dashboard-section-card-no-shadow',
+                listClass: 'dashboard-planned-task-list dashboard-planned-task-list-section'
+            })}`
     };
 };
 
@@ -496,8 +511,9 @@ export const getDashboardSectionFromHash = (hash = '') => {
 const renderSection = async (sectionKey) => {
     const safeSection = SUPPORTED_SECTIONS.has(sectionKey) ? sectionKey : 'worklog';
     const range = getRangeForSection(safeSection);
-    const from = normalizeIsoDate(range.from) || getCurrentWeekRange().from;
-    const to = normalizeIsoDate(range.to) || getCurrentWeekRange().to;
+    const fallbackRange = safeSection === 'worklog' ? getCurrentDayRange() : getCurrentWeekRange();
+    const from = normalizeIsoDate(range.from) || fallbackRange.from;
+    const to = normalizeIsoDate(range.to) || fallbackRange.to;
     const renderer = sectionRendererMap[safeSection] || sectionRendererMap.worklog;
     const content = await renderer(from, to);
     return buildSectionShell({
@@ -505,7 +521,8 @@ const renderSection = async (sectionKey) => {
         title: content.title || 'Dashboard Section',
         from,
         to,
-        bodyHtml: content.html || '<div class="card">No data available.</div>'
+        bodyHtml: content.html || '<div class="card">No data available.</div>',
+        resetLabel: safeSection === 'worklog' ? 'Reset to Today' : 'Reset to Current Week'
     });
 };
 
@@ -546,9 +563,9 @@ export function initDashboardSectionPage() {
         const safeSection = SUPPORTED_SECTIONS.has(String(sectionKey || '').trim())
             ? String(sectionKey).trim()
             : 'worklog';
-        const week = getCurrentWeekRange();
-        const nextFrom = normalizeIsoDate(from) || week.from;
-        const nextTo = normalizeIsoDate(to) || week.to;
+        const defaultRange = safeSection === 'worklog' ? getCurrentDayRange() : getCurrentWeekRange();
+        const nextFrom = normalizeIsoDate(from) || defaultRange.from;
+        const nextTo = normalizeIsoDate(to) || defaultRange.to;
         if (nextFrom > nextTo) {
             setErrorForSection(safeSection, 'Invalid date range: "From" must be before or equal to "To".');
             await rerenderSectionIfOpen(safeSection);
