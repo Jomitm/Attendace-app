@@ -10,6 +10,18 @@ let dayPlanOverlaySequence = 0;
 let activeDayPlanRequestId = 0;
 const activeDayPlanLayers = new Set();
 const dayPlanLayerReleases = new WeakMap();
+const DAY_PLAN_LOAD_TTL_MS = 15000;
+const dayPlanLoadCache = new Map();
+
+if (typeof window !== 'undefined' && !window.__dayPlanLoadCacheBound) {
+    window.addEventListener('app:db-write', (event) => {
+        const collection = String(event?.detail?.collection || '');
+        if (collection === 'work_plans' || collection === 'users') {
+            dayPlanLoadCache.clear();
+        }
+    });
+    window.__dayPlanLoadCacheBound = true;
+}
 async function getAIAssistant() {
     if (window.AppAIAssistant) return window.AppAIAssistant;
     if (!aiAssistantModulePromise) {
@@ -124,7 +136,11 @@ async function getReferencedDayPlanUsers(dayPlans, targetId) {
 
     const currentUser = AppAuth.getUser();
     if (currentUser?.id) fallbackUsers.set(String(currentUser.id), currentUser);
+    const cachedUsers = await getCachedDayPlanUsers().catch(() => []);
+    const cachedUsersById = new Map((Array.isArray(cachedUsers) ? cachedUsers : []).map((user) => [String(user?.id || ''), user]));
     const users = await Promise.all(Array.from(ids, async (id) => {
+        const cachedUser = cachedUsersById.get(String(id));
+        if (cachedUser) return cachedUser;
         const user = await AppDB.get('users', id).catch(() => null);
         return user || fallbackUsers.get(id) || { id, name: 'Staff' };
     }));
@@ -132,12 +148,25 @@ async function getReferencedDayPlanUsers(dayPlans, targetId) {
 }
 
 async function loadDayPlanData(date, targetId) {
+    const safeDate = String(date || '').trim();
+    const safeTargetId = String(targetId || '').trim();
+    const cacheKey = JSON.stringify({ date: safeDate, targetId: safeTargetId });
+    const cached = dayPlanLoadCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+        return cached.value;
+    }
+
     const [personalWorkPlan, annualWorkPlan, allDayPlans] = await Promise.all([
-        AppCalendar.getWorkPlan(targetId, date, { planScope: 'personal' }),
-        AppCalendar.getWorkPlan(targetId, date, { planScope: 'annual' }),
-        AppDB.getDayPlansByDate(date)
+        AppCalendar.getWorkPlan(safeTargetId, safeDate, { planScope: 'personal' }),
+        AppCalendar.getWorkPlan(safeTargetId, safeDate, { planScope: 'annual' }),
+        AppDB.getDayPlansByDate(safeDate)
     ]);
-    return { personalWorkPlan, annualWorkPlan, allDayPlans };
+    const value = { personalWorkPlan, annualWorkPlan, allDayPlans };
+    dayPlanLoadCache.set(cacheKey, {
+        value,
+        expiresAt: Date.now() + DAY_PLAN_LOAD_TTL_MS
+    });
+    return value;
 }
 
 function buildBudgetHeadLookup() {

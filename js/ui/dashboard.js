@@ -2983,20 +2983,16 @@ if (typeof window !== 'undefined') {
     };
 
     window.app_scheduleHeroAuditRefresh = function (userId, bucketKey) {
-        setTimeout(() => {
-            window.app_refreshHeroTaskList(userId, bucketKey).catch((err) => {
-                console.warn('Delayed hero audit refresh failed:', err);
-            });
-        }, 150);
+        window.app_refreshHeroTaskList(userId, bucketKey).catch((err) => {
+            console.warn('Hero audit refresh failed:', err);
+        });
     };
 
     window.app_completeHeroTaskAction = async function (planId, taskIndex, userId, bucketKey) {
         if (!window.app_requireHeroTaskManagePermission?.(userId)) return;
         window.app_applyHeroTaskOptimisticUpdate(userId, bucketKey, planId, taskIndex, 'complete');
         await window.app_markTaskCompleted(planId, taskIndex);
-        window.app_heroTaskModalState = { userId: String(userId || ''), bucketKey: String(bucketKey || '') };
-        window.app_openHeroTaskList?.(userId, bucketKey);
-        window.app_scheduleHeroAuditRefresh(userId, bucketKey);
+        await window.app_refreshHeroTaskList(userId, bucketKey);
     };
 
     window.app_postponeHeroTaskAction = async function (planId, taskIndex, userId, bucketKey) {
@@ -3031,10 +3027,8 @@ if (typeof window !== 'undefined') {
         }
         document.getElementById('postpone-task-modal')?.remove();
         window.app_applyHeroTaskOptimisticUpdate(userId, bucketKey, planId, taskIndex, 'postpone');
-        window.app_heroTaskModalState = { userId: String(userId || ''), bucketKey: String(bucketKey || '') };
-        window.app_openHeroTaskList?.(userId, bucketKey);
         await window.app_postponeTask(planId, taskIndex, targetDate);
-        window.app_scheduleHeroAuditRefresh(userId, bucketKey);
+        await window.app_refreshHeroTaskList(userId, bucketKey);
     };
 
     window.app_deleteHeroTaskAction = async function (planId, taskIndex, userId, bucketKey) {
@@ -3042,9 +3036,8 @@ if (typeof window !== 'undefined') {
         if (!window.AppCalendar?.removeTask) return;
         if (!await window.appConfirm('Delete this plan from the hero audit list?')) return;
         window.app_applyHeroTaskOptimisticUpdate(userId, bucketKey, planId, taskIndex, 'delete');
-        window.app_openHeroTaskList?.(userId, bucketKey);
         await window.AppCalendar.removeTask(planId, taskIndex);
-        window.app_scheduleHeroAuditRefresh(userId, bucketKey);
+        await window.app_refreshHeroTaskList(userId, bucketKey);
     };
 
     window.app_editHeroTaskAction = async function (date, userId) {

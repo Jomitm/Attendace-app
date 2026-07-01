@@ -217,7 +217,10 @@ async function loadAllReflections() {
     const localReflections = readLocalReflections();
     if (!AppDB?.getAll) return localReflections;
     try {
-        const remoteReflections = await AppDB.getAll(JOURNEY_REFLECTION_COLLECTION, { silentPermissionDenied: true }).catch(() => []);
+        const remoteReflections = await AppDB.getAll(JOURNEY_REFLECTION_COLLECTION, {
+            source: 'server',
+            silentPermissionDenied: true
+        }).catch(() => []);
         return mergeReflectionRows(localReflections, remoteReflections);
     } catch (err) {
         console.warn('Journey reflections load failed:', err);
@@ -230,7 +233,10 @@ async function getReflectionDoc(userId, dateKey) {
     if (!AppDB?.get) return null;
     const localMatch = readLocalReflections().find((row) => row.id === docId) || null;
     try {
-        const remote = await AppDB.get(JOURNEY_REFLECTION_COLLECTION, docId, { silentPermissionDenied: true }).catch(() => null);
+        const remote = await AppDB.get(JOURNEY_REFLECTION_COLLECTION, docId, {
+            source: 'server',
+            silentPermissionDenied: true
+        }).catch(() => null);
         return normalizeReflectionRow(remote) || localMatch;
     } catch {
         return localMatch;

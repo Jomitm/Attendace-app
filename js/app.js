@@ -3511,11 +3511,113 @@ function startAdminRealtimeListener() {
     console.log("Starting Admin Realtime Listeners (Users & Audits)...");
 
     let refreshTimer = null;
+    let refreshInFlight = false;
+    const userSnapshotCache = new Map();
+    let userSnapshotPrimed = false;
+    const locationAuditSnapshotCache = new Map();
+    let locationAuditSnapshotPrimed = false;
+
+    const buildUserSignature = (user) => JSON.stringify({
+        id: String(user?.id || ''),
+        status: String(user?.status || ''),
+        role: String(user?.role || ''),
+        isAdmin: user?.isAdmin === true,
+        permissions: user?.permissions || null,
+        name: String(user?.name || ''),
+        username: String(user?.username || ''),
+        email: String(user?.email || ''),
+        rating: Number.isFinite(Number(user?.rating)) ? Number(user.rating) : null,
+        completionStats: user?.completionStats || null,
+        lastCheckIn: user?.lastCheckIn || null,
+        lastCheckOut: user?.lastCheckOut || null,
+        canManageAttendanceSheet: !!user?.canManageAttendanceSheet,
+        canManageBirthdays: !!user?.canManageBirthdays,
+        canAccessStaffAiMemory: !!user?.canAccessStaffAiMemory
+    });
+
+    const shouldRefreshFromUsers = (rows = []) => {
+        const nextCache = new Map();
+        let changed = false;
+
+        for (const row of (Array.isArray(rows) ? rows : [])) {
+            const id = String(row?.id || '').trim();
+            if (!id) continue;
+            const signature = buildUserSignature(row);
+            nextCache.set(id, signature);
+            if (!userSnapshotPrimed) continue;
+            if (userSnapshotCache.get(id) !== signature) {
+                changed = true;
+            }
+        }
+
+        if (userSnapshotPrimed) {
+            for (const id of userSnapshotCache.keys()) {
+                if (!nextCache.has(id)) {
+                    changed = true;
+                    break;
+                }
+            }
+        }
+
+        userSnapshotCache.clear();
+        for (const [id, signature] of nextCache.entries()) {
+            userSnapshotCache.set(id, signature);
+        }
+        userSnapshotPrimed = true;
+        return changed;
+    };
+
+    const shouldRefreshFromAudits = (rows = []) => {
+        const nextCache = new Map();
+        let changed = false;
+
+        for (const row of (Array.isArray(rows) ? rows : [])) {
+            const id = String(row?.id || '').trim();
+            if (!id) continue;
+            const signature = JSON.stringify({
+                id,
+                timestamp: row?.timestamp || null,
+                userId: String(row?.userId || row?.user_id || ''),
+                slot: String(row?.slot || ''),
+                status: String(row?.status || ''),
+                lat: row?.lat ?? null,
+                lng: row?.lng ?? null
+            });
+            nextCache.set(id, signature);
+            if (!locationAuditSnapshotPrimed) continue;
+            if (locationAuditSnapshotCache.get(id) !== signature) {
+                changed = true;
+            }
+        }
+
+        if (locationAuditSnapshotPrimed) {
+            for (const id of locationAuditSnapshotCache.keys()) {
+                if (!nextCache.has(id)) {
+                    changed = true;
+                    break;
+                }
+            }
+        }
+
+        locationAuditSnapshotCache.clear();
+        for (const [id, signature] of nextCache.entries()) {
+            locationAuditSnapshotCache.set(id, signature);
+        }
+        locationAuditSnapshotPrimed = true;
+        return changed;
+    };
+
     const queueAdminRefresh = () => {
         if (refreshTimer) clearTimeout(refreshTimer);
         refreshTimer = setTimeout(async () => {
             refreshTimer = null;
-            await refreshAdminUI();
+            if (refreshInFlight) return;
+            refreshInFlight = true;
+            try {
+                await refreshAdminUI();
+            } finally {
+                refreshInFlight = false;
+            }
         }, 600);
     };
 
@@ -3545,17 +3647,25 @@ function startAdminRealtimeListener() {
         // Users listener kept for status/login/logout changes; heartbeat writes are disabled by config.
         adminListenerUnsubscribe.push(window.AppDB.listenQuery('users', [
             { field: 'status', operator: 'in', value: ['in', 'out'] }
-        ], { limit: 300 }, queueAdminRefresh));
+        ], { limit: 300 }, (rows) => {
+            if (shouldRefreshFromUsers(rows)) queueAdminRefresh();
+        }));
 
         const since = new Date();
         since.setDate(since.getDate() - 2);
         adminListenerUnsubscribe.push(window.AppDB.listenQuery('location_audits', [
             { field: 'timestamp', operator: '>=', value: since.getTime() }
-        ], { orderBy: [{ field: 'timestamp', direction: 'desc' }], limit: 300 }, queueAdminRefresh));
+        ], { orderBy: [{ field: 'timestamp', direction: 'desc' }], limit: 300 }, (rows) => {
+            if (shouldRefreshFromAudits(rows)) queueAdminRefresh();
+        }));
     } else {
         // Legacy mode
-        adminListenerUnsubscribe.push(window.AppDB.listen('users', queueAdminRefresh));
-        adminListenerUnsubscribe.push(window.AppDB.listen('location_audits', queueAdminRefresh));
+        adminListenerUnsubscribe.push(window.AppDB.listen('users', (rows) => {
+            if (shouldRefreshFromUsers(rows)) queueAdminRefresh();
+        }));
+        adminListenerUnsubscribe.push(window.AppDB.listen('location_audits', (rows) => {
+            if (shouldRefreshFromAudits(rows)) queueAdminRefresh();
+        }));
     }
 }
 
@@ -7637,6 +7747,10 @@ function setupDashboardEvents() {
 window.setupDashboardEvents = setupDashboardEvents;
 
 async function refreshDashboardAfterAttendance() {
+    const currentHash = String(window.location.hash || '').replace(/^#/, '') || 'dashboard';
+    if (currentHash !== 'dashboard') {
+        return;
+    }
     const contentArea = document.getElementById('page-content');
     if (!contentArea) return;
     try {

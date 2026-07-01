@@ -17,7 +17,7 @@ export class RatingSystem {
      */
     getSmartTaskStatus(taskDate, currentStatus = null) {
         // Manual statuses override auto-calculation
-        if (currentStatus === 'completed' || currentStatus === 'not-completed') {
+        if (currentStatus === 'completed' || currentStatus === 'not-completed' || currentStatus === 'postponed') {
             return currentStatus;
         }
 
@@ -351,5 +351,4 @@ export class RatingSystem {
 // Export to Window (Global)
 export const AppRating = new RatingSystem();
 if (typeof window !== 'undefined') window.AppRating = AppRating;
-
 

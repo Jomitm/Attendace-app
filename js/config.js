@@ -44,7 +44,10 @@ export const AppConfig = {
         minutes: 30000,
         attendanceSummary: 30000,
         staffMessages: 20000,
-        dailySummaryReadMs: 60000
+        dailySummaryReadMs: 60000,
+        staffActivitiesReadMs: 60000,
+        workPlansAllReadMs: 120000,
+        workPlanReadMs: 120000
     },
     READ_OPT_FLAGS: {
         FF_READ_OPT_DB_QUERIES: true,

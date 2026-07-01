@@ -801,7 +801,7 @@ export class Analytics {
         const ttl = this.getTtls().attendanceSummary || 30000;
         const cacheKey = `analytics:heroShared:${startIso}:${endIso}`;
         return this.memoize(cacheKey, ttl, async () => {
-            const [logs, workPlans, users] = await Promise.all([
+            const [logs, workPlans, activityRows, users] = await Promise.all([
                 this.getAttendanceInRange(start, end, 'hero_yesterday_window'),
                 this.db.queryMany
                     ? this.db.queryMany('work_plans', [
@@ -809,6 +809,13 @@ export class Analytics {
                         { field: 'date', operator: '<=', value: endIso }
                     ])
                     : this.db.getAll('work_plans'),
+                this.getAllStaffActivities({
+                    mode: 'range',
+                    startIso,
+                    endIso,
+                    scope: 'work',
+                    sideEffects: false
+                }),
                 this.getUsersCached()
             ]);
             return {
@@ -820,6 +827,7 @@ export class Analytics {
                 windowDays: Math.max(1, Number(policy.WINDOW_DAYS || 7)),
                 logs,
                 workPlans,
+                activityRows,
                 users
             };
         });
@@ -962,37 +970,63 @@ export class Analytics {
     }
 
     normalizeHeroTasks(workPlans = []) {
-        let rows = [];
+        const rawRows = [];
+        const shadowedSourceKeys = new Set();
+
         (workPlans || []).forEach((wp) => {
             const userId = String(wp?.userId || wp?.user_id || '').trim();
             if (!userId || !Array.isArray(wp?.plans)) return;
             wp.plans.forEach((task, taskIndex) => {
                 if (!task || !String(task.task || '').trim()) return;
+                if (task.isRemoved === true) return;
                 const status = this.classifyHeroTaskStatus(task.status, wp.date);
-                rows.push({
+                const planId = String(wp?.id || '');
+                const sourcePlanId = String(task.sourcePlanId || '').trim();
+                const sourceTaskIndex = Number(task.sourceTaskIndex);
+                const hasPostponeSource = String(task.addedFrom || '').trim().toLowerCase() === 'postponed'
+                    && sourcePlanId
+                    && Number.isInteger(sourceTaskIndex);
+                if (hasPostponeSource) {
+                    shadowedSourceKeys.add(`${sourcePlanId}::${sourceTaskIndex}`);
+                }
+                rawRows.push({
                     userId,
                     status,
                     date: wp.date,
-                    planId: String(wp?.id || ''),
+                    planId,
                     taskIndex,
                     rawStatus: String(task.status || '').trim().toLowerCase(),
+                    addedFrom: String(task.addedFrom || '').trim().toLowerCase(),
                     task: String(task.task || ''),
                     subPlans: Array.isArray(task.subPlans) ? task.subPlans.slice() : [],
                     completedDate: task.completedDate || null,
                     assignedTo: String(task.assignedTo || wp?.userId || wp?.user_id || '').trim(),
-                    assignedToName: String(task.assignedToName || wp?.userName || '').trim()
+                    assignedToName: String(task.assignedToName || wp?.userName || '').trim(),
+                    sourcePlanId,
+                    sourceTaskIndex: Number.isInteger(sourceTaskIndex) ? sourceTaskIndex : null,
+                    carryForwardRootId: String(task.carryForwardRootId || '').trim(),
+                    isRemoved: task.isRemoved === true
                 });
             });
         });
 
+        const filteredRows = rawRows.filter((row) => {
+            if (!row) return false;
+            const key = `${String(row.planId || '')}::${Number.isInteger(row.taskIndex) ? row.taskIndex : ''}`;
+            if (shadowedSourceKeys.has(key) && row.addedFrom !== 'postponed') {
+                return false;
+            }
+            return true;
+        });
+
         const completedTasksByUserAndName = new Set();
-        rows.forEach(row => {
+        filteredRows.forEach(row => {
             if (row.status === 'completed') {
                 completedTasksByUserAndName.add(`${row.userId}::${row.task.toLowerCase().trim()}`);
             }
         });
 
-        rows = rows.filter(row => {
+        const rows = filteredRows.filter(row => {
             if (row.status === 'postponed') {
                 const key = `${row.userId}::${row.task.toLowerCase().trim()}`;
                 if (completedTasksByUserAndName.has(key)) {
@@ -1003,6 +1037,73 @@ export class Analytics {
         });
 
         return rows;
+    }
+
+    normalizeHeroTasksFromActivities(activityRows = []) {
+        const rawRows = [];
+        const shadowedSourceKeys = new Set();
+
+        (Array.isArray(activityRows) ? activityRows : []).forEach((row) => {
+            if (!row || String(row.type || '').toLowerCase() !== 'work') return;
+            if (row.isRemoved === true) return;
+            const userId = String(row.userId || row.user_id || '').trim();
+            const planId = String(row.planId || row.id || '').trim();
+            const taskIndex = Number(row.taskIndex);
+            const task = String(row.task || row._displayDesc || row.workDescription || '').trim();
+            if (!userId || !planId || !task || !Number.isInteger(taskIndex)) return;
+
+            const sourcePlanId = String(row.sourcePlanId || '').trim();
+            const sourceTaskIndex = Number(row.sourceTaskIndex);
+            const addedFrom = String(row.addedFrom || '').trim().toLowerCase();
+            if (addedFrom === 'postponed' && sourcePlanId && Number.isInteger(sourceTaskIndex)) {
+                shadowedSourceKeys.add(`${sourcePlanId}::${sourceTaskIndex}`);
+            }
+
+            rawRows.push({
+                userId,
+                status: this.classifyHeroTaskStatus(row.status, row.date),
+                date: String(row.date || ''),
+                planId,
+                taskIndex,
+                rawStatus: String(row.rawStatus || row.status || '').trim().toLowerCase(),
+                addedFrom,
+                task,
+                subPlans: Array.isArray(row.subPlans) ? row.subPlans.slice() : [],
+                completedDate: row.completedDate || null,
+                assignedTo: String(row.assignedTo || row.userId || '').trim(),
+                assignedToName: String(row.assignedToName || row.staffName || '').trim(),
+                sourcePlanId,
+                sourceTaskIndex: Number.isInteger(sourceTaskIndex) ? sourceTaskIndex : null,
+                carryForwardRootId: String(row.carryForwardRootId || '').trim(),
+                isRemoved: row.isRemoved === true
+            });
+        });
+
+        const filteredRows = rawRows.filter((row) => {
+            if (!row) return false;
+            const key = `${String(row.planId || '')}::${Number.isInteger(row.taskIndex) ? row.taskIndex : ''}`;
+            if (shadowedSourceKeys.has(key) && row.addedFrom !== 'postponed') {
+                return false;
+            }
+            return true;
+        });
+
+        const completedTasksByUserAndName = new Set();
+        filteredRows.forEach((row) => {
+            if (row.status === 'completed') {
+                completedTasksByUserAndName.add(`${row.userId}::${row.task.toLowerCase().trim()}`);
+            }
+        });
+
+        return filteredRows.filter((row) => {
+            if (row.status === 'postponed') {
+                const key = `${row.userId}::${row.task.toLowerCase().trim()}`;
+                if (completedTasksByUserAndName.has(key)) {
+                    return false;
+                }
+            }
+            return true;
+        });
     }
 
     buildHeroTaskBuckets(taskRows = []) {
@@ -1181,8 +1282,9 @@ export class Analytics {
         const minPlannedTasks = Math.max(0, Number(minEvidence.minPlannedTasks || 1));
 
         const normalized = this.normalizeHeroLogs(logs);
-        const workPlans = Array.isArray(options.workPlans) ? options.workPlans : [];
-        const normalizedTasks = this.normalizeHeroTasks(workPlans);
+        const normalizedTasks = Array.isArray(options.activityRows) && options.activityRows.length
+            ? this.normalizeHeroTasksFromActivities(options.activityRows)
+            : this.normalizeHeroTasks(Array.isArray(options.workPlans) ? options.workPlans : []);
         if (normalized.length === 0 && normalizedTasks.length === 0) {
             return this.createNoHeroPayload({ period, source });
         }
@@ -1227,12 +1329,12 @@ export class Analytics {
 
     async getHeroOfTheWeek(options = {}) {
         try {
-            const { policy, start, end, windowDays, logs, workPlans, users } = await this.getHeroSharedDataset(options);
+            const { policy, start, end, windowDays, logs, activityRows, users } = await this.getHeroSharedDataset(options);
 
             const weeklyHero = this.scoreHeroFromLogs(logs, users, {
                 period: 'yesterday_back_7_days',
                 source: String(options.source || 'direct_cache'),
-                workPlans
+                activityRows
             });
             if (weeklyHero.state === 'winner') {
                 return {
@@ -1274,14 +1376,14 @@ export class Analytics {
 
     async getHeroLeaderboard(options = {}) {
         try {
-            const { policy, start, end, logs, workPlans, users } = await this.getHeroSharedDataset(options);
+            const { policy, start, end, logs, activityRows, users } = await this.getHeroSharedDataset(options);
             const minEvidence = policy.MIN_EVIDENCE || {};
             const minDays = Math.max(1, Number(minEvidence.minDays || 1));
             const minDurationMs = Math.max(0, Number(minEvidence.minDurationMs || 1));
             const minPlannedTasks = Math.max(0, Number(minEvidence.minPlannedTasks || 1));
 
             const normalizedLogs = this.normalizeHeroLogs(logs);
-            const normalizedTasks = this.normalizeHeroTasks(workPlans);
+            const normalizedTasks = this.normalizeHeroTasksFromActivities(activityRows);
             const ranked = this.rankHeroCandidates(
                 this.buildHeroCandidateStats(normalizedLogs),
                 this.buildHeroTaskStats(normalizedTasks),
@@ -1565,10 +1667,19 @@ export class Analytics {
                         ? this.getAttendanceInRange(startDate, endDate, `staffActManual:${startIso}:${endIso}`)
                     : Promise.resolve([]),
                 this.db.queryMany
-                    ? this.db.queryMany('work_plans', [
-                        { field: 'date', operator: '>=', value: startIso },
-                        { field: 'date', operator: '<=', value: endIso }
-                    ])
+                    ? this.memoize(
+                        `analytics:workPlans:${mode}:${scope}:${startIso}:${endIso}`,
+                        Math.max(
+                            30000,
+                            Number(this.getTtls().staffActivitiesReadMs || 0),
+                            Number(this.getTtls().attendanceSummary || 0),
+                            Number(this.getTtls().workPlansAllReadMs || 0)
+                        ),
+                        async () => this.db.queryMany('work_plans', [
+                            { field: 'date', operator: '>=', value: startIso },
+                            { field: 'date', operator: '<=', value: endIso }
+                        ])
+                    )
                     : AppDB.getAll('work_plans'),
                 this.getUsersCached()
             ]);
@@ -1626,6 +1737,7 @@ export class Analytics {
             const normalizePlanStatus = (plan = {}) => {
                 const raw = String(plan.status || '').trim().toLowerCase();
                 if (['completed', 'complete', 'done', 'finished', 'closed'].includes(raw)) return 'completed';
+                if (['postponed', 'postpone'].includes(raw)) return 'postponed';
                 if (['not-completed', 'not completed', 'cancelled', 'canceled', 'removed'].includes(raw)) return 'not-completed';
                 if (['in-process', 'in process', 'working', 'started'].includes(raw)) return 'in-process';
                 if (['to-be-started', 'to be started', 'pending', 'planned'].includes(raw)) return 'to-be-started';

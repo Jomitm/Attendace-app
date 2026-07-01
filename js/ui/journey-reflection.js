@@ -162,6 +162,8 @@ const renderBanner = (state) => {
 export function renderJourneyReflectionCard(state = {}) {
     if (!state || !state.ownerId) return '';
 
+    syncJourneyReflectionFeed(state);
+
     const cardClass = [
         'card',
         'full-width',
@@ -233,6 +235,94 @@ const refreshDashboard = async () => {
     if (typeof window.app_refreshDashboard === 'function') {
         await window.app_refreshDashboard();
     }
+};
+
+const JOURNEY_REFLECTION_SYNC_STATE = {
+    ownerId: '',
+    todayKey: '',
+    signature: '',
+    unsubscribe: null,
+    refreshPending: false
+};
+
+const isDashboardVisible = () => {
+    try {
+        const page = String(window.location.hash || '#dashboard').replace('#', '').trim() || 'dashboard';
+        if (page === 'dashboard') return true;
+        return !!document.querySelector('.dashboard-grid.dashboard-modern');
+    } catch {
+        return false;
+    }
+};
+
+const buildReflectionSignature = (rows = []) => {
+    return (Array.isArray(rows) ? rows : [])
+        .map((row) => [
+            String(row?.id || ''),
+            String(row?.date || ''),
+            String(row?.updatedAt || ''),
+            String(row?.createdAt || ''),
+            String(row?.note || ''),
+            String(row?.energy || '')
+        ].join('|'))
+        .sort()
+        .join('~');
+};
+
+const queueJourneyReflectionRefresh = async () => {
+    if (JOURNEY_REFLECTION_SYNC_STATE.refreshPending) return;
+    JOURNEY_REFLECTION_SYNC_STATE.refreshPending = true;
+    try {
+        if (isDashboardVisible()) {
+            await refreshDashboard();
+        }
+    } finally {
+        JOURNEY_REFLECTION_SYNC_STATE.refreshPending = false;
+    }
+};
+
+const syncJourneyReflectionFeed = (state = {}) => {
+    const ownerId = String(state.ownerId || '').trim();
+    const todayKey = String(state.todayKey || '').trim();
+    const canListen = !!window.AppDB?.listenQuery && !!ownerId;
+
+    if (!canListen) {
+        if (typeof JOURNEY_REFLECTION_SYNC_STATE.unsubscribe === 'function') {
+            JOURNEY_REFLECTION_SYNC_STATE.unsubscribe();
+        }
+        JOURNEY_REFLECTION_SYNC_STATE.ownerId = '';
+        JOURNEY_REFLECTION_SYNC_STATE.todayKey = '';
+        JOURNEY_REFLECTION_SYNC_STATE.signature = '';
+        JOURNEY_REFLECTION_SYNC_STATE.unsubscribe = null;
+        return;
+    }
+
+    if (JOURNEY_REFLECTION_SYNC_STATE.ownerId === ownerId && JOURNEY_REFLECTION_SYNC_STATE.todayKey === todayKey) {
+        return;
+    }
+
+    if (typeof JOURNEY_REFLECTION_SYNC_STATE.unsubscribe === 'function') {
+        JOURNEY_REFLECTION_SYNC_STATE.unsubscribe();
+    }
+
+    JOURNEY_REFLECTION_SYNC_STATE.ownerId = ownerId;
+    JOURNEY_REFLECTION_SYNC_STATE.todayKey = todayKey;
+    JOURNEY_REFLECTION_SYNC_STATE.signature = '';
+    JOURNEY_REFLECTION_SYNC_STATE.unsubscribe = window.AppDB.listenQuery(
+        AppJourneyReflection.JOURNEY_REFLECTION_COLLECTION,
+        [{ field: 'userId', operator: '==', value: ownerId }],
+        {},
+        (rows) => {
+            const nextSignature = buildReflectionSignature(rows);
+            if (!JOURNEY_REFLECTION_SYNC_STATE.signature) {
+                JOURNEY_REFLECTION_SYNC_STATE.signature = nextSignature;
+                return;
+            }
+            if (nextSignature === JOURNEY_REFLECTION_SYNC_STATE.signature) return;
+            JOURNEY_REFLECTION_SYNC_STATE.signature = nextSignature;
+            void queueJourneyReflectionRefresh();
+        }
+    );
 };
 
 const setPopoutOpen = (ownerId, isOpen) => {

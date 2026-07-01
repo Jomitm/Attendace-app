@@ -108,7 +108,7 @@ function normalizeActivityRows(rows) {
 
 function isIncompleteStatus(status) {
     const key = String(status || '').toLowerCase();
-    return ['overdue', 'not-completed', 'to-be-started', 'in-process'].includes(key);
+    return ['overdue', 'not-completed', 'to-be-started', 'in-process', 'postponed'].includes(key);
 }
 
 function nextDateIso(dateStr) {
@@ -912,9 +912,9 @@ if (typeof window !== 'undefined') {
             if (window.app_showSyncToast) {
                 window.app_showSyncToast('Task marked as completed.');
             }
-            if (typeof window.app_refreshDashboard === 'function') {
-                window.app_refreshDashboard().catch((refreshErr) => {
-                    console.warn('Dashboard refresh after complete failed:', refreshErr);
+            if (typeof window.app_refreshHeroAuditLive === 'function') {
+                window.app_refreshHeroAuditLive().catch((refreshErr) => {
+                    console.warn('Hero refresh after complete failed:', refreshErr);
                 });
             }
         } catch (err) {
@@ -987,9 +987,9 @@ if (typeof window !== 'undefined') {
             if (window.app_showSyncToast) {
                 window.app_showSyncToast(`Task postponed to ${nextDate}.`);
             }
-            if (typeof window.app_refreshDashboard === 'function') {
-                window.app_refreshDashboard().catch((refreshErr) => {
-                    console.warn('Dashboard refresh after postpone failed:', refreshErr);
+            if (typeof window.app_refreshHeroAuditLive === 'function') {
+                window.app_refreshHeroAuditLive().catch((refreshErr) => {
+                    console.warn('Hero refresh after postpone failed:', refreshErr);
                 });
             }
         } catch (err) {
@@ -1035,6 +1035,11 @@ if (typeof window !== 'undefined') {
             if (window.app_showSyncToast) {
                 window.app_showSyncToast(`${removable.length} task(s) removed.`);
             }
+            if (typeof window.app_refreshHeroAuditLive === 'function') {
+                window.app_refreshHeroAuditLive().catch((refreshErr) => {
+                    console.warn('Hero refresh after bulk remove failed:', refreshErr);
+                });
+            }
         } catch (err) {
             console.error('Bulk remove failed', err);
             alert('Failed to bulk remove tasks.');
@@ -1062,6 +1067,11 @@ if (typeof window !== 'undefined') {
             await refreshData();
             if (window.app_showSyncToast) {
                 window.app_showSyncToast('Task removed.');
+            }
+            if (typeof window.app_refreshHeroAuditLive === 'function') {
+                window.app_refreshHeroAuditLive().catch((refreshErr) => {
+                    console.warn('Hero refresh after remove failed:', refreshErr);
+                });
             }
         } catch (err) {
             console.error('Remove task failed', err);

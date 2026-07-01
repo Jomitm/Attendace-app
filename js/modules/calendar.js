@@ -13,7 +13,19 @@ export class Calendar {
         this._carryForwardRangeCache = new Map();
         this._carryForwardCleanupCache = new Map();
         this._carryForwardExceptionCache = new Map();
+        this._plansCache = new Map();
+        this._collaborationsCache = new Map();
         this._carryForwardCacheVersion = 0;
+        if (typeof window !== 'undefined' && window.addEventListener && !window.__calendarCacheBound) {
+            window.addEventListener('app:db-write', (event) => {
+                const collection = String(event?.detail?.collection || '');
+                if (['work_plans', 'leaves', 'events', 'users'].includes(collection)) {
+                    this._plansCache.clear();
+                    this._collaborationsCache.clear();
+                }
+            });
+            window.__calendarCacheBound = true;
+        }
     }
 
     invalidateCarryForwardCache() {
@@ -85,9 +97,12 @@ export class Calendar {
         if (this.db.queryMany) {
             return this.db.queryMany('work_plans', [
                 { field: 'date', operator: '<=', value: endDate }
-            ]).catch(() => this.db.getAll('work_plans'));
+            ]).catch((err) => {
+                console.warn('getAllWorkPlansUntil failed, skipping work_plans fallback read:', err);
+                return [];
+            });
         }
-        return this.db.getAll('work_plans');
+        return [];
     }
 
     buildDateRange(startDate, endDate) {
@@ -314,6 +329,11 @@ export class Calendar {
             const now = new Date();
             const start = new Date(now.getFullYear(), now.getMonth() - 2, 1).toISOString().split('T')[0];
             const end = new Date(now.getFullYear(), now.getMonth() + 3, 0).toISOString().split('T')[0];
+            const cacheKey = `calendarPlans:${start}:${end}`;
+            const cached = this._plansCache.get(cacheKey);
+            if (cached && cached.expiresAt > Date.now()) {
+                return cached.value;
+            }
             const [leaves, events, workPlans, users] = await Promise.all([
                 this.db.getAll('leaves'),
                 this.db.getAll('events').catch(() => []),
@@ -321,8 +341,11 @@ export class Calendar {
                     ? this.db.queryMany('work_plans', [
                         { field: 'date', operator: '>=', value: start },
                         { field: 'date', operator: '<=', value: end }
-                    ]).catch(() => this.db.getAll('work_plans'))
-                    : this.db.getAll('work_plans'),
+                    ]).catch((err) => {
+                        console.warn('getPlans work_plans query failed:', err);
+                        return [];
+                    })
+                    : [],
                 this.db.getCached
                     ? this.db.getCached(this.db.getCacheKey('calendarUsers', 'users', {}), (AppConfig?.READ_CACHE_TTLS?.users || 60000), () => this.db.getAll('users')).catch(() => [])
                     : this.db.getAll('users').catch(() => [])
@@ -365,6 +388,15 @@ export class Calendar {
                 events: dedupedEvents,
                 workPlans: normalizedWorkPlans
             };
+            this._plansCache.set(cacheKey, {
+                value: {
+                    leaves: enrichedLeaves,
+                    events: dedupedEvents,
+                    workPlans: normalizedWorkPlans
+                },
+                expiresAt: Date.now() + 60000
+            });
+            return this._plansCache.get(cacheKey).value;
         } catch (err) {
             console.error("Failed to fetch calendar plans:", err);
             return { leaves: [], events: [], workPlans: [] };
@@ -704,8 +736,11 @@ export class Calendar {
         }
 
         const plans = this.db.queryMany
-            ? await this.db.queryMany('work_plans', [{ field: 'date', operator: '==', value: targetDate }]).catch(() => this.db.getAll('work_plans'))
-            : await this.db.getAll('work_plans');
+            ? await this.db.queryMany('work_plans', [{ field: 'date', operator: '==', value: targetDate }]).catch((err) => {
+                console.warn('cleanupInvalidTodayCarryForwardForDate work_plans query failed:', err);
+                return [];
+            })
+            : [];
         const dayPlans = (plans || []).filter((p) =>
             p
             && String(p.date || '') === targetDate
@@ -753,8 +788,11 @@ export class Calendar {
             ? options.scopes.map(s => this.normalizePlanScope(s))
             : ['personal', 'annual'];
         const plans = this.db.queryMany
-            ? await this.db.queryMany('work_plans', [{ field: 'date', operator: '==', value: targetDate }]).catch(() => this.db.getAll('work_plans'))
-            : await this.db.getAll('work_plans');
+            ? await this.db.queryMany('work_plans', [{ field: 'date', operator: '==', value: targetDate }]).catch((err) => {
+                console.warn('purgeWorkPlansByDate work_plans query failed:', err);
+                return [];
+            })
+            : [];
         const dayPlans = (plans || []).filter((p) =>
             p
             && String(p.date || '') === targetDate
@@ -780,8 +818,11 @@ export class Calendar {
             ? options.scopes.map(s => this.normalizePlanScope(s))
             : ['personal', 'annual'];
         const plans = this.db.queryMany
-            ? await this.db.queryMany('work_plans', [{ field: 'date', operator: '==', value: targetDate }]).catch(() => this.db.getAll('work_plans'))
-            : await this.db.getAll('work_plans');
+            ? await this.db.queryMany('work_plans', [{ field: 'date', operator: '==', value: targetDate }]).catch((err) => {
+                console.warn('purgeCarriedForwardTasksByDate work_plans query failed:', err);
+                return [];
+            })
+            : [];
         const dayPlans = (plans || []).filter((p) =>
             p
             && String(p.date || '') === targetDate
@@ -872,7 +913,7 @@ export class Calendar {
             return AppRating.getSmartTaskStatus(taskDate, currentStatus);
         }
         // Fallback if rating module not loaded
-        if (currentStatus === 'completed' || currentStatus === 'not-completed') {
+        if (currentStatus === 'completed' || currentStatus === 'not-completed' || currentStatus === 'postponed') {
             return currentStatus;
         }
         const today = new Date().toISOString().split('T')[0];
@@ -1010,14 +1051,25 @@ export class Calendar {
      */
     async getCollaborations(userId, date = null) {
         try {
+            const safeUserId = String(userId || '').trim();
+            const cacheKey = `calendarCollaborations:${safeUserId}:${String(date || '').trim()}`;
+            const cached = this._collaborationsCache.get(cacheKey);
+            if (cached && cached.expiresAt > Date.now()) {
+                return cached.value;
+            }
             const allPlans = await this.db.getAll('work_plans');
-            return allPlans.filter(p =>
+            const value = allPlans.filter(p =>
                 (!date || p.date === date) &&
                 p.plans &&
                 p.plans.some(task =>
-                    task.tags && task.tags.some(t => t.id === userId && t.status === 'accepted')
+                    task.tags && task.tags.some(t => t.id === safeUserId && t.status === 'accepted')
                 )
             );
+            this._collaborationsCache.set(cacheKey, {
+                value,
+                expiresAt: Date.now() + 30000
+            });
+            return value;
         } catch (err) {
             console.error("Failed to fetch collaborations:", err);
             return [];
@@ -1103,5 +1155,3 @@ export class Calendar {
 
 export const AppCalendar = new Calendar();
 if (typeof window !== 'undefined') window.AppCalendar = AppCalendar;
-
-

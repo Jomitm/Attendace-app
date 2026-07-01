@@ -84,6 +84,29 @@ All three must be satisfied:
 
 ---
 
+## Hero Task Modal Fixes
+
+- The hero-of-the-week task popout now refreshes from live data after each action instead of reopening on a delayed timeout.
+- `Delete` now waits for `AppCalendar.removeTask()` to finish, then refreshes the hero list from the latest leaderboard data.
+- `Postpone` now waits for the task move to complete before refreshing the hero modal, which avoids the duplicate-looking stale state.
+- Hero analytics now ignore removed tasks and shadow postponed source tasks when a postponed copy exists, so deleted items do not reappear and postponed tasks are not double-counted in the hero modal.
+
+## Dashboard Refresh Guard
+
+- `app_refreshDashboard()` now exits unless the current route is the main dashboard.
+- This prevents task completion flows from forcing a dashboard redraw while the user is inside other pages such as Team Activities.
+
+---
+
+## Hero And Team Activity Sync
+
+- The Hero of the Week task popout now uses the same normalized activity rows as Team Activities for task status and task identity.
+- `postponed` is preserved as a distinct status in the shared status helpers, so postponed tasks do not get collapsed into overdue or missed states.
+- Hero task ranking now excludes removed tasks and shadows the source task when a postponed copy exists, which prevents deleted items from reappearing and stops postponed items from being double-counted.
+- Team Activities actions (`complete`, `postpone`, `remove`, and bulk remove) now trigger a hero refresh after the write succeeds, so both screens stay in sync immediately.
+
+---
+
 ## Caching Strategy
 
 | Layer | TTL | Key Pattern |
@@ -93,6 +116,11 @@ All three must be satisfied:
 | Hero leaderboard (in-memory) | 24 h | `hero_leaderboard_v{SCHEMA_VERSION}_{todayStr}` |
 | Work plans (read cache) | 60 s | `all:work_plans:*` |
 | Users (read cache) | 60 s | `all:users:*` |
+| Staff activity aggregation cache | 60 s | `analytics:workPlans:{mode}:{scope}:{start}:{end}` |
+| Work plan doc/all read cache | 120 s | `doc:work_plans:*`, `all:work_plans:*` |
+| Day-plan modal payload cache | 15 s | `dayPlanLoadCache:{date}:{targetId}` |
+
+Carry-forward and calendar aggregation helpers now return empty results on query failure instead of falling back to full `work_plans` collection reads.
 
 Schema version bump → stale cache keys stop matching → automatic recalculation.
 
