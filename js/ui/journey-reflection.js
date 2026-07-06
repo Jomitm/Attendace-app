@@ -308,6 +308,8 @@ const syncJourneyReflectionFeed = (state = {}) => {
     JOURNEY_REFLECTION_SYNC_STATE.ownerId = ownerId;
     JOURNEY_REFLECTION_SYNC_STATE.todayKey = todayKey;
     JOURNEY_REFLECTION_SYNC_STATE.signature = '';
+    
+    let isInitialSnapshot = true;
     JOURNEY_REFLECTION_SYNC_STATE.unsubscribe = window.AppDB.listenQuery(
         AppJourneyReflection.JOURNEY_REFLECTION_COLLECTION,
         [{ field: 'userId', operator: '==', value: ownerId }],
@@ -316,6 +318,13 @@ const syncJourneyReflectionFeed = (state = {}) => {
             const nextSignature = buildReflectionSignature(rows);
             if (!JOURNEY_REFLECTION_SYNC_STATE.signature) {
                 JOURNEY_REFLECTION_SYNC_STATE.signature = nextSignature;
+                // Trigger refresh on initial snapshot to load old reflections
+                if (isInitialSnapshot && rows.length > 0) {
+                    console.log(`Initial Journey Reflection snapshot: ${rows.length} records for user ${ownerId}`);
+                    isInitialSnapshot = false;
+                    void queueJourneyReflectionRefresh();
+                }
+                isInitialSnapshot = false;
                 return;
             }
             if (nextSignature === JOURNEY_REFLECTION_SYNC_STATE.signature) return;

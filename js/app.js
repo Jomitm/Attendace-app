@@ -497,6 +497,152 @@ window.app_resetReadTelemetry = () => {
     window.AppDB.clearReadTelemetry();
 };
 
+// --- Navigation Section Management (Collapsible Categories) ---
+
+/**
+ * Get collapse state from localStorage
+ */
+window.app_getNavSectionCollapsed = (sectionName) => {
+    try {
+        const stored = localStorage.getItem(`nav_section_${sectionName}_collapsed`);
+        if (stored === null) return false; // Default to expanded
+        return stored === 'true';
+    } catch (err) {
+        console.warn('Failed to get nav section collapsed state:', err);
+        return false;
+    }
+};
+
+/**
+ * Set collapse state in localStorage
+ */
+window.app_setNavSectionCollapsed = (sectionName, isCollapsed) => {
+    try {
+        localStorage.setItem(`nav_section_${sectionName}_collapsed`, isCollapsed ? 'true' : 'false');
+    } catch (err) {
+        console.warn('Failed to set nav section collapsed state:', err);
+    }
+};
+
+/**
+ * Toggle a navigation section's collapse state
+ */
+window.app_toggleNavSection = (sectionName) => {
+    const section = document.querySelector(`.nav-section[data-section="${sectionName}"]`);
+    if (!section) return;
+
+    const header = section.querySelector('.nav-section-header');
+    if (!header) return;
+
+    const isCurrentlyCollapsed = header.dataset.collapsed === 'true';
+    const newCollapsedState = !isCurrentlyCollapsed;
+
+    header.dataset.collapsed = newCollapsedState ? 'true' : 'false';
+    window.app_setNavSectionCollapsed(sectionName, newCollapsedState);
+};
+
+/**
+ * Initialize section toggle handlers and restore collapse states
+ */
+window.app_initSectionToggle = () => {
+    const headers = document.querySelectorAll('.nav-section-header');
+    headers.forEach(header => {
+        const section = header.closest('.nav-section');
+        if (!section) return;
+
+        const sectionName = section.dataset.section;
+        if (!sectionName) return;
+
+        // Restore collapse state from localStorage
+        const isCollapsed = window.app_getNavSectionCollapsed(sectionName);
+        header.dataset.collapsed = isCollapsed ? 'true' : 'false';
+
+        // Add click event listener only if not already added (check for data attribute)
+        if (header.dataset.listenerAttached !== 'true') {
+            header.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                window.app_toggleNavSection(sectionName);
+            });
+            header.dataset.listenerAttached = 'true';
+        }
+    });
+};
+
+/**
+ * Update navigation sections visibility and item visibility based on user permissions
+ */
+window.app_updateNavigationSections = (user = window.AppAuth?.getUser()) => {
+    if (!user) return;
+
+    // Determine what each user can see
+    const canSeeAttendance = window.app_hasPerm('attendance', 'view', user);
+    const canSeeReports = window.app_hasPerm('reports', 'view', user);
+    const canSeePoliciesAdmin = window.app_hasPerm('policies', 'view', user);
+    const canSeeAdmin = window.app_canSeeAdminPanel(user);
+    const canSeeBirthdayCalendar = window.app_canManageBirthdays(user);
+    const canSeeLetterPad = window.app_canAccessLetterPad(user);
+    const canSeeStaffAiMemory = window.app_canAccessStaffAiMemory(user);
+
+    // Update individual item visibility
+    const itemVisibility = [
+        { selector: 'a[data-page="admin"]', canSee: canSeeAdmin },
+        { selector: 'a[data-page="master-sheet"]', canSee: canSeeAttendance },
+        { selector: 'a[data-page="salary"]', canSee: canSeeReports },
+        { selector: 'a[data-page="policy-test"]', canSee: canSeePoliciesAdmin },
+        { selector: 'a[data-page="birthday-calendar"]', canSee: canSeeBirthdayCalendar },
+        { selector: 'a[data-page="letter-pad"]', canSee: canSeeLetterPad },
+        { selector: 'a[data-page="staff-ai-memory"]', canSee: canSeeStaffAiMemory }
+    ];
+
+    itemVisibility.forEach(({ selector, canSee }) => {
+        document.querySelectorAll(selector).forEach(link => {
+            link.style.display = canSee ? 'flex' : 'none';
+            if (!canSee) link.style.setProperty('display', 'none', 'important');
+        });
+    });
+
+    // Determine section visibility based on whether they have access to ANY item in that section
+    const sectionVisiblity = {
+        core: true, // Always visible
+        hr: true, // Always visible (Policies, Timesheet, Birthday)
+        tools: canSeeLetterPad || canSeeStaffAiMemory, // Only show if user has access to at least one tool
+        admin: canSeeAdmin || canSeeAttendance || canSeeReports || canSeePoliciesAdmin // Only show if user has admin access
+    };
+
+    // Update section visibility
+    document.querySelectorAll('.nav-section').forEach(section => {
+        const sectionName = section.dataset.section;
+        if (!sectionName) return;
+
+        const shouldBeVisible = sectionVisiblity[sectionName];
+        if (shouldBeVisible === undefined) return;
+
+        if (shouldBeVisible) {
+            section.classList.remove('empty');
+            section.style.display = '';
+        } else {
+            section.classList.add('empty');
+            section.style.display = 'none';
+        }
+    });
+
+    // Do the same for mobile nav sections
+    document.querySelectorAll('.mobile-nav-section').forEach(section => {
+        const sectionName = section.dataset.section;
+        if (!sectionName) return;
+
+        const shouldBeVisible = sectionVisiblity[sectionName];
+        if (shouldBeVisible === undefined) return;
+
+        if (shouldBeVisible) {
+            section.classList.remove('empty');
+        } else {
+            section.classList.add('empty');
+        }
+    });
+};
+
 // --- Read Optimization: Filtered Mailbox ---
 window.app_getMyMessages = async () => {
     const user = window.AppAuth.getUser();
@@ -3347,48 +3493,8 @@ async function router() {
     }
 
     // Admin Link logic (Granular)
-    const canSeeAttendance = window.app_hasPerm('attendance', 'view', user);
-    const canSeeReports = window.app_hasPerm('reports', 'view', user);
-    const canSeePoliciesAdmin = window.app_hasPerm('policies', 'view', user);
-    const canSeeAdmin = window.app_canSeeAdminPanel(user);
-    const canSeeBirthdayCalendar = window.app_canManageBirthdays(user);
-    const canSeeLetterPad = window.app_canAccessLetterPad(user);
-    const canSeeStaffAiMemory = window.app_canAccessStaffAiMemory(user);
-
-    document.querySelectorAll('a[data-page="admin"]').forEach(link => {
-        link.style.display = canSeeAdmin ? 'flex' : 'none';
-        if (!canSeeAdmin) link.style.setProperty('display', 'none', 'important');
-    });
-
-    document.querySelectorAll('a[data-page="master-sheet"]').forEach(link => {
-        link.style.display = canSeeAttendance ? 'flex' : 'none';
-        if (!canSeeAttendance) link.style.setProperty('display', 'none', 'important');
-    });
-
-    document.querySelectorAll('a[data-page="salary"]').forEach(link => {
-        link.style.display = canSeeReports ? 'flex' : 'none';
-        if (!canSeeReports) link.style.setProperty('display', 'none', 'important');
-    });
-
-    document.querySelectorAll('a[data-page="policy-test"]').forEach(link => {
-        link.style.display = canSeePoliciesAdmin ? 'flex' : 'none';
-        if (!canSeePoliciesAdmin) link.style.setProperty('display', 'none', 'important');
-    });
-
-    document.querySelectorAll('a[data-page="birthday-calendar"]').forEach(link => {
-        link.style.display = canSeeBirthdayCalendar ? 'flex' : 'none';
-        if (!canSeeBirthdayCalendar) link.style.setProperty('display', 'none', 'important');
-    });
-
-    document.querySelectorAll('a[data-page="letter-pad"]').forEach(link => {
-        link.style.display = canSeeLetterPad ? 'flex' : 'none';
-        if (!canSeeLetterPad) link.style.setProperty('display', 'none', 'important');
-    });
-
-    document.querySelectorAll('a[data-page="staff-ai-memory"]').forEach(link => {
-        link.style.display = canSeeStaffAiMemory ? 'flex' : 'none';
-        if (!canSeeStaffAiMemory) link.style.setProperty('display', 'none', 'important');
-    });
+    window.app_updateNavigationSections(user);
+    window.app_initSectionToggle();
 
     // Active Nav
     const navLinks = document.querySelectorAll('.nav-item, .mobile-nav-item');

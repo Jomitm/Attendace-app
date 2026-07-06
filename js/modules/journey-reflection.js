@@ -216,14 +216,31 @@ const resolveDashboardTargetUserId = (user) => {
 async function loadAllReflections() {
     const localReflections = readLocalReflections();
     if (!AppDB?.getAll) return localReflections;
+    
     try {
-        const remoteReflections = await AppDB.getAll(JOURNEY_REFLECTION_COLLECTION, {
-            source: 'server',
+        // Try primary method: getAll without source restriction
+        let remoteReflections = await AppDB.getAll(JOURNEY_REFLECTION_COLLECTION, {
             silentPermissionDenied: true
-        }).catch(() => []);
-        return mergeReflectionRows(localReflections, remoteReflections);
+        }).catch(() => null);
+        
+        // If primary fails, try with queryMany as fallback
+        if (!remoteReflections || remoteReflections.length === 0) {
+            if (AppDB?.queryMany) {
+                remoteReflections = await AppDB.queryMany(JOURNEY_REFLECTION_COLLECTION, [], {
+                    silentPermissionDenied: true
+                }).catch(() => []);
+            } else {
+                remoteReflections = [];
+            }
+        }
+        
+        const merged = mergeReflectionRows(localReflections, remoteReflections || []);
+        if (merged.length > 0) {
+            console.log(`Journey reflections loaded: ${merged.length} total (${remoteReflections?.length || 0} remote, ${localReflections.length} local)`);
+        }
+        return merged;
     } catch (err) {
-        console.warn('Journey reflections load failed:', err);
+        console.warn('Journey reflections load failed, using local data:', err);
         return localReflections;
     }
 }
@@ -233,10 +250,20 @@ async function getReflectionDoc(userId, dateKey) {
     if (!AppDB?.get) return null;
     const localMatch = readLocalReflections().find((row) => row.id === docId) || null;
     try {
-        const remote = await AppDB.get(JOURNEY_REFLECTION_COLLECTION, docId, {
-            source: 'server',
+        // Try primary: get with server source
+        let remote = await AppDB.get(JOURNEY_REFLECTION_COLLECTION, docId, {
             silentPermissionDenied: true
         }).catch(() => null);
+        
+        // If remote document doesn't exist, try querying by userId as fallback for legacy data
+        if (!remote && AppDB?.queryMany) {
+            const results = await AppDB.queryMany(JOURNEY_REFLECTION_COLLECTION, [
+                { field: 'userId', operator: '==', value: userId },
+                { field: 'date', operator: '==', value: dateKey }
+            ], { silentPermissionDenied: true }).catch(() => []);
+            remote = results?.[0] || null;
+        }
+        
         return normalizeReflectionRow(remote) || localMatch;
     } catch {
         return localMatch;
@@ -427,12 +454,58 @@ function dismissJourneyReflectionReminder(userId, dateKey) {
     setDismissedForDay(safeUserId, safeDateKey);
 }
 
+// Diagnostic function to check and recover old reflections
+async function diagnoseAndRecoverReflections(userId) {
+    if (!userId) return { status: 'error', message: 'User ID required' };
+    
+    try {
+        console.log('🔍 Starting Journey Reflection diagnostic...');
+        
+        // Check local storage
+        const localData = readLocalReflections();
+        const userLocalData = filterUserReflections(localData, userId);
+        console.log(`📦 Local storage: ${userLocalData.length} reflections for user`);
+        
+        // Check remote data
+        if (!AppDB?.queryMany) {
+            return { status: 'warning', message: 'Database not initialized' };
+        }
+        
+        const remoteAll = await AppDB.queryMany(JOURNEY_REFLECTION_COLLECTION, [], {
+            silentPermissionDenied: true
+        }).catch(() => []);
+        console.log(`☁️  Remote total: ${remoteAll?.length || 0} reflections in collection`);
+        
+        const userRemoteData = filterUserReflections(remoteAll, userId);
+        console.log(`☁️  Remote user-specific: ${userRemoteData.length} reflections for user`);
+        
+        // Merge and save to local storage
+        const merged = mergeReflectionRows(userLocalData, userRemoteData);
+        if (merged.length > userLocalData.length) {
+            writeLocalReflectionStore(merged);
+            console.log(`✅ Migrated ${merged.length - userLocalData.length} reflections to local storage`);
+        }
+        
+        return {
+            status: 'success',
+            localCount: userLocalData.length,
+            remoteCount: userRemoteData.length,
+            mergedCount: merged.length,
+            message: `Found ${merged.length} total reflections (${userRemoteData.length} from server)`
+        };
+    } catch (err) {
+        console.error('Diagnostic error:', err);
+        return { status: 'error', message: err.message };
+    }
+}
+
 export const AppJourneyReflection = {
     JOURNEY_REFLECTION_COLLECTION,
     JOURNEY_REFLECTION_ENERGY_OPTIONS,
     buildDocId,
     buildDashboardState,
     clearDismissedForDay,
+    diagnoseAndRecoverReflections,
     dismissJourneyReflectionReminder,
     filterUserReflections,
     formatEnergyLabel,
