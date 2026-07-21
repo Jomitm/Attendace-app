@@ -159,26 +159,28 @@ export class Leaves {
 
     async getUserLeaves(userId, fyLabel = null) {
         if (!fyLabel) fyLabel = (await this.getFinancialYear()).label;
+        let results = [];
         try {
             if (this.db.queryMany && AppConfig?.READ_OPT_FLAGS?.FF_READ_OPT_DB_QUERIES) {
                 const scoped = await this.db.queryMany('leaves', [
                     { field: 'userId', operator: '==', value: userId },
                     { field: 'financialYear', operator: '==', value: fyLabel }
                 ]);
-                return scoped.sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
+                results = scoped;
             }
         } catch (e) {
             console.warn('Scoped getUserLeaves query failed, using fallback', e);
         }
-        const leaves = await this.db.getAll('leaves');
-        return leaves
-            .filter(l => l.userId === userId && l.financialYear === fyLabel)
-            .sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
+        if (!results.length) {
+            const leaves = await this.db.getAll('leaves');
+            results = leaves.filter(l => l.userId === userId && l.financialYear === fyLabel);
+        }
+        return this.dedupeLeaves(results).sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
     }
 
     async getLeaveUsage(userId, type, fy) {
         const leaves = await this.getUserLeaves(userId, fy.label);
-        const approved = leaves.filter(l => l.type === type && (l.status === 'Approved' || l.status === 'Pending'));
+        const approved = leaves.filter(l => l.type === type && l.status === 'Approved');
         return approved.reduce((sum, l) => sum + (parseFloat(l.daysCount) || 0), 0);
     }
 

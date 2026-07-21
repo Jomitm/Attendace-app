@@ -861,10 +861,10 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
     };
 
     const renderPendingLeaveHistory = (limit = null) => `
-        <div style="margin-top:0.9rem; border-top:1px solid #e2e8f0; padding-top:0.9rem;">
-            <div style="font-weight:700; color:#0f172a; margin-bottom:0.6rem;">Recent Decisions</div>
+        <div style="margin-top:0.6rem; border-top:1px solid #e2e8f0; padding-top:0.6rem;">
+            <div style="font-weight:700; color:#0f172a; margin-bottom:0.4rem;">Recent Decisions</div>
             ${reviewedLeaveItems.length ? reviewedLeaveItems.slice(0, limit || reviewedLeaveItems.length).map((leave) => `
-                <div style="display:flex; justify-content:space-between; gap:0.75rem; align-items:flex-start; border:1px solid #e2e8f0; border-radius:12px; padding:0.7rem 0.8rem; background:rgba(255,255,255,0.9); margin-bottom:0.55rem;">
+                <div style="display:flex; justify-content:space-between; gap:0.5rem; align-items:flex-start; border:1px solid #e2e8f0; border-radius:12px; padding:0.5rem 0.6rem; background:rgba(255,255,255,0.9); margin-bottom:0.4rem;">
                     <div>
                         <div style="font-weight:700; color:#334155;">${safeHtml(leave.userName || usersById.get(String(leave.userId || ''))?.name || 'Staff')}</div>
                         <div style="font-size:0.8rem; color:#475569;">${safeHtml(formatPendingLeaveRange(leave))} • ${safeHtml(leave.type || '--')} • <span style="color:${String(leave.status) === 'Approved' ? '#166534' : '#b91c1c'};">${safeHtml(leave.status || '--')}</span></div>
@@ -894,17 +894,17 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                                     <div class="text-muted" style="font-size:0.78rem;">${group.requests.length} request${group.requests.length === 1 ? '' : 's'}</div>
                                 </td>
                                 <td>
-                                    <div style="display:flex; flex-direction:column; gap:0.7rem;">
+                                    <div style="display:flex; flex-direction:column; gap:0.45rem;">
                                         ${group.requests
         .sort((a, b) => new Date(b.appliedOn || b.startDate || 0) - new Date(a.appliedOn || a.startDate || 0))
         .map((l) => `
-                                                <div style="border:1px solid #e2e8f0; border-radius:12px; padding:0.7rem 0.8rem; background:rgba(248,250,252,0.92);">
-                                                    <div style="display:flex; flex-wrap:wrap; gap:0.5rem 0.9rem; align-items:center; margin-bottom:0.45rem;">
+                                                <div style="border:1px solid #e2e8f0; border-radius:12px; padding:0.5rem 0.6rem; background:rgba(248,250,252,0.92);">
+                                                    <div style="display:flex; flex-wrap:wrap; gap:0.35rem 0.6rem; align-items:center; margin-bottom:0.45rem;">
                                                         <span style="font-weight:700; color:#334155;">${safeHtml(formatPendingLeaveRange(l))}</span>
                                                         <span class="admin-leave-type-badge">${safeHtml(l.type)}</span>
                                                         <span style="font-size:0.78rem; color:#475569;">${safeHtml(String(l.daysCount || 0))} day${Number(l.daysCount || 0) === 1 ? '' : 's'}</span>
                                                     </div>
-                                                    <div style="display:flex; justify-content:space-between; gap:0.75rem; align-items:flex-start; flex-wrap:wrap;">
+                                                    <div style="display:flex; justify-content:space-between; gap:0.5rem; align-items:flex-start; flex-wrap:wrap;">
                                                         <div class="text-muted" style="font-size:0.75rem;">
                                                             Applied ${safeHtml(l.appliedOn ? new Date(l.appliedOn).toLocaleDateString() : '--')}
                                                         </div>
@@ -930,8 +930,8 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         `;
 
     const renderMissedCheckoutHistory = (limit = null) => `
-        <div style="margin-top:0.85rem; border-top:1px solid #e2e8f0; padding-top:0.85rem;">
-            <div style="font-weight:700; color:#0f172a; margin-bottom:0.55rem;">Recent Decisions</div>
+        <div style="margin-top:0.55rem; border-top:1px solid #e2e8f0; padding-top:0.55rem;">
+            <div style="font-weight:700; color:#0f172a; margin-bottom:0.4rem;">Recent Decisions</div>
             ${reviewedMissedCheckoutItems.length ? reviewedMissedCheckoutItems.slice(0, limit || reviewedMissedCheckoutItems.length).map((log) => `
                 <div class="dashboard-tagged-item">
                     <div>
@@ -1000,7 +1000,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
 
     const renderBudgetHeadsBlock = (isExpanded = false) => `
         <p class="text-muted">${budgetHeadsSorted.length} budget head(s) configured</p>
-        <form onsubmit="window.app_addBudgetHead(event)" style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr auto; gap:0.5rem; margin-bottom:0.8rem;">
+        <form onsubmit="window.app_addBudgetHead(event)" style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr auto; gap:0.5rem; margin-bottom:0.5rem;">
             <input id="budget-add-code" name="code" placeholder="Code (e.g. OPS001)" required style="padding:0.5rem; border:1px solid #e2e8f0; border-radius:8px;">
             <input id="budget-add-name" name="name" placeholder="Name (e.g. Operations)" required style="padding:0.5rem; border:1px solid #e2e8f0; border-radius:8px;">
             <select id="budget-add-type" name="headType" onchange="window.app_toggleBudgetHeadParentInput?.(this.value, this)" style="padding:0.5rem; border:1px solid #e2e8f0; border-radius:8px; background:#fff;">
@@ -1076,14 +1076,14 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
             .map((head) => `<option value="${safeHtml(String(head.id || ''))}">${safeHtml(String(head.code || head.id || ''))} - ${safeHtml(String(head.name || ''))}</option>`)
             .join('');
         return `
-            <div class="admin-kpi-grid" style="margin-bottom:0.7rem;">
+            <div class="admin-kpi-grid" style="margin-bottom:0.45rem;">
                 <div class="admin-kpi-pill"><div class="admin-kpi-pill-value">${complianceIssues.length}</div><div class="admin-kpi-pill-label">Open Issues</div></div>
                 <div class="admin-kpi-pill"><div class="admin-kpi-pill-value">${complianceReasonCounts.budgetHead}</div><div class="admin-kpi-pill-label">Budget Mapping</div></div>
                 <div class="admin-kpi-pill"><div class="admin-kpi-pill-value">${complianceReasonCounts.checkout}</div><div class="admin-kpi-pill-label">Checkout Validation</div></div>
                 <div class="admin-kpi-pill"><div class="admin-kpi-pill-value">${complianceReasonCounts.other}</div><div class="admin-kpi-pill-label">Other Validation</div></div>
                 <div class="admin-kpi-pill"><div class="admin-kpi-pill-value">${staleUnallocated.length}</div><div class="admin-kpi-pill-label">Aged 2+ Days</div></div>
             </div>
-            <div style="margin-bottom:0.65rem;">
+            <div style="margin-bottom:0.4rem;">
                 <button type="button" class="action-btn secondary" onclick="window.AppReports?.exportComplianceExceptionsCSV?.({ days: 31, unresolvedOnly: true })">
                     <i class="fa-solid fa-file-csv"></i> Export Open Issues
                 </button>
@@ -1115,11 +1115,11 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                     </div>
                 `).join('') || '<div class="text-muted">No exceptions in recent sessions.</div>'}
             </div>
-            <div style="margin-top:0.85rem; padding-top:0.65rem; border-top:1px solid #e2e8f0;">
+            <div style="margin-top:0.55rem; padding-top:0.4rem; border-top:1px solid #e2e8f0;">
                 <div style="font-size:0.84rem; font-weight:700; color:#334155; margin-bottom:0.45rem;">Daily Tasks (Team Activities)</div>
                 <div style="display:grid; gap:0.4rem; max-height:${isExpanded ? '280px' : '150px'}; overflow:auto;">
                     ${(teamActivityRows.slice(0, isExpanded ? 40 : 12)).map((row) => `
-                        <div style="border:1px solid #e2e8f0; border-radius:10px; padding:0.45rem 0.55rem; background:#f8fafc;">
+                        <div style="border:1px solid #e2e8f0; border-radius:10px; padding:0.35rem 0.4rem; background:#f8fafc;">
                             <div style="display:flex; justify-content:space-between; gap:0.5rem;">
                                 <div style="font-size:0.79rem; font-weight:700; color:#1e293b;">${safeHtml(row.date || '--')} • ${safeHtml(usersById.get(String(row.user_id || row.userId || ''))?.name || 'Staff')}</div>
                                 <span class="badge" style="background:#ecfeff; color:#0e7490; border:1px solid #a5f3fc;">Task</span>
@@ -1378,22 +1378,22 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         const html = `
             <div class="modal-overlay" id="${modalId}" style="display:flex; z-index:30000;">
                 <div class="modal-content" style="max-width:560px;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; margin-bottom:0.85rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; margin-bottom:0.55rem;">
                         <h3 style="margin:0;">Add Budget Head</h3>
                         <button type="button" data-close style="background:none; border:none; font-size:1.2rem; cursor:pointer;">&times;</button>
                     </div>
-                    <form id="${modalId}-form" style="display:grid; gap:0.75rem;">
+                    <form id="${modalId}-form" style="display:grid; gap:0.5rem;">
                         <label style="display:grid; gap:0.35rem;">
                             <span style="font-size:0.82rem; font-weight:700; color:#334155;">Code</span>
-                            <input name="code" value="${safeHtml(String(initialCode || ''))}" placeholder="OPS001" required style="padding:0.62rem; border:1px solid #cbd5e1; border-radius:8px;">
+                            <input name="code" value="${safeHtml(String(initialCode || ''))}" placeholder="OPS001" required style="padding:0.45rem; border:1px solid #cbd5e1; border-radius:8px;">
                         </label>
                         <label style="display:grid; gap:0.35rem;">
                             <span style="font-size:0.82rem; font-weight:700; color:#334155;">Name</span>
-                            <input name="name" value="${safeHtml(String(initialName || ''))}" placeholder="Operations" required style="padding:0.62rem; border:1px solid #cbd5e1; border-radius:8px;">
+                            <input name="name" value="${safeHtml(String(initialName || ''))}" placeholder="Operations" required style="padding:0.45rem; border:1px solid #cbd5e1; border-radius:8px;">
                         </label>
                         <label style="display:grid; gap:0.35rem;">
                             <span style="font-size:0.82rem; font-weight:700; color:#334155;">Parent Main Head (Optional)</span>
-                            <select name="parentId" style="padding:0.62rem; border:1px solid #cbd5e1; border-radius:8px; background:#fff;">
+                            <select name="parentId" style="padding:0.45rem; border:1px solid #cbd5e1; border-radius:8px; background:#fff;">
                                 <option value="">Main Head (No Parent)</option>
                                 <option value="__CREATE_MAIN__">+ Create New Main Head</option>
                                 ${mainHeadOptions}
@@ -1422,8 +1422,8 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                         <div id="${modalId}-new-main-wrap" style="display:none; border:1px dashed #cbd5e1; border-radius:10px; padding:0.7rem; background:#f8fafc;">
                             <div style="font-size:0.78rem; font-weight:700; color:#334155; margin-bottom:0.5rem;">Create Parent Main Head</div>
                             <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.55rem;">
-                                <input name="newMainCode" placeholder="Parent code (e.g. FIN001)" style="padding:0.62rem; border:1px solid #cbd5e1; border-radius:8px;">
-                                <input name="newMainName" placeholder="Parent name (e.g. Finance)" style="padding:0.62rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                <input name="newMainCode" placeholder="Parent code (e.g. FIN001)" style="padding:0.45rem; border:1px solid #cbd5e1; border-radius:8px;">
+                                <input name="newMainName" placeholder="Parent name (e.g. Finance)" style="padding:0.45rem; border:1px solid #cbd5e1; border-radius:8px;">
                             </div>
                         </div>
                         <div style="display:flex; gap:0.65rem; justify-content:flex-end; margin-top:0.4rem;">

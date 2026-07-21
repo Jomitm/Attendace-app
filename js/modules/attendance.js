@@ -15,6 +15,13 @@ const normalizeDateKey = (value) => {
 export class Attendance {
     constructor() {
         this.logsCacheTtlMs = AppConfig?.READ_CACHE_TTLS?.attendanceSummary || 30000;
+        this._idCounter = 0;
+    }
+
+    _nextId() {
+        // Combine timestamp with a per-instance counter to prevent same-ms collisions
+        this._idCounter = (this._idCounter + 1) % 100000;
+        return String(Date.now()) + '_' + String(this._idCounter);
     }
     async getStatus() {
         // If AppAuth is already syncing in realtime, AppAuth.getUser() is likely more up-to-date
@@ -39,11 +46,12 @@ export class Attendance {
                 const checkInDate = new Date(user.lastCheckIn);
                 const now = new Date();
 
-                // Compare using ISO dates to avoid timezone/clock drift issues during simple checks
-                const checkInDateStr = checkInDate.toISOString().split('T')[0];
-                const todayStr = now.toISOString().split('T')[0];
+                // Compare using local dates to correctly handle timezone offsets
+                // (e.g., IST user checking in at 11PM, checking status at 12:30AM next day)
+                const localCheckInDate = `${checkInDate.getFullYear()}-${String(checkInDate.getMonth() + 1).padStart(2, '0')}-${String(checkInDate.getDate()).padStart(2, '0')}`;
+                const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
-                if (checkInDateStr < todayStr) {
+                if (localCheckInDate < localToday) {
                     return {
                         status: 'out',
                         lastCheckIn: null,
@@ -140,10 +148,11 @@ export class Attendance {
                     const priorLocation = user.currentLocation || user.lastLocation || null;
                     const closureTimestamp = new Date().toISOString();
 
+                    const closuredDate = `${priorCheckOutTime.getFullYear()}-${String(priorCheckOutTime.getMonth() + 1).padStart(2, '0')}-${String(priorCheckOutTime.getDate()).padStart(2, '0')}`;
                     const missedLog = {
-                        id: String(Date.now()),
+                        id: this._nextId(),
                         user_id: user.id,
-                        date: priorCheckOutTime.toISOString().split('T')[0],
+                        date: closuredDate,
                         checkIn: priorCheckInTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                         checkOut: priorCheckOutTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                         duration: this.msToTime(fixedDurationMs),
@@ -151,7 +160,7 @@ export class Attendance {
                         type: statusMeta.status,
                         dayCredit: statusMeta.dayCredit,
                         lateCountable: statusMeta.lateCountable,
-                        extraWorkedMs: statusMeta.extraWorkedMs || 0,
+                        extraWorkedMs: options.extraTimeConfirmedMs || statusMeta.extraWorkedMs || 0,
                         policyVersion: 'v2',
                         location: priorLocation?.address || 'Missed checkout session',
                         lat: priorLocation?.lat ?? null,
@@ -201,11 +210,25 @@ export class Attendance {
                     noticeMessage = 'Previous open session was closed as half day because checkout was missed. Please submit a reason for admin verification.';
                 }
             } else {
-                return {
-                    ok: false,
-                    conflict: true,
-                    message: 'Status updated from another device.'
-                };
+                // Same calendar day: check if checkout was recorded (e.g., checked out on another device)
+                const sameDayHasCheckout = await this.hasRecordedCheckoutForSession(user.id, priorCheckInTime, now);
+                if (sameDayHasCheckout) {
+                    user.status = 'out';
+                    user.lastCheckIn = null;
+                    user.isPaused = false;
+                    user.pauseStartedAt = null;
+                    user.totalPausedMs = 0;
+                    user.pauseEvents = [];
+                    user.currentLocation = null;
+                    user.locationMismatched = false;
+                    noticeMessage = 'Recovered previous checkout from another device.';
+                } else {
+                    return {
+                        ok: false,
+                        conflict: true,
+                        message: 'Status updated from another device.'
+                    };
+                }
             }
         }
 
@@ -339,9 +362,9 @@ export class Attendance {
         const pauseCount = pauseEvents.filter(evt => evt && evt.type === 'pause').length;
 
         const log = {
-            id: String(Date.now()),
+            id: this._nextId(),
             user_id: user.id,
-            date: checkOutTime.toISOString().split('T')[0],
+            date: `${checkOutTime.getFullYear()}-${String(checkOutTime.getMonth() + 1).padStart(2, '0')}-${String(checkOutTime.getDate()).padStart(2, '0')}`,
             checkIn: checkInTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             checkOut: checkOutTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             duration: this.msToTime(durationMs),
@@ -369,10 +392,12 @@ export class Attendance {
             autoCheckoutAt: options.autoCheckoutAt || null,
             autoCheckoutRequiresApproval: !!options.autoCheckoutRequiresApproval,
             autoCheckoutExtraApproved: options.autoCheckoutExtraApproved ?? null,
-            overtimePrompted: !!options.overtimePrompted,
-            overtimeReasonTag: options.overtimeReasonTag || '',
-            overtimeExplanation: options.overtimeExplanation || '',
-            overtimeCappedToEightHours: !!options.overtimeCappedToEightHours,
+            extraTimePrompted: !!options.extraTimePrompted,
+            extraTimeJustification: options.extraTimeJustification || '',
+            extraTimeMode: options.extraTimeMode || '',
+            extraTimeConfirmedMs: options.extraTimeConfirmedMs || 0,
+            extraTimeAutoAllowed: !!options.extraTimeAutoAllowed,
+            extraTimeAutoAllowedMs: options.extraTimeAutoAllowedMs || 0,
             taskUpdates: Array.isArray(options.taskUpdates) ? options.taskUpdates : [],
             budgetHeadId: String(options.budgetHeadId || user.currentBudgetHeadId || 'UNALLOCATED'),
             budgetHeadUnallocatedReason: String(options.budgetHeadUnallocatedReason || ''),
@@ -412,7 +437,7 @@ export class Attendance {
 
     async addAdminLog(userId, logData) {
         const newLog = {
-            id: String(Date.now()),
+            id: this._nextId(),
             user_id: userId,
             ...logData,
             isManualOverride: logData.isManualOverride === true,
@@ -474,7 +499,7 @@ export class Attendance {
         const finalType = attendanceEligible ? fallbackType : (resolvedType || 'Work Log');
 
         const newLog = {
-            id: String(Date.now()),
+            id: this._nextId(),
             user_id: user.id,
             ...logData,
             type: finalType,
@@ -551,9 +576,10 @@ export class Attendance {
                     const currentUserState = await AppDB.get("users", targetId);
                     if (currentUserState && currentUserState.status === "in" && currentUserState.lastCheckIn) {
                         const checkInTime = new Date(currentUserState.lastCheckIn);
+                        const virtualDate = `${checkInTime.getFullYear()}-${String(checkInTime.getMonth() + 1).padStart(2, '0')}-${String(checkInTime.getDate()).padStart(2, '0')}`;
                         const virtualLog = {
                             id: "active_now",
-                            date: checkInTime.toLocaleDateString(),
+                            date: virtualDate,
                             checkIn: checkInTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
                             checkOut: "Active Now",
                             duration: "Working...",
@@ -564,7 +590,6 @@ export class Attendance {
                                     ? "Lat: " + Number(currentUserState.currentLocation.lat).toFixed(4) + ", Lng: " + Number(currentUserState.currentLocation.lng).toFixed(4)
                                     : "Current Session")
                         };
-                        const virtualDate = normalizeDateKey(virtualLog.date);
                         const withinRange = (!startDate || virtualDate >= startDate) && (!endDate || virtualDate <= endDate);
                         if (withinRange) dedupedLogs.unshift(virtualLog);
                     }
@@ -586,7 +611,7 @@ export class Attendance {
 
     msToTime(duration) {
         let minutes = Math.floor((duration / (1000 * 60)) % 60);
-        let hours = Math.floor((duration / (1000 * 60 * 60)) % 24);
+        let hours = Math.floor(duration / (1000 * 60 * 60));
         return `${hours}h ${minutes}m`;
     }
 
@@ -696,6 +721,10 @@ export class Attendance {
         if (day === 0) {
             return { status: 'Present', dayCredit: 1, lateCountable: false, extraWorkedMs: 0 };
         }
+        // Saturday holiday check via config
+        if (day === 6 && typeof AppConfig.IS_SATURDAY_OFF === 'function' && AppConfig.IS_SATURDAY_OFF(checkInDateObj)) {
+            return { status: 'Present', dayCredit: 1, lateCountable: false, extraWorkedMs: 0 };
+        }
 
         const checkInMins = (checkInDateObj.getHours() * 60) + checkInDateObj.getMinutes();
         const netHours = Math.max(0, durationMs) / (1000 * 60 * 60);
@@ -710,16 +739,15 @@ export class Attendance {
         let lateCountable = false;
         let extraWorkedMs = 0;
 
-        if (checkInMins >= afternoonStart) {
+        if (checkInMins >= afternoonStart && checkInMins <= postNoonEnd) {
+            // Afternoon session: noon to 1:30 PM
             if (netHours >= 8) {
                 status = 'Present';
+                extraWorkedMs = Math.max(0, durationMs - (8 * 60 * 60 * 1000));
             } else if (netHours >= 4) {
                 status = 'Half Day';
             } else {
                 status = 'Absent';
-            }
-            if (netHours > 4) {
-                extraWorkedMs = Math.max(0, durationMs - (4 * 60 * 60 * 1000));
             }
             return {
                 status,
@@ -731,8 +759,6 @@ export class Attendance {
 
         if (checkInMins > postNoonEnd) {
             status = 'Absent';
-        } else if (checkInMins > lateEnd) {
-            status = netHours >= 4 ? 'Half Day' : 'Absent';
         } else if (checkInMins > minorLateEnd) {
             status = netHours >= 4 ? 'Half Day' : 'Absent';
         } else if (checkInMins > graceEnd) {
@@ -750,6 +776,11 @@ export class Attendance {
             } else {
                 status = 'Absent';
             }
+        }
+
+        // Compute extraWorkedMs for pre-noon check-ins
+        if (netHours > 8) {
+            extraWorkedMs = Math.max(0, durationMs - (8 * 60 * 60 * 1000));
         }
 
         return {

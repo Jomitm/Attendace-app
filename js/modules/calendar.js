@@ -93,11 +93,13 @@ export class Calendar {
         return cloned;
     }
 
-    async getAllWorkPlansUntil(endDate) {
+    async getAllWorkPlansUntil(endDate, userId = null) {
         if (this.db.queryMany) {
-            return this.db.queryMany('work_plans', [
-                { field: 'date', operator: '<=', value: endDate }
-            ]).catch((err) => {
+            const filters = [{ field: 'date', operator: '<=', value: endDate }];
+            if (userId) {
+                filters.push({ field: 'userId', operator: '==', value: userId });
+            }
+            return this.db.queryMany('work_plans', filters).catch((err) => {
                 console.warn('getAllWorkPlansUntil failed, skipping work_plans fallback read:', err);
                 return [];
             });
@@ -215,7 +217,9 @@ export class Calendar {
         }
         this._carryForwardExceptionCache = new Map();
 
-        const allPlans = (await this.getAllWorkPlansUntil(effectiveEndDate))
+        // When targeting specific users, filter at the query level to avoid loading all plans
+        const carryUserId = targetUserIds && targetUserIds.length === 1 ? targetUserIds[0] : null;
+        const allPlans = (await this.getAllWorkPlansUntil(effectiveEndDate, carryUserId))
             .filter(plan => !!plan && !!plan.date && plan.date <= effectiveEndDate);
 
         const groups = new Map();

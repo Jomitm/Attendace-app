@@ -94,7 +94,7 @@ export class Analytics {
         // 1. Fetch Data
         const end = new Date();
         const start = new Date();
-        start.setDate(start.getDate() - 14);
+        start.setDate(start.getDate() - 7);
         const [logs, allUsers] = await Promise.all([
             this.getAttendanceInRange(start, end, 'adminChart'),
             this.getUsersCached()
@@ -447,7 +447,9 @@ export class Analytics {
             if (dateStr > todayIso) continue;
             if (joinDateIso && dateStr < joinDateIso) continue;
             if (holidayDates.has(dateStr)) continue;
-            if (this.getWeekendPolicy(dateStr) === 'holiday') continue;
+            const weekendPolicy = this.getWeekendPolicy(dateStr);
+            if (weekendPolicy === 'holiday') continue;
+            if (weekendPolicy === 'halfday') continue; // Half-day Saturdays aren't full absences
             if (eligibleDates.has(dateStr)) continue;
             stats.unpaidLeaves += 1;
             stats.breakdown['Absent'] += 1;
@@ -522,6 +524,15 @@ export class Analytics {
         let totalLateMinutes = 0;
         let totalExtraMinutes = 0;
 
+        // Hoist config lookups outside the loop
+        const lateCutoff = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_CUTOFF_MINUTES : 555) || 555;
+        const earlyDeparture = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.EARLY_DEPARTURE_MINUTES : 1020) || 1020;
+        const workStartMinutes = (() => {
+            const ws = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.WORK_START_TIME : '09:00') || '09:00';
+            const parts = ws.split(':').map(Number);
+            return (parts[0] || 9) * 60 + (parts[1] || 0);
+        })();
+
         const canonicalLogs = this.pickBestAttendanceLogPerDay(userLogs, startOfMonth, endOfMonth);
         canonicalLogs.forEach(log => {
                 if (!this.isAttendanceEligibleLog(log)) return;
@@ -533,9 +544,6 @@ export class Analytics {
                 const isManual = log.isManualOverride === true;
 
                 if (!isManual) {
-                    // EARLY ARRIVAL check retained for compatibility with legacy data shape.
-                    const lateCutoff = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_CUTOFF_MINUTES : 555) || 555;
-
                     // LATE Check: prefer stored policy decision, fallback to old logs
                     const isLateCountable = log.lateCountable === true || (!Object.prototype.hasOwnProperty.call(log, 'lateCountable') && inMinutes !== null && inMinutes > lateCutoff);
                     if (isLateCountable) {
@@ -545,7 +553,6 @@ export class Analytics {
                     }
 
                     // EARLY DEPARTURE Check
-                    const earlyDeparture = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.EARLY_DEPARTURE_MINUTES : 1020) || 1020;
                     if (outMinutes !== null && outMinutes < earlyDeparture && !String(type).includes('Leave') && type !== 'Absent') {
                         stats.earlyDepartures++;
                         breakdown['Early Departure']++;
@@ -556,10 +563,8 @@ export class Analytics {
                     if (type === 'Late') {
                         stats.late++;
                         breakdown['Late']++;
-                        // We don't have a reliable late duration for manual logs unless we calculate it
-                        const manualLateCutoff = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_CUTOFF_MINUTES : 555) || 555;
-                        if (inMinutes !== null && inMinutes > manualLateCutoff) {
-                            totalLateMinutes += (inMinutes - manualLateCutoff);
+                        if (inMinutes !== null && inMinutes > lateCutoff) {
+                            totalLateMinutes += (inMinutes - lateCutoff);
                         }
                     } else if (type === 'Early Departure') {
                         stats.earlyDepartures++;
@@ -568,18 +573,17 @@ export class Analytics {
                 }
 
                 // EXTRA HOURS Check (for duration display)
-                const lateCutoff = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_CUTOFF_MINUTES : 555) || 555;
-                const earlyDeparture = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.EARLY_DEPARTURE_MINUTES : 1020) || 1020;
-
-                const storedExtraMinutes = typeof log.extraWorkedMs === 'number'
-                    ? Math.max(0, Math.round(log.extraWorkedMs / (1000 * 60)))
-                    : 0;
+                const storedExtraMinutes = typeof log.extraTimeConfirmedMs === 'number' && log.extraTimeConfirmedMs > 0
+                    ? Math.max(0, Math.round(log.extraTimeConfirmedMs / (1000 * 60)))
+                    : (typeof log.extraWorkedMs === 'number'
+                        ? Math.max(0, Math.round(log.extraWorkedMs / (1000 * 60)))
+                        : 0);
                 if (storedExtraMinutes > 0) {
                     totalExtraMinutes += storedExtraMinutes;
                 } else {
                     const allowExtra = !(log.autoCheckout && !log.autoCheckoutExtraApproved);
                     if (allowExtra) {
-                        if (inMinutes !== null && inMinutes < lateCutoff) totalExtraMinutes += (lateCutoff - inMinutes);
+                        if (inMinutes !== null && inMinutes < workStartMinutes) totalExtraMinutes += (workStartMinutes - inMinutes);
                         if (outMinutes !== null && outMinutes > earlyDeparture) totalExtraMinutes += (outMinutes - earlyDeparture);
                     }
                 }
@@ -589,6 +593,7 @@ export class Analytics {
                 else if (type === 'Training') breakdown['Training']++;
                 else if (type === 'Sick Leave') { breakdown['Sick Leave']++; stats.unpaidLeaves++; }
                 else if (type === 'Casual Leave') breakdown['Casual Leave']++;
+                else if (type === 'Earned Leave') breakdown['Earned Leave']++;
                 else if (type === 'Earned Leave') breakdown['Earned Leave']++;
                 else if (type === 'Paid Leave') breakdown['Paid Leave']++;
                 else if (type === 'Maternity Leave') breakdown['Maternity Leave']++;
@@ -655,14 +660,21 @@ export class Analytics {
         let totalExtraMinutes = 0;
 
         const canonicalLogs = this.pickBestAttendanceLogPerDay(userLogs, start, end);
+        // Hoist config lookups outside the loop
+        const lateCutoff = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_CUTOFF_MINUTES : 555) || 555;
+        const earlyDeparture = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.EARLY_DEPARTURE_MINUTES : 1020) || 1020;
+        const workStartMinutes = (() => {
+            const ws = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.WORK_START_TIME : '09:00') || '09:00';
+            const parts = ws.split(':').map(Number);
+            return (parts[0] || 9) * 60 + (parts[1] || 0);
+        })();
+
         canonicalLogs.forEach(log => {
                 if (!this.isAttendanceEligibleLog(log)) return;
                 let type = log.type || '';
                 const inMinutes = this.parseTimeToMinutes(log.checkIn);
                 const outMinutes = this.parseTimeToMinutes(log.checkOut);
 
-                const lateCutoff = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_CUTOFF_MINUTES : 555) || 555;
-                const earlyDeparture = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.EARLY_DEPARTURE_MINUTES : 1020) || 1020;
                 const isManual = log.isManualOverride === true;
 
                 if (!isManual) {
@@ -691,15 +703,17 @@ export class Analytics {
                 }
 
                 // EXTRA HOURS Check
-                const storedExtraMinutes = typeof log.extraWorkedMs === 'number'
-                    ? Math.max(0, Math.round(log.extraWorkedMs / (1000 * 60)))
-                    : 0;
+                const storedExtraMinutes = typeof log.extraTimeConfirmedMs === 'number' && log.extraTimeConfirmedMs > 0
+                    ? Math.max(0, Math.round(log.extraTimeConfirmedMs / (1000 * 60)))
+                    : (typeof log.extraWorkedMs === 'number'
+                        ? Math.max(0, Math.round(log.extraWorkedMs / (1000 * 60)))
+                        : 0);
                 if (storedExtraMinutes > 0) {
                     totalExtraMinutes += storedExtraMinutes;
                 } else {
                     const allowExtra = !(log.autoCheckout && !log.autoCheckoutExtraApproved);
                     if (allowExtra) {
-                        if (inMinutes !== null && inMinutes < lateCutoff) totalExtraMinutes += (lateCutoff - inMinutes);
+                        if (inMinutes !== null && inMinutes < workStartMinutes) totalExtraMinutes += (workStartMinutes - inMinutes);
                         if (outMinutes !== null && outMinutes > earlyDeparture) totalExtraMinutes += (outMinutes - earlyDeparture);
                     }
                 }

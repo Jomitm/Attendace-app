@@ -1678,13 +1678,7 @@ export function renderLeaveRequests(leaves, workFromHomeEntries = []) {
     const hasWfh = Array.isArray(workFromHomeEntries) && workFromHomeEntries.length > 0;
 
     if (!hasLeaves && !hasWfh) {
-        return `
-            <div class="card dashboard-leave-requests-card">
-                <div class="dashboard-leave-requests-head"><h4>Pending Leaves & Work From Home</h4><span>Review requirements</span></div>
-                <div class="dashboard-leave-requests-list">
-                    <div class="dashboard-activity-empty">No pending leave or work from home records.</div>
-                </div>
-            </div>`;
+        return ''; // Don't show empty section to users without access
     }
 
     const leaveRows = hasLeaves
@@ -1734,13 +1728,7 @@ export function renderLeaveRequests(leaves, workFromHomeEntries = []) {
 }
 export function renderMissedCheckoutRequests(items) {
     if (!items || items.length === 0) {
-        return `
-            <div class="card full-width dashboard-tagged-card">
-                <div class="dashboard-tagged-head"><h4>Missed Tasks Requests</h4><span>Pending admin review</span></div>
-                <div class="dashboard-tagged-list">
-                    <div class="dashboard-activity-empty">No missed checkout requests waiting for review.</div>
-                </div>
-            </div>`;
+        return ''; // Don't show empty section to users without access
     }
 
     return `
@@ -1776,17 +1764,7 @@ export function renderLeaveHistory(leaves, options = {}) {
     const canUndo = options.canUndo === true;
 
     if (!leaves || leaves.length === 0) {
-        return `
-            <div class="card dashboard-leave-history-card">
-                <div class="dashboard-leave-history-head">
-                    <div>
-                        <h4>${safeHtml(title)}</h4>
-                        <span>${safeHtml(subtitle)}</span>
-                    </div>
-                    <input type="date" class="dashboard-team-select" value="${safeHtml(selectedDate)}" onchange="window.app_setDashboardLeaveHistoryDate(this.value)">
-                </div>
-                <div class="dashboard-activity-empty">No leave history found.</div>
-            </div>`;
+        return ''; // Don't show empty section to users without access
     }
 
     const statusColor = (status) => {
@@ -1894,6 +1872,7 @@ export async function renderDashboard() {
     const user = window.AppAuth.getUser();
     const isAdmin = window.app_hasPerm('dashboard', 'view', user);
     const isFullAdmin = window.app_hasPerm('dashboard', 'admin', user);
+    const canViewAdminSections = window.app_isAdminUser?.(user) || window.app_canSeeAdminPanel?.(user);
     const staffActivityState = getStaffActivityState();
     const selectedMonth = staffActivityState.selectedMonth;
     const leaveHistoryDate = staffActivityState.leaveHistoryDate || new Date().toISOString().slice(0, 10);
@@ -2044,8 +2023,17 @@ export async function renderDashboard() {
     const initialHeroBundle = setDashboardHeroBundle(heroData, dailySummary?.heroLeaderboard || null, heroMeta);
     heroData = initialHeroBundle.heroData;
 
+    // If the 1.5s race timed out, fetch team activities from the full summary
+    // or directly — retry with DOM check so it doesn't silently exit.
     if (!dailySummary || !Array.isArray(dailySummary.teamActivityPreview)) {
-        setTimeout(() => refreshStaffActivityWidget(true), 0);
+        const retryRefresh = (attempts = 10) => {
+            setTimeout(() => {
+                refreshStaffActivityWidget(true).catch(() => {
+                    if (attempts > 0) retryRefresh(attempts - 1);
+                });
+            }, 200);
+        };
+        retryRefresh();
     }
 
 
@@ -2264,7 +2252,7 @@ export async function renderDashboard() {
 
     let summaryHTML = '';
     const renderYearlyPlanHTML = renderYearlyPlan(calendarPlans);
-    if (isAdmin) {
+    if (canViewAdminSections) {
         const hasExplicitSelection = !!window.app_selectedSummaryStaffId && window.app_selectedSummaryStaffId !== user.id;
         const weekRange = getWeekRange(leaveHistoryDate);
         const leaveHistoryItems = (allLeaves || [])
@@ -2287,33 +2275,23 @@ export async function renderDashboard() {
         });
 
         summaryHTML = `
-            <div class="dashboard-summary-row">
-                <div style="flex: 2; min-width: 350px; display: flex; flex-direction: column; gap: 0.7rem;">
-                    ${journeyReflectionHTML}
-                    ${renderLeaveRequests(pendingLeaves, workFromHomeRows)}${renderMissedCheckoutRequests(missedCheckoutRequests)}${historyHTML}
-                </div>
-                <div style="flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 1rem;">
+                                ${journeyReflectionHTML}
+                    ${renderLeaveRequests(pendingLeaves, workFromHomeRows)}
+                    ${renderMissedCheckoutRequests(missedCheckoutRequests)}
+                    ${historyHTML}
                     ${renderYearlyPlanHTML}
                     <div class="dashboard-hero-missed-corner-wrap">${overdueTaskStripHTML}</div>
                     ${heroHTML}
-                </div>
-            </div>
             <div class="dashboard-stats-row">
                 ${renderStatsCard(isViewingSelf ? monthlyStats.label : `${monthlyStats.label} - ${targetStaff?.name || 'Staff'}`, isViewingSelf ? 'Monthly Stats' : 'Viewing Staff Monthly Stats', monthlyStats, 'monthly')}
                 ${renderStatsCard('Yearly Summary', isViewingSelf ? yearlyStats.label : `${yearlyStats.label} for ${targetStaff?.name || 'Staff'}`, yearlyStats, 'yearly')}
             </div>`;
     } else {
         summaryHTML = `
-            <div class="dashboard-summary-row">
-                <div class="dashboard-summary-col dashboard-summary-col-wide" style="display: flex; flex-direction: column; gap: 0.7rem;">
-                    ${journeyReflectionHTML}
+                                ${journeyReflectionHTML}
                     ${renderActivityLog(staffActivities)}
-                </div>
-                <div class="dashboard-summary-col dashboard-summary-col-narrow">
                     <div class="dashboard-hero-missed-corner-wrap">${overdueTaskStripHTML}</div>
                     ${heroHTML}
-                </div>
-            </div>
             <div class="dashboard-stats-row">
                 ${renderStatsCard(monthlyStats.label, 'Monthly Stats', monthlyStats, 'monthly')}
                 ${renderStatsCard('Yearly Summary', yearlyStats.label, yearlyStats, 'yearly')}
@@ -2690,7 +2668,9 @@ const refreshStaffActivityWidget = async (fetchLogs = true, options = {}) => {
     const primaryLabelId = options.labelId || 'staff-activity-range-label';
     const list = document.getElementById(primaryListId);
     const modalList = document.getElementById('staff-activity-list-modal');
-    if (!list && !modalList) return;
+    if (!list && !modalList) {
+        throw new Error('Staff activity DOM elements not found');  // Let caller retry
+    }
     disposeTeamActivityAutoScroll();
     if (fetchLogs) {
         if (window.AppAnalytics) {

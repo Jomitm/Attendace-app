@@ -3,7 +3,6 @@ import { AppDB } from './db.js';
 import { AppCalendar } from './calendar.js';
 import { AppConfig } from '../config.js';
 
-let aiAssistantModulePromise = null;
 const DAY_PLAN_OVERLAY_BASE_Z_INDEX = 10060;
 const DAY_PLAN_OVERLAY_STEP = 20;
 let dayPlanOverlaySequence = 0;
@@ -22,14 +21,6 @@ if (typeof window !== 'undefined' && !window.__dayPlanLoadCacheBound) {
     });
     window.__dayPlanLoadCacheBound = true;
 }
-async function getAIAssistant() {
-    if (window.AppAIAssistant) return window.AppAIAssistant;
-    if (!aiAssistantModulePromise) {
-        aiAssistantModulePromise = import('./ai-assistant.js').then((mod) => mod.AppAIAssistant || mod.default || window.AppAIAssistant);
-    }
-    return aiAssistantModulePromise;
-}
-
 // --- Helper Functions ---
 
 function createElement(tag, options = {}) {
@@ -192,128 +183,6 @@ function getBudgetHeadLabel(budgetHeadId, lookup = buildBudgetHeadLookup()) {
     const head = lookup.get(id);
     if (!head) return id;
     return `${head.code} - ${head.name}`;
-}
-
-async function getRecentPersonalPlanHistory(targetId, beforeDate, targetUserName = '') {
-    const safeTargetId = String(targetId || '').trim();
-    const safeBeforeDate = String(beforeDate || '').trim();
-    if (!safeTargetId || !safeBeforeDate) {
-        return {
-            sourceScope: 'No recent personal plan history available',
-            historyAvailable: false,
-            recentPlans: [],
-            recurringBudgetHeads: [],
-            recurringSteps: []
-        };
-    }
-
-    let historyRows = [];
-    try {
-        const dateScopedRows = await AppDB.queryManyStrict('work_plans', [
-            { field: 'userId', operator: '==', value: safeTargetId },
-            { field: 'date', operator: '<', value: safeBeforeDate }
-        ], {
-            orderBy: [{ field: 'date', direction: 'desc' }],
-            limit: 30
-        });
-        historyRows = (dateScopedRows || [])
-            .filter((plan) =>
-                String(plan?.planScope || 'personal').toLowerCase() === 'personal'
-            )
-            .slice(0, 30);
-    } catch (queryErr) {
-        console.warn('Failed to query recent plan history:', queryErr);
-        historyRows = [];
-    }
-
-    const budgetLookup = buildBudgetHeadLookup();
-    const budgetHeadCounts = new Map();
-    const stepCounts = new Map();
-    const recentPlans = (historyRows || [])
-        .map((plan) => {
-            const validTasks = Array.isArray(plan?.plans)
-                ? plan.plans.filter((task) => task && task.isRemoved !== true)
-                : [];
-            const normalizedTasks = validTasks.map((task) => ({
-                task: String(task?.task || '').trim(),
-                subPlans: Array.isArray(task?.subPlans) ? task.subPlans.map((step) => String(step || '').trim()).filter(Boolean).slice(0, 5) : [],
-                budgetHeadId: String(task?.budgetHeadId || '').trim(),
-                status: String(task?.status || '').trim(),
-                assignedTo: String(task?.assignedTo || '').trim()
-            })).filter((task) => task.task);
-
-            normalizedTasks.forEach((task) => {
-                if (task.budgetHeadId) {
-                    budgetHeadCounts.set(task.budgetHeadId, (budgetHeadCounts.get(task.budgetHeadId) || 0) + 1);
-                }
-                task.subPlans.forEach((step) => {
-                    const key = step.toLowerCase();
-                    stepCounts.set(key, {
-                        text: step,
-                        count: (stepCounts.get(key)?.count || 0) + 1
-                    });
-                });
-            });
-
-            const taskSummary = normalizedTasks.slice(0, 3).map((task) => {
-                const stepText = task.subPlans.length ? ` | Steps: ${task.subPlans.join('; ')}` : '';
-                return `${task.task}${stepText}`;
-            }).join(' || ');
-
-            const planBudgetHeadId = normalizedTasks.find((task) => task.budgetHeadId)?.budgetHeadId
-                || String(plan?.budgetHeadId || '').trim();
-
-            return {
-                date: String(plan?.date || '').trim(),
-                budgetHeadId: planBudgetHeadId,
-                budgetHeadLabel: getBudgetHeadLabel(planBudgetHeadId, budgetLookup),
-                taskCount: normalizedTasks.length,
-                summary: taskSummary || 'No active tasks'
-            };
-        })
-        .filter((plan) => plan.date);
-
-    const recurringBudgetHeads = Array.from(budgetHeadCounts.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
-        .map(([id, count]) => ({
-            id,
-            label: getBudgetHeadLabel(id, budgetLookup),
-            count
-        }));
-
-    const recurringSteps = Array.from(stepCounts.values())
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 6)
-        .map((entry) => entry.text);
-
-    return {
-        sourceScope: `Recent personal plans for ${targetUserName || safeTargetId} before ${safeBeforeDate}`,
-        historyAvailable: recentPlans.length > 0,
-        recentPlans,
-        recurringBudgetHeads,
-        recurringSteps
-    };
-}
-
-function buildStaffDraftContext({
-    date,
-    scope,
-    action,
-    currentPlan,
-    collaborators,
-    historySummary,
-    notes
-}) {
-    return {
-        date,
-        scope,
-        action,
-        currentPlan,
-        collaborators,
-        historySummary,
-        notes
-    };
 }
 
 function normalizeDayPlanTargetId(targetUserId) {
@@ -1016,127 +885,6 @@ export async function openPlanEditor(args) {
     subPlanField.appendChild(addSubPlanBtn);
     secondaryStrip.appendChild(subPlanField);
 
-    const assistantField = createElement('div', { className: 'plan-editor-ai-panel' });
-    assistantField.innerHTML = `
-        <div class="plan-editor-section-head">
-            <div>
-                <label>AI Draft Assistant</label>
-                <p class="plan-editor-section-copy">Generate an editable draft from the current plan context.</p>
-            </div>
-        </div>
-    `;
-    const assistantControls = createElement('div', { className: 'plan-editor-ai-controls' });
-    const aiActionSelect = createElement('select', { className: 'plan-editor-select plan-editor-ai-select' });
-    aiActionSelect.innerHTML = `
-        <option value="draft" selected>Draft from context</option>
-        <option value="refine">Refine this draft</option>
-        <option value="breakdown">Break into steps</option>
-        <option value="compress">Shorten wording</option>
-    `;
-    const aiRunBtn = createButton({
-        className: 'action-btn secondary plan-editor-ai-btn',
-        innerHTML: '<i class="fa-solid fa-wand-magic-sparkles"></i> Draft with AI',
-        onClick: async () => {
-            const previousLabel = aiRunBtn.innerHTML;
-            aiRunBtn.disabled = true;
-            try {
-                const aiAssistant = await getAIAssistant();
-                if (!aiAssistant?.requestAssistant) {
-                    assistantPreview.textContent = 'No AI suggestions available, please draft manually.';
-                    return;
-                }
-
-                aiRunBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Drafting...';
-
-                const currentSourceScope = `Day plan for ${date} (${scope === 'annual' ? 'annual' : 'personal'})`;
-                const collabNames = Array.isArray(selectableCollaborators)
-                    ? selectableCollaborators.slice(0, 12).map((u) => ({ id: u.id, name: u.name }))
-                    : [];
-
-                const currentSubPlans = Array.from(subPlanList.querySelectorAll('.plan-editor-subplan-input'))
-                    .map((input) => String(input.value || '').trim())
-                    .filter(Boolean);
-
-                const currentPlan = {
-                    task: String(textarea.value || '').trim(),
-                    subPlans: currentSubPlans,
-                    status: String(statusSelect.value || ''),
-                    budgetHeadId: String(budgetSelect.value || ''),
-                    assignedTo: String(assignSelect ? assignSelect.value : (planData.assignedTo || targetId) || ''),
-                    startDate: String(planData.startDate || date || ''),
-                    endDate: String(planData.endDate || date || '')
-                };
-
-                const historySummary = await getRecentPersonalPlanHistory(targetId, date, currentUser?.name || '');
-                assistantPreview.textContent = historySummary?.historyAvailable
-                    ? 'Contacting AI assistant with your recent personal plan history...'
-                    : 'Contacting AI assistant...';
-
-                const context = buildStaffDraftContext({
-                    date,
-                    scope,
-                    action: String(aiActionSelect.value || 'draft'),
-                    currentPlan,
-                    collaborators: collabNames,
-                    historySummary,
-                    notes: 'Staff should receive editable drafts only. Compare the draft against recent personal plan patterns.'
-                });
-
-                const result = await aiAssistant.requestAssistant({
-                    mode: 'staff-plan',
-                    context,
-                    user: currentUser,
-                    sourceScope: currentSourceScope
-                });
-
-                assistantPreview.innerHTML = `
-                    <div class="plan-editor-ai-summary"><strong>Summary:</strong> ${esc(result.summary || '')}</div>
-                    ${Array.isArray(result.suggestedActions) && result.suggestedActions.length ? `<ul class="plan-editor-ai-actions">${result.suggestedActions.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}
-                    ${Array.isArray(result.warnings) && result.warnings.length ? `<div class="plan-editor-ai-warnings"><strong>Warnings:</strong> ${result.warnings.map((item) => esc(item)).join(' • ')}</div>` : ''}
-                    <div class="plan-editor-ai-source"><strong>Source:</strong> ${esc(result.sourceScope || currentSourceScope)}</div>
-                `;
-
-                const suggestedTaskText = String(result?.draft?.task || result?.summary || result?.suggestedActions?.[0] || '').trim();
-                if (suggestedTaskText) {
-                    textarea.value = suggestedTaskText;
-                    textarea.dispatchEvent(new Event('input', { bubbles: true }));
-                    textarea.focus();
-                }
-
-                const nextSteps = Array.isArray(result?.draft?.subPlans) ? result.draft.subPlans.filter(Boolean) : [];
-                if (nextSteps.length > 0) {
-                    subPlanList.innerHTML = '';
-                    nextSteps.forEach((step) => appendSubPlanRow(step));
-                }
-
-                if (result?.draft?.status) statusSelect.value = result.draft.status;
-
-                const suggestedBudgetHeadId = String(result?.draft?.budgetHeadId || '').trim()
-                    || (historySummary?.recurringBudgetHeads?.[0]?.count >= 2 ? String(historySummary.recurringBudgetHeads[0].id || '').trim() : '');
-                if (suggestedBudgetHeadId && (!budgetSelect.value || budgetSelect.value === 'UNALLOCATED')) {
-                    budgetSelect.value = suggestedBudgetHeadId;
-                }
-
-                if (assignSelect && result?.draft?.assignedTo) assignSelect.value = result.draft.assignedTo;
-            } catch (err) {
-                console.warn('AI draft generation failed:', err);
-                assistantPreview.textContent = 'No AI suggestions available, please draft manually.';
-            } finally {
-                aiRunBtn.disabled = false;
-                aiRunBtn.innerHTML = previousLabel;
-            }
-        }
-    });
-
-    assistantControls.appendChild(aiActionSelect);
-    assistantControls.appendChild(aiRunBtn);
-    const assistantPreview = createElement('div', {
-        className: 'plan-editor-ai-preview',
-        textContent: 'AI suggestions will appear here after you draft with AI.'
-    });
-    assistantField.appendChild(assistantControls);
-    assistantField.appendChild(assistantPreview);
-    secondaryStrip.appendChild(assistantField);
     body.appendChild(secondaryStrip);
 
     const footer = createElement('div', { className: 'plan-editor-footer' });
@@ -1603,6 +1351,10 @@ function scheduleDayPlanMaintenance({ date, targetId, forcedScope, options, moda
             if (!changed) return;
             dayPlanPrefetchCache.clear();
 
+            // Carry-forward tasks were already saved to Firestore.
+            // Instead of re-opening the entire modal (which causes a flash/loading spinner),
+            // we just mark that new tasks are available. The user sees them on next open.
+            // If the modal is still open and untouched, silently re-fetch and update in-place.
             const activeModal = document.getElementById('day-plan-modal');
             const activeForm = activeModal?.querySelector('.day-plan-form');
             const editorOpen = !!document.querySelector('.plan-editor-overlay');
@@ -1610,11 +1362,40 @@ function scheduleDayPlanMaintenance({ date, targetId, forcedScope, options, moda
             const userHasStartedEditing = activeForm?.dataset?.dayPlanTouched === '1';
             if (!stillShowingSamePlan || editorOpen || userHasStartedEditing) return;
 
-            await openDayPlan(date, targetId, forcedScope, {
-                ...options,
-                skipCarryForwardSync: true,
-                skipCarryForwardCleanup: true
-            });
+            // Lightweight refresh: replace only the plan blocks, not the entire modal
+            try {
+                const freshData = await loadDayPlanData(date, targetId);
+                if (!freshData) return;
+                const personalPlan = freshData.personalWorkPlan;
+                const freshBlocks = [];
+                if (personalPlan && Array.isArray(personalPlan.plans)) {
+                    personalPlan.plans.forEach((p, idx) => {
+                        if (p.isRemoved !== true) {
+                            freshBlocks.push({ ...p, planScope: 'personal', idx });
+                        }
+                    });
+                }
+                if (freshBlocks.length > 0) {
+                    const container = activeModal?.querySelector('.personal-plans-container');
+                    if (container) {
+                        container.innerHTML = '';
+                        freshBlocks.forEach((block, idx) => {
+                            const blockEl = dayPlanRenderBlockV3({
+                                plan: block,
+                                allUsers: [],
+                                targetId,
+                                selectableCollaborators: [],
+                                isAdmin: false,
+                                currentUserId: targetId,
+                                idx
+                            });
+                            container.appendChild(blockEl);
+                        });
+                    }
+                }
+            } catch (err) {
+                console.warn('Failed to lightweight-refresh carry-forward tasks:', err);
+            }
         } catch (err) {
             console.warn('Day plan background maintenance failed:', err);
         }
@@ -1646,28 +1427,6 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
         attributes: { 'data-plan-date': dateKey }
     });
 
-    const sourceBadge = createElement('div', {
-        className: 'day-plan-db-source-badge',
-        textContent: 'work_plans: ...',
-        attributes: { 'aria-hidden': 'true' }
-    });
-
-    // Ensure badge is visible even if modal content overflows.
-    sourceBadge.style.position = 'fixed';
-    sourceBadge.style.right = '16px';
-    sourceBadge.style.bottom = '16px';
-    sourceBadge.style.zIndex = '999999';
-    sourceBadge.style.fontSize = '12px';
-    sourceBadge.style.fontWeight = '800';
-    sourceBadge.style.padding = '6px 10px';
-    sourceBadge.style.borderRadius = '999px';
-    sourceBadge.style.background = 'rgba(15, 23, 42, 0.92)';
-    sourceBadge.style.color = '#fff';
-    sourceBadge.style.pointerEvents = 'none';
-    sourceBadge.style.boxShadow = '0 6px 18px rgba(0,0,0,0.25)';
-
-    // Attach immediately; then we update after hydration.
-    modalOverlay.appendChild(sourceBadge);
 
     const modalContent = createElement('div', {
         className: 'day-plan-content'
@@ -1803,10 +1562,6 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
             }
             const kicker = modalContent.querySelector('.day-plan-kicker');
             if (kicker) kicker.textContent = 'Today';
-            if (sourceBadge) {
-                const src = window.app_workPlansLoadSource === 'hit' ? 'cache hit' : 'firestore read';
-                sourceBadge.textContent = `work_plans: ${src}`;
-            }
             if (window.performance?.mark) window.performance.mark('day-plan-hydrate-end');
             if (window.performance?.measure) {
                 try {

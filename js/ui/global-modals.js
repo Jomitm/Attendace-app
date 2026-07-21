@@ -7,7 +7,6 @@ import { renderCheckoutModal } from './checkout-form.js';
 
 export function renderModals() {
     const user = window.AppAuth?.getUser();
-    if (!user) return '';
     const budgetSelectHtml = typeof window.app_renderBudgetHeadOptions === 'function'
         ? window.app_renderBudgetHeadOptions('')
         : '<option value="UNALLOCATED">Unallocated / To Be Mapped</option>';
@@ -167,60 +166,60 @@ export function renderModals() {
                         <div style="font-weight: 600; color: #1e40af;">Grant Full Administrator Rights</div>
                     </label>
 
-                    <div id="edit-user-permissions-panel" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0.5rem; padding: 1rem; margin-top: 0.5rem;">
-                        <div style="font-weight: 700; font-size: 0.85rem; color: #475569; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
+                    <div id="edit-user-permissions-panel" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0.5rem; padding: 0.7rem; margin-top: 0.5rem;">
+                        <div style="font-weight: 700; font-size: 0.85rem; color: #475569; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
                             <i class="fa-solid fa-shield-halved"></i> Section-Specific Permissions
                         </div>
-                        <div style="display: grid; grid-template-columns: 1fr auto auto; gap: 0.75rem; align-items: center;">
-                            <div style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Section</div>
-                            <div style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; text-align: center;">View Only</div>
-                            <div style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; text-align: center;">Full Admin</div>
-                            
-                            <!-- Dashboard -->
-                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Dashboard</div>
-                            <input type="checkbox" class="perm-check" data-module="dashboard" data-level="view" id="edit-perm-dashboard-view">
-                            <input type="checkbox" class="perm-check" data-module="dashboard" data-level="admin" id="edit-perm-dashboard-admin">
+                        <div style="display: grid; grid-template-columns: 1fr auto auto; gap: 0.4rem; align-items: center;">
+                            <div style="font-size: 0.7rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Section</div>
+                            <div style="font-size: 0.7rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; text-align: center;">View Only</div>
+                            <div style="font-size: 0.7rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; text-align: center;">Full Admin</div>
 
-                            <!-- Leaves -->
-                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Leaves</div>
-                            <input type="checkbox" class="perm-check" data-module="leaves" data-level="view" id="edit-perm-leaves-view">
-                            <input type="checkbox" class="perm-check" data-module="leaves" data-level="admin" id="edit-perm-leaves-admin">
+                            <div style="font-size: 0.82rem; color: #1e293b;">Dashboard</div>
+                            <input type="checkbox" class="perm-check" data-module="dashboard" data-level="view" id="edit-perm-dashboard-view" style="justify-self:center">
+                            <input type="checkbox" class="perm-check" data-module="dashboard" data-level="admin" id="edit-perm-dashboard-admin" style="justify-self:center">
 
-                            <!-- Users -->
-                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">User Management</div>
-                            <input type="checkbox" class="perm-check" data-module="users" data-level="view" id="edit-perm-users-view">
-                            <input type="checkbox" class="perm-check" data-module="users" data-level="admin" id="edit-perm-users-admin">
+                            <div style="font-size: 0.82rem; color: #1e293b;">Leaves</div>
+                            <input type="checkbox" class="perm-check" data-module="leaves" data-level="view" id="edit-perm-leaves-view" style="justify-self:center">
+                            <input type="checkbox" class="perm-check" data-module="leaves" data-level="admin" id="edit-perm-leaves-admin" style="justify-self:center">
 
-                            <!-- AI Memory -->
-                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">AI Memory Sheet</div>
-                            <input type="checkbox" name="canAccessStaffAiMemory" id="edit-user-can-access-staff-ai-memory" style="width: 1.1rem; height: 1.1rem;">
-                            <div style="font-size: 0.78rem; color: #475569;">Allow this staff member to open the AI memory sheet.</div>
+                            <div style="font-size: 0.82rem; color: #1e293b;">User Management</div>
+                            <input type="checkbox" class="perm-check" data-module="users" data-level="view" id="edit-perm-users-view" style="justify-self:center">
+                            <input type="checkbox" class="perm-check" data-module="users" data-level="admin" id="edit-perm-users-admin" style="justify-self:center">
 
-                            <!-- Attendance -->
-                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Attendance Sheet</div>
-                            <input type="checkbox" class="perm-check" data-module="attendance" data-level="view" id="edit-perm-attendance-view">
-                            <input type="checkbox" class="perm-check" data-module="attendance" data-level="admin" id="edit-perm-attendance-admin">
+                            <div style="font-size: 0.82rem; color: #1e293b;">Attendance Sheet</div>
+                            <input type="checkbox" class="perm-check" data-module="attendance" data-level="view" id="edit-perm-attendance-view" style="justify-self:center">
+                            <input type="checkbox" class="perm-check" data-module="attendance" data-level="admin" id="edit-perm-attendance-admin" style="justify-self:center">
 
-                            <!-- Reports -->
-                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Reports</div>
-                            <input type="checkbox" class="perm-check" data-module="reports" data-level="view" id="edit-perm-reports-view">
-                            <input type="checkbox" class="perm-check" data-module="reports" data-level="admin" id="edit-perm-reports-admin">
+                            <div style="font-size: 0.82rem; color: #1e293b;">Reports</div>
+                            <input type="checkbox" class="perm-check" data-module="reports" data-level="view" id="edit-perm-reports-view" style="justify-self:center">
+                            <input type="checkbox" class="perm-check" data-module="reports" data-level="admin" id="edit-perm-reports-admin" style="justify-self:center">
 
-                            <!-- Minutes -->
-                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Meeting Minutes</div>
-                            <input type="checkbox" class="perm-check" data-module="minutes" data-level="view" id="edit-perm-minutes-view">
-                            <input type="checkbox" class="perm-check" data-module="minutes" data-level="admin" id="edit-perm-minutes-admin">
+                            <div style="font-size: 0.82rem; color: #1e293b;">Meeting Minutes</div>
+                            <input type="checkbox" class="perm-check" data-module="minutes" data-level="view" id="edit-perm-minutes-view" style="justify-self:center">
+                            <input type="checkbox" class="perm-check" data-module="minutes" data-level="admin" id="edit-perm-minutes-admin" style="justify-self:center">
 
-                            <!-- Policies -->
-                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Company Policies</div>
-                            <input type="checkbox" class="perm-check" data-module="policies" data-level="view" id="edit-perm-policies-view">
-                            <input type="checkbox" class="perm-check" data-module="policies" data-level="admin" id="edit-perm-policies-admin">
+                            <div style="font-size: 0.82rem; color: #1e293b;">Company Policies</div>
+                            <input type="checkbox" class="perm-check" data-module="policies" data-level="view" id="edit-perm-policies-view" style="justify-self:center">
+                            <input type="checkbox" class="perm-check" data-module="policies" data-level="admin" id="edit-perm-policies-admin" style="justify-self:center">
 
-                            <!-- Birthday -->
-                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Birthday Calendar</div>
-                            <input type="checkbox" class="perm-check" data-module="birthday" data-level="view" id="edit-perm-birthday-view">
-                            <input type="checkbox" class="perm-check" data-module="birthday" data-level="admin" id="edit-perm-birthday-admin">
+                            <div style="font-size: 0.82rem; color: #1e293b;">Birthday Calendar</div>
+                            <input type="checkbox" class="perm-check" data-module="birthday" data-level="view" id="edit-perm-birthday-view" style="justify-self:center">
+                            <input type="checkbox" class="perm-check" data-module="birthday" data-level="admin" id="edit-perm-birthday-admin" style="justify-self:center">
 
+                            <div style="font-size: 0.82rem; color: #1e293b;">Letter Pad</div>
+                            <input type="checkbox" class="perm-check" data-module="letterPad" data-level="view" id="edit-perm-letterPad-view" style="justify-self:center">
+                            <input type="checkbox" class="perm-check" data-module="letterPad" data-level="admin" id="edit-perm-letterPad-admin" style="justify-self:center">
+
+                            <div style="font-size: 0.82rem; color: #1e293b; display: flex; align-items: center; gap: 0.4rem;">
+                                AI Memory Sheet
+                                <label style="display: flex; align-items: center; gap: 0.3rem; font-weight: 400; font-size: 0.75rem; color: #475569; cursor: pointer;">
+                                    <input type="checkbox" name="canAccessStaffAiMemory" id="edit-user-can-access-staff-ai-memory" style="width: 1rem; height: 1rem;">
+                                    Allow access
+                                </label>
+                            </div>
+                            <span></span>
+                            <span></span>
                         </div>
                     </div>
                      <div style="display: flex; gap: 1rem;">
@@ -367,6 +366,11 @@ export function renderModals() {
                             <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">AI Memory Sheet</div>
                             <input type="checkbox" name="canAccessStaffAiMemory" id="add-user-can-access-staff-ai-memory" style="width: 1.1rem; height: 1.1rem;">
                             <div style="font-size: 0.78rem; color: #475569;">Allow this staff member to open the AI memory sheet.</div>
+
+                            <!-- Letter Pad -->
+                            <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Letter Pad</div>
+                            <input type="checkbox" class="perm-check" data-module="letterPad" data-level="view" id="add-perm-letterPad-view">
+                            <input type="checkbox" class="perm-check" data-module="letterPad" data-level="admin" id="add-perm-letterPad-admin">
 
                             <!-- Attendance -->
                             <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Attendance Sheet</div>

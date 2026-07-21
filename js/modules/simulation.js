@@ -27,14 +27,15 @@ export class Simulation {
     async writeCleanupAudit(eventType, payload = {}) {
         const policy = this.getCleanupPolicy();
         try {
+            // Use silentPermissionDenied to avoid noisy console errors during tests
             await this.db.add(policy.auditCollection, {
                 type: eventType,
                 module: 'simulation',
                 payload,
                 createdAt: Date.now()
-            });
+            }, { silentPermissionDenied: true });
         } catch (error) {
-            console.warn('Simulation audit log write failed:', error);
+            // best-effort only
         }
     }
 

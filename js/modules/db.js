@@ -463,10 +463,12 @@ export class Database {
             const source = String(options?.source || '').trim().toLowerCase();
             const canUseSource = source === 'server' || source === 'cache';
 
-            // Only cache the large, reused "work_plans" collection by default to avoid memory bloat.
+            // Cache collections that are read often and rarely change within a session.
+            // work_plans and users are fetched by many callsites across the app.
             const isWorkPlans = String(collectionName) === 'work_plans';
+            const isUsers = String(collectionName) === 'users';
             const ttlByCollection = AppConfig?.READ_CACHE_TTLS || {};
-            const shouldCache = isWorkPlans && source !== 'server';
+            const shouldCache = (isWorkPlans || isUsers) && source !== 'server';
 
             const cacheKey = this.getCacheKey(
                 'all',
@@ -475,15 +477,14 @@ export class Database {
             );
 
             if (shouldCache) {
-                // expose where data came from (only for work_plans)
-                const wasHit = this.cache.has(cacheKey);
-                if (wasHit && this.cache.get(cacheKey)?.expiresAt > Date.now()) {
-                    window.app_workPlansLoadSource = 'hit';
-                } else {
-                    window.app_workPlansLoadSource = 'miss';
+                if (isWorkPlans) {
+                    const wasHit = this.cache.has(cacheKey);
+                    window.app_workPlansLoadSource = (wasHit && this.cache.get(cacheKey)?.expiresAt > Date.now()) ? 'hit' : 'miss';
                 }
 
-                const ttlMs = ttlByCollection.workPlansAllReadMs || 60000;
+                const ttlMs = isUsers
+                    ? (ttlByCollection.users || 60000)
+                    : (ttlByCollection.workPlansAllReadMs || 60000);
                 return this.getCached(cacheKey, ttlMs, async () => {
                     const snapshot = canUseSource
                         ? await this.db.collection(collectionName).get({ source })
@@ -568,7 +569,7 @@ export class Database {
         }
     }
 
-    async add(collectionName, item) {
+    async add(collectionName, item, options = {}) {
         if (item.id) {
             return this.put(collectionName, item);
         }
@@ -586,6 +587,10 @@ export class Database {
             }));
             return docRef.id;
         } catch (error) {
+            if (options?.silentPermissionDenied && this.isPermissionDenied(error)) {
+                console.warn(`Silent: failed to add to ${collectionName} due to permissions.`);
+                return null;
+            }
             console.error(`Error adding to ${collectionName}:`, error);
             throw error;
         }

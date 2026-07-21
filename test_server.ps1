@@ -1,16 +1,24 @@
-$port = 3004
-$listener = New-Object System.Net.HttpListener
-$listener.Prefixes.Add("http://localhost:${port}/")
+$ports = @(8080, 3004)
+$listener = $null
+$port = $null
 
-try {
-    $listener.Start()
+foreach ($candidate in $ports) {
+    try {
+        $listener = New-Object System.Net.HttpListener
+        $listener.Prefixes.Add("http://localhost:${candidate}/")
+        $listener.Start()
+        $port = $candidate
+        break
+    }
+    catch {
+        if ($listener) { $listener.Close() }
+        $listener = $null
+    }
 }
-catch {
-    Write-Host "Port 3004 is busy. Trying 8080..."
-    $port = 8080
-    $listener = New-Object System.Net.HttpListener
-    $listener.Prefixes.Add("http://localhost:${port}/")
-    $listener.Start()
+
+if (-not $listener) {
+    Write-Host "Failed to bind test server to ports: $($ports -join ', ')"
+    exit 1
 }
 
 Write-Host "Test server started at http://localhost:${port}/"
