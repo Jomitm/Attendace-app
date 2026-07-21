@@ -68,7 +68,7 @@
 
 .checkout-form-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.8fr);
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: 0.65rem;
     margin-bottom: 0.65rem;
 }
@@ -400,10 +400,29 @@
 
 .checkout-extra-time-section {
     margin-bottom: 0.65rem;
-    padding: 0.65rem;
+    padding: 0.62rem 0.7rem;
     border: 1px solid #fcd34d;
     border-radius: 12px;
     background: #fffbeb;
+}
+
+/* Extra time inside the 3-column grid - panel variant */
+.checkout-extra-time-panel {
+    min-width: 0;
+    padding: 0.62rem 0.7rem;
+}
+
+.checkout-extra-time-panel .checkout-extra-time-hint {
+    font-size: 0.7rem;
+}
+
+.checkout-extra-time-panel .checkout-extra-time-options {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.checkout-extra-time-panel .checkout-extra-time-justification-input {
+    height: 56px;
 }
 
 .checkout-extra-time-header {
@@ -545,6 +564,60 @@
     font-family: inherit;
     font-size: 0.74rem;
     line-height: 1.35;
+}
+
+.checkout-extra-time-entries {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+
+.checkout-extra-time-entry-row {
+    display: flex;
+    gap: 0.35rem;
+    align-items: flex-start;
+}
+
+.checkout-extra-time-entry-row textarea {
+    flex: 1;
+}
+
+.checkout-extra-time-entry-remove {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    margin-top: 0.3rem;
+    border: none;
+    border-radius: 6px;
+    background: #fee2e2;
+    color: #b91c1c;
+    font-size: 0.8rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.checkout-extra-time-entry-remove:hover {
+    background: #fecaca;
+}
+
+.checkout-extra-time-add-btn {
+    margin-top: 0.4rem;
+    border: 1px dashed #fcd34d;
+    border-radius: 8px;
+    background: transparent;
+    color: #92400e;
+    padding: 0.35rem 0.65rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+    width: 100%;
+    text-align: center;
+}
+
+.checkout-extra-time-add-btn:hover {
+    background: #fffbeb;
 }
 
 .checkout-extra-time-justification-input:focus {
@@ -870,6 +943,10 @@
 
     .checkout-form-grid {
         grid-template-columns: 1fr;
+    }
+
+    .checkout-extra-time-panel .checkout-extra-time-hint {
+        font-size: 0.72rem;
     }
 
     /* AI panel responsive styles removed */

@@ -35,6 +35,47 @@ export function renderCheckoutModal(budgetSelectHtml = '<option value="UNALLOCAT
                                 </select>
                             </div>
                         </section>
+
+                        <section id="checkout-extra-time-section" class="checkout-form-panel checkout-extra-time-panel" style="display:none;">
+                            <div class="checkout-extra-time-header">
+                                <label class="checkout-section-label">Extra Time Confirmation</label>
+                                <span id="checkout-extra-time-badge" class="checkout-extra-time-badge">> 2 hours</span>
+                            </div>
+                            <p id="checkout-extra-time-hint" class="checkout-extra-time-hint">You worked beyond 2 hours extra. Please confirm how much time was actually spent working.</p>
+                            
+                            <div class="checkout-extra-time-options">
+                                <label class="checkout-extra-time-option">
+                                    <input type="radio" name="extraTimeMode" value="full" checked onchange="window.app_handleExtraTimeModeChange('full')">
+                                    <span>Full Extra Time</span>
+                                </label>
+                                <label class="checkout-extra-time-option">
+                                    <input type="radio" name="extraTimeMode" value="partial" onchange="window.app_handleExtraTimeModeChange('partial')">
+                                    <span>Partial Extra Time</span>
+                                </label>
+                            </div>
+
+                            <div id="checkout-partial-time-container" class="checkout-partial-time-container" style="display:none;">
+                                <label class="checkout-partial-time-label">Select actual hours worked:</label>
+                                <div class="checkout-slider-wrapper">
+                                    <input type="range" id="checkout-extra-time-slider" class="checkout-extra-time-slider" min="0" max="120" value="120" oninput="window.app_updateExtraTimeDisplay(this.value)">
+                                    <div class="checkout-slider-display">
+                                        <span id="checkout-extra-time-display">2h 0m</span>
+                                        <span class="checkout-slider-max">Max: <span id="checkout-extra-time-max">2h 0m</span></span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="checkout-extra-time-justification">
+                                <label class="checkout-extra-time-justification-label">What was done during this extra time?</label>
+                                <div id="checkout-extra-time-entries" class="checkout-extra-time-entries">
+                                    <div class="checkout-extra-time-entry-row">
+                                        <textarea id="checkout-extra-time-justification" name="extraTimeJustification" class="checkout-extra-time-justification-input" placeholder="e.g., Prepared AGM reports, Handled urgent client call..."></textarea>
+                                        <button type="button" class="checkout-extra-time-entry-remove" style="display:none;" tabindex="-1"><i class="fa-solid fa-xmark"></i></button>
+                                    </div>
+                                </div>
+                                <button type="button" class="checkout-extra-time-add-btn" onclick="window.app_addExtraTimeEntry()">+ Add more</button>
+                            </div>
+                        </section>
                     </div>
 
                     <section id="checkout-plan-ref" class="checkout-plan-ref" style="display:none;">
@@ -81,41 +122,6 @@ export function renderCheckoutModal(budgetSelectHtml = '<option value="UNALLOCAT
                          <p>You are checking out from a different location than where you checked in. Please explain:</p>
                          <textarea name="locationExplanation" placeholder="e.g. Field visit, Client site..."></textarea>
                     </div>
-
-                    <section id="checkout-extra-time-section" class="checkout-extra-time-section" style="display:none;">
-                        <div class="checkout-extra-time-header">
-                            <label class="checkout-section-label">Extra Time Confirmation</label>
-                            <span id="checkout-extra-time-badge" class="checkout-extra-time-badge">> 2 hours</span>
-                        </div>
-                        <p id="checkout-extra-time-hint" class="checkout-extra-time-hint">You worked beyond 2 hours extra. Please confirm how much time was actually spent working.</p>
-                        
-                        <div class="checkout-extra-time-options">
-                            <label class="checkout-extra-time-option">
-                                <input type="radio" name="extraTimeMode" value="full" checked onchange="window.app_handleExtraTimeModeChange('full')">
-                                <span>Full Extra Time</span>
-                            </label>
-                            <label class="checkout-extra-time-option">
-                                <input type="radio" name="extraTimeMode" value="partial" onchange="window.app_handleExtraTimeModeChange('partial')">
-                                <span>Partial Extra Time</span>
-                            </label>
-                        </div>
-
-                        <div id="checkout-partial-time-container" class="checkout-partial-time-container" style="display:none;">
-                            <label class="checkout-partial-time-label">Select actual hours worked:</label>
-                            <div class="checkout-slider-wrapper">
-                                <input type="range" id="checkout-extra-time-slider" class="checkout-extra-time-slider" min="0" max="120" value="120" oninput="window.app_updateExtraTimeDisplay(this.value)">
-                                <div class="checkout-slider-display">
-                                    <span id="checkout-extra-time-display">2h 0m</span>
-                                    <span class="checkout-slider-max">Max: <span id="checkout-extra-time-max">2h 0m</span></span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="checkout-extra-time-justification">
-                            <label class="checkout-extra-time-justification-label">What specifically was done during this extra time?</label>
-                            <textarea id="checkout-extra-time-justification" name="extraTimeJustification" class="checkout-extra-time-justification-input" placeholder="e.g., Prepared AGM reports, Handled urgent client call..."></textarea>
-                        </div>
-                    </section>
 
                     <div class="checkout-actions">
                         <button type="button" class="checkout-cancel-btn" onclick="document.getElementById('checkout-modal').style.display = 'none'; window.app_resetCheckoutLocationSession?.();">Cancel</button>

@@ -7065,14 +7065,15 @@ const evaluateCheckoutOvertimePrompt = async (user) => {
 
 window.app_prepareCheckoutOvertimeSection = async (user) => {
     const section = document.getElementById('checkout-extra-time-section');
-    const justification = document.getElementById('checkout-extra-time-justification');
+    const allTextareas = document.querySelectorAll('textarea[name="extraTimeJustification"]');
+    const firstTextarea = allTextareas[0];
     const hint = document.getElementById('checkout-extra-time-hint');
     const badge = document.getElementById('checkout-extra-time-badge');
     const slider = document.getElementById('checkout-extra-time-slider');
     const display = document.getElementById('checkout-extra-time-display');
     const maxDisplay = document.getElementById('checkout-extra-time-max');
 
-    console.log('[Extra Time Debug] Section exists:', !!section, 'Justification exists:', !!justification);
+    console.log('[Extra Time Debug] Section exists:', !!section, 'Textareas found:', allTextareas.length);
 
     window.app_checkoutOvertimeState = {
         showPrompt: false,
@@ -7081,14 +7082,15 @@ window.app_prepareCheckoutOvertimeSection = async (user) => {
         requiresConfirmation: false
     };
     
-    if (!section || !justification) {
-        console.error('[Extra Time Debug] Extra time section not found in DOM. Please refresh the page to load updated HTML.');
+    if (!section || !firstTextarea) {
+        console.error('[Extra Time Debug] Extra time section or textarea not found in DOM.');
         return;
     }
 
     section.style.display = 'none';
-    justification.required = false;
-    justification.value = '';
+    firstTextarea.required = false;
+    // Clear all entry textareas
+    allTextareas.forEach(ta => ta.value = '');
     
     // Reset radio buttons
     document.querySelectorAll('input[name="extraTimeMode"]').forEach(radio => {
@@ -7139,7 +7141,7 @@ window.app_prepareCheckoutOvertimeSection = async (user) => {
         }
         
         section.style.display = 'block';
-        justification.required = true;
+        firstTextarea.required = true;
     } catch (err) {
         console.warn('[Extra Time Debug] Extra time prompt check failed:', err);
     }
@@ -7166,16 +7168,29 @@ window.app_updateExtraTimeDisplay = (minutes) => {
 };
 
 // Debug function to test extra time UI without waiting for actual extra hours
+window.app_addExtraTimeEntry = () => {
+    const container = document.getElementById('checkout-extra-time-entries');
+    if (!container) return;
+    const row = document.createElement('div');
+    row.className = 'checkout-extra-time-entry-row';
+    row.innerHTML = `
+        <textarea name="extraTimeJustification" class="checkout-extra-time-justification-input" placeholder="e.g., Prepared AGM reports, Handled urgent client call..."></textarea>
+        <button type="button" class="checkout-extra-time-entry-remove" onclick="this.closest('.checkout-extra-time-entry-row').remove()"><i class="fa-solid fa-xmark"></i></button>
+    `;
+    container.appendChild(row);
+    row.querySelector('textarea').focus();
+};
+
 window.app_testExtraTimeUI = (extraHours = 3, extraMinutes = 30) => {
     const section = document.getElementById('checkout-extra-time-section');
-    const justification = document.getElementById('checkout-extra-time-justification');
+    const firstTextarea = document.querySelector('textarea[name="extraTimeJustification"]');
     const hint = document.getElementById('checkout-extra-time-hint');
     const badge = document.getElementById('checkout-extra-time-badge');
     const slider = document.getElementById('checkout-extra-time-slider');
     const display = document.getElementById('checkout-extra-time-display');
     const maxDisplay = document.getElementById('checkout-extra-time-max');
 
-    if (!section || !justification) {
+    if (!section || !firstTextarea) {
         console.error('Extra time section not found. Open checkout modal first.');
         return;
     }
@@ -7203,7 +7218,7 @@ window.app_testExtraTimeUI = (extraHours = 3, extraMinutes = 30) => {
         maxDisplay.textContent = `${extraHours}h ${extraMinutes}m`;
     }
     
-    justification.required = true;
+    firstTextarea.required = true;
     section.style.display = 'block';
     
     // Set test state
@@ -7676,10 +7691,6 @@ window.app_submitCheckOut = async function (event) {
         // Work summary is optional for checkout.
         const validationErrors = [];
         const unallocatedReason = String(activeUser?.currentBudgetHeadUnallocatedReason || '').trim();
-        // Validate budget head: if UNALLOCATED, a reason is required
-        if (budgetHeadId === 'UNALLOCATED' && !unallocatedReason) {
-            validationErrors.push('Please select a budget head or provide a reason for unallocated time.');
-        }
         if (validationErrors.length > 0) {
             await window.app_showCheckoutValidationPopup(validationErrors);
             if (submitBtn) {
@@ -7714,7 +7725,9 @@ window.app_submitCheckOut = async function (event) {
 
         let explanation = form.locationExplanation ? form.locationExplanation.value.trim() : '';
         const extraTimeState = window.app_checkoutOvertimeState || {};
-        const extraTimeJustification = form.extraTimeJustification ? form.extraTimeJustification.value.trim() : '';
+        const extraTimeTextareas = form.querySelectorAll('textarea[name="extraTimeJustification"]');
+        const extraTimeEntries = Array.from(extraTimeTextareas).map(ta => ta.value.trim()).filter(Boolean);
+        const extraTimeJustification = extraTimeEntries.join('\n');
         const extraTimeMode = form.extraTimeMode ? String(form.extraTimeMode.value || 'full') : 'full';
         const extraTimeSlider = form.extraTimeSlider ? Number(form.extraTimeSlider.value) : 0;
         const checkOutOptions = {};
@@ -7777,6 +7790,18 @@ window.app_submitCheckOut = async function (event) {
                 budgetHeadId: tomorrowBudgetHeadId
             });
             console.log("Tomorrow's goal saved:", tomorrowGoal);
+        }
+
+        // 2. Save extra time justification entries as completed tasks for today
+        if (extraTimeEntries.length > 0) {
+            const todayStr = new Date().toISOString().split('T')[0];
+            for (const entry of extraTimeEntries) {
+                await window.AppCalendar.addWorkPlanTask(todayStr, window.AppAuth.getUser().id, entry, [], {
+                    status: 'completed',
+                    budgetHeadId: budgetHeadId
+                });
+            }
+            console.log("Extra time tasks saved:", extraTimeEntries.length);
         }
 
         const checkOutResult = await window.AppAttendance.checkOut(

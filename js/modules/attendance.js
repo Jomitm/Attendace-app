@@ -350,8 +350,17 @@ export class Attendance {
             autoClosedPauseMs = checkOutMs - pauseStartMs;
         }
         const totalPausedMs = Math.max(0, basePausedMs + autoClosedPauseMs);
-        const durationMs = Math.max(0, (checkOutMs - checkInMs) - totalPausedMs);
-        const statusMeta = this.evaluateAttendanceStatus(checkInTime, durationMs);
+        const rawDurationMs = Math.max(0, (checkOutMs - checkInMs) - totalPausedMs);
+        const statusMeta = this.evaluateAttendanceStatus(checkInTime, rawDurationMs);
+
+        // If user confirmed extra time, cap displayed duration to shift + confirmed extra
+        let displayDurationMs = rawDurationMs;
+        const confirmedExtra = Number(options.extraTimeConfirmedMs) || 0;
+        if (confirmedExtra > 0) {
+            const shiftBase = 8 * 60 * 60 * 1000;
+            displayDurationMs = shiftBase + confirmedExtra;
+        }
+        const durationMs = displayDurationMs;
 
         // Get Activity Stats
         const activityStats = window.AppActivity ? window.AppActivity.getStats() : { score: 0 };
