@@ -9,7 +9,7 @@ let dayPlanOverlaySequence = 0;
 let activeDayPlanRequestId = 0;
 const activeDayPlanLayers = new Set();
 const dayPlanLayerReleases = new WeakMap();
-const DAY_PLAN_LOAD_TTL_MS = 15000;
+const DAY_PLAN_LOAD_TTL_MS = 300000;
 const dayPlanLoadCache = new Map();
 
 if (typeof window !== 'undefined' && !window.__dayPlanLoadCacheBound) {
@@ -18,9 +18,16 @@ if (typeof window !== 'undefined' && !window.__dayPlanLoadCacheBound) {
         if (collection === 'work_plans' || collection === 'users') {
             dayPlanLoadCache.clear();
         }
+        if (collection === 'work_plans') {
+            dayPlanMaintenanceDone.clear();
+        }
     });
     window.__dayPlanLoadCacheBound = true;
 }
+
+// Tracks completed carry-forward maintenance per (date::targetId) per session.
+// Cleared on any work_plans write so the next open re-checks.
+const dayPlanMaintenanceDone = new Set();
 // --- Helper Functions ---
 
 function createElement(tag, options = {}) {
@@ -90,7 +97,7 @@ function removeOverlay(element) {
     element.remove();
 }
 
-const DAY_PLAN_PREFETCH_TTL_MS = 15000;
+const DAY_PLAN_PREFETCH_TTL_MS = 300000;
 const dayPlanPrefetchCache = new Map();
 
 async function getCachedDayPlanUsers() {
@@ -127,15 +134,14 @@ async function getReferencedDayPlanUsers(dayPlans, targetId) {
 
     const currentUser = AppAuth.getUser();
     if (currentUser?.id) fallbackUsers.set(String(currentUser.id), currentUser);
-    const cachedUsers = await getCachedDayPlanUsers().catch(() => []);
-    const cachedUsersById = new Map((Array.isArray(cachedUsers) ? cachedUsers : []).map((user) => [String(user?.id || ''), user]));
-    const users = await Promise.all(Array.from(ids, async (id) => {
-        const cachedUser = cachedUsersById.get(String(id));
-        if (cachedUser) return cachedUser;
-        const user = await AppDB.get('users', id).catch(() => null);
-        return user || fallbackUsers.get(id) || { id, name: 'Staff' };
-    }));
-    return users.filter(Boolean);
+
+    // Batch-fetch only the referenced user IDs instead of scanning the entire users collection.
+    // getManyByIds groups into IN queries of 10, avoiding both the full collection scan and N+1.
+    const idList = Array.from(ids);
+    const users = await AppDB.getManyByIds('users', idList).catch(() => []);
+    const usersById = new Map(users.map(u => [String(u.id || ''), u]));
+
+    return idList.map(id => usersById.get(id) || fallbackUsers.get(id) || { id, name: 'Staff' }).filter(Boolean);
 }
 
 async function loadDayPlanData(date, targetId) {
@@ -147,11 +153,14 @@ async function loadDayPlanData(date, targetId) {
         return cached.value;
     }
 
-    const [personalWorkPlan, annualWorkPlan, allDayPlans] = await Promise.all([
-        AppCalendar.getWorkPlan(safeTargetId, safeDate, { planScope: 'personal' }),
-        AppCalendar.getWorkPlan(safeTargetId, safeDate, { planScope: 'annual' }),
-        AppDB.getDayPlansByDate(safeDate)
-    ]);
+    // Single query: get all plans for this date, then extract personal + annual from the results.
+    // This avoids 2 extra Firestore reads (AppCalendar.getWorkPlan) since getDayPlansByDate
+    // already returns every document with matching date.
+    const allDayPlans = await AppDB.getDayPlansByDate(safeDate);
+    const personalId = `plan_${safeTargetId}_${safeDate}`;
+    const annualId = `plan_annual_${safeDate}`;
+    const personalWorkPlan = allDayPlans.find(p => p.id === personalId) || null;
+    const annualWorkPlan = allDayPlans.find(p => p.id === annualId) || null;
     const value = { personalWorkPlan, annualWorkPlan, allDayPlans };
     dayPlanLoadCache.set(cacheKey, {
         value,
@@ -217,7 +226,7 @@ function getDayPlanPrefetchRecord(date, targetUserId = null, forcedScope = null,
 
     const todayKey = AppCalendar?.getTodayKey ? AppCalendar.getTodayKey() : '';
     const safeDate = String(date || '').trim();
-    const canPrefetchPlans = !!todayKey && safeDate > todayKey;
+    const canPrefetchPlans = !!todayKey && safeDate >= todayKey;
     const record = {
         key,
         date: safeDate,
@@ -1332,6 +1341,12 @@ function scheduleDayPlanMaintenance({ date, targetId, forcedScope, options, moda
     const needsCleanup = !options?.skipCarryForwardCleanup && AppCalendar?.cleanupInvalidTodayCarryForward && date === todayKey;
     if (!needsCarryForward && !needsCleanup) return;
 
+    // Skip maintenance if already done for this (date, targetId) in this session.
+    // Cleared automatically when a work_plans write event fires (see app:db-write listener above).
+    const maintenanceKey = `${date}::${targetId}`;
+    if (dayPlanMaintenanceDone.has(maintenanceKey)) return;
+    dayPlanMaintenanceDone.add(maintenanceKey);
+
     window.setTimeout(async () => {
         try {
             let changed = false;
@@ -1468,7 +1483,7 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
         if (window.performance?.mark) window.performance.mark('day-plan-hydrate-start');
         try {
 
-            const canUsePrefetchedPlans = !!todayKey && dateKey > todayKey;
+            const canUsePrefetchedPlans = !!todayKey && dateKey >= todayKey;
             let allUsers = null;
             let personalWorkPlan = null;
             let annualWorkPlan = null;
@@ -1491,13 +1506,18 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
                 allDayPlans = prefetched?.allDayPlans || null;
             } else {
                 // Fire personal & annual plan fetches immediately — they don't depend on allUsers.
-                const data = await loadDayPlanData(dateKey, targetId);
+                const dataPromise = loadDayPlanData(dateKey, targetId);
+                // Pre-fetch user data in parallel — we know the date and targetId
+                const usersPromise = getReferencedDayPlanUsers(null, targetId);
+                const [data, allUsers] = await Promise.all([dataPromise, usersPromise]);
                 personalWorkPlan = data.personalWorkPlan;
                 annualWorkPlan = data.annualWorkPlan;
                 allDayPlans = data.allDayPlans;
             }
             if (!isCurrentRequest()) return;
-            if (!allUsers) allUsers = await getReferencedDayPlanUsers(allDayPlans, targetId);
+            if (!allUsers) {
+                allUsers = await getReferencedDayPlanUsers(allDayPlans, targetId);
+            }
             if (!isCurrentRequest()) return;
 
 
@@ -1655,3 +1675,20 @@ window.app_markTaskRemoved = function (block) {
 };
 
 export { AppDayPlan };
+
+// Firestore connection warm-up: do a minimal read on first idle to avoid cold-start
+// latency when the user opens their first day plan.
+let _warmed = false;
+function prewarmFirestore() {
+    if (_warmed || !AppDB?.db || !AppAuth?.getUser()) return;
+    _warmed = true;
+    // Tiny doc existence check — just opens the Firestore connection so subsequent
+    // queries don't pay the TLS/cold-start cost.
+    AppDB.db.collection('work_plans').limit(1).get().catch(() => {});
+}
+if (typeof window !== 'undefined') {
+    // Run after initial render settles
+    const idleCb = () => { requestIdleCallback ? requestIdleCallback(prewarmFirestore) : setTimeout(prewarmFirestore, 1000); };
+    if (document.readyState === 'complete') idleCb();
+    else window.addEventListener('load', idleCb, { once: true });
+}

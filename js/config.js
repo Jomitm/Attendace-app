@@ -39,15 +39,15 @@ export const AppConfig = {
 
     // Read optimization controls
     READ_CACHE_TTLS: {
-        users: 60000,
-        settings: 300000,
-        minutes: 30000,
-        attendanceSummary: 30000,
-        staffMessages: 20000,
-        dailySummaryReadMs: 60000,
-        staffActivitiesReadMs: 60000,
-        workPlansAllReadMs: 120000,
-        workPlanReadMs: 120000
+        users: 600000,
+        settings: 600000,
+        minutes: 60000,
+        attendanceSummary: 60000,
+        staffMessages: 60000,
+        dailySummaryReadMs: 120000,
+        staffActivitiesReadMs: 120000,
+        workPlansAllReadMs: 300000,
+        workPlanReadMs: 300000
     },
     READ_OPT_FLAGS: {
         FF_READ_OPT_DB_QUERIES: true,
