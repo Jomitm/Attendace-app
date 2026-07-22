@@ -10297,22 +10297,6 @@ body.dashboard-max-open {
     box-shadow: 0 12px 20px rgba(194, 65, 12, 0.2);
 }
 
-@media (max-width: 780px) {
-    .dashboard-leave-row {
-        flex-direction: column;
-    }
-
-    .dashboard-leave-actions {
-        min-width: 0;
-        justify-content: stretch;
-    }
-
-    .dashboard-leave-btn {
-        flex: 1 1 calc(50% - 0.55rem);
-        justify-content: center;
-    }
-}
-
 .dashboard-modern .dashboard-worklog-date-input,
 .dashboard-modern .dashboard-team-select {
     background: rgba(255, 255, 255, 0.76);
@@ -11227,81 +11211,6 @@ body.dashboard-max-open {
     50% {
         transform: scale(0.94);
         filter: saturate(1.2);
-    }
-}
-
-@media (max-width: 900px) {
-    .dashboard-modern {
-        padding: 0.35rem;
-        border-radius: 16px;
-    }
-
-    .dashboard-modern .card {
-        border-radius: 14px;
-        backdrop-filter: blur(14px) saturate(136%);
-        -webkit-backdrop-filter: blur(14px) saturate(136%);
-    }
-
-    .dashboard-modern .dashboard-hero-card {
-        --hero-block-pad-y: clamp(0.16rem, 1vw, 0.32rem);
-        --hero-block-pad-x: clamp(0.44rem, 1.6vw, 0.62rem);
-        --hero-logo-size: clamp(2.2rem, 7.2vw, 3rem);
-        height: clamp(76px, 18vw, 92px) !important;
-        min-height: clamp(76px, 18vw, 92px) !important;
-        max-height: 92px !important;
-    }
-
-    .dashboard-modern .dashboard-hero-row {
-        min-height: 0;
-        padding-right: 0;
-        align-items: center;
-        flex-wrap: nowrap;
-    }
-
-    .dashboard-modern .dashboard-hero-title {
-        font-size: 0.6rem;
-    }
-
-    .dashboard-modern .dashboard-hero-date {
-        font-size: 0.4rem;
-    }
-
-    .dashboard-modern .dashboard-hero-chip {
-        font-size: 0.38rem;
-    }
-
-    .dashboard-modern .dashboard-viewing-box {
-        width: min(42vw, 210px);
-        min-width: 0;
-    }
-
-    .dashboard-modern .dashboard-hero-aside {
-        width: auto;
-        justify-content: space-between;
-    }
-
-    .dashboard-modern .dashboard-viewing-inner {
-        max-width: none;
-    }
-
-    .dashboard-modern .dashboard-refresh-link {
-        position: relative;
-        top: auto;
-        right: auto;
-        margin-top: 0.2rem;
-        align-self: flex-start;
-    }
-
-    .dashboard-checkin-head {
-        justify-content: flex-start;
-    }
-
-    .dashboard-staff-view-banner {
-        padding: 0.9rem 1rem !important;
-    }
-
-    .dashboard-staff-view-title {
-        font-size: 1.1rem;
     }
 }
 

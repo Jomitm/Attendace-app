@@ -1,0 +1,130 @@
+/* ==========================================================
+   dashboard-mobile.css — Mobile-first responsive overrides
+   Loaded after main.css. Scoped via [data-viewport] attribute.
+   ========================================================== */
+
+/* ---- Consistent Breakpoints ----
+   Mobile-first: <768px = default (stacked, full-width)
+   md: >= 768px (tablet, 2-col primary row)
+   lg: >= 1024px (desktop, 3-col primary row)
+   ---- */
+
+/* === MOBILE DEFAULT (< 768px) === */
+
+/* Hero card — let content drive height, remove !important clamp */
+[data-viewport="mobile"] .dashboard-hero-card {
+  height: auto !important;
+  min-height: auto !important;
+  max-height: none !important;
+  block-size: auto !important;
+  min-block-size: auto !important;
+  max-block-size: none !important;
+  padding: 0.85rem 0.75rem !important;
+}
+
+/* Primary row — stack vertically */
+[data-viewport="mobile"] .dashboard-primary-row {
+  display: flex !important;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Stats row — single column on mobile */
+[data-viewport="mobile"] .dashboard-stats-row {
+  grid-template-columns: 1fr !important;
+}
+
+/* Tighter grid gap on mobile */
+[data-viewport="mobile"].dashboard-grid {
+  gap: 0.5rem;
+}
+
+/* Card padding — compact on mobile */
+[data-viewport="mobile"] .card {
+  padding: 0.5rem;
+}
+
+/* Hero stats card — wider metrics on narrow screens */
+[data-viewport="mobile"] .dashboard-hero-stats-card .hero-metrics {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+/* Activity split grid — single column on mobile */
+[data-viewport="mobile"] .dashboard-team-activity-list-split .dashboard-team-activity-split-grid {
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+}
+
+/* Leave row — stack vertically on mobile */
+[data-viewport="mobile"] .dashboard-leave-row {
+  flex-direction: column;
+}
+[data-viewport="mobile"] .dashboard-leave-actions {
+  min-width: 0;
+  justify-content: stretch;
+}
+
+/* === TABLET (>= 768px) === */
+
+@media (min-width: 768px) {
+  /* Primary row — 2-column grid */
+  .dashboard-modern .dashboard-primary-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+  }
+
+  /* Restore hero card fixed height from main.css */
+  .dashboard-modern .dashboard-hero-card {
+    height: clamp(72px, 4.7vw, 82px) !important;
+    min-height: clamp(72px, 4.7vw, 82px) !important;
+    max-height: 82px !important;
+    padding: var(--hero-block-pad-y) var(--hero-block-pad-x) !important;
+  }
+
+  /* Restore stats row to 2-column grid */
+  .dashboard-staff-view .dashboard-stats-row,
+  .dashboard-admin-view .dashboard-stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+  }
+
+  /* Leave action buttons — side by side */
+  .dashboard-leave-row {
+    flex-direction: row;
+  }
+  .dashboard-leave-actions {
+    min-width: 240px;
+  }
+
+  /* Activity split grid — restore 2-column */
+  .dashboard-team-activity-list-split .dashboard-team-activity-split-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  /* Restore tile card heights */
+  .dashboard-primary-row > .card.dashboard-card-mode-tile {
+    height: auto;
+    min-height: clamp(240px, 30vh, 290px);
+  }
+}
+
+/* === DESKTOP (>= 1024px) === */
+
+@media (min-width: 1024px) {
+  /* Primary row — 3-column grid */
+  .dashboard-modern .dashboard-primary-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  /* Restore dashboard grid gap */
+  .dashboard-modern .dashboard-grid {
+    gap: 0.75rem;
+  }
+
+  /* Restore card padding */
+  .card {
+    padding: 0.75rem;
+  }
+}

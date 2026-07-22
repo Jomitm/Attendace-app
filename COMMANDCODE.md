@@ -145,6 +145,24 @@ Changes, decisions, and context updates are recorded here after each session so 
 
 - **Dashboard widget spacing tightened (`css/main.css`):** `--card-gap` reduced from `clamp(0.5rem, 1.4vw, 0.9rem)` to `clamp(0.35rem, 0.6vw, 0.5rem)`. Primary row gap/margin changed from hardcoded `0.75rem` to `var(--card-gap)`
 
+### 2026-07-22 — Dashboard mobile-first responsive redesign
+
+- **New file `css/dashboard-mobile.css`** — Mobile-first overlay with unified breakpoints:
+  - `< 768px`: hero card auto-heights (removed `!important` clamp), primary row stacks as flex column, stats row 1-col, compact grid/card padding, leave rows stacked, activity split 1-col
+  - `>= 768px (tablet)`: primary row 2-col grid, hero card fixed heights restored, leave actions side-by-side
+  - `>= 1024px (desktop)`: primary row 3-col grid, original gaps/padding restored
+  - Breaks the 768/780px mismatch — sidebar and dashboard content now collapse at the same point
+
+- **Edited `css/main.css`** — Removed two redundant media query blocks: `@media (max-width: 780px)` leave-row rule and `@media (max-width: 900px)` dashboard-modern hero section, both now handled at the unified 768px breakpoint
+
+- **Edited `index.html`** — Added `<link>` for `css/dashboard-mobile.css`
+
+- **Edited `js/ui/dashboard.js`** — `renderDashboard()` now sets `data-viewport="mobile"|"desktop"` on `.dashboard-grid` based on `window.innerWidth`
+
+- **Edited `js/app.js`** — `setupDashboardEvents()` now calls `updateDashboardViewport()` and registers a `resize` listener to update the attribute live
+
+- **No content hidden** on mobile (all widgets visible), **check-in widget kept full** (countdown/overtime shown) — purely a layout responsiveness fix
+
 ### 2026-07-20 — Initial setup
 - Created `COMMANDCODE.md` with full project context, referencing all 6 existing `.md` docs.
 - Established convention: session crux gets logged here so context carries across conversations.

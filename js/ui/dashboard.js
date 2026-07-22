@@ -2316,8 +2316,9 @@ export async function renderDashboard() {
     markPerf('dashboard:render:end');
     measurePerf('dashboard:render', 'dashboard:render:start', 'dashboard:render:end');
 
+    const viewportMode = typeof window !== 'undefined' && window.innerWidth < 768 ? 'mobile' : 'desktop';
     return `
-        <div class="dashboard-grid dashboard-modern dashboard-staff-view">
+        <div class="dashboard-grid dashboard-modern dashboard-staff-view" data-viewport="${viewportMode}">
             ${notifHTML}
             ${taggedHTML}
             ${staffViewBannerHTML}

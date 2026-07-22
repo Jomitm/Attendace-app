@@ -8225,7 +8225,14 @@ function calculateDuration(start, end) {
     return `${h}h ${m}m`;
 }
 
+function updateDashboardViewport() {
+    const grid = document.querySelector('.dashboard-grid');
+    if (grid) grid.dataset.viewport = window.innerWidth < 768 ? 'mobile' : 'desktop';
+}
+window.addEventListener('resize', updateDashboardViewport);
+
 function setupDashboardEvents() {
+    updateDashboardViewport();
     const btn = document.getElementById('attendance-btn');
     const readOnly = !!window.app_dashboardReadOnly;
     const targetUser = window.app_dashboardTargetUser || null;
