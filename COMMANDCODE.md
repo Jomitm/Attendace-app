@@ -131,6 +131,20 @@ Changes, decisions, and context updates are recorded here after each session so 
     - `err.message` fallback for non-Error throws.
     - Timer `targetTime` recalculated per-tick from current day-of-week (handles midnight crossover).
 
+### 2026-07-22 — Day plan load performance optimization & dashboard gap fix
+
+- **Day plan load time reduced (`js/modules/day-plan.js`):**
+  - `getReferencedDayPlanUsers()` replaced full `users` collection scan + N+1 with single `AppDB.getManyByIds()` — only fetches user IDs referenced in the day's plans
+  - `loadDayPlanData()` cut from 3 Firestore reads to 1 (`getDayPlansByDate`), extracts personal/annual via `.find()` on results
+  - Prefetch enabled for today's date (changed `>` to `>=`) so loading spinner is skipped on today's common view
+  - `DAY_PLAN_LOAD_TTL_MS` and `DAY_PLAN_PREFETCH_TTL_MS` both extended 15s → 5min
+  - Added per-session dedup (`dayPlanMaintenanceDone`) to skip repeat carry-forward maintenance on successive opens
+  - Added `prewarmFirestore()` — tiny `limit(1)` read on idle to avoid Firestore TLS cold-start latency
+
+- **Cache TTLs bumped (`js/config.js`):** `users` 1min→10min, `settings` 5min→10min, `workPlanReadMs` 2min→5min, other caches extended accordingly
+
+- **Dashboard widget spacing tightened (`css/main.css`):** `--card-gap` reduced from `clamp(0.5rem, 1.4vw, 0.9rem)` to `clamp(0.35rem, 0.6vw, 0.5rem)`. Primary row gap/margin changed from hardcoded `0.75rem` to `var(--card-gap)`
+
 ### 2026-07-20 — Initial setup
 - Created `COMMANDCODE.md` with full project context, referencing all 6 existing `.md` docs.
 - Established convention: session crux gets logged here so context carries across conversations.
