@@ -21,6 +21,49 @@ import './modules/day-plan.js';
 import './modules/widget.js';
 import './ui/site-announcement.js';
 
+// ── Global async-button helper ────────────────────────────────
+window.app_asyncButton = function(btn) {
+  var el = typeof btn === 'string' ? document.querySelector(btn) : btn;
+  if (!el) return function(){};
+  var wasDisabled = el.disabled;
+  el.disabled = true;
+  el.classList.add('btn-loading');
+  return function() {
+    el.disabled = wasDisabled;
+    el.classList.remove('btn-loading');
+  };
+};
+
+// ── Auto-sync disabled buttons to loading spinner via CSS class ──
+(function() {
+  if (typeof window !== 'undefined' && window.MutationObserver) {
+    var obs = new MutationObserver(function(mutations) {
+      for (var i = 0; i < mutations.length; i++) {
+        var m = mutations[i];
+        if (m.type === 'attributes' && m.attributeName === 'disabled') {
+          if (m.target.disabled) m.target.classList.add('btn-loading');
+          else m.target.classList.remove('btn-loading');
+        }
+        if (m.type === 'childList') {
+          for (var j = 0; j < m.addedNodes.length; j++) {
+            var node = m.addedNodes[j];
+            if (node.nodeType === 1) {
+              if (node.disabled) node.classList.add('btn-loading');
+              var disabledEls = node.querySelectorAll('button:disabled, .btn:disabled');
+              for (var k = 0; k < disabledEls.length; k++) disabledEls[k].classList.add('btn-loading');
+            }
+          }
+        }
+      }
+    });
+    function attach() {
+      if (document.body) obs.observe(document.body, { attributes: true, attributeFilter: ['disabled'], subtree: true, childList: true });
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', attach);
+    else attach();
+  }
+})();
+
 /**
  * App State
  */
@@ -5785,11 +5828,14 @@ window.app_deleteDayPlan = async (date, targetUserId = null, planScope = null) =
         }
     } catch (err) {
         alert(err.message);
+    } finally {
+        restore();
     }
 };
 
 window.app_saveDayPlan = async (e, date, targetUserId = null) => {
     e.preventDefault();
+    const restore = typeof window.app_asyncButton === 'function' ? window.app_asyncButton(e.target.querySelector('.day-plan-save-btn')) : () => {};
     const currentUser = window.AppAuth.getUser();
     const targetId = app_resolveTargetUserId(targetUserId, currentUser.id);
     const form = e.target;
@@ -5892,6 +5938,7 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
 
     if (validationError) {
         alert(validationError);
+        restore();
         return;
     }
 
@@ -5905,6 +5952,7 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
             }
             if (!hadPersonal && !hadAnnual) {
                 alert("Please add at least one task.");
+                restore();
                 return;
             }
         }
@@ -5927,111 +5975,7 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
             window.AppStore.invalidatePlans(); // CACHE INVALIDATION
         }
 
-        const allUsers = await window.AppDB.getAll('users');
-
-        // 1. Notify the owner if edited by an admin
-        if (targetId !== currentUser.id && (currentUser.role === 'Administrator' || currentUser.isAdmin)) {
-            const owner = allUsers.find(u => u.id === targetId);
-            if (owner) {
-                if (!owner.notifications) owner.notifications = [];
-                const lastNotif = owner.notifications[owner.notifications.length - 1];
-                if (!lastNotif || lastNotif.message !== `Admin ${currentUser.name} has edited your Work Plan for ${date}`) {
-                    owner.notifications.push({
-                        type: 'admin_edit',
-                        message: `Admin ${currentUser.name} has edited your Work Plan for ${date}`,
-                        date: new Date().toLocaleString(),
-                        read: false
-                    });
-                    await window.AppDB.put('users', owner);
-                }
-            }
-        }
-
-        // 2. Send Notifications to newly tagged users (parallelized)
-        const distinctTaggedUsers = new Set();
-        plans.forEach(p => {
-            if (p.tags) p.tags.forEach(t => distinctTaggedUsers.add(t.id));
-        });
-
-        if (distinctTaggedUsers.size > 0) {
-            const notificationPromises = [];
-            for (const uid of distinctTaggedUsers) {
-                if (uid === currentUser.id) continue;
-                const targetUser = allUsers.find(u => u.id === uid);
-                if (!targetUser) continue;
-                if (!targetUser.notifications) targetUser.notifications = [];
-                plans.forEach((p, idx) => {
-                    if (p.tags && p.tags.some(t => t.id === uid)) {
-                        const scopeKey = p.planScope === 'annual' ? 'annual' : 'personal';
-                        const scopedPlanId = planIdsByScope[scopeKey] || window.AppCalendar.getWorkPlanId(date, targetId, scopeKey);
-                        const alreadyNotified = targetUser.notifications.some((n) => {
-                            const notifType = String(n?.type || '').toLowerCase();
-                            const isTagNotification = notifType === 'tag' || notifType === 'mention';
-                            return isTagNotification
-                                && String(n.planId || '') === String(scopedPlanId || '')
-                                && Number(n.taskIndex) === Number(idx)
-                                && String(n.taggedById || '') === String(currentUser.id || '');
-                        });
-                        if (!alreadyNotified) {
-                            targetUser.notifications.push({
-                                id: `tag_${Date.now()}_${uid}_${idx}`,
-                                type: 'tag',
-                                title: p.task || 'Tagged task',
-                                description: p.subPlans && p.subPlans.length > 0 ? p.subPlans.join(', ') : '',
-                                taggedById: currentUser.id,
-                                taggedByName: currentUser.name,
-                                taggedAt: new Date().toISOString(),
-                                status: 'pending',
-                                source: 'plan',
-                                planId: scopedPlanId,
-                                taskIndex: idx,
-                                message: `${currentUser.name} tagged you in: "${p.task}" for ${date}`,
-                                date: new Date().toLocaleString(),
-                                read: false
-                            });
-                        }
-                    }
-                });
-                notificationPromises.push(window.AppDB.put('users', targetUser));
-            }
-            await Promise.all(notificationPromises);
-
-            // 3. Create tagged work plan tasks (parallelized across different recipients)
-            const tagTaskPromises = [];
-            for (let idx = 0; idx < plans.length; idx++) {
-                const p = plans[idx];
-                if (!p.tags) continue;
-                for (const t of p.tags) {
-                    if (t.id === targetId) continue;
-                    const recipient = allUsers.find(u => u.id === t.id);
-                    if (!recipient || !window.AppCalendar) continue;
-                    const scopeKey = p.planScope === 'annual' ? 'annual' : 'personal';
-                    const scopedPlanId = planIdsByScope[scopeKey] || window.AppCalendar.getWorkPlanId(date, targetId, scopeKey);
-                    const details = p.subPlans && p.subPlans.length > 0 ? ` - ${p.subPlans.join(', ')}` : '';
-                    const taskText = `${p.task}${details} (Responsible: ${recipient.name})`;
-                    tagTaskPromises.push(window.AppCalendar.addWorkPlanTask(
-                        date,
-                        recipient.id,
-                        taskText,
-                        [{ id: currentUser.id, name: currentUser.name, status: 'pending' }],
-                        {
-                            addedFrom: 'tag',
-                            sourcePlanId: scopedPlanId,
-                            sourceTaskIndex: idx,
-                            taggedById: currentUser.id,
-                            taggedByName: currentUser.name,
-                            status: 'pending',
-                            subPlans: p.subPlans || [],
-                            startDate: p.startDate || date,
-                            endDate: p.endDate || p.startDate || date
-                        }
-                    ));
-                }
-            }
-            if (tagTaskPromises.length > 0) {
-                await Promise.all(tagTaskPromises);
-            }
-        }
+        // Show success and close modal immediately — rest runs in background
         alert("Plans saved successfully!");
         document.getElementById('day-plan-modal')?.remove();
 
@@ -6049,8 +5993,104 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
                 if (window.setupDashboardEvents) window.setupDashboardEvents();
             }
         }
+
+                // ── Background: notifications and tagged tasks ────────────────
+        window.AppDB.getAll('users').then(allUsers => {
+            const bg = async () => {
+                // Notify the owner if edited by an admin
+                if (targetId !== currentUser.id && (currentUser.role === 'Administrator' || currentUser.isAdmin)) {
+                    const owner = allUsers.find(u => u.id === targetId);
+                    if (owner) {
+                        if (!owner.notifications) owner.notifications = [];
+                        const lastNotif = owner.notifications[owner.notifications.length - 1];
+                        if (!lastNotif || lastNotif.message !== `Admin ${currentUser.name} has edited your Work Plan for ${date}`) {
+                            owner.notifications.push({
+                                type: 'admin_edit',
+                                message: `Admin ${currentUser.name} has edited your Work Plan for ${date}`,
+                                date: new Date().toLocaleString(),
+                                read: false
+                            });
+                            await window.AppDB.put('users', owner);
+                        }
+                    }
+                }
+
+                // 2. Send Notifications to newly tagged users (parallelized)
+                const distinctTaggedUsers = new Set();
+                plans.forEach(p => {
+                    if (p.tags) p.tags.forEach(t => distinctTaggedUsers.add(t.id));
+                });
+
+                if (distinctTaggedUsers.size > 0) {
+                    const notificationPromises = [];
+                    for (const uid of distinctTaggedUsers) {
+                        if (uid === currentUser.id) continue;
+                        const targetUser = allUsers.find(u => u.id === uid);
+                        if (!targetUser) continue;
+                        if (!targetUser.notifications) targetUser.notifications = [];
+                        plans.forEach((p, idx) => {
+                            if (p.tags && p.tags.some(t => t.id === uid)) {
+                                const scopeKey = p.planScope === 'annual' ? 'annual' : 'personal';
+                                const scopedPlanId = planIdsByScope[scopeKey] || window.AppCalendar.getWorkPlanId(date, targetId, scopeKey);
+                                if (!targetUser.notifications.some((n) => {
+                                    const notifType = String(n?.type || '').toLowerCase();
+                                    return (notifType === 'tag' || notifType === 'mention')
+                                        && String(n.planId || '') === String(scopedPlanId || '')
+                                        && Number(n.taskIndex) === Number(idx)
+                                        && String(n.taggedById || '') === String(currentUser.id || '');
+                                })) {
+                                    targetUser.notifications.push({
+                                        id: `tag_${Date.now()}_${uid}_${idx}`,
+                                        type: 'tag',
+                                        title: p.task || 'Tagged task',
+                                        description: p.subPlans && p.subPlans.length > 0 ? p.subPlans.join(', ') : '',
+                                        taggedById: currentUser.id,
+                                        taggedByName: currentUser.name,
+                                        taggedAt: new Date().toISOString(),
+                                        status: 'pending',
+                                        source: 'plan',
+                                        planId: scopedPlanId,
+                                        taskIndex: idx,
+                                        message: `${currentUser.name} tagged you in: "${p.task}" for ${date}`,
+                                        date: new Date().toLocaleString(),
+                                        read: false
+                                    });
+                                }
+                            }
+                        });
+                        notificationPromises.push(window.AppDB.put('users', targetUser));
+                    }
+                    await Promise.all(notificationPromises);
+
+                    // 3. Create tagged work plan tasks
+                    const tagTaskPromises = [];
+                    for (let idx = 0; idx < plans.length; idx++) {
+                        const p = plans[idx];
+                        if (!p.tags) continue;
+                        for (const t of p.tags) {
+                            if (t.id === targetId) continue;
+                            const recipient = allUsers.find(u => u.id === t.id);
+                            if (!recipient || !window.AppCalendar) continue;
+                            const scopeKey = p.planScope === 'annual' ? 'annual' : 'personal';
+                            const scopedPlanId = planIdsByScope[scopeKey] || window.AppCalendar.getWorkPlanId(date, targetId, scopeKey);
+                            const details = p.subPlans && p.subPlans.length > 0 ? ` - ${p.subPlans.join(', ')}` : '';
+                            const taskText = `${p.task}${details} (Responsible: ${recipient.name})`;
+                            tagTaskPromises.push(window.AppCalendar.addWorkPlanTask(
+                                date, recipient.id, taskText,
+                                [{ id: currentUser.id, name: currentUser.name, status: 'pending' }],
+                                { addedFrom: 'tag', sourcePlanId: scopedPlanId, sourceTaskIndex: idx, taggedById: currentUser.id, taggedByName: currentUser.name, status: 'pending', subPlans: p.subPlans || [], startDate: p.startDate || date, endDate: p.endDate || p.startDate || date }
+                            ));
+                        }
+                    }
+                    if (tagTaskPromises.length > 0) await Promise.all(tagTaskPromises);
+                }
+            };
+            bg().catch(err => console.warn('Background plan notifications failed:', err));
+        }).catch(err => console.warn('Failed to fetch users for plan notifications:', err));
     } catch (err) {
         alert(err.message);
+    } finally {
+        restore();
     }
 };
 

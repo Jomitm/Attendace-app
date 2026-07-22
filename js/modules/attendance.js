@@ -104,6 +104,10 @@ export class Attendance {
     }
 
     async checkIn(latitude, longitude, address = 'Unknown Location', options = {}) {
+        // Preload holiday cache so evaluateAttendanceStatus can check configured holidays
+        if (typeof window.AppAnalytics?.preloadHolidayCache === 'function') {
+            window.AppAnalytics.preloadHolidayCache().catch(() => {});
+        }
         const user = await (AppAuth.refreshCurrentUserFromDB
             ? AppAuth.refreshCurrentUserFromDB()
             : AppAuth.getUser());
@@ -325,6 +329,10 @@ export class Attendance {
     }
 
     async checkOut(description = '', lat = null, lng = null, address = 'Detected Location', locationMismatched = false, explanation = '', options = {}) {
+        // Preload holiday cache so evaluateAttendanceStatus can check configured holidays
+        if (typeof window.AppAnalytics?.preloadHolidayCache === 'function') {
+            window.AppAnalytics.preloadHolidayCache().catch(() => {});
+        }
         const user = await (AppAuth.refreshCurrentUserFromDB
             ? AppAuth.refreshCurrentUserFromDB()
             : AppAuth.getUser());
@@ -733,6 +741,13 @@ export class Attendance {
         // Saturday holiday check via config
         if (day === 6 && typeof AppConfig.IS_SATURDAY_OFF === 'function' && AppConfig.IS_SATURDAY_OFF(checkInDateObj)) {
             return { status: 'Present', dayCredit: 1, lateCountable: false, extraWorkedMs: 0 };
+        }
+        // Configured holiday check (Republic Day, Diwali, etc.)
+        if (typeof window.AppAnalytics?.isConfiguredHoliday === 'function') {
+            const dateKey = `${checkInDateObj.getFullYear()}-${String(checkInDateObj.getMonth() + 1).padStart(2, '0')}-${String(checkInDateObj.getDate()).padStart(2, '0')}`;
+            if (window.AppAnalytics.isConfiguredHoliday(dateKey)) {
+                return { status: 'Present', dayCredit: 1, lateCountable: false, extraWorkedMs: 0 };
+            }
         }
 
         const checkInMins = (checkInDateObj.getHours() * 60) + checkInDateObj.getMinutes();

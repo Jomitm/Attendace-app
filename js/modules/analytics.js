@@ -6,11 +6,15 @@ export class Analytics {
         this.db = AppDB;
         this.chartInstance = null;
         this.memo = new Map();
+        this._cachedHolidays = null;
+        this._cachedHolidayYear = null;
         if (typeof window !== 'undefined' && window.addEventListener) {
             window.addEventListener('app:db-write', (e) => {
                 const collection = e?.detail?.collection;
-                if (['attendance', 'users', 'work_plans', 'leaves', 'minutes'].includes(collection)) {
+                if (['attendance', 'users', 'work_plans', 'leaves', 'minutes', 'settings'].includes(collection)) {
                     this.clearMemo();
+                    this._cachedHolidays = null;
+                    this._cachedHolidayYear = null;
                 }
             });
         }
@@ -787,7 +791,46 @@ export class Analytics {
             return 'Work Day';
         }
 
+        // Check configured holidays from preloaded cache
+        if (this._cachedHolidaySet && this._cachedHolidaySet.size > 0) {
+            const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+            if (this._cachedHolidaySet.has(dateKey)) return 'Holiday';
+        }
+
         return 'Work Day';
+    }
+
+    async preloadHolidayCache() {
+        try {
+            const now = new Date();
+            const year = now.getFullYear();
+            if (this._cachedHolidayYear === year && this._cachedHolidaySet) return;
+            let holidays = [];
+            if (window.AppPolicies?.getHolidaysForYear) {
+                holidays = await window.AppPolicies.getHolidaysForYear(year, false);
+            } else {
+                const settings = await window.AppDB.get('settings', 'holidays').catch(() => null);
+                holidays = Array.isArray(settings?.byYear?.[String(year)]) ? settings.byYear[String(year)] : [];
+            }
+            const set = new Set();
+            (holidays || []).forEach(h => {
+                const date = String(h?.date || '').trim();
+                if (/^\d{4}-\d{2}-\d{2}$/.test(date)) set.add(date);
+            });
+            this._cachedHolidaySet = set;
+            this._cachedHolidayYear = year;
+        } catch (e) {
+            console.warn('Analytics: failed to preload holiday cache', e);
+        }
+    }
+
+    isConfiguredHoliday(dateStr) {
+        if (this._cachedHolidaySet && this._cachedHolidaySet.size > 0) {
+            const dateKey = typeof dateStr === 'string' ? dateStr
+                : `${dateStr.getFullYear()}-${String(dateStr.getMonth() + 1).padStart(2, '0')}-${String(dateStr.getDate()).padStart(2, '0')}`;
+            return this._cachedHolidaySet.has(dateKey);
+        }
+        return false;
     }
 
     getHeroPolicy() {
