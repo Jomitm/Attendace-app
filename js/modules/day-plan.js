@@ -1201,9 +1201,6 @@ export async function quickAddPersonalPlan(date = null, targetUserId = null) {
     });
     privacyField.appendChild(privateLabel);
     grid.appendChild(privacyField);
-    body.appendChild(grid);
-
-    const classGrid = createElement('div', { className: 'plan-editor-grid' });
 
     const sizeField = createElement('div', { className: 'plan-editor-field' });
     sizeField.innerHTML = '<label>Task Size</label>';
@@ -1217,7 +1214,7 @@ export async function quickAddPersonalPlan(date = null, targetUserId = null) {
         <option value="major-project">&#128204; Major Project (1+ days)</option>
     `;
     sizeField.appendChild(sizeSelect);
-    classGrid.appendChild(sizeField);
+    grid.appendChild(sizeField);
 
     const purposeField = createElement('div', { className: 'plan-editor-field' });
     purposeField.innerHTML = '<label>Task Purpose</label>';
@@ -1231,7 +1228,7 @@ export async function quickAddPersonalPlan(date = null, targetUserId = null) {
         <option value="emergency">&#9888;&#65039; Emergency</option>
     `;
     purposeField.appendChild(purposeSelect);
-    classGrid.appendChild(purposeField);
+    grid.appendChild(purposeField);
 
     const priorityField = createElement('div', { className: 'plan-editor-field' });
     priorityField.innerHTML = '<label>Priority <span style="color:#d97706;font-size:0.55rem;font-weight:800;">* for bonus</span></label>';
@@ -1244,9 +1241,9 @@ export async function quickAddPersonalPlan(date = null, targetUserId = null) {
         <option value="flexible">&#128994; Flexible</option>
     `;
     priorityField.appendChild(prioritySelect);
-    classGrid.appendChild(priorityField);
+    grid.appendChild(priorityField);
 
-    body.appendChild(classGrid);
+    body.appendChild(grid);
 
     const classHelper = createElement('div', {
         className: 'plan-editor-classification-helper',
