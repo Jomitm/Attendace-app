@@ -49,10 +49,7 @@ if not defined HAS_CHANGES (
 )
 
 echo [2/4] Creating commit...
-set "COMMIT_MSG="
-set /p COMMIT_MSG="Enter commit message (or press Enter for default): "
-if not defined COMMIT_MSG set "COMMIT_MSG=Update %DATE% %TIME%"
-git commit -m "%COMMIT_MSG%"
+git commit -m "Fix: Real-time sync for Windows client and DB optimizations"
 if errorlevel 1 goto :fail
 
 for /f "delims=" %%I in ('git rev-parse --short HEAD') do set "CURRENT_SHA=%%I"
