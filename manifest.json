@@ -1,0 +1,41 @@
+{
+  "name": "CRWI Attendance",
+  "short_name": "Attendance",
+  "description": "CRWI Staff Attendance and Management System",
+  "start_url": ".",
+  "display": "standalone",
+  "display_override": [
+    "window-controls-overlay",
+    "minimal-ui"
+  ],
+  "run_on_os_login": "allowed",
+  "background_color": "#ffffff",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Launch Widget",
+      "short_name": "Widget",
+      "description": "Open the compact attendance widget",
+      "url": "/?mode=widget#dashboard",
+      "icons": [
+        {
+          "src": "icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
+}

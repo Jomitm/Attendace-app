@@ -1,0 +1,48 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "skills": {
+    "paths": [".opencode/skills"]
+  },
+  "agent": {
+    "fullstack-dev": {
+      "description": "Full-stack developer: frontend, backend, database, API design and implementation",
+      "mode": "primary",
+      "permission": { "edit": "allow", "bash": { "git *": "allow", "npm *": "allow", "*": "ask" } }
+    },
+    "code-reviewer": {
+      "description": "Code review specialist: code quality checks, bug detection, optimization",
+      "mode": "subagent",
+      "permission": { "edit": "deny", "read": "allow", "bash": { "git diff *": "allow", "*": "deny" } }
+    },
+    "security-auditor": {
+      "description": "Security audit specialist: OWASP, dependency check, code security review",
+      "mode": "subagent",
+      "permission": { "edit": "deny", "read": "allow", "bash": "ask" }
+    },
+    "tdd-developer": {
+      "description": "TDD specialist: test writing, refactoring, clean code",
+      "mode": "subagent",
+      "permission": { "edit": "allow", "bash": { "npm test *": "allow", "*": "ask" } }
+    },
+    "architect": {
+      "description": "Architecture specialist: domain modeling, codebase design, microservices, patterns",
+      "mode": "subagent",
+      "permission": { "edit": "deny", "read": "allow", "bash": "ask" }
+    }
+  },
+  "command": {
+    "deploy": { "description": "Deploy project", "template": "Deploy the project. $ARGUMENTS" },
+    "test": { "description": "Run tests", "template": "Run tests and analyze. $ARGUMENTS" },
+    "review": { "description": "Review code", "agent": "code-reviewer", "template": "Review the code. $ARGUMENTS" },
+    "security": { "description": "Security audit", "agent": "security-auditor", "template": "Perform security audit. $ARGUMENTS" },
+    "tdd": { "description": "TDD workflow", "agent": "tdd-developer", "template": "Start TDD workflow. $ARGUMENTS" },
+    "debug": { "description": "Debug issues", "template": "Diagnose and fix bugs. $ARGUMENTS" },
+    "refactor": { "description": "Refactor code", "agent": "architect", "template": "Refactor the code. $ARGUMENTS" },
+    "analyze": { "description": "Analyze codebase", "agent": "architect", "template": "Analyze the codebase. $ARGUMENTS" }
+  },
+  "permission": {
+    "edit": "allow",
+    "bash": { "git *": "allow", "npm *": "allow", "npx *": "allow", "*": "ask" },
+    "read": "allow"
+  }
+}

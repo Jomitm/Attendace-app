@@ -1,0 +1,1995 @@
+:root {
+    --day-plan-bg: #f4f7ff;
+    --day-plan-surface: rgba(255, 255, 255, 0.92);
+    --day-plan-surface-strong: #ffffff;
+    --day-plan-border: rgba(194, 210, 234, 0.95);
+    --day-plan-border-soft: rgba(226, 234, 245, 0.92);
+    --day-plan-text: #0f172a;
+    --day-plan-muted: #64748b;
+    --day-plan-primary: #1d4ed8;
+    --day-plan-primary-2: #2563eb;
+    --day-plan-highlight: #eff6ff;
+    --day-plan-shadow: 0 24px 60px rgba(15, 23, 42, 0.16);
+    --day-plan-team-bg: linear-gradient(135deg, #eef2ff 0%, #e8f4fd 50%, #f0f7ff 100%);
+    --day-plan-team-border: rgba(147, 180, 245, 0.95);
+    --day-plan-team-accent: #2563eb;
+    /* Mobile touch target minimum */
+    --touch-min: 44px;
+}
+
+/* ===== MODAL OVERLAY ===== */
+.day-plan-modal-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.36) 0%, rgba(15, 23, 42, 0.56) 100%);
+    backdrop-filter: blur(10px);
+    z-index: 10020;
+    padding: clamp(0.2rem, 0.8vw, 0.75rem);
+    font-size: 12px;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* ===== MODAL CONTENT ===== */
+.day-plan-content {
+    width: min(1560px, calc(100vw - 0.8rem));
+    height: min(96vh, 960px);
+    height: min(96dvh, 960px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 18px;
+    border: 1px solid rgba(214, 227, 247, 0.9);
+    background:
+        radial-gradient(circle at top left, rgba(219, 234, 254, 0.95), transparent 34%),
+        linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    box-shadow: var(--day-plan-shadow);
+}
+
+.day-plan-header-wrap {
+    flex-shrink: 0;
+}
+
+.day-plan-body-wrap {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.day-plan-body-wrap > * {
+    flex: 1;
+    min-width: 0;
+}
+
+.day-plan-body-wrap > .day-plan-loading-state {
+    width: 100%;
+    align-self: stretch;
+}
+
+/* ===== HEADER ===== */
+.day-plan-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid rgba(226, 234, 245, 0.9);
+    flex-shrink: 0;
+}
+
+.day-plan-headline {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.day-plan-kicker,
+.day-plan-toolbar-kicker,
+.day-plan-context-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: var(--day-plan-primary);
+    font-size: 0.58rem;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin-bottom: 0;
+}
+
+.day-plan-headline h3 {
+    margin: 0;
+    color: var(--day-plan-text);
+    font-family: var(--font-display);
+    font-size: 1.05rem;
+    line-height: 1.1;
+}
+
+.day-plan-subline {
+    margin: 0;
+    color: var(--day-plan-muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+.day-plan-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-shrink: 0;
+}
+
+/* ===== SHARED BUTTON BASE ===== */
+.day-plan-delete-btn,
+.day-plan-close-btn,
+.day-plan-new-task-btn,
+.day-plan-column-btn,
+.day-plan-context-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.3rem;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    font-weight: 800;
+    font-size: 0.7rem;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    transition:
+        transform 160ms cubic-bezier(0.2, 0.9, 0.2, 1),
+        box-shadow 160ms cubic-bezier(0.2, 0.9, 0.2, 1),
+        background 160ms cubic-bezier(0.2, 0.9, 0.2, 1),
+        border-color 160ms cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+
+.day-plan-delete-btn,
+.day-plan-close-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    border-color: var(--day-plan-border);
+    background: rgba(255, 255, 255, 0.9);
+    color: var(--day-plan-muted);
+    font-size: 0.78rem;
+}
+
+.day-plan-delete-btn:hover,
+.day-plan-close-btn:hover {
+    transform: translateY(-1px);
+    background: #fff;
+    border-color: #c9d8f0;
+    color: var(--day-plan-text);
+}
+
+/* ===== FORM ===== */
+.day-plan-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    min-height: 0;
+    flex: 1;
+    padding: 0.5rem 0.65rem 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: #94a3b8 #e5edf8;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* ===== TOOLBAR ===== */
+.day-plan-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.65rem;
+    border: 1px solid var(--day-plan-border);
+    border-radius: 10px;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.92) 0%, rgba(239, 246, 255, 0.92) 100%);
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.04);
+    flex-shrink: 0;
+}
+
+.day-plan-toolbar-copy {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+}
+
+.day-plan-toolbar-title {
+    margin: 0;
+    color: var(--day-plan-text);
+    font-family: var(--font-display);
+    font-size: 0.82rem;
+    font-weight: 800;
+}
+
+.day-plan-toolbar-subtitle {
+    margin: 0;
+    color: var(--day-plan-muted);
+    font-size: 0.68rem;
+}
+
+/* ===== PRIMARY ACTION BUTTONS ===== */
+.day-plan-new-task-btn,
+.day-plan-column-btn,
+.day-plan-context-link {
+    padding: 0.4rem 0.72rem;
+    background: linear-gradient(135deg, var(--day-plan-primary) 0%, var(--day-plan-primary-2) 100%);
+    color: #ffffff;
+    box-shadow: 0 6px 14px rgba(37, 99, 235, 0.18);
+    min-height: 32px;
+    font-size: 0.68rem;
+}
+
+.day-plan-new-task-btn i,
+.day-plan-column-btn i,
+.day-plan-context-link i {
+    font-size: 0.62rem;
+}
+
+.day-plan-new-task-btn:hover,
+.day-plan-column-btn:hover,
+.day-plan-context-link:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 18px rgba(37, 99, 235, 0.24);
+}
+
+/* ==========================================================
+   WORKSPACE — EQUAL WIDTH TWO COLUMNS (1fr 1fr)
+   ========================================================== */
+.day-plan-workspace {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.55rem;
+    flex: 1;
+    min-height: 0;
+    align-items: stretch;
+    overflow: hidden;
+}
+
+/* ===== COLUMNS ===== */
+.day-plan-column {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    padding: 0.5rem;
+    border: 1px solid var(--day-plan-border-soft);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.82);
+    box-shadow: 0 6px 14px rgba(15, 23, 42, 0.04);
+    overflow: hidden;
+}
+
+.day-plan-column-equal {
+    min-width: 0;
+    flex: 1;
+}
+
+.day-plan-context-column {
+    gap: 0.4rem;
+}
+
+.day-plan-column-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.45rem;
+    margin-bottom: 0.35rem;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+
+.day-plan-column-head-secondary {
+    margin-bottom: 0;
+    padding: 0.45rem 0.6rem;
+    border-radius: 10px 10px 0 0;
+    background: linear-gradient(135deg, #eef2ff 0%, #dbeafe 100%);
+    border: 0;
+    border-bottom: 1px solid rgba(147, 180, 245, 0.5);
+}
+
+.day-plan-column-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+}
+
+.day-plan-column-icon {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%);
+    color: var(--day-plan-primary);
+    font-size: 0.72rem;
+    box-shadow: inset 0 0 0 1px rgba(147, 197, 253, 0.3);
+    flex-shrink: 0;
+}
+
+.day-plan-column-icon-muted {
+    background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%);
+    color: #ffffff;
+    box-shadow: 0 4px 10px rgba(37, 99, 235, 0.22);
+}
+
+.day-plan-column-title {
+    margin: 0;
+    color: var(--day-plan-text);
+    font-size: 0.75rem;
+    font-weight: 800;
+    line-height: 1.15;
+}
+
+.day-plan-column-subtitle {
+    margin: 0.08rem 0 0;
+    color: var(--day-plan-muted);
+    font-size: 0.6rem;
+    font-weight: 600;
+}
+
+.day-plan-column-btn {
+    padding-inline: 0.65rem;
+    background: rgba(37, 99, 235, 0.08);
+    border-color: rgba(37, 99, 235, 0.18);
+    color: var(--day-plan-primary);
+    box-shadow: none;
+}
+
+.day-plan-column-btn-secondary {
+    background: rgba(15, 23, 42, 0.04);
+    border-color: rgba(148, 163, 184, 0.22);
+    color: #334155;
+}
+
+.day-plan-column-btn:hover,
+.day-plan-column-btn-secondary:hover {
+    background: rgba(37, 99, 235, 0.12);
+    color: var(--day-plan-primary);
+    box-shadow: none;
+}
+
+/* ==========================================================
+   SCROLL AREAS — AUTO SCROLLBAR
+   ========================================================== */
+.day-plan-scroll-area {
+    min-height: 0;
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 0.3rem;
+    scroll-behavior: smooth;
+    scrollbar-width: thin;
+    scrollbar-color: #94a3b8 #e5edf8;
+    -webkit-overflow-scrolling: touch;
+}
+
+.day-plan-scroll-area::-webkit-scrollbar,
+.day-plan-form::-webkit-scrollbar {
+    width: 5px;
+}
+
+.day-plan-scroll-area::-webkit-scrollbar-track,
+.day-plan-form::-webkit-scrollbar-track {
+    background: #edf2f8;
+    border-radius: 999px;
+}
+
+.day-plan-scroll-area::-webkit-scrollbar-thumb,
+.day-plan-form::-webkit-scrollbar-thumb {
+    background: #94a3b8;
+    border: 1px solid #edf2f8;
+    border-radius: 999px;
+}
+
+.day-plan-scroll-area::-webkit-scrollbar-thumb:hover,
+.day-plan-form::-webkit-scrollbar-thumb:hover {
+    background: #64748b;
+}
+
+/* ===== PERSONAL PLANS CONTAINER ===== */
+.personal-plans-container {
+    position: relative;
+    padding-left: 0.9rem;
+    max-height: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.personal-plans-container::before {
+    content: '';
+    position: absolute;
+    left: 0.26rem;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, rgba(37, 99, 235, 0.3), rgba(191, 219, 254, 0.95));
+}
+
+.personal-plans-container > .plan-block,
+.personal-plans-container > .plan-block-ref {
+    margin-bottom: 0;
+}
+
+/* ==========================================================
+   PLAN BLOCKS — FULL HEIGHT, FULL TEXT
+   ========================================================== */
+.plan-block,
+.plan-block-ref {
+    position: relative;
+    border-radius: 10px;
+    border: 1px solid rgba(226, 234, 245, 0.95);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 251, 255, 0.95) 100%);
+    box-shadow: 0 3px 8px rgba(15, 23, 42, 0.04);
+    padding: 0.65rem 0.72rem;
+    transition:
+        transform 160ms cubic-bezier(0.2, 0.9, 0.2, 1),
+        box-shadow 160ms cubic-bezier(0.2, 0.9, 0.2, 1),
+        border-color 160ms cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+
+.plan-block::before,
+.plan-block-ref::before {
+    content: '';
+    position: absolute;
+    left: -0.58rem;
+    top: 0.85rem;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, var(--day-plan-primary) 0%, #60a5fa 100%);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
+}
+
+.plan-block-ref::before {
+    background: linear-gradient(180deg, #64748b 0%, #94a3b8 100%);
+    box-shadow: 0 0 0 3px rgba(100, 116, 139, 0.08);
+}
+
+.plan-block:hover,
+.plan-block-ref:hover {
+    transform: translateY(-1px);
+    border-color: rgba(191, 219, 254, 0.95);
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.07);
+}
+
+/* ===== PLAN BLOCK HEADER ===== */
+.plan-block-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+}
+
+.plan-block-title-group {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.42rem;
+    min-width: 0;
+    flex: 1;
+}
+
+.day-plan-index-badge {
+    width: 22px;
+    height: 22px;
+    border-radius: 7px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
+    color: var(--day-plan-primary);
+    font-size: 0.62rem;
+    font-weight: 900;
+    flex-shrink: 0;
+    margin-top: 0.08rem;
+}
+
+/* FULL TEXT — column layout */
+.plan-block-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+    flex: 1;
+}
+
+/* SUMMARY — full text wraps */
+.plan-block-summary {
+    color: var(--day-plan-text);
+    font-size: 0.78rem;
+    font-weight: 700;
+    line-height: 1.55;
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: break-word;
+}
+
+.plan-block-meta {
+    color: var(--day-plan-muted);
+    font-size: 0.62rem;
+    font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-top: 0.08rem;
+}
+
+.plan-block-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-shrink: 0;
+    margin-top: 0.06rem;
+    flex-wrap: wrap;
+}
+
+/* ===== SCOPE PILL ===== */
+.day-plan-scope-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.2rem 0.42rem;
+    border-radius: 999px;
+    border: 1px solid rgba(191, 219, 254, 0.95);
+    background: var(--day-plan-highlight);
+    color: #1e40af;
+    font-size: 0.55rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+/* ===== EDIT / REMOVE — TOUCH FRIENDLY ===== */
+.day-plan-edit-btn,
+.day-plan-remove-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    border: 1px solid rgba(226, 234, 245, 0.95);
+    background: #fff;
+    color: var(--day-plan-muted);
+    font-size: 0.65rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+
+.day-plan-edit-btn:hover,
+.day-plan-remove-btn:hover {
+    color: var(--day-plan-primary);
+    border-color: rgba(191, 219, 254, 0.95);
+    background: var(--day-plan-highlight);
+}
+
+/* ===== PRIVATE TASK TOGGLE ===== */
+.day-plan-private-toggle {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    border: 1px solid rgba(226, 234, 245, 0.95);
+    background: #fff;
+    color: var(--day-plan-muted);
+    font-size: 0.65rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+
+.day-plan-private-toggle:hover {
+    color: var(--day-plan-primary);
+    border-color: rgba(191, 219, 254, 0.95);
+    background: var(--day-plan-highlight);
+}
+
+.day-plan-private-toggle.is-private {
+    color: #b45309;
+    border-color: rgba(245, 158, 11, 0.45);
+    background: rgba(245, 158, 11, 0.1);
+}
+
+.plan-block-private {
+    border-color: rgba(245, 158, 11, 0.4);
+    box-shadow: inset 3px 0 0 rgba(245, 158, 11, 0.55);
+}
+
+/* ===== PLAN BLOCK BODY ===== */
+.plan-block-body {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-top: 0.45rem;
+    padding-top: 0.45rem;
+    border-top: 1px solid rgba(226, 234, 245, 0.95);
+}
+
+.day-plan-subplan-list {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-bottom: 0.08rem;
+}
+
+.day-plan-subplan-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.3rem;
+    padding: 0.32rem 0.45rem;
+    border: 1px solid rgba(226, 234, 245, 0.95);
+    border-radius: 7px;
+    background: rgba(248, 251, 255, 0.98);
+}
+
+.day-plan-subplan-check {
+    color: var(--day-plan-primary);
+    font-size: 0.68rem;
+    margin-top: 0.04rem;
+}
+
+.day-plan-subplan-text {
+    color: #334155;
+    font-size: 0.72rem;
+    font-weight: 600;
+    line-height: 1.45;
+    white-space: normal;
+    word-break: break-word;
+}
+
+.day-plan-tag-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.22rem 0.48rem;
+    border-radius: 999px;
+    background: rgba(37, 99, 235, 0.08);
+    color: #1d4ed8;
+    font-size: 0.62rem;
+    font-weight: 800;
+}
+
+/* ===== CONTEXT CARD ===== */
+.day-plan-context-card {
+    display: grid;
+    grid-template-columns: minmax(68px, 0.6fr) minmax(0, 1.45fr) auto;
+    align-items: center;
+    gap: 0.32rem;
+    padding: 0.38rem 0.45rem;
+    border-radius: 9px;
+    border: 1px solid rgba(191, 219, 254, 0.95);
+    background: rgba(248, 251, 255, 0.94);
+    box-shadow: 0 4px 10px rgba(37, 99, 235, 0.04);
+    flex: 0 0 auto;
+}
+
+.day-plan-context-card-head {
+    display: grid;
+    gap: 0.04rem;
+}
+
+.day-plan-context-title {
+    color: var(--day-plan-text);
+    font-size: 0.68rem;
+    font-weight: 800;
+    line-height: 1.1;
+}
+
+.day-plan-context-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.18rem;
+    min-width: 0;
+}
+
+.day-plan-context-stat {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: baseline;
+    gap: 0.15rem;
+    padding: 0.22rem 0.28rem;
+    border-radius: 6px;
+    border: 1px solid rgba(226, 234, 245, 0.86);
+    background: rgba(255, 255, 255, 0.78);
+    min-width: 0;
+}
+
+.day-plan-context-stat span {
+    color: var(--day-plan-muted);
+    font-size: 0.5rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.day-plan-context-stat strong {
+    color: var(--day-plan-text);
+    font-size: 0.72rem;
+    font-weight: 900;
+}
+
+.day-plan-context-link {
+    width: auto;
+    min-height: 28px;
+    padding: 0.32rem 0.5rem;
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    border-color: rgba(191, 219, 254, 0.95);
+    color: var(--day-plan-primary);
+    box-shadow: none;
+    white-space: nowrap;
+    font-size: 0.62rem;
+}
+
+/* ==========================================================
+   TEAM PLAN AREA — SPECIAL TREATMENT
+   ========================================================== */
+.day-plan-shared-shell {
+    min-height: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 11px;
+    border: 1.5px solid var(--day-plan-team-border);
+    border-left: 4px solid var(--day-plan-team-accent);
+    background: var(--day-plan-team-bg);
+    box-shadow:
+        0 6px 18px rgba(37, 99, 235, 0.10),
+        inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    position: relative;
+}
+
+.day-plan-shared-shell::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, #2563eb 0%, #60a5fa 50%, #2563eb 100%);
+    border-radius: 11px 11px 0 0;
+    z-index: 1;
+}
+
+.day-plan-shared-shell::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 11px;
+    background: radial-gradient(ellipse at top right, rgba(219, 234, 254, 0.35), transparent 55%);
+    pointer-events: none;
+    z-index: 0;
+}
+
+.day-plan-shared-shell .day-plan-column-head-secondary {
+    position: relative;
+    z-index: 2;
+    margin-bottom: 0;
+    padding: 0.42rem 0.55rem;
+    border-radius: 10px 10px 0 0;
+    background: linear-gradient(135deg,
+        rgba(37, 99, 235, 0.07) 0%,
+        rgba(96, 165, 250, 0.05) 100%);
+    border: 0;
+    border-bottom: 1px solid rgba(147, 180, 245, 0.45);
+    flex-shrink: 0;
+}
+
+.day-plan-shared-shell .day-plan-column-title {
+    color: #1d4ed8;
+    font-weight: 900;
+    font-size: 0.75rem;
+}
+
+.day-plan-shared-shell .day-plan-column-subtitle {
+    color: #3b6fcc;
+    font-size: 0.58rem;
+    font-weight: 600;
+}
+
+.day-plan-shared-shell .day-plan-column-icon-muted {
+    background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%);
+    color: #fff;
+    box-shadow: 0 3px 8px rgba(37, 99, 235, 0.25);
+}
+
+.day-plan-shared-shell .day-plan-column-btn-secondary {
+    background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+    border-color: transparent;
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: 800;
+    box-shadow: 0 3px 10px rgba(37, 99, 235, 0.2);
+}
+
+.day-plan-shared-shell .day-plan-column-btn-secondary:hover {
+    background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 5px 14px rgba(37, 99, 235, 0.28);
+}
+
+.day-plan-shared-shell .others-plans-container {
+    position: relative;
+    z-index: 2;
+    flex: 1;
+    min-height: 0;
+    padding: 0.5rem 0.5rem 0.55rem 1rem;
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    -webkit-overflow-scrolling: touch;
+}
+
+.day-plan-shared-shell .others-plans-container::before {
+    content: '';
+    position: absolute;
+    left: 0.28rem;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    border-radius: 999px;
+    background: linear-gradient(180deg,
+        rgba(37, 99, 235, 0.35),
+        rgba(96, 165, 250, 0.55));
+}
+
+.day-plan-shared-shell .plan-block,
+.day-plan-shared-shell .plan-block-ref {
+    border-color: rgba(147, 196, 253, 0.6);
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.06);
+    backdrop-filter: blur(4px);
+    margin-bottom: 0;
+}
+
+.day-plan-shared-shell .plan-block:hover,
+.day-plan-shared-shell .plan-block-ref:hover {
+    border-color: rgba(96, 165, 250, 0.8);
+    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.1);
+    background: rgba(255, 255, 255, 0.98);
+}
+
+.day-plan-shared-shell .plan-block-ref::before {
+    background: linear-gradient(180deg, #3b82f6 0%, #93c5fd 100%);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+.day-plan-shared-shell .plan-block::before {
+    background: linear-gradient(180deg, #2563eb 0%, #60a5fa 100%);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.day-plan-shared-shell .plan-block .day-plan-scope-pill {
+    background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 2px 5px rgba(37, 99, 235, 0.18);
+}
+
+.day-plan-shared-shell .plan-block-ref .day-plan-scope-pill {
+    background: linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%);
+    color: #1d4ed8;
+    border-color: rgba(147, 196, 253, 0.5);
+    font-style: italic;
+}
+
+.team-plan-special-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+    color: #fff;
+    font-size: 0.5rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 0.15rem 0.42rem;
+    border-radius: 999px;
+    margin-left: 0.35rem;
+    vertical-align: middle;
+    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.22);
+}
+
+.team-plan-special-badge i {
+    font-size: 0.48rem;
+}
+
+.is-reference-only {
+    opacity: 0.88;
+}
+
+.is-reference-only .plan-block-summary {
+    font-style: italic;
+    opacity: 0.88;
+}
+
+/* ===== FOOTER ===== */
+.day-plan-footer {
+    flex-shrink: 0;
+    margin: 0 -0.65rem;
+    padding: 0.42rem 0.65rem 0.52rem;
+    background: rgba(248, 251, 255, 0.96);
+    border-top: 1px solid rgba(226, 234, 245, 0.95);
+}
+
+.day-plan-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.45rem;
+    padding: 0;
+    border-top: 0;
+    flex-wrap: wrap;
+}
+
+.day-plan-discard-btn {
+    min-height: 32px;
+    padding: 0.4rem 0.75rem;
+    border-radius: 9px;
+    border: 1px solid rgba(203, 213, 225, 0.95);
+    background: rgba(255, 255, 255, 0.92);
+    color: #475569;
+    font-weight: 800;
+    font-size: 0.72rem;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    white-space: nowrap;
+    transition: transform 160ms cubic-bezier(0.2, 0.9, 0.2, 1), box-shadow 160ms cubic-bezier(0.2, 0.9, 0.2, 1), background 160ms cubic-bezier(0.2, 0.9, 0.2, 1), border-color 160ms cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+
+.day-plan-discard-btn:hover {
+    transform: translateY(-1px);
+    background: #fff;
+    border-color: #c9d8f0;
+    color: var(--day-plan-text);
+}
+
+.day-plan-save-btn {
+    min-height: 32px;
+    padding: 0.4rem 0.85rem;
+    border-radius: 9px;
+    border: 0;
+    background: linear-gradient(135deg, var(--day-plan-primary) 0%, var(--day-plan-primary-2) 100%);
+    color: #ffffff;
+    font-weight: 900;
+    font-size: 0.72rem;
+    box-shadow: 0 8px 16px rgba(37, 99, 235, 0.2);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    white-space: nowrap;
+    transition: transform 160ms cubic-bezier(0.2, 0.9, 0.2, 1), box-shadow 160ms cubic-bezier(0.2, 0.9, 0.2, 1), background 160ms cubic-bezier(0.2, 0.9, 0.2, 1), border-color 160ms cubic-bezier(0.2, 0.9, 0.2, 1);
+    flex-shrink: 1;
+    min-width: 0;
+}
+
+.day-plan-save-btn:hover {
+    box-shadow: 0 10px 22px rgba(37, 99, 235, 0.28);
+    transform: translateY(-1px);
+}
+
+.day-plan-save-btn i {
+    flex-shrink: 0;
+}
+
+/* ===== PLAN EDITOR MODAL ===== */
+.plan-editor-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10040;
+    display: grid;
+    place-items: center;
+    padding: 0.75rem;
+    background: rgba(15, 23, 42, 0.5);
+    backdrop-filter: blur(8px);
+}
+
+.plan-editor-modal {
+    width: min(780px, calc(100% - 1rem));
+    max-height: 90vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    border-radius: 16px;
+    border: 1px solid rgba(214, 227, 247, 0.95);
+    background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    box-shadow: 0 20px 44px rgba(15, 23, 42, 0.22);
+    font-size: 12px;
+}
+
+.plan-editor-head,
+.plan-editor-footer {
+    padding: 0.6rem 0.8rem;
+    border-color: rgba(226, 234, 245, 0.95);
+}
+
+.plan-editor-head {
+    border-bottom: 1px solid rgba(226, 234, 245, 0.95);
+    flex-shrink: 0;
+}
+
+.plan-editor-head h4 {
+    margin: 0;
+    font-size: 0.85rem;
+    font-weight: 800;
+    color: var(--day-plan-text);
+}
+
+.plan-editor-body {
+    display: grid;
+    gap: 0.7rem;
+    padding: 0.78rem 0.85rem;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.plan-editor-textarea {
+    width: 100%;
+    min-height: 80px;
+    resize: vertical;
+    border-radius: 10px;
+    border: 1px solid rgba(191, 219, 254, 0.95);
+    background: #ffffff;
+    color: var(--day-plan-text);
+    padding: 0.55rem 0.65rem;
+    font: inherit;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    /* iOS fix */
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.plan-editor-textarea:focus {
+    outline: none;
+    border-color: var(--day-plan-primary);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+
+.plan-editor-grid {
+    display: grid;
+    gap: 0.55rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.plan-editor-field {
+    display: grid;
+    gap: 0.2rem;
+}
+
+.plan-editor-field label {
+    color: var(--day-plan-muted);
+    font-size: 0.6rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.plan-editor-select {
+    min-height: 34px;
+    border-radius: 8px;
+    border: 1px solid rgba(191, 219, 254, 0.95);
+    background: #ffffff;
+    color: var(--day-plan-text);
+    padding: 0.35rem 0.5rem;
+    font: inherit;
+    font-size: 0.78rem;
+    /* iOS fix */
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.plan-editor-select:focus {
+    outline: none;
+    border-color: var(--day-plan-primary);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+
+.plan-editor-secondary-strip {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+    gap: 0.65rem;
+    align-items: start;
+}
+
+.plan-editor-subplans,
+.plan-editor-ai-panel {
+    display: grid;
+    gap: 0.55rem;
+    padding: 0.68rem;
+    border: 1px solid rgba(191, 219, 254, 0.92);
+    border-radius: 14px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 251, 255, 0.95) 100%);
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
+}
+
+.plan-editor-section-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.45rem;
+}
+
+.plan-editor-section-head label {
+    display: block;
+    margin: 0;
+    color: var(--day-plan-text);
+    font-size: 0.68rem;
+    font-weight: 900;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.plan-editor-section-copy {
+    margin: 0.12rem 0 0;
+    color: var(--day-plan-muted);
+    font-size: 0.64rem;
+    line-height: 1.35;
+}
+
+.plan-editor-subplans-list {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.plan-editor-subplan-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.22rem 0.28rem 0.22rem 0.35rem;
+    border: 1px solid rgba(226, 234, 245, 0.95);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.94);
+}
+
+.plan-editor-subplan-input {
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    color: var(--day-plan-text);
+    font: inherit;
+    font-size: 0.77rem;
+    line-height: 1.4;
+    padding: 0.18rem 0.1rem;
+}
+
+.plan-editor-subplan-input:focus {
+    outline: none;
+}
+
+.plan-editor-subplan-input::placeholder {
+    color: #94a3b8;
+}
+
+.plan-editor-subplan-remove {
+    width: 24px;
+    height: 24px;
+    border: 1px solid rgba(226, 234, 245, 0.95);
+    border-radius: 7px;
+    background: #fff;
+    color: #475569;
+    padding: 0;
+    font-size: 0.65rem;
+    flex-shrink: 0;
+}
+
+.plan-editor-add-step-btn {
+    width: fit-content;
+    padding: 0.34rem 0.55rem;
+    margin-top: 0.05rem;
+}
+
+.plan-editor-ai-controls {
+    display: flex;
+    gap: 0.4rem;
+    align-items: stretch;
+    flex-wrap: wrap;
+}
+
+.plan-editor-ai-select {
+    flex: 1 1 180px;
+    min-width: 0;
+}
+
+.plan-editor-ai-btn {
+    flex: 0 0 auto;
+    min-height: 34px;
+    padding-inline: 0.72rem;
+    white-space: nowrap;
+}
+
+.plan-editor-ai-preview {
+    padding: 0.55rem 0.6rem;
+    border: 1px solid rgba(226, 234, 245, 0.95);
+    border-radius: 11px;
+    background: rgba(248, 251, 255, 0.96);
+    color: #334155;
+    font-size: 0.72rem;
+    line-height: 1.45;
+    max-height: 230px;
+    overflow: auto;
+}
+
+.plan-editor-ai-preview > div + div,
+.plan-editor-ai-preview > ul + div {
+    margin-top: 0.45rem;
+}
+
+.plan-editor-ai-summary {
+    color: #1f2937;
+    font-weight: 600;
+}
+
+.plan-editor-ai-actions {
+    margin: 0.35rem 0 0;
+    padding-left: 1rem;
+    color: #334155;
+}
+
+.plan-editor-ai-preview ul {
+    margin: 0.4rem 0 0;
+    padding-left: 1rem;
+}
+
+.plan-editor-ai-preview li {
+    margin: 0.16rem 0;
+}
+
+.plan-editor-ai-warnings,
+.plan-editor-ai-source {
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 0.35rem;
+    padding: 0.28rem 0.42rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(191, 219, 254, 0.95);
+    color: var(--day-plan-muted);
+    font-size: 0.64rem;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.plan-editor-ai-warnings {
+    display: flex;
+    flex-wrap: wrap;
+}
+
+.plan-editor-ai-source strong,
+.plan-editor-ai-warnings strong {
+    color: var(--day-plan-text);
+}
+
+.plan-editor-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.45rem;
+    border-top: 1px solid rgba(226, 234, 245, 0.95);
+    flex-shrink: 0;
+}
+
+/* ==========================================================
+   RESPONSIVE — TABLET (max-width: 1100px)
+   ========================================================== */
+@media (max-width: 1100px) {
+    .day-plan-workspace {
+        grid-template-columns: 1fr;
+        min-height: auto;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .day-plan-form {
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* On tablet stacked: give each section fixed max height so scroll works */
+    .day-plan-column {
+        max-height: 55vh;
+    }
+
+    .day-plan-shared-shell {
+        max-height: 55vh;
+    }
+
+    .plan-editor-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .plan-editor-secondary-strip {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ==========================================================
+   RESPONSIVE — MOBILE (max-width: 820px)
+   ========================================================== */
+@media (max-width: 820px) {
+    .day-plan-modal-overlay {
+        padding: 0;
+        align-items: stretch;
+    }
+
+    .day-plan-content {
+        width: 100%;
+        height: 100vh;
+        height: 100dvh;
+        min-height: 100vh;
+        min-height: 100dvh;
+        border-radius: 0;
+        border: none;
+    }
+
+    .day-plan-header {
+        padding: 0.55rem 0.65rem;
+        flex-wrap: wrap;
+    }
+
+    .day-plan-headline {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.15rem;
+        width: 100%;
+    }
+
+    .day-plan-headline h3 {
+        font-size: 1rem;
+    }
+
+    .day-plan-header-actions {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.65rem;
+    }
+
+    .day-plan-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.4rem;
+        padding: 0.45rem 0.55rem;
+    }
+
+    .day-plan-toolbar-copy {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.15rem;
+    }
+
+    .day-plan-form {
+        padding: 0.4rem 0.5rem 0;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+    }
+
+    .day-plan-workspace {
+        grid-template-columns: 1fr;
+        overflow: visible;
+        gap: 0.45rem;
+    }
+
+    /* On mobile: no max-height on columns, whole form scrolls */
+    .day-plan-column {
+        max-height: none;
+        overflow: visible;
+    }
+
+    .day-plan-shared-shell {
+        max-height: none;
+        overflow: visible;
+    }
+
+    .day-plan-scroll-area {
+        overflow-y: visible;
+        overflow: visible;
+        flex: none;
+    }
+
+    .day-plan-column-head {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.3rem;
+    }
+
+    /* Buttons full width on mobile */
+    .day-plan-new-task-btn,
+    .day-plan-context-link,
+    .day-plan-column-btn {
+        width: 100%;
+        justify-content: center;
+        min-height: var(--touch-min);
+        font-size: 0.75rem;
+    }
+
+    .day-plan-discard-btn,
+    .day-plan-save-btn {
+        width: 100%;
+        justify-content: center;
+        min-height: var(--touch-min);
+        font-size: 0.78rem;
+    }
+
+    .day-plan-actions {
+        flex-direction: column;
+        gap: 0.35rem;
+    }
+
+    /* Edit/Remove bigger touch targets on mobile */
+    .day-plan-edit-btn,
+    .day-plan-remove-btn {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        font-size: 0.72rem;
+    }
+
+    .day-plan-delete-btn,
+    .day-plan-close-btn {
+        width: 38px;
+        height: 38px;
+    }
+
+    /* Plan blocks more padding on mobile */
+    .plan-block,
+    .plan-block-ref {
+        padding: 0.72rem 0.68rem;
+    }
+
+    .plan-block-summary {
+        font-size: 0.82rem;
+        line-height: 1.5;
+    }
+
+    .plan-block-meta {
+        font-size: 0.65rem;
+    }
+
+    /* Subplan items taller */
+    .day-plan-subplan-item {
+        padding: 0.38rem 0.5rem;
+    }
+
+    .day-plan-subplan-text {
+        font-size: 0.75rem;
+    }
+
+    /* Context card stacks on mobile */
+    .day-plan-context-card {
+        grid-template-columns: 1fr;
+        gap: 0.35rem;
+        padding: 0.45rem;
+    }
+
+    .day-plan-context-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+
+    .day-plan-context-stat {
+        padding: 0.3rem 0.35rem;
+    }
+
+    .day-plan-context-stat span {
+        font-size: 0.55rem;
+    }
+
+    .day-plan-context-stat strong {
+        font-size: 0.78rem;
+    }
+
+    /* Footer */
+    .day-plan-footer {
+        position: sticky;
+        bottom: 0;
+        z-index: 3;
+        margin: 0 -0.5rem;
+        padding: 0.5rem 0.5rem 0.65rem;
+        background: rgba(248, 251, 255, 0.96);
+        border-top: 1px solid rgba(226, 234, 245, 0.95);
+        box-shadow: 0 -10px 24px rgba(15, 23, 42, 0.08);
+    }
+
+    /* Personal container timeline */
+    .personal-plans-container {
+        padding-left: 0.75rem;
+    }
+
+    .personal-plans-container::before {
+        left: 0.2rem;
+    }
+
+    .plan-block::before,
+    .plan-block-ref::before {
+        left: -0.52rem;
+        width: 7px;
+        height: 7px;
+    }
+
+    /* Shared shell */
+    .day-plan-shared-shell {
+        border-left-width: 3px;
+        border-radius: 10px;
+    }
+
+    .day-plan-shared-shell .others-plans-container {
+        overflow: visible;
+        padding-left: 0.8rem;
+    }
+
+    /* Plan editor on mobile */
+    .plan-editor-overlay {
+        padding: 0;
+    }
+
+    .plan-editor-modal {
+        width: 100%;
+        max-height: 100vh;
+        max-height: 100dvh;
+        border-radius: 0;
+        border: none;
+    }
+
+    .plan-editor-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .plan-editor-textarea {
+        min-height: 100px;
+        font-size: 0.85rem;
+    }
+
+    .plan-editor-select {
+        min-height: var(--touch-min);
+        font-size: 0.82rem;
+    }
+
+    .plan-editor-subplan-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .plan-editor-ai-controls {
+        flex-direction: column;
+    }
+
+    .plan-editor-ai-btn {
+        width: 100%;
+    }
+
+    .plan-editor-field label {
+        font-size: 0.65rem;
+    }
+
+    .plan-editor-footer {
+        flex-direction: column;
+        gap: 0.35rem;
+    }
+
+    .plan-editor-footer .day-plan-discard-btn,
+    .plan-editor-footer .day-plan-save-btn {
+        width: 100%;
+        min-height: var(--touch-min);
+    }
+}
+
+/* ==========================================================
+   RESPONSIVE — SMALL PHONE (max-width: 480px)
+   ========================================================== */
+@media (max-width: 480px) {
+    .day-plan-headline h3 {
+        font-size: 0.92rem;
+    }
+
+    .day-plan-subline {
+        font-size: 0.68rem;
+    }
+
+    .day-plan-toolbar-title {
+        font-size: 0.78rem;
+    }
+
+    .day-plan-toolbar-subtitle {
+        font-size: 0.62rem;
+    }
+
+    .day-plan-column-title {
+        font-size: 0.72rem;
+    }
+
+    .plan-block-summary {
+        font-size: 0.78rem;
+    }
+
+    .day-plan-context-grid {
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 0.15rem;
+    }
+
+    .day-plan-context-stat span {
+        font-size: 0.48rem;
+    }
+
+    .day-plan-context-stat strong {
+        font-size: 0.72rem;
+    }
+
+    /* Plan block actions wrap below on very small screens */
+    .plan-block-header {
+        flex-direction: column;
+        gap: 0.35rem;
+    }
+
+    .plan-block-actions {
+        width: 100%;
+        justify-content: flex-start;
+    }
+}
+/* ==========================================================
+   STATUS INDICATOR — Round circle with icon
+   ========================================================== */
+.plan-status-indicator {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 0.62rem;
+    border: 2px solid;
+    transition: transform 200ms ease, box-shadow 200ms ease;
+}
+
+/* ✅ COMPLETED — Green tick in green circle */
+.plan-status-completed {
+    border-color: #16a34a;
+    background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+    color: #15803d;
+    box-shadow: 0 2px 8px rgba(22, 163, 74, 0.2);
+}
+
+.plan-status-completed i {
+    font-size: 0.6rem;
+    font-weight: 900;
+}
+
+/* 📅 POSTPONED — Calendar icon in orange circle */
+.plan-status-postponed {
+    border-color: #ea580c;
+    background: linear-gradient(135deg, #fff7ed 0%, #fed7aa 100%);
+    color: #c2410c;
+    box-shadow: 0 2px 8px rgba(234, 88, 12, 0.18);
+}
+
+.plan-status-postponed i {
+    font-size: 0.55rem;
+}
+
+/* 🔄 IN PROGRESS — Spinner icon in blue circle */
+.plan-status-inprogress {
+    border-color: #2563eb;
+    background: linear-gradient(135deg, #eff6ff 0%, #bfdbfe 100%);
+    color: #1d4ed8;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.18);
+}
+
+.plan-status-inprogress i {
+    font-size: 0.55rem;
+    animation: plan-status-spin 2s linear infinite;
+}
+
+@keyframes plan-status-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* ⚪ NO STATUS — Empty dashed circle */
+.plan-status-none {
+    border-color: #cbd5e1;
+    border-style: dashed;
+    background: rgba(248, 250, 252, 0.8);
+    color: #94a3b8;
+    box-shadow: none;
+}
+
+/* ===== PLAN BLOCK STATUS VARIANTS ===== */
+
+/* Completed block — subtle green left accent */
+.plan-block-done {
+    border-left: 3px solid #16a34a;
+    background: linear-gradient(180deg, rgba(240, 253, 244, 0.95) 0%, rgba(255, 255, 255, 0.98) 100%);
+}
+
+.plan-block-done .plan-block-summary {
+    text-decoration: line-through;
+    text-decoration-color: rgba(22, 163, 74, 0.4);
+    opacity: 0.78;
+}
+
+.plan-block-done::before {
+    background: linear-gradient(180deg, #16a34a 0%, #4ade80 100%) !important;
+    box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12) !important;
+}
+
+/* Postponed block — subtle orange left accent */
+.plan-block-postponed {
+    border-left: 3px solid #ea580c;
+    background: linear-gradient(180deg, rgba(255, 247, 237, 0.95) 0%, rgba(255, 255, 255, 0.98) 100%);
+}
+
+.plan-block-postponed::before {
+    background: linear-gradient(180deg, #ea580c 0%, #fb923c 100%) !important;
+    box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.12) !important;
+}
+
+/* In-progress block — subtle blue left accent */
+.plan-block-active {
+    border-left: 3px solid #2563eb;
+    background: linear-gradient(180deg, rgba(239, 246, 255, 0.95) 0%, rgba(255, 255, 255, 0.98) 100%);
+}
+
+.plan-block-active::before {
+    background: linear-gradient(180deg, #2563eb 0%, #60a5fa 100%) !important;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12) !important;
+}
+
+/* ===== STATUS INDICATOR HOVER ===== */
+.plan-status-indicator:hover {
+    transform: scale(1.15);
+}
+
+.plan-status-completed:hover {
+    box-shadow: 0 3px 12px rgba(22, 163, 74, 0.3);
+}
+
+.plan-status-postponed:hover {
+    box-shadow: 0 3px 12px rgba(234, 88, 12, 0.28);
+}
+
+.plan-status-inprogress:hover {
+    box-shadow: 0 3px 12px rgba(37, 99, 235, 0.28);
+}
+
+/* ===== MOBILE — Bigger status indicators ===== */
+@media (max-width: 820px) {
+    .plan-status-indicator {
+        width: 30px;
+        height: 30px;
+        font-size: 0.72rem;
+        border-width: 2.5px;
+    }
+
+    .plan-status-completed i {
+        font-size: 0.7rem;
+    }
+
+    .plan-status-postponed i,
+    .plan-status-inprogress i {
+        font-size: 0.65rem;
+    }
+
+    .plan-block-done,
+    .plan-block-postponed,
+    .plan-block-active {
+        border-left-width: 4px;
+    }
+}
+
+@media (max-width: 480px) {
+    .plan-status-indicator {
+        width: 28px;
+        height: 28px;
+    }
+}
+
+/* ==========================================================
+   TASK CLASSIFICATION BADGES
+   ========================================================== */
+.plan-block-classification-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: 0.2rem;
+}
+
+.plan-classification-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.18rem;
+    padding: 0.12rem 0.35rem;
+    border-radius: 999px;
+    font-size: 0.52rem;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+    border: 1px solid transparent;
+}
+
+/* Size badges */
+.badge-size-single {
+    background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+    color: #065f46;
+    border-color: rgba(16, 185, 129, 0.3);
+}
+
+.badge-size-quick {
+    background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+    color: #166534;
+    border-color: rgba(34, 197, 94, 0.3);
+}
+
+.badge-size-small {
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    color: #1e40af;
+    border-color: rgba(59, 130, 246, 0.3);
+}
+
+.badge-size-medium {
+    background: linear-gradient(135deg, #fefce8 0%, #fef9c3 100%);
+    color: #854d0e;
+    border-color: rgba(234, 179, 8, 0.3);
+}
+
+.badge-size-large {
+    background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
+    color: #9a3412;
+    border-color: rgba(249, 115, 22, 0.3);
+}
+
+.badge-size-major {
+    background: linear-gradient(135deg, #fdf2f8 0%, #fce7f3 100%);
+    color: #9d174d;
+    border-color: rgba(236, 72, 153, 0.3);
+}
+
+/* Purpose badges */
+.badge-purpose-routine {
+    background: rgba(100, 116, 139, 0.1);
+    color: #475569;
+    border-color: rgba(100, 116, 139, 0.25);
+}
+
+.badge-purpose-improvement {
+    background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+    color: #166534;
+    border-color: rgba(34, 197, 94, 0.25);
+}
+
+.badge-purpose-investigation {
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    color: #1e40af;
+    border-color: rgba(59, 130, 246, 0.25);
+}
+
+.badge-purpose-creation {
+    background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%);
+    color: #6b21a8;
+    border-color: rgba(168, 85, 247, 0.25);
+}
+
+.badge-purpose-coordination {
+    background: linear-gradient(135deg, #fefce8 0%, #fef9c3 100%);
+    color: #854d0e;
+    border-color: rgba(234, 179, 8, 0.25);
+}
+
+.badge-purpose-emergency {
+    background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+    color: #991b1b;
+    border-color: rgba(239, 68, 68, 0.25);
+}
+
+/* Priority badges */
+.badge-priority-urgent {
+    background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+    color: #991b1b;
+    border-color: rgba(239, 68, 68, 0.35);
+    box-shadow: 0 1px 3px rgba(239, 68, 68, 0.12);
+}
+
+.badge-priority-important {
+    background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
+    color: #9a3412;
+    border-color: rgba(249, 115, 22, 0.3);
+}
+
+.badge-priority-standard {
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    color: #1e40af;
+    border-color: rgba(59, 130, 246, 0.25);
+}
+
+.badge-priority-flexible {
+    background: rgba(100, 116, 139, 0.08);
+    color: #64748b;
+    border-color: rgba(100, 116, 139, 0.2);
+}
+
+/* Mobile — slightly bigger badges */
+@media (max-width: 820px) {
+    .plan-classification-badge {
+        font-size: 0.58rem;
+        padding: 0.15rem 0.4rem;
+    }
+}
+
+/* ==========================================================
+   PLAN EDITOR — SUGGESTION INDICATOR
+   ========================================================== */
+.plan-editor-suggestion-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.22rem 0.5rem;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+    color: #166534;
+    font-size: 0.58rem;
+    font-weight: 700;
+    border: 1px solid rgba(34, 197, 94, 0.25);
+    margin-bottom: 0.3rem;
+}
+
+.plan-editor-suggestion-indicator::before {
+    content: '\2713';
+    font-size: 0.62rem;
+    font-weight: 900;
+}
+
+/* ==========================================================
+   PLAN EDITOR — CLASSIFICATION HELPER BANNER
+   ========================================================== */
+.plan-editor-classification-helper {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    color: #1e40af;
+    font-size: 0.65rem;
+    line-height: 1.45;
+    margin-bottom: 0.2rem;
+}
+
+.plan-editor-classification-helper i {
+    color: #2563eb;
+    font-size: 0.72rem;
+    margin-top: 0.05rem;
+    flex-shrink: 0;
+}
+
+.plan-editor-classification-helper strong {
+    font-weight: 800;
+}

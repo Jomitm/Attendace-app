@@ -1,0 +1,64 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE / Editor
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tool configs
+.continue/
+.opencode/
+.commandcode/
+.blackbox/
+.freebuff/*.db*
+
+# Logs
+*.log
+
+# Test artifacts
+playwright-report/
+test-results/
+
+# Backup / Archive
+Backup/
+backups/
+
+# Screenshots and debug images
+*.png
+!public/icons/icon-192.png
+!public/icons/icon-512.png
+!Logo/LOGO\ USED\ IN\ WEB.png
+
+# Temp / generated files
+smoke_output.txt
+robocopy_log.txt
+build-test.txt
+test.txt
+logo_base64.txt
+folder_structure.txt
+memory.md
+
+# Nested repos
+OmniRoute/
+
+# Generated PWA files
+public/sw.js
+public/version.json
+generated/
+
+# Deprecated / misc
+nemotron.js
