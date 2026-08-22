@@ -430,12 +430,25 @@ export class Calendar {
             throw new Error("Target user not found");
         }
 
+        // Capture assignment attribution
+        const isAssigningToOther = targetId !== currentUser.id;
+        const assignedById = isAssigningToOther ? currentUser.id : null;
+        const assignedByName = isAssigningToOther ? currentUser.name || 'Admin' : '';
+
         // Build one document per scope and write them in parallel.
         // Each scope only gets plans that match its scope (prevents data leak).
         const writePromises = scopes.map((scope) => {
             const normalizedScope = this.normalizePlanScope(scope);
             const scopedPlans = Array.isArray(plans)
-                ? plans.filter(p => p.planScope === normalizedScope)
+                ? plans.map(plan => {
+                    const updatedPlan = { ...plan };
+                    if (isAssigningToOther && updatedPlan.assignedTo === targetId) {
+                        updatedPlan.assignedById = assignedById;
+                        updatedPlan.assignedByName = assignedByName;
+                        updatedPlan.assignedAt = new Date().toISOString();
+                    }
+                    return updatedPlan;
+                })
                 : [];
             const workPlan = {
                 id: this.getWorkPlanId(date, targetId, normalizedScope),

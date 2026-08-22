@@ -1442,8 +1442,10 @@ export function dayPlanRenderBlockV3(args) {
     else if (planStatus === 'not-completed' || planStatus === 'postponed') blockStatusClass = ' plan-block-postponed';
     else if (planStatus === 'in-process') blockStatusClass = ' plan-block-active';
 
+    const isAssignedToOther = assignedTo && assignedTo !== targetId;
+
     const planBlock = createElement('div', {
-        className: (isReference ? 'plan-block-ref' : 'plan-block') + blockStatusClass + (isReference ? ' is-reference-only' : '') + (plan.isPrivate === true ? ' plan-block-private' : ''),
+        className: (isReference ? 'plan-block-ref' : 'plan-block') + blockStatusClass + (isReference ? ' is-reference-only' : '') + (plan.isPrivate === true ? ' plan-block-private' : '') + (isAssignedToOther ? ' plan-block-assigned' : ''),
         attributes: { 'data-index': idx, 'data-status': planStatus || 'none' }
     });
 
@@ -1499,14 +1501,17 @@ export function dayPlanRenderBlockV3(args) {
     const statusIndicator = createStatusIndicator(planStatus);
     titleGroup.appendChild(statusIndicator);
 
-    titleGroup.appendChild(createElement('span', { className: 'day-plan-index-badge', textContent: idx + 1 }));
-    titleGroup.appendChild(createElement('div', {
-        className: 'plan-block-copy',
-        children: [
-            createElement('span', { className: 'plan-block-summary', textContent: summary }),
-            createElement('span', { className: 'plan-block-meta', textContent: durationLabel })
-        ]
-    }));
+    const assignmentAttribution = isAssignedToOther ? `
+        <div class="plan-block-assignment-attribution">
+            <div class="plan-block-assigned-to-badge">
+                <span class="badge-assigned-to">Assigned to ${safeHtml(assignedToName)}</span>
+                ${plan.assignedByName ? `<span class="badge-assigned-by">by ${safeHtml(plan.assignedByName)}</span>` : ''}
+            </div>
+        </div>` : '';
+
+    if (assignmentAttribution) {
+        titleGroup.insertAdjacentHTML('beforeend', assignmentAttribution);
+    }
 
     const classificationBadges = createElement('div', { className: 'plan-block-classification-badges' });
     const sizeMap = {

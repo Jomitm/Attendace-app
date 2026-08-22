@@ -152,8 +152,16 @@ const renderPlannedTaskItem = (row, index, viewerId, isAdmin) => {
     const canComplete = canManage;
     const stepCount = Array.isArray(row.subPlans) ? row.subPlans.length : 0;
 
+    // Check if task is assigned to someone other than the viewer
+    const isAssignedToOther = row.assignedTo && String(row.assignedTo) !== String(row.userId);
+    const assignmentAttribution = isAssignedToOther ? `
+        <div class="dashboard-planned-task-assignment-badges">
+            <span class="dashboard-planned-task-assigned-to-badge">Assigned to ${safeHtml(row.assignedToName || '')}</span>
+            ${row.assignedByName ? `<span class="dashboard-planned-task-assigned-by-badge">by ${safeHtml(row.assignedByName)}</span>` : ''}
+        </div>` : '';
+
     return `
-        <div class="dashboard-planned-task-item ${safeHtml(String(row.status || '').toLowerCase().replace(/\s+/g, '-'))}" tabindex="0" role="button" aria-label="Toggle actions for ${safeHtml(row.task)}">
+        <div class="dashboard-planned-task-item ${safeHtml(String(row.status || '').toLowerCase().replace(/\s+/g, '-'))}${isAssignedToOther ? ' dashboard-planned-task-item-assigned' : ''}" tabindex="0" role="button" aria-label="Toggle actions for ${safeHtml(row.task)}">
             <div class="dashboard-planned-task-main">
                 <div class="dashboard-planned-task-title">${index + 1}. ${safeHtml(row.task)}</div>
                 <div class="dashboard-planned-task-meta">
@@ -162,6 +170,7 @@ const renderPlannedTaskItem = (row, index, viewerId, isAdmin) => {
                     <span class="dashboard-planned-task-chip">${safeHtml(row.date)}</span>
                     <span class="dashboard-planned-task-chip">${safeHtml(row.planScope)}</span>
                     ${stepCount ? `<span class="dashboard-planned-task-chip">${stepCount} step${stepCount === 1 ? '' : 's'}</span>` : ''}
+                    ${assignmentAttribution}
                 </div>
             </div>
             <div class="dashboard-planned-task-actions">
