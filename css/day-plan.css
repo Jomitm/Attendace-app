@@ -479,6 +479,7 @@
 
 .plan-block-title-group {
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-start;
     gap: 0.42rem;
     min-width: 0;
@@ -930,7 +931,7 @@
 /* ===== FOOTER ===== */
 .day-plan-footer {
     flex-shrink: 0;
-    margin: 0 -0.65rem;
+    margin: 0;
     padding: 0.42rem 0.65rem 0.52rem;
     background: rgba(248, 251, 255, 0.96);
     border-top: 1px solid rgba(226, 234, 245, 0.95);
@@ -1513,7 +1514,7 @@
         position: sticky;
         bottom: 0;
         z-index: 3;
-        margin: 0 -0.5rem;
+        margin: 0;
         padding: 0.5rem 0.5rem 0.65rem;
         background: rgba(248, 251, 255, 0.96);
         border-top: 1px solid rgba(226, 234, 245, 0.95);
@@ -1820,6 +1821,7 @@
     flex-wrap: wrap;
     gap: 0.25rem;
     margin-top: 0.2rem;
+    width: 100%;
 }
 
 .plan-classification-badge {
