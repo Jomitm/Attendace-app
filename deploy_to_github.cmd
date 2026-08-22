@@ -55,7 +55,7 @@ if errorlevel 1 goto :fail
 for /f "delims=" %%I in ('git rev-parse --short HEAD') do set "CURRENT_SHA=%%I"
 
 echo [3/4] Pushing to GitHub...
-git push origin main
+git push origin main --force
 if errorlevel 1 goto :fail
 
 echo.
