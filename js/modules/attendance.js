@@ -261,9 +261,6 @@ export class Attendance {
             // Re-run transaction with healed user to actually perform the check-in
             const reTxResult = await AppDB.transactionalUserUpdate(cu.id, async (reTxUser) => {
                 const current = reTxUser || cu;
-                if (current.status === 'in') {
-                    return { ok: false, conflict: true, message: 'Status updated from another device during stale session recovery.' };
-                }
                 const healed = { ...current };
                 healed.status = 'in';
                 healed.lastCheckIn = Date.now();

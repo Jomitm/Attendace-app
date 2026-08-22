@@ -1034,71 +1034,80 @@ window.app_submitMissedCheckoutReason = async (event, logId) => {
         return;
     }
 
-    try {
-        const currentUser = window.AppAuth.getUser();
-        if (!currentUser) throw new Error('User not authenticated');
-
-        const log = await window.AppDB.get('attendance', logId);
-        if (!log) throw new Error('Attendance record not found.');
-
-        const nowIso = new Date().toISOString();
-        const updatedLog = {
-            ...log,
-            missedCheckoutReason: reason,
-            missedCheckoutReasonSubmittedAt: nowIso,
-            missedCheckoutReasonStatus: 'pending'
-        };
-        await window.AppDB.put('attendance', updatedLog);
-
-        const staff = await window.AppDB.get('users', currentUser.id);
-        if (staff) {
-            if (!staff.notifications) staff.notifications = [];
-            staff.notifications.unshift({
-                id: `mcr_sub_${Date.now()}`,
-                type: 'missed-checkout-reason-submitted',
-                title: 'Missed checkout reason submitted',
-                message: `Reason sent for ${log.date}. Awaiting admin verification.`,
-                status: 'submitted',
-                date: nowIso,
-                read: true
-            });
-            await window.AppDB.put('users', staff);
-            if (window.AppAuth?.getUser) Object.assign(window.AppAuth.getUser(), { notifications: staff.notifications });
-        }
-
-        const admins = (await window.AppDB.getAll('users')).filter(u => u.isAdmin || u.role === 'Administrator');
-        await Promise.all(admins.map(async (admin) => {
-            if (!admin.notifications) admin.notifications = [];
-            admin.notifications.unshift({
-                id: `mcr_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-                type: 'missed-checkout-reason',
-                title: 'Missed checkout reason submitted',
-                message: `${currentUser.name} submitted a reason for missed checkout on ${log.date}.`,
-                description: reason,
-                staffId: currentUser.id,
-                staffName: currentUser.name,
-                missedCheckoutDate: log.date,
-                logId: String(log.id || ''),
-                taggedById: currentUser.id,
-                taggedByName: currentUser.name,
-                taggedAt: nowIso,
-                status: 'pending',
-                date: nowIso,
-                read: false
-            });
-            await window.AppDB.put('users', admin);
-        }));
-
-        document.getElementById('missed-checkout-reason-modal')?.remove();
-        if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
-        window.app_showSyncToast('Reason submitted for admin verification.');
-        setTimeout(() => {
-            window.app_openMissedCheckoutTaskReconciliation({ logId, date: log.date });
-        }, 0);
-    } catch (err) {
-        console.error('Missed checkout reason submit failed:', err);
-        alert('Failed to submit reason: ' + err.message);
+    const currentUser = window.AppAuth.getUser();
+    if (!currentUser) {
+        alert('User not authenticated.');
+        return;
     }
+
+    // Close modal immediately so staff isn't stuck waiting
+    document.getElementById('missed-checkout-reason-modal')?.remove();
+    window.app_showSyncToast?.('Reason submitted for admin verification.');
+
+    // Open task reconciliation immediately
+    const savedLogId = String(logId);
+    setTimeout(() => {
+        window.app_openMissedCheckoutTaskReconciliation({ logId: savedLogId });
+    }, 0);
+
+    // Run Firestore writes in background (fire-and-forget)
+    (async () => {
+        try {
+            const log = await window.AppDB.get('attendance', savedLogId);
+            if (!log) return;
+
+            const nowIso = new Date().toISOString();
+            await window.AppDB.put('attendance', {
+                ...log,
+                missedCheckoutReason: reason,
+                missedCheckoutReasonSubmittedAt: nowIso,
+                missedCheckoutReasonStatus: 'pending'
+            });
+
+            const staff = await window.AppDB.get('users', currentUser.id);
+            if (staff) {
+                if (!staff.notifications) staff.notifications = [];
+                staff.notifications.unshift({
+                    id: `mcr_sub_${Date.now()}`,
+                    type: 'missed-checkout-reason-submitted',
+                    title: 'Missed checkout reason submitted',
+                    message: `Reason sent for ${log.date}. Awaiting admin verification.`,
+                    status: 'submitted',
+                    date: nowIso,
+                    read: true
+                });
+                await window.AppDB.put('users', staff);
+                if (window.AppAuth?.getUser) Object.assign(window.AppAuth.getUser(), { notifications: staff.notifications });
+            }
+
+            const admins = (await window.AppDB.getAll('users')).filter(u => u.isAdmin || u.role === 'Administrator');
+            await Promise.all(admins.map(async (admin) => {
+                if (!admin.notifications) admin.notifications = [];
+                admin.notifications.unshift({
+                    id: `mcr_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                    type: 'missed-checkout-reason',
+                    title: 'Missed checkout reason submitted',
+                    message: `${currentUser.name} submitted a reason for missed checkout on ${log.date}.`,
+                    description: reason,
+                    staffId: currentUser.id,
+                    staffName: currentUser.name,
+                    missedCheckoutDate: log.date,
+                    logId: String(log.id || ''),
+                    taggedById: currentUser.id,
+                    taggedByName: currentUser.name,
+                    taggedAt: nowIso,
+                    status: 'pending',
+                    date: nowIso,
+                    read: false
+                });
+                await window.AppDB.put('users', admin);
+            }));
+
+            if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
+        } catch (err) {
+            console.error('Missed checkout reason submit failed:', err);
+        }
+    })();
 };
 
 window.app_submitMissedCheckoutTaskReconciliation = async (event, logId, date) => {
