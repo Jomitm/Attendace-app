@@ -1,9 +1,26 @@
 const crypto = require('crypto');
 const { getDb } = require('./_firebase-admin');
 
-const SECRET = process.env.CALENDAR_FEED_SECRET || 'crwi-cal-feed-fallback-change-me';
+// Fail closed: without a configured secret, tokens must never be minted or verified.
+const SECRET = process.env.CALENDAR_FEED_SECRET || '';
+if (!SECRET) console.error('CALENDAR_FEED_SECRET is not set — calendar token minting is disabled (fail closed).');
 const ALGO = 'sha256';
 const EXPIRY_DAYS = 180;
+
+// Best-effort per-instance rate limiter for token minting (per IP).
+const MINT_WINDOW_MS = 60 * 60 * 1000;
+const MINT_MAX_PER_WINDOW = 20;
+const mintLog = new Map();
+function mintRateLimited(ip) {
+    const now = Date.now();
+    const entry = mintLog.get(ip);
+    if (!entry || now > entry.resetAt) {
+        mintLog.set(ip, { count: 1, resetAt: now + MINT_WINDOW_MS });
+        return false;
+    }
+    entry.count += 1;
+    return entry.count > MINT_MAX_PER_WINDOW;
+}
 
 function generateToken(userId) {
     const payload = JSON.stringify({
@@ -58,6 +75,21 @@ module.exports = async (req, res) => {
     }
 
     try {
+        if (!SECRET) {
+            res.statusCode = 503;
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.end(JSON.stringify({ ok: false, error: 'Calendar feed is not configured (CALENDAR_FEED_SECRET missing)' }));
+            return;
+        }
+
+        const rawIp = String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown');
+        if (mintRateLimited(rawIp.split(',')[0].trim())) {
+            res.statusCode = 429;
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.end(JSON.stringify({ ok: false, error: 'Too many token requests' }));
+            return;
+        }
+
         const body = await parseBody(req);
         const userId = body.userId;
 
@@ -110,6 +142,6 @@ module.exports = async (req, res) => {
         console.error('Calendar token error:', err);
         res.statusCode = 500;
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
-        res.end(JSON.stringify({ ok: false, error: 'Failed to generate calendar token: ' + (err.message || '') }));
+        res.end(JSON.stringify({ ok: false, error: 'Failed to generate calendar token' }));
     }
 };

@@ -15,8 +15,6 @@ import { buildCheckoutTaskMutation } from './modules/checkout-task-updates.js';
 import './modules/activity.js';
 import './modules/tour.js';
 import './modules/analytics.js';
-import './modules/ai-context-feeder.js';
-
 // Load secondary modules
 import './modules/reports.js';
 import './modules/leaves.js';
@@ -535,7 +533,6 @@ window.app_updateNavigationSections = (user = window.AppAuth?.getUser()) => {
     const canSeeAdmin = window.app_canSeeAdminPanel(user) || overrideShowHiddenSheets;
     const canSeeBirthdayCalendar = window.app_canManageBirthdays(user) || overrideShowHiddenSheets;
     const canSeeLetterPad = window.app_canAccessLetterPad(user) || overrideShowHiddenSheets;
-    const canSeeStaffAiMemory = window.app_canAccessStaffAiMemory(user) || overrideShowHiddenSheets;
     const canSeeMinutes = window.app_hasPerm('minutes', 'view', user) || overrideShowHiddenSheets;
 
     // Update individual item visibility
@@ -552,7 +549,6 @@ window.app_updateNavigationSections = (user = window.AppAuth?.getUser()) => {
         { selector: 'a[data-page="salary"]', canSee: canSeeReports },
         { selector: 'a[data-page="policy-test"]', canSee: canSeePoliciesAdmin },
         { selector: 'a[data-page="letter-pad"]', canSee: canSeeLetterPad },
-        { selector: 'a[data-page="staff-ai-memory"]', canSee: canSeeStaffAiMemory },
         { selector: 'a[data-page="minutes"]', canSee: canSeeMinutes },
         { selector: 'a[data-page="widget"]', canSee: true } // Widget mode always available
     ];
@@ -573,7 +569,7 @@ window.app_updateNavigationSections = (user = window.AppAuth?.getUser()) => {
     // Keep the section present for the user even when only one item is allowed, so the sidebar remains useful.
     const visibleCoreItems = [canSeeDashboard, canSeeUsers];
     const visibleHrItems = [canSeeAttendance, canSeePoliciesAdmin, canSeeBirthdayCalendar];
-    const visibleToolsItems = [canSeeMinutes, canSeeLetterPad, canSeeStaffAiMemory];
+    const visibleToolsItems = [canSeeMinutes, canSeeLetterPad];
     const visibleAdminItems = [canSeeAdmin, canSeeReports, canSeePoliciesAdmin];
 
     const sectionVisiblity = {
@@ -1223,7 +1219,6 @@ const HOVER_HELP_PAGE_MESSAGES = Object.freeze({
     timesheet: 'Review attendance and work logs.',
     minutes: 'Open meeting notes and decisions.',
     admin: 'Open admin tools and reports.',
-    'staff-ai-memory': 'Open the staff AI memory sheet.',
     'master-sheet': 'Review the attendance sheet.',
     salary: 'Open salary processing tools.',
     'policy-test': 'Open the policy test page.',
@@ -1552,11 +1547,6 @@ const PAGE_USAGE_NOTES = Object.freeze({
         title: 'How To Use This Page',
         why: 'This page keeps birthday records organized so the team can manage celebrations and maintain correct staff details.',
         how: 'Review upcoming birthdays, add missing entries, or update existing records when details change. Use it as the central place for birthday-related staff information.'
-    },
-    'staff-ai-memory': {
-        title: 'How To Use This Page',
-        why: 'This page shows the curated AI memory for one staff member at a time together with the report narration assistant.',
-        how: 'Pick a staff member if you have staff-management access, review the generated memory, and use the narration panel to summarize the current source scope. Staff without management access will only see their own memory.'
     },
     timesheet: {
         title: 'How To Use This Page',
@@ -3549,12 +3539,6 @@ async function router() {
             contentArea.innerHTML = await AppUI.renderAdmin();
             window.AppAnalytics.initAdminCharts();
             startAdminRealtimeListener();
-        } else if (hash === 'staff-ai-memory') {
-            if (!window.app_canAccessStaffAiMemory(user)) {
-                window.location.hash = 'dashboard';
-                return;
-            }
-            contentArea.innerHTML = await AppUI.renderStaffAiMemorySheet();
         } else if (hash === 'kanban') {
             contentArea.innerHTML = await AppUI.renderKanbanBoard();
             await AppUI.initKanbanBoard();
@@ -3605,8 +3589,7 @@ function startAdminRealtimeListener() {
         lastCheckIn: user?.lastCheckIn || null,
         lastCheckOut: user?.lastCheckOut || null,
         canManageAttendanceSheet: !!user?.canManageAttendanceSheet,
-        canManageBirthdays: !!user?.canManageBirthdays,
-        canAccessStaffAiMemory: !!user?.canAccessStaffAiMemory
+        canManageBirthdays: !!user?.canManageBirthdays
     });
 
     const shouldRefreshFromUsers = (rows = []) => {
@@ -5088,7 +5071,7 @@ window.app_useWorkPlan = () => {
     }
 };
 
-const app_checkoutStatusLabels = {
+const _app_checkoutStatusLabels = {
     started: 'Started',
     half_done: 'Half Done',
     blocked: 'Blocked',
@@ -5591,11 +5574,14 @@ window.app_reconcileAssignedPlans = async ({ date, targetId, targetPersonalPlanI
 };
 
 window.app_saveDayPlan = async (e, date, targetUserId = null) => {
-    e.preventDefault();
-    const restore = typeof window.app_asyncButton === 'function' ? window.app_asyncButton(e.target.querySelector('.day-plan-save-btn')) : () => {};
+    e?.preventDefault?.();
+    const form = (e && e.target && typeof e.target.closest === 'function') ? e.target.closest('form') : (e && e.target) || null;
+    const saveBtn = form ? form.querySelector('.day-plan-save-btn') : null;
+    if (form && form.dataset.dayPlanSaving === '1') return;
+    if (form) form.dataset.dayPlanSaving = '1';
+    const restore = (typeof window.app_asyncButton === 'function' && saveBtn) ? window.app_asyncButton(saveBtn) : () => {};
     const currentUser = window.AppAuth.getUser();
     const targetId = app_resolveTargetUserId(targetUserId, currentUser.id);
-    const form = e.target;
     const hadPersonal = form?.dataset?.hadPersonal === '1';
     const hadAnnual = form?.dataset?.hadAnnual === '1';
     let removedTasks = [];
@@ -5740,6 +5726,7 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
     });
 
     if (validationError) {
+        if (form) form.dataset.dayPlanSaving = '0';
         alert(validationError);
         restore();
         return;
@@ -5761,11 +5748,12 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
     let skipSave = false;
     try {
         if (plans.length === 0) {
-            if (!hadPersonal && !hadAnnual) {
-                alert("Please add at least one task.");
-                restore();
-                return;
-            }
+                if (!hadPersonal && !hadAnnual) {
+                    if (form) form.dataset.dayPlanSaving = '0';
+                    alert("Please add at least one task.");
+                    restore();
+                    return;
+                }
             // No tasks to save. Delete existing plans once then skip to the UI refresh.
             const deletions = [];
             if (hadPersonal) deletions.push(window.AppCalendar.deleteWorkPlan(date, targetId, { planScope: 'personal' }));
@@ -6037,6 +6025,7 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
             alert(err.message);
         }
     } finally {
+        if (form) form.dataset.dayPlanSaving = '0';
         restore();
     }
 };
@@ -6431,404 +6420,6 @@ window.app_appendCompletedTaskToSummary = async function (planId, taskIndex) {
     }
 };
 
-/* AI Assistant functions removed - AI panel safely removed from checkout
-let checkoutAIAssistantModulePromise = null;
-async function getCheckoutAIAssistant() {
-    if (window.AppAIAssistant) return window.AppAIAssistant;
-    if (!checkoutAIAssistantModulePromise) {
-        checkoutAIAssistantModulePromise = import('./modules/ai-assistant.js').then((mod) => mod.AppAIAssistant || mod.default || window.AppAIAssistant);
-    }
-    return checkoutAIAssistantModulePromise;
-}
-
-const app_checkoutAiDefaultState = () => ({
-    draft: null,
-    snapshot: null,
-    requestId: '',
-    sourceScope: '',
-    status: 'idle',
-    reason: '',
-    applied: false,
-    loading: false
-});
-
-/* AI state management removed - AI panel safely removed from checkout
-const app_getCheckoutAiState = () => {
-    if (!window.app_checkoutAiDraftState) {
-        window.app_checkoutAiDraftState = app_checkoutAiDefaultState();
-    }
-    return window.app_checkoutAiDraftState;
-}; */
-
-/* AI helper functions - kept for potential future use, commented out for safe removal
-const app_checkoutCollectFormSnapshot = () => {
-    const form = document.getElementById('checkout-form');
-    if (!form) return null;
-    return {
-        description: String(form.description?.value || '').trim(),
-        tomorrowGoal: String(form.tomorrowGoal?.value || '').trim(),
-        tomorrowBudgetHeadId: app_normalizeBudgetHeadId(form.tomorrowBudgetHeadId?.value || APP_UNALLOCATED_BUDGET_HEAD.id)
-    };
-};
-
-const app_checkoutSyncDraftStorage = () => {
-    const snapshot = app_checkoutCollectFormSnapshot();
-    if (!snapshot) return;
-    window.app_checkoutSummaryDraft = snapshot.description;
-    window.app_checkoutTomorrowGoalDraft = snapshot.tomorrowGoal;
-    window.app_checkoutTomorrowBudgetHeadDraft = snapshot.tomorrowBudgetHeadId;
-};
-
-const app_checkoutCollectTaskChecklist = () => {
-    const metaMap = window.app_checkoutTaskMeta || {};
-    const detailsMap = window.app_checkoutTaskDetails || {};
-    return Object.keys(metaMap).slice(0, 18).map((key) => {
-        const meta = metaMap[key] || {};
-        const detail = detailsMap[key] || {};
-        return {
-            key,
-            label: String(meta.text || '').trim(),
-            status: String(detail.progressStatus || '').trim() || String(detail.action || '').trim(),
-            action: String(detail.action || '').trim(),
-            progressPercent: Number(detail.progressPercent || 0),
-            budgetHeadId: String(detail.budgetHeadId || '').trim(),
-            note: String(detail.progressNote || '').trim()
-        };
-    }).filter((item) => item.label);
-};
-
-const app_checkoutGetBudgetHeadLabel = (budgetHeadId) => {
-    const id = app_normalizeBudgetHeadId(budgetHeadId);
-    const select = document.querySelector('select[name="tomorrowBudgetHeadId"]');
-    const escapedId = (typeof CSS !== 'undefined' && CSS.escape)
-        ? CSS.escape(id)
-        : String(id).replace(/"/g, '\\"');
-    const option = select?.querySelector(`option[value="${escapedId}"]`);
-    return option ? option.textContent.trim() : id;
-};
-
-const app_checkoutBuildAiDescription = (draft = {}) => {
-    const summary = String(draft.summary || '').trim();
-    const suggestions = Array.isArray(draft.taskSuggestions)
-        ? draft.taskSuggestions.map((item) => String(item || '').trim()).filter(Boolean)
-        : [];
-    if (!summary && !suggestions.length) return '';
-    if (!suggestions.length) return summary;
-    const suggestionBlock = suggestions.map((item) => `- ${item}`).join('\n');
-    return [summary, 'Suggested follow-ups:', suggestionBlock].filter(Boolean).join('\n\n');
-};
-
-const app_checkoutRenderAiDraftPanel = () => {
-    const state = app_getCheckoutAiState();
-    const preview = document.getElementById('checkout-ai-preview');
-    const statusEl = document.getElementById('checkout-ai-status');
-    const applyBtn = document.getElementById('checkout-ai-apply-btn');
-    const undoBtn = document.getElementById('checkout-ai-undo-btn');
-    const discardBtn = document.getElementById('checkout-ai-discard-btn');
-    if (statusEl) {
-        const label = state.loading
-            ? 'Drafting...'
-            : state.status === 'applied'
-                ? 'Applied'
-                : state.status === 'fallback'
-                    ? 'Manual draft only'
-                    : state.draft
-                        ? 'Draft ready'
-                        : 'Ready';
-        statusEl.textContent = label;
-    }
-    if (applyBtn) applyBtn.disabled = !state.draft || state.loading;
-    if (undoBtn) undoBtn.disabled = !state.applied || !state.snapshot;
-    if (discardBtn) discardBtn.disabled = (!state.draft && !state.applied) || state.loading;
-    if (!preview) return;
-
-    if (state.loading) {
-        preview.innerHTML = '<div class="checkout-ai-empty"><i class="fa-solid fa-spinner fa-spin"></i> Drafting with AI...</div>';
-        return;
-    }
-
-    if (!state.draft) {
-        preview.innerHTML = state.status === 'fallback'
-            ? `<div class="checkout-ai-empty">No AI suggestions available, please draft manually.${state.reason ? ` <span class="checkout-ai-reason">(${app_escapeHtml(state.reason)})</span>` : ''}</div>`
-            : '<div class="checkout-ai-empty">AI suggestions will appear here after you draft with AI.</div>';
-        return;
-    }
-
-    const summary = String(state.draft.summary || '').trim();
-    const tomorrowGoal = String(state.draft.tomorrowGoal || '').trim();
-    const suggestions = Array.isArray(state.draft.taskSuggestions) ? state.draft.taskSuggestions : [];
-    const warnings = Array.isArray(state.draft.warnings) ? state.draft.warnings : [];
-    const sourceScope = String(state.draft.sourceScope || state.sourceScope || '').trim();
-    const budgetHeadLabel = state.draft.budgetHeadId ? app_checkoutGetBudgetHeadLabel(state.draft.budgetHeadId) : '';
-
-    preview.innerHTML = `
-        <div class="checkout-ai-editor">
-            <div class="checkout-ai-field">
-                <label for="checkout-ai-summary">Editable Summary</label>
-                <textarea id="checkout-ai-summary" class="checkout-ai-summary" oninput="window.app_updateCheckoutAiDraftField?.('summary', this.value)">${app_escapeHtml(summary)}</textarea>
-            </div>
-            <div class="checkout-ai-field">
-                <label for="checkout-ai-tomorrow-goal">Editable Tomorrow Goal</label>
-                <textarea id="checkout-ai-tomorrow-goal" class="checkout-ai-tomorrow-goal" oninput="window.app_updateCheckoutAiDraftField?.('tomorrowGoal', this.value)">${app_escapeHtml(tomorrowGoal)}</textarea>
-            </div>
-            <div class="checkout-ai-field">
-                <div class="checkout-ai-field-head">
-                    <label>Task Suggestions</label>
-                    <button type="button" class="checkout-ai-mini-btn" onclick="window.app_addCheckoutAiSuggestion?.()">Add suggestion</button>
-                </div>
-                <div class="checkout-ai-suggestion-list">
-                    ${suggestions.length
-                        ? suggestions.map((item, index) => `
-                            <div class="checkout-ai-suggestion-row">
-                                <input type="text" class="checkout-ai-suggestion-input" placeholder="Add a follow-up suggestion" value="${app_escapeHtml(item)}" oninput="window.app_updateCheckoutAiSuggestion?.(${index}, this.value)">
-                                <button type="button" class="checkout-ai-suggestion-remove" title="Remove suggestion" onclick="window.app_removeCheckoutAiSuggestion?.(${index})">
-                                    <i class="fa-solid fa-xmark"></i>
-                                </button>
-                            </div>
-                        `).join('')
-                        : '<div class="checkout-ai-empty">No task suggestions were returned. You can still edit the summary and tomorrow goal.</div>'}
-                </div>
-            </div>
-            <div class="checkout-ai-footer">
-                ${budgetHeadLabel ? `<div class="checkout-ai-budget-chip"><strong>Budget Head:</strong> ${app_escapeHtml(budgetHeadLabel)}</div>` : ''}
-                ${warnings.length ? `<div class="checkout-ai-warnings-inline">${warnings.map((item) => `<span class="checkout-ai-warning-chip">${app_escapeHtml(item)}</span>`).join('')}</div>` : ''}
-                ${sourceScope ? `<div class="checkout-ai-source-chip"><strong>Source Scope:</strong> ${app_escapeHtml(sourceScope)}</div>` : ''}
-            </div>
-        </div>
-    `;
-};
-
-const app_checkoutSyncFormFromDraftState = () => {
-    const state = app_getCheckoutAiState();
-    const form = document.getElementById('checkout-form');
-    if (!form || !state.draft) return;
-    const description = app_checkoutBuildAiDescription(state.draft);
-    if (form.description) form.description.value = description;
-    if (form.tomorrowGoal) form.tomorrowGoal.value = String(state.draft.tomorrowGoal || '').trim();
-    if (form.tomorrowBudgetHeadId && state.draft.budgetHeadId) {
-        const nextBudgetHeadId = app_normalizeBudgetHeadId(state.draft.budgetHeadId);
-        if (nextBudgetHeadId && nextBudgetHeadId !== APP_UNALLOCATED_BUDGET_HEAD.id) {
-            form.tomorrowBudgetHeadId.value = nextBudgetHeadId;
-        }
-    }
-    if (window.app_updateCharCounter && form.description) window.app_updateCharCounter(form.description);
-    app_checkoutSyncDraftStorage();
-};
-
-window.app_updateCheckoutAiDraftField = (field, value) => {
-    const state = app_getCheckoutAiState();
-    if (!state.draft) return;
-    if (field === 'summary') {
-        state.draft.summary = String(value || '');
-    } else if (field === 'tomorrowGoal') {
-        state.draft.tomorrowGoal = String(value || '');
-    }
-};
-
-window.app_updateCheckoutAiSuggestion = (index, value) => {
-    const state = app_getCheckoutAiState();
-    if (!state.draft) return;
-    const list = Array.isArray(state.draft.taskSuggestions) ? state.draft.taskSuggestions : [];
-    const idx = Number(index);
-    if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return;
-    list[idx] = String(value || '');
-    state.draft.taskSuggestions = list;
-};
-
-/* AI window functions removed - AI panel safely removed from checkout
-window.app_addCheckoutAiSuggestion = () => {
-    const state = app_getCheckoutAiState();
-    if (!state.draft) return;
-    state.draft.taskSuggestions = Array.isArray(state.draft.taskSuggestions) ? state.draft.taskSuggestions : [];
-    state.draft.taskSuggestions.push('');
-    app_checkoutRenderAiDraftPanel();
-};
-
-window.app_removeCheckoutAiSuggestion = (index) => {
-    const state = app_getCheckoutAiState();
-    if (!state.draft) return;
-    const list = Array.isArray(state.draft.taskSuggestions) ? [...state.draft.taskSuggestions] : [];
-    const idx = Number(index);
-    if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return;
-    list.splice(idx, 1);
-    state.draft.taskSuggestions = list;
-    app_checkoutRenderAiDraftPanel();
-};
-
-window.app_requestCheckoutAiDraft = async () => {
-    const form = document.getElementById('checkout-form');
-    const state = app_getCheckoutAiState();
-    if (!form) {
-        alert('Check-out form is not available. Please close and reopen the checkout window.');
-        return;
-    }
-    const activeUser = window.AppAuth.getUser();
-    const today = window.app_checkoutContextDate || getLocalISO();
-    const sourceScope = `Checkout draft for ${today} (${activeUser?.isAdmin ? 'admin' : 'personal'})`;
-    state.loading = true;
-    state.status = 'loading';
-    state.sourceScope = sourceScope;
-    app_checkoutRenderAiDraftPanel();
-    let aiAssistant = null;
-    try {
-        aiAssistant = await getCheckoutAIAssistant();
-    } catch (err) {
-        console.warn('Checkout AI assistant module failed to load:', err);
-        state.status = 'fallback';
-        state.draft = null;
-        state.loading = false;
-        app_checkoutRenderAiDraftPanel();
-        return;
-    }
-    if (!aiAssistant?.requestAssistant) {
-        state.status = 'fallback';
-        state.draft = null;
-        state.loading = false;
-        app_checkoutRenderAiDraftPanel();
-        return;
-    }
-
-    const taskChecklist = app_checkoutCollectTaskChecklist();
-    const currentSummary = String(form.description?.value || window.app_checkoutSummaryDraft || '').trim();
-    const tomorrowGoal = String(form.tomorrowGoal?.value || window.app_checkoutTomorrowGoalDraft || '').trim();
-    const currentBudgetHeadId = app_normalizeBudgetHeadId(form.tomorrowBudgetHeadId?.value || window.app_checkoutTomorrowBudgetHeadDraft || activeUser?.currentBudgetHeadId);
-    const workPlan = window.app_checkoutCurrentWorkPlan || {};
-    const rawPlanText = String(window.app_checkoutPlanRawText || document.getElementById('checkout-plan-text')?.dataset?.rawText || '').trim();
-    const currentPlan = {
-        summary: currentSummary,
-        tomorrowGoal,
-        currentBudgetHeadId,
-        taskChecklist,
-        workPlan: {
-            sourceScope: String(workPlan?.sourceScope || sourceScope).trim(),
-            rawText: rawPlanText,
-            planCount: Number(workPlan?.planCount || 0),
-            completedCount: Number(workPlan?.completedCount || 0),
-            pendingCount: Number(workPlan?.pendingCount || 0)
-        }
-    };
-    const directStaffMemory = window.AppAIContextFeeder?.getStaffContextPack
-        ? await window.AppAIContextFeeder.getStaffContextPack(activeUser, { force: false })
-        : null;
-
-    try {
-        const result = await aiAssistant.requestAssistant({
-            mode: 'checkout-summary',
-            context: {
-                date: today,
-                currentSummary,
-                tomorrowGoal,
-                currentBudgetHeadId,
-                taskChecklist,
-                workPlan: currentPlan.workPlan,
-                notes: 'Checkout draft should remain editable and privacy-safe. Do not include sensitive fields.',
-                currentPlan,
-                staffMemory: directStaffMemory ? {
-                    sourceScope: directStaffMemory.sourceScope || '',
-                    historyAvailable: directStaffMemory.historyAvailable === true,
-                    summary: directStaffMemory.summary || {},
-                    recentPersonalPlans: directStaffMemory.recentPersonalPlans || directStaffMemory.recentPlans || [],
-                    recentTaskActivityHistory: directStaffMemory.recentTaskActivityHistory || directStaffMemory.recentActivities || [],
-                    budgetHeadPatterns: directStaffMemory.budgetHeadPatterns || directStaffMemory.summary?.budgetHeads || [],
-                    attendanceSummary: directStaffMemory.attendanceSummary || null,
-                    tagHistorySummary: directStaffMemory.tagHistorySummary || [],
-                    notificationSummary: directStaffMemory.notificationSummary || []
-                } : null
-            },
-            user: activeUser,
-            sourceScope
-        });
-
-        state.loading = false;
-        state.requestId = result?.audit?.requestId || '';
-        state.sourceScope = result?.sourceScope || sourceScope;
-        state.reason = result?.audit?.reason || result?.warnings?.[0] || '';
-        state.status = result?.ok === false || !result?.draft?.summary ? 'fallback' : 'ready';
-        state.applied = false;
-
-        if (state.status === 'fallback') {
-            state.draft = null;
-            app_checkoutRenderAiDraftPanel();
-            return;
-        }
-
-        state.draft = {
-            summary: String(result?.draft?.summary || result?.summary || '').trim(),
-            tomorrowGoal: String(result?.draft?.tomorrowGoal || result?.tomorrowGoal || tomorrowGoal || '').trim(),
-            taskSuggestions: Array.isArray(result?.draft?.taskSuggestions)
-                ? result.draft.taskSuggestions.map((item) => String(item || '').trim()).filter(Boolean)
-                : Array.isArray(result?.taskSuggestions)
-                    ? result.taskSuggestions.map((item) => String(item || '').trim()).filter(Boolean)
-                    : [],
-            warnings: Array.isArray(result?.warnings) ? result.warnings.map((item) => String(item || '').trim()).filter(Boolean) : [],
-            sourceScope: String(result?.sourceScope || sourceScope).trim(),
-            budgetHeadId: String(result?.draft?.budgetHeadId || '').trim()
-        };
-
-        state.snapshot = app_checkoutCollectFormSnapshot();
-        state.applied = true;
-        state.status = 'applied';
-        app_checkoutSyncFormFromDraftState();
-        app_checkoutRenderAiDraftPanel();
-    } catch (err) {
-        console.warn('Checkout AI draft generation failed:', err);
-        state.loading = false;
-        state.status = 'fallback';
-        state.reason = String(err?.message || err || 'assistant_unavailable');
-        state.draft = null;
-        app_checkoutRenderAiDraftPanel();
-    }
-};
-
-window.app_applyCheckoutAiDraft = () => {
-    const state = app_getCheckoutAiState();
-    if (!state.draft) return;
-    const form = document.getElementById('checkout-form');
-    if (!form) return;
-    if (!state.snapshot) {
-        state.snapshot = app_checkoutCollectFormSnapshot();
-    }
-    state.applied = true;
-    state.status = 'applied';
-    app_checkoutSyncFormFromDraftState();
-    app_checkoutRenderAiDraftPanel();
-};
-
-window.app_undoCheckoutAiDraft = () => {
-    const state = app_getCheckoutAiState();
-    if (!state.snapshot) return;
-    const form = document.getElementById('checkout-form');
-    if (!form) return;
-    if (form.description) form.description.value = String(state.snapshot.description || '');
-    if (form.tomorrowGoal) form.tomorrowGoal.value = String(state.snapshot.tomorrowGoal || '');
-    if (form.tomorrowBudgetHeadId) form.tomorrowBudgetHeadId.value = app_normalizeBudgetHeadId(state.snapshot.tomorrowBudgetHeadId || APP_UNALLOCATED_BUDGET_HEAD.id);
-    if (window.app_updateCharCounter && form.description) window.app_updateCharCounter(form.description);
-    state.applied = false;
-    state.status = state.draft ? 'ready' : 'idle';
-    app_checkoutSyncDraftStorage();
-    app_checkoutRenderAiDraftPanel();
-};
-
-window.app_discardCheckoutAiDraft = () => {
-    const state = app_getCheckoutAiState();
-    const form = document.getElementById('checkout-form');
-    if (state.applied && state.snapshot && form) {
-        if (form.description) form.description.value = String(state.snapshot.description || '');
-        if (form.tomorrowGoal) form.tomorrowGoal.value = String(state.snapshot.tomorrowGoal || '');
-        if (form.tomorrowBudgetHeadId) form.tomorrowBudgetHeadId.value = app_normalizeBudgetHeadId(state.snapshot.tomorrowBudgetHeadId || APP_UNALLOCATED_BUDGET_HEAD.id);
-        if (window.app_updateCharCounter && form.description) window.app_updateCharCounter(form.description);
-    }
-    state.draft = null;
-    state.snapshot = null;
-    state.applied = false;
-    state.loading = false;
-    state.requestId = '';
-    state.sourceScope = '';
-    state.reason = '';
-    state.status = 'idle';
-    app_checkoutSyncDraftStorage();
-    app_checkoutRenderAiDraftPanel();
-}; */
 
 window.app_handleChecklistAction = async function (planId, taskIndex, action) {
     const checklistSection = document.getElementById('checkout-task-checklist');
@@ -7337,16 +6928,6 @@ async function handleAttendance() {
                 window.app_checkoutCurrentWorkPlan = null;
                 window.app_checkoutCollaborations = [];
                 window.app_checkoutContextDate = today;
-                /* AI state initialization removed - AI panel safely removed from checkout
-                window.app_checkoutAiDraftState = typeof app_checkoutAiDefaultState === 'function' ? app_checkoutAiDefaultState() : {
-                    draft: null,
-                    snapshot: null,
-                    requestId: '',
-                    sourceScope: '',
-                    status: 'idle',
-                    applied: false,
-                    loading: false
-                }; */
             }
             if (window.app_checkoutActionDate !== today) {
                 window.app_checkoutActionDate = today;
@@ -7566,7 +7147,6 @@ async function handleAttendance() {
 
                 await window.app_prepareCheckoutOvertimeSection(user);
                 modal.style.display = 'flex';
-                window.app_renderCheckoutAiDraftPanel?.();
                 if (btn) btn.disabled = false;
 
                 // Background Location Verification (Deferred)
@@ -7891,16 +7471,7 @@ window.app_submitCheckOut = async function (event) {
         window.app_checkoutTaskDetails = {};
         window.app_checkoutTaskMeta = {};
         window.app_checkoutUserMap = {};
-        /* AI state initialization removed - AI panel safely removed from checkout
-        window.app_checkoutAiDraftState = typeof app_checkoutAiDefaultState === 'function' ? app_checkoutAiDefaultState() : {
-            draft: null,
-            snapshot: null,
-            requestId: '',
-            sourceScope: '',
-            status: 'idle',
-            applied: false,
-            loading: false
-        }; */
+
         window.app_renderCheckoutActionPreview();
 
         // Hide modal
@@ -8014,7 +7585,6 @@ async function handleAddUser(e) {
 
     const isAdmin = formData.get('isAdmin') === 'on' || formData.get('isAdmin') === 'true';
     const canManageAttendanceSheet = formData.get('canManageAttendanceSheet') === 'on' || formData.get('canManageAttendanceSheet') === 'true';
-    const canAccessStaffAiMemory = formData.get('canAccessStaffAiMemory') === 'on' || formData.get('canAccessStaffAiMemory') === 'true';
     let birthdayFields;
     try {
         birthdayFields = app_extractBirthdayFields(formData);
@@ -8035,7 +7605,6 @@ async function handleAddUser(e) {
         joinDate: formData.get('joinDate'),
         isAdmin: isAdmin,
         canManageAttendanceSheet: canManageAttendanceSheet,
-        canAccessStaffAiMemory: canAccessStaffAiMemory,
         canManageBirthdays: false,
         birthDay: birthdayFields.birthDay,
         birthMonth: birthdayFields.birthMonth,
@@ -8051,7 +7620,6 @@ async function handleAddUser(e) {
             userData.role = 'Administrator';
             userData.canManageAttendanceSheet = true;
             userData.canManageBirthdays = true;
-            userData.canAccessStaffAiMemory = true;
             userData.permissions = {
                 ...(userData.permissions || {}),
                 birthday: 'admin'
@@ -8118,8 +7686,6 @@ window.app_submitEditUser = async (e) => {
     const isAdmin = !!(isAdminEl && isAdminEl.checked);
     const canManageAttendanceSheetEl = form.querySelector('[name="canManageAttendanceSheet"]');
     const canManageAttendanceSheet = !!(canManageAttendanceSheetEl && canManageAttendanceSheetEl.checked);
-    const canAccessStaffAiMemoryEl = form.querySelector('[name="canAccessStaffAiMemory"]');
-    const canAccessStaffAiMemory = !!(canAccessStaffAiMemoryEl && canAccessStaffAiMemoryEl.checked);
     const pan = String(formData.get('pan') || '').trim().toUpperCase();
     const bankIfsc = String(formData.get('bankIfsc') || '').trim().toUpperCase();
     const joinDate = String(formData.get('joinDate') || '').trim();
@@ -8168,7 +7734,6 @@ window.app_submitEditUser = async (e) => {
         phone: (formData.get('phone') || "").trim(),
         isAdmin,
         canManageAttendanceSheet,
-        canAccessStaffAiMemory,
         canManageBirthdays: false,
         employeeId,
         joinDate: joinDate || null,
@@ -8193,7 +7758,6 @@ window.app_submitEditUser = async (e) => {
     if (userData.isAdmin) {
         userData.canManageAttendanceSheet = true;
         userData.canManageBirthdays = true;
-        userData.canAccessStaffAiMemory = true;
         userData.role = 'Administrator';
         userData.permissions = {
             ...(userData.permissions || {}),
@@ -8201,7 +7765,6 @@ window.app_submitEditUser = async (e) => {
         };
     } else {
         userData.canManageBirthdays = userData.permissions?.birthday === 'admin';
-        userData.canAccessStaffAiMemory = !!userData.canAccessStaffAiMemory;
     }
 
     try {
@@ -9218,7 +8781,6 @@ window.app_editUser = async (userId) => {
     setVal('#edit-user-phone', user.phone);
     setChecked('#edit-user-isAdmin', !!(user.isAdmin || user.role === 'Administrator'));
     setChecked('#edit-user-can-manage-attendance-sheet', !!(user.canManageAttendanceSheet || user.isAdmin || user.role === 'Administrator'));
-    setChecked('#edit-user-can-access-staff-ai-memory', !!(user.canAccessStaffAiMemory || user.isAdmin || user.role === 'Administrator'));
     setVal('#edit-user-birth-day', user.birthDay || '');
     setVal('#edit-user-birth-month', user.birthMonth || '');
     setVal('#edit-user-birth-year', user.birthYear || '');

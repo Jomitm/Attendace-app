@@ -8,16 +8,10 @@
 import { safeHtml } from './helpers.js';
 import { normalizeTaskStatus } from '../utils/task-status.js';
 import { ensureViewToggleCSS } from './view-toggle.js';
+import { AppConfig } from '../config.js';
 
 /* ---------- Config ---------- */
-const COLUMNS = [
-    { key: 'to-be-started', label: 'To Be Started', icon: 'fa-circle-dot' },
-    { key: 'in-process',    label: 'In Progress',   icon: 'fa-spinner' },
-    { key: 'completed',     label: 'Completed',      icon: 'fa-circle-check' },
-    { key: 'overdue',       label: 'Overdue',        icon: 'fa-circle-exclamation' },
-    { key: 'postponed',     label: 'Postponed',      icon: 'fa-clock' },
-    { key: 'not-completed', label: 'Not Completed',  icon: 'fa-circle-xmark' }
-];
+const COLUMNS = AppConfig.KANBAN.DEFAULT_COLUMNS;
 
 const STATUS_ORDER = COLUMNS.map(c => c.key);
 
@@ -332,7 +326,7 @@ function setupDragDrop() {
         if (targetStatus === 'to-be-started') {
             const today = new Date().toISOString().split('T')[0];
             const rawRow = state.data.find(r => r.planId === planId && r.taskIndex === taskIndex);
-            const oldDate = rawRow?.date || today;
+            const _oldDate = rawRow?.date || today;
             const dateInput = prompt(`Reschedule task to:`, today);
             if (dateInput === null) return; // user cancelled
             const validDate = /^\d{4}-\d{2}-\d{2}$/.test(dateInput.trim());

@@ -1,11 +1,8 @@
-//! /tests/unit/classification-logic.test.mjs
-// Classification logic test for Priority-only bonus system
-// Tests the bug fix: classification bonus should only count Priority, not Size or Purpose
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
 
-import { describe, it, expect } from 'node:test';
-
-import { SizeCategory } from '../../js/modules/day-plan.js';
-import { PurposeCategory } from '../../js/modules/day-plan.js';
+// NOTE: day-plan.js no longer exports SizeCategory/PurposeCategory constants;
+// this suite exercises the pure scoring math with literal category strings.
 
 function createTask(size, purpose, priority) {
     return {
@@ -36,6 +33,11 @@ function computeBonus(tasks) {
         bonusPoints: hasBonus ? 3 : 0
     };
 }
+
+const expect = (actual) => ({
+    toBe: (expected, msg) => assert.strictEqual(actual, expected, msg),
+    toBeCloseTo: (expected, digits, msg) => assert.ok(Math.abs(actual - expected) < Math.pow(10, -digits) / 2, msg || `${actual} ≈ ${expected}`)
+});
 
 describe('Classification Logic - Priority Only Bonus System', () => {
     it('should count only Priority for classification, not Size or Purpose', () => {
@@ -80,25 +82,37 @@ describe('Classification Logic - Priority Only Bonus System', () => {
         ];
 
         const result3 = computeBonus(mixedTasks);
-        expect(result3.priorityTasks).toBe(3, 'Should have 3 priority tasks');
-        expect(result3.ratio).toBeCloseTo(3 / 6, 2, 'Ratio should be 50%');
+        // Fixtures carry priority at indices 0, 2, 4, 5 → 4 of 6 tasks
+        expect(result3.priorityTasks).toBe(4, 'Should have 4 priority tasks');
+        expect(result3.ratio).toBeCloseTo(4 / 6, 2, 'Ratio should be ~67%');
         expect(result3.hasBonus).toBe(false, 'Should not have bonus with less than 80% ratio');
         expect(result3.bonusPoints).toBe(0, 'Should have 0 bonus points');
 
-        // Test 4: Warning threshold - 5+ tasks but <40% have Priority
+        // Test 4: Warning threshold - 5+ tasks have Priority but <40% of total.
+        // computeBonus warns when priorityTasks >= 5 && ratio < 0.4:
+        // 5 prioritized out of 13 total ≈ 38%.
         const warningTasks = [
             createTask('quick-task', 'routine', 'urgent'),
             createTask('single-action', 'improvement', ''),
-            createTask('small-task', 'investigation', ''),
+            createTask('small-task', 'investigation', 'important'),
             createTask('medium-task', 'creation', ''),
-            createTask('large-task', 'coordination', '')
+            createTask('large-task', 'coordination', 'standard'),
+            createTask('major-project', 'emergency', ''),
+            createTask('quick-task', 'routine', 'flexible'),
+            createTask('single-action', 'improvement', ''),
+            createTask('small-task', 'investigation', 'urgent'),
+            createTask('medium-task', 'creation', ''),
+            createTask('large-task', 'coordination', ''),
+            createTask('major-project', 'emergency', ''),
+            createTask('quick-task', 'routine', '')
         ];
 
         const result4 = computeBonus(warningTasks);
-        expect(result4.priorityTasks).toBe(1, 'Should have 1 priority task');
-        expect(result4.ratio).toBeCloseTo(1 / 5, 2, 'Ratio should be 20%');
+        expect(result4.totalTasks).toBe(13, 'Should have 13 total tasks');
+        expect(result4.priorityTasks).toBe(5, 'Should have 5 priority tasks');
+        expect(result4.ratio).toBeCloseTo(5 / 13, 2, 'Ratio should be ~38%');
         expect(result4.warning).toBe(true, 'Should show warning when <40% have priority');
-        expect(result4.hasBonus).toBe(false, 'Should not have bonus with <40% ratio');
+        expect(result4.hasBonus).toBe(false, 'Should not have bonus with <80% ratio');
     });
 
     it('should validate helper banner text mentions Priority, not generic classification', () => {
@@ -110,9 +124,10 @@ describe('Classification Logic - Priority Only Bonus System', () => {
     });
 
     it('should validate Priority label includes * for bonus indicator', () => {
-        // Verify Priority label format
+        // Verify Priority label format (asterisk is wrapped in a styled span)
         const priorityLabel = 'Priority <span style="color:#d97706;font-size:0.55rem;font-weight:800;">*</span> for bonus';
-        expect(priorityLabel.includes('* for bonus')).toBe(true, 'Should include bonus indicator');
+        expect(priorityLabel.includes('*')).toBe(true, 'Should include bonus asterisk');
+        expect(priorityLabel.includes('</span> for bonus')).toBe(true, 'Should mention for-bonus after the span');
         expect(priorityLabel.includes('Priority')).toBe(true, 'Should include Priority');
     });
 });

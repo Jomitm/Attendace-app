@@ -213,13 +213,6 @@ export class Analytics {
             return type.includes('Leave') || log?.location === 'On Leave';
         };
 
-        // Helper for robust date comparison (ignores time & string format)
-        const isSameDay = (d1, d2) => {
-            return d1.getFullYear() === d2.getFullYear() &&
-                d1.getMonth() === d2.getMonth() &&
-                d1.getDate() === d2.getDate();
-        };
-
         for (let i = 6; i >= 0; i--) {
             const targetDate = new Date();
             targetDate.setDate(targetDate.getDate() - i);
@@ -227,11 +220,13 @@ export class Analytics {
             const dayLabel = targetDate.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
             labels.push(dayLabel);
 
-            // Count unique users for this day
+            // Count unique users for this day.
+            // Compare date KEYS directly: parsing 'YYYY-MM-DD' with new Date()
+            // yields UTC midnight, which shifts to the previous local day for
+            // positive UTC offsets and misattributes logs.
             const daysLogs = logs.filter(l => {
-                const logDate = new Date(l.date);
-                if (isNaN(logDate.getTime())) return false;
-                return isSameDay(logDate, targetDate);
+                const key = String(l?.date || '');
+                return /^\d{4}-\d{2}-\d{2}$/.test(key) && key === this.toLocalDateKey(targetDate);
             });
 
             const uniquePresent = new Set();
@@ -1778,21 +1773,17 @@ export class Analytics {
             let totalScore = 0;
             let scoreCount = 0;
 
-            const isSameDay = (d1, d2) => {
-                return d1.getFullYear() === d2.getFullYear() &&
-                    d1.getMonth() === d2.getMonth() &&
-                    d1.getDate() === d2.getDate();
-            };
-
             for (let i = 6; i >= 0; i--) {
                 const targetDate = new Date();
                 targetDate.setDate(targetDate.getDate() - i);
 
                 const label = targetDate.toLocaleDateString('en-US', { weekday: 'narrow' });
                 labels.push(label);
+                // Compare date KEYS directly — see processLast7Days note about
+                // new Date('YYYY-MM-DD') UTC-parsing pitfalls.
                 const dayLogs = logs.filter(l => {
-                    const logDate = new Date(l.date);
-                    return !isNaN(logDate.getTime()) && isSameDay(logDate, targetDate);
+                    const key = String(l?.date || '');
+                    return /^\d{4}-\d{2}-\d{2}$/.test(key) && key === this.toLocalDateKey(targetDate);
                 });
 
                 if (dayLogs.length === 0) {
@@ -2226,11 +2217,11 @@ export class Analytics {
         // Fetch all needed data in parallel
         const windowRanges = windows.map(w => ({ start: w.start, end: w.end }));
 
-        const [attendanceChunks, workPlanChunks] = await Promise.all([
-            Promise.all(windowRanges.map((r, i) =>
-                this.getAttendanceInRange(r.start, r.end, `perf:${userId}:${i}`)
+const [attendanceChunks, workPlanChunks] = await Promise.all([
+            Promise.all(windowRanges.map((r, _i) =>
+                this.getAttendanceInRange(r.start, r.end, `perf:${userId}:${_i}`)
             )),
-            Promise.all(windowRanges.map((r, i) => {
+            Promise.all(windowRanges.map((r, _i) => {
                 const startIso = this.toLocalDateKey(r.start);
                 const endIso = this.toLocalDateKey(r.end);
                 return this.db.queryMany
@@ -2277,7 +2268,7 @@ export class Analytics {
         const currentStats = this.calculateStatsForLogs(canonicalUserLogs);
 
         // Build trend (index 0 = oldest, ascending chronological, max 6 points)
-        const trend = windowScores.slice().reverse().slice(-6).map((ws, i) => ({
+        const trend = windowScores.slice().reverse().slice(-6).map((ws, _i) => ({
             week: ws.label,
             score: ws.composite
         }));
@@ -2299,12 +2290,14 @@ export class Analytics {
     } catch (err) {
         console.warn('[Analytics] getPersonalPerformance failed for', userId, err?.message || err);
         const empty = this._emptyPerformance();
-        return { ...empty, userId, trend: [], insights: [], windowDays, computedAt: Date.now() };
+        // windowDays is scoped to the try block — recompute it here or the
+        // fallback path itself throws a ReferenceError.
+        return { ...empty, userId, trend: [], insights: [], windowDays: Math.max(1, Number(options.windowDays ?? 7)), computedAt: Date.now() };
     }
     }
 
     _computeWeekPerformance(userLogs, userPlans, week, config) {
-        const { wPunctuality, wAttendance, wTaskExecution, wProductivity, wPlanning, wCompliance, windowDays, caps, weights, policy } = config;
+        const { wPunctuality, wAttendance, wTaskExecution, wProductivity, wPlanning, wCompliance, windowDays, _caps, _weights, policy } = config;
         const label = week.label;
 
         // ── PUNCTUALITY (0–100) ──

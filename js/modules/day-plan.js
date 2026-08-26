@@ -694,19 +694,30 @@ function createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, ini
         textContent: 'Discard',
         onClick: (e) => removeOverlay(e.currentTarget.closest('.day-plan-modal-overlay'))
     });
+    discardBtn.style.position = 'relative';
+    discardBtn.style.zIndex = '10000';
+    discardBtn.style.pointerEvents = 'auto';
 
     const saveBtn = createButton({
         className: 'day-plan-save-btn',
         innerHTML: '<i class="fa-solid fa-check-circle"></i> <span>Save Plan</span>',
-        attributes: { type: 'submit' }
+        attributes: { type: 'button' },
+        onClick: (e) => { e.preventDefault(); window.app_saveDayPlan(e, date, targetId); }
     });
+    saveBtn.style.position = 'relative';
+    saveBtn.style.zIndex = '10000';
+    saveBtn.style.pointerEvents = 'auto';
+    saveBtn.style.flexShrink = '0';
 
     const footer = createElement('div', {
         className: 'day-plan-footer',
         children: [
-            createElement('div', { className: 'day-plan-actions', children: [discardBtn, saveBtn] })
+            createElement('div', { className: 'day-plan-actions', children: [saveBtn, discardBtn] })
         ]
     });
+    footer.style.position = 'relative';
+    footer.style.zIndex = '9999';
+    footer.style.pointerEvents = 'auto';
 
     const form = createElement('form', {
         className: 'day-plan-form',
@@ -973,7 +984,7 @@ export async function openPlanEditor(args) {
                 if (anyFilled) {
                     suggestionIndicator.style.display = '';
                 }
-            } catch (_) {}
+            } catch (__) { void __; }
         };
 
         textarea.addEventListener('input', () => {
@@ -1270,7 +1281,7 @@ export async function quickAddPersonalPlan(date = null, targetUserId = null) {
                 prioritySelect.value = suggestion.priorityLevel;
                 quickSuggestionIndicator.style.display = '';
             }
-        } catch (_) {}
+        } catch (__) { void __; }
     };
     taskField.addEventListener('input', () => {
         clearTimeout(quickSuggestTimer);
@@ -1501,11 +1512,20 @@ export function dayPlanRenderBlockV3(args) {
     const statusIndicator = createStatusIndicator(planStatus);
     titleGroup.appendChild(statusIndicator);
 
+    titleGroup.appendChild(createElement('span', { className: 'day-plan-index-badge', textContent: idx + 1 }));
+    titleGroup.appendChild(createElement('div', {
+        className: 'plan-block-copy',
+        children: [
+            createElement('span', { className: 'plan-block-summary', textContent: summary }),
+            createElement('span', { className: 'plan-block-meta', textContent: durationLabel })
+        ]
+    }));
+
     const assignmentAttribution = isAssignedToOther ? `
         <div class="plan-block-assignment-attribution">
             <div class="plan-block-assigned-to-badge">
-                <span class="badge-assigned-to">Assigned to ${safeHtml(assignedToName)}</span>
-                ${plan.assignedByName ? `<span class="badge-assigned-by">by ${safeHtml(plan.assignedByName)}</span>` : ''}
+                <span class="badge-assigned-to">Assigned to ${esc(assignedToName)}</span>
+                ${plan.assignedByName ? `<span class="badge-assigned-by">by ${esc(plan.assignedByName)}</span>` : ''}
             </div>
         </div>` : '';
 

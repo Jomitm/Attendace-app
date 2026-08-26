@@ -25,7 +25,17 @@ export const AppConfig = {
     // Holiday Rules
     // Saturdays: 1st, 3rd, 5th are working. 2nd, 4th are holidays.
     IS_SATURDAY_OFF: (date) => {
-        const d = new Date(date);
+        // Read LOCAL day-of-month. 'YYYY-MM-DD' strings must NOT go through
+        // new Date(string) (parses as UTC and shifts the day for positive UTC
+        // offsets) — split the string instead.
+        let d;
+        if (typeof date === 'string') {
+            const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(date.trim());
+            d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(date);
+        } else {
+            d = date instanceof Date ? date : new Date(date);
+        }
+        if (!(d instanceof Date) || Number.isNaN(d.getTime())) return false;
         const dateNum = d.getDate();
         const n = Math.ceil(dateNum / 7);
         // Return true if 2nd or 4th saturday
@@ -115,7 +125,7 @@ export const AppConfig = {
         LEAVE_REQUESTS_LIMIT: 5,
         LEAVE_HISTORY_LIMIT: 8,
         ACTIVITY_MONTHS_BACK: 8,
-        HERO_VERSION_BADGE: 'v5'
+        HERO_VERSION_BADGE: 'v6'
     },
     DASHBOARD_CUSTOMIZATION: {
         DOC_PATH: 'settings/dashboard_customization',

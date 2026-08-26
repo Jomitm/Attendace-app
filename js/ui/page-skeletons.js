@@ -372,41 +372,6 @@ export function renderLetterPadSkeleton() {
     </div>`;
 }
 
-// ── Staff AI Memory Skeleton ─────────────────────────────────────────────────
-
-export function renderStaffAiMemorySkeleton() {
-    ensurePageSkeletonStyles();
-    return `
-    <div class="skeleton-page">
-        <!-- Header -->
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-            ${skelLine('md')}
-            ${skelRect(140, 32)}
-        </div>
-        <!-- Memory Cards -->
-        <div style="display:grid; grid-template-columns:repeat(2, 1fr); gap:1rem;">
-            ${Array.from({ length: 4 }, () => `
-            <div class="skeleton-card">
-                <div style="display:flex; gap:0.5rem; margin-bottom:8px;">
-                    ${skelRect(60, 20)}
-                </div>
-                ${skelLine('lg')}
-                ${skelLine('md')}
-                <div style="display:flex; gap:0.5rem; margin-top:8px;">
-                    ${skelRect(50, 18)}
-                    ${skelRect(50, 18)}
-                    ${skelRect(50, 18)}
-                </div>
-            </div>`).join('')}
-        </div>
-        <!-- Activity Feed -->
-        <div class="skeleton-card">
-            ${skelLine('md')}
-            ${skelTableRowSkeleton(5, [100, 140, 80, 160])}
-        </div>
-    </div>`;
-}
-
 // ── Route → Skeleton Map (used by router) ────────────────────────────────────
 
 export const ROUTE_SKELETON_MAP = {
@@ -420,8 +385,7 @@ export const ROUTE_SKELETON_MAP = {
     'team-activities': renderTeamActivitiesSkeleton,
     'birthday-calendar': renderBirthdayCalendarSkeleton,
     'salary': renderSalarySkeleton,
-    'letter-pad': renderLetterPadSkeleton,
-    'staff-ai-memory': renderStaffAiMemorySkeleton
+    'letter-pad': renderLetterPadSkeleton
 };
 
 export function showPageSkeleton(hash) {

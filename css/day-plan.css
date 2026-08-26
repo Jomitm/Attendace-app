@@ -931,6 +931,8 @@
 /* ===== FOOTER ===== */
 .day-plan-footer {
     flex-shrink: 0;
+    position: relative;
+    z-index: 50;
     margin: 0;
     padding: 0.42rem 0.65rem 0.52rem;
     background: rgba(248, 251, 255, 0.96);
@@ -988,8 +990,11 @@
     touch-action: manipulation;
     white-space: nowrap;
     transition: transform 160ms cubic-bezier(0.2, 0.9, 0.2, 1), box-shadow 160ms cubic-bezier(0.2, 0.9, 0.2, 1), background 160ms cubic-bezier(0.2, 0.9, 0.2, 1), border-color 160ms cubic-bezier(0.2, 0.9, 0.2, 1);
-    flex-shrink: 1;
+    flex-shrink: 0;
     min-width: 0;
+    position: relative;
+    z-index: 51;
+    pointer-events: auto;
 }
 
 .day-plan-save-btn:hover {

@@ -1,7 +1,20 @@
+const crypto = require('crypto');
 const { getDb } = require('./_firebase-admin');
 
 const TELEGRAM_API = 'https://api.telegram.org';
 const LATE_CUTOFF_HOUR = 10;
+
+function webhookSecretIsValid(req) {
+    const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
+    if (!expected) {
+        console.warn('TELEGRAM_WEBHOOK_SECRET is not set — webhook accepts unverified callers. Configure it and re-register the webhook with secret_token.');
+        return true;
+    }
+    const received = req.headers['x-telegram-bot-api-secret-token'] || '';
+    const a = Buffer.from(String(received));
+    const b = Buffer.from(expected);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
 
 async function sendMessage(token, chatId, text, replyMarkup) {
     const body = {
@@ -308,13 +321,11 @@ function handleHelp() {
 }
 
 module.exports = async (req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-    if (req.method === 'OPTIONS') {
-        res.statusCode = 204;
-        res.end();
+    // Server-to-server endpoint (Telegram only) — no browser CORS needed.
+    if (!webhookSecretIsValid(req)) {
+        res.statusCode = 401;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.end(JSON.stringify({ ok: false, error: 'Invalid webhook secret' }));
         return;
     }
 

@@ -1,11 +1,13 @@
 const crypto = require('crypto');
 const { getDb } = require('./_firebase-admin');
 
-const SECRET = process.env.CALENDAR_FEED_SECRET || 'crwi-cal-feed-fallback-change-me';
+const SECRET = process.env.CALENDAR_FEED_SECRET || '';
+if (!SECRET) console.error('CALENDAR_FEED_SECRET is not set — calendar feed is disabled (fail closed).');
 const ALGO = 'sha256';
 
 function verifyToken(token) {
     try {
+        if (!SECRET) return null;
         const decoded = Buffer.from(token, 'base64url').toString('utf8');
         const [payload, sig] = decoded.split('.');
         if (!payload || !sig) return null;

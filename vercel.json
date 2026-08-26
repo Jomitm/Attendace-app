@@ -20,10 +20,6 @@
     ],
     "rewrites": [
         {
-            "source": "/ai/assistant",
-            "destination": "/api/assistant"
-        },
-        {
             "source": "/api/telegram-send",
             "destination": "/api/telegram-send"
         },

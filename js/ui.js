@@ -26,7 +26,7 @@ import { renderAnnualPlan } from './ui/annual-plan.js';
 import { renderTimesheet } from './ui/timesheet.js';
 import { renderProfile } from './ui/profile.js';
 import { renderMasterSheet } from './ui/master-sheet.js';
-import { renderAdmin, renderStaffAiMemorySheet } from './ui/admin.js';
+import { renderAdmin } from './ui/admin.js';
 import { renderBirthdayCalendar } from './ui/birthday-calendar.js';
 import { renderSalaryProcessing, renderPolicyTest } from './ui/payroll.js';
 import { renderMinutes } from './ui/minutes-ui.js';
@@ -64,7 +64,6 @@ export {
     renderProfile,
     renderMasterSheet,
     renderAdmin,
-    renderStaffAiMemorySheet,
     renderBirthdayCalendar,
     renderSalaryProcessing,
     renderPolicyTest,
@@ -113,7 +112,6 @@ export const AppUI = {
     renderProfile,
     renderMasterSheet,
     renderAdmin,
-    renderStaffAiMemorySheet,
     renderBirthdayCalendar,
     renderSalaryProcessing,
     renderPolicyTest,

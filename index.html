@@ -220,10 +220,6 @@
                             <i class="fa-solid fa-file-pen"></i>
                             <span>Letter Pad</span>
                         </a>
-                        <a href="#staff-ai-memory" class="nav-item" data-page="staff-ai-memory" style="display: none;">
-                            <i class="fa-solid fa-brain"></i>
-                            <span>AI Memory</span>
-                        </a>
                         <a href="javascript:void(0)" class="nav-item" data-page="widget" onclick="window.Widget && window.Widget.toggle()">
                             <i class="fa-solid fa-window-maximize"></i>
                             <span>Widget Mode</span>
@@ -407,10 +403,6 @@
                     <i class="fa-solid fa-file-pen"></i>
                     <span>Letters</span>
                 </a>
-                <a href="#staff-ai-memory" class="mobile-nav-item" data-page="staff-ai-memory" style="display: none;">
-                    <i class="fa-solid fa-brain"></i>
-                    <span>AI Memory</span>
-                </a>
                 <a href="#admin" class="mobile-nav-item" data-page="admin" style="display: none;">
                     <i class="fa-solid fa-user-gear"></i>
                     <span>Admin</span>
@@ -480,7 +472,7 @@
             try {
                 const shouldShow = localStorage.getItem('show_hidden_sheets') === 'true';
                 if (!shouldShow) return;
-                const selectors = ['a[data-page="admin"]','a[data-page="master-sheet"]','a[data-page="salary"]','a[data-page="policy-test"]','a[data-page="letter-pad"]','a[data-page="staff-ai-memory"]'];
+                const selectors = ['a[data-page="admin"]','a[data-page="master-sheet"]','a[data-page="salary"]','a[data-page="policy-test"]','a[data-page="letter-pad"]'];
                 selectors.forEach(sel => {
                     document.querySelectorAll(sel).forEach(el => {
                         try { el.style.removeProperty('display'); } catch(e) { void e; }

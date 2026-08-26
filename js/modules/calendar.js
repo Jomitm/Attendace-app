@@ -440,7 +440,7 @@ export class Calendar {
         const writePromises = scopes.map((scope) => {
             const normalizedScope = this.normalizePlanScope(scope);
             const scopedPlans = Array.isArray(plans)
-                ? plans.map(plan => {
+                ? plans.filter(p => p.planScope === normalizedScope).map(plan => {
                     const updatedPlan = { ...plan };
                     if (isAssigningToOther && updatedPlan.assignedTo === targetId) {
                         updatedPlan.assignedById = assignedById;

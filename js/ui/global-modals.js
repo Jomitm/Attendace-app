@@ -235,13 +235,7 @@ export function renderModals() {
                             <input type="checkbox" class="perm-check gm-center" data-module="customize" data-level="view" id="edit-perm-customize-view">
                             <input type="checkbox" class="perm-check gm-center" data-module="customize" data-level="admin" id="edit-perm-customize-admin">
 
-                            <div style="font-size: 0.82rem; color: #1e293b; display: flex; align-items: center; gap: 0.4rem;">
-                                AI Memory Sheet
-                                <label style="display: flex; align-items: center; gap: 0.3rem; font-weight: 400; font-size: 0.75rem; color: #475569; cursor: pointer;">
-                                    <input type="checkbox" name="canAccessStaffAiMemory" id="edit-user-can-access-staff-ai-memory" style="width: 1rem; height: 1rem;">
-                                    Allow access
-                                </label>
-                            </div>
+                            <span></span>
                             <span></span>
                             <span></span>
                         </div>
@@ -385,11 +379,6 @@ export function renderModals() {
                             <div class="gm-label">User Management</div>
                             <input type="checkbox" class="perm-check" data-module="users" data-level="view" id="add-perm-users-view">
                             <input type="checkbox" class="perm-check" data-module="users" data-level="admin" id="add-perm-users-admin">
-
-                            <!-- AI Memory -->
-                            <div class="gm-label">AI Memory Sheet</div>
-                            <input type="checkbox" name="canAccessStaffAiMemory" id="add-user-can-access-staff-ai-memory" style="width: 1.1rem; height: 1.1rem;">
-                            <div style="font-size: 0.78rem; color: #475569;">Allow this staff member to open the AI memory sheet.</div>
 
                             <!-- Letter Pad -->
                             <div class="gm-label">Letter Pad</div>

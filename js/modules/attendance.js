@@ -2,16 +2,12 @@ import { AppAuth } from './auth.js';
 import { AppDB } from './db.js';
 import { AppConfig } from '../config.js';
 import { telegramNotifyCheckIn, telegramNotifyLateCheckIn, telegramNotifyCheckOut } from '../utils/telegram.js';
+import { getLocalISO, toDateKeyFromValue, coerceEpochMs } from '../utils/date-helpers.js';
 
 const hasValidCoordinatePair = (lat, lng) => Number.isFinite(Number(lat)) && Number.isFinite(Number(lng));
-const normalizeDateKey = (value) => {
-    if (!value) return '';
-    const raw = String(value || '').trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-    const date = value instanceof Date ? value : new Date(value);
-    if (Number.isNaN(date.getTime())) return '';
-    return date.toISOString().split('T')[0];
-};
+// Local-calendar-day key (UTC-safe). Delegates to the shared date helper so
+// Date objects are keyed by their LOCAL calendar day, never by UTC.
+const normalizeDateKey = (value) => toDateKeyFromValue(value);
 
 export class Attendance {
     constructor() {
@@ -42,15 +38,29 @@ export class Attendance {
             };
         }
 
-        if (user.status === 'in' && user.lastCheckIn) {
+        if (user.status === 'in') {
             try {
-                const checkInDate = new Date(user.lastCheckIn);
+                const priorMs = coerceEpochMs(user.lastCheckIn);
+                if (priorMs === null) {
+                    // Unparseable/legacy lastCheckIn — the session cannot be honored.
+                    // Report it as stale so callers heal it instead of showing a phantom
+                    // "checked in" state forever.
+                    console.warn('getStatus: unparseable lastCheckIn, treating as stale session', typeof user.lastCheckIn);
+                    return {
+                        status: 'out',
+                        lastCheckIn: null,
+                        isPaused: false,
+                        pauseStartedAt: null,
+                        totalPausedMs: 0,
+                        staleSession: true
+                    };
+                }
+                const checkInDate = new Date(priorMs);
                 const now = new Date();
 
-                // Compare using local dates to correctly handle timezone offsets
-                // (e.g., IST user checking in at 11PM, checking status at 12:30AM next day)
-                const localCheckInDate = `${checkInDate.getFullYear()}-${String(checkInDate.getMonth() + 1).padStart(2, '0')}-${String(checkInDate.getDate()).padStart(2, '0')}`;
-                const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                // Local calendar-day comparison (shared helper; timezone-safe)
+                const localCheckInDate = getLocalISO(checkInDate);
+                const localToday = getLocalISO(now);
 
                 if (localCheckInDate < localToday) {
                     return {
@@ -128,10 +138,25 @@ export class Attendance {
             const now = new Date();
             const cu = txUser || user; // fallback to pre-read if tx doc missing
 
-            if (cu.status === 'in' && cu.lastCheckIn) {
-                const priorCheckInTime = new Date(cu.lastCheckIn);
-                const priorLocalDate = `${priorCheckInTime.getFullYear()}-${String(priorCheckInTime.getMonth() + 1).padStart(2, '0')}-${String(priorCheckInTime.getDate()).padStart(2, '0')}`;
-                const todayLocalDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            if (cu.status === 'in') {
+                const priorMs = coerceEpochMs(cu.lastCheckIn);
+                if (priorMs === null) {
+                    // Corrupt/legacy lastCheckIn: clear the stuck "in" status atomically
+                    // here rather than reporting a permanent cross-device conflict.
+                    console.warn('checkIn: unparseable lastCheckIn on user doc; clearing stuck status');
+                    const healed = { ...cu };
+                    healed.status = 'out';
+                    healed.lastCheckIn = null;
+                    healed.isPaused = false;
+                    healed.pauseStartedAt = null;
+                    healed.totalPausedMs = 0;
+                    healed.pauseEvents = [];
+                    return { ok: true, user: healed, clearedCorruptSession: true };
+                }
+
+                const priorCheckInTime = new Date(priorMs);
+                const priorLocalDate = getLocalISO(priorCheckInTime);
+                const todayLocalDate = getLocalISO(now);
 
                 if (priorLocalDate < todayLocalDate) {
                     // Stale session from yesterday — heal outside transaction (needs attendance log write)
@@ -174,9 +199,15 @@ export class Attendance {
 
         if (txResult && txResult.staleSession) {
             const cu = txResult.user;
-            const priorCheckInTime = new Date(cu.lastCheckIn);
-            const priorSessionCheckoutLogged = await this.hasRecordedCheckoutForSession(cu.id, priorCheckInTime, new Date());
-            if (priorSessionCheckoutLogged) {
+            const priorMs = coerceEpochMs(cu.lastCheckIn);
+            // Defensive: the transaction only flags staleSession for parseable timestamps,
+            // but never fabricate data if something slipped through.
+            const canFabricateClosure = priorMs !== null;
+            const priorCheckInTime = new Date(priorMs ?? 0);
+            const priorSessionCheckoutLogged = canFabricateClosure
+                ? await this.hasRecordedCheckoutForSession(cu.id, priorCheckInTime, new Date())
+                : false;
+            if (priorSessionCheckoutLogged || !canFabricateClosure) {
                 cu.status = 'out';
                 cu.lastCheckIn = null;
                 cu.isPaused = false;
@@ -185,10 +216,21 @@ export class Attendance {
                 cu.pauseEvents = [];
                 cu.currentLocation = null;
                 cu.locationMismatched = false;
-                noticeMessage = 'Recovered previous checkout record and cleared stale session status.';
+                noticeMessage = priorSessionCheckoutLogged
+                    ? 'Recovered previous checkout record and cleared stale session status.'
+                    : 'Cleared a stale session with unreadable check-in data.';
             } else {
                 const fixedDurationMs = 4 * 60 * 60 * 1000;
-                const priorCheckOutTime = new Date(priorCheckInTime.getTime() + fixedDurationMs);
+                let effectiveDurationMs = fixedDurationMs;
+                let priorCheckOutTime = new Date(priorCheckInTime.getTime() + fixedDurationMs);
+                // Clamp the synthetic checkout to the end of the session's own calendar day
+                // so the fabricated record never spills into the next day.
+                const endOfSessionDay = new Date(priorCheckInTime);
+                endOfSessionDay.setHours(23, 59, 59, 999);
+                if (priorCheckOutTime > endOfSessionDay) {
+                    priorCheckOutTime = endOfSessionDay;
+                    effectiveDurationMs = Math.max(0, endOfSessionDay.getTime() - priorCheckInTime.getTime());
+                }
                 const statusMeta = {
                     status: 'Half Day',
                     dayCredit: this.getDayCredit('Half Day'),
@@ -197,15 +239,21 @@ export class Attendance {
                 };
                 const priorLocation = cu.currentLocation || cu.lastLocation || null;
                 const closureTimestamp = new Date().toISOString();
-                const closuredDate = `${priorCheckOutTime.getFullYear()}-${String(priorCheckOutTime.getMonth() + 1).padStart(2, '0')}-${String(priorCheckOutTime.getDate()).padStart(2, '0')}`;
+                // Attribute the closure to the SESSION's date (check-in day), not the
+                // synthetic checkout moment, so credit lands on the day actually worked.
+                const closuredDate = getLocalISO(priorCheckInTime);
+                // Deterministic id makes the closure write idempotent across devices/retries:
+                // a repeated run upserts the same document instead of appending duplicates.
                 const missedLog = {
-                    id: this._nextId(),
+                    id: `missed_${cu.id}_${closuredDate}`,
                     user_id: cu.id,
                     date: closuredDate,
+                    checkInAt: priorCheckInTime.getTime(),
+                    checkOutAt: priorCheckOutTime.getTime(),
                     checkIn: priorCheckInTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                     checkOut: priorCheckOutTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    duration: this.msToTime(fixedDurationMs),
-                    durationMs: fixedDurationMs,
+                    duration: this.msToTime(effectiveDurationMs),
+                    durationMs: effectiveDurationMs,
                     type: statusMeta.status,
                     dayCredit: statusMeta.dayCredit,
                     lateCountable: statusMeta.lateCountable,
@@ -459,7 +507,9 @@ export class Attendance {
         const log = {
             id: this._nextId(),
             user_id: user.id,
-            date: `${checkOutTime.getFullYear()}-${String(checkOutTime.getMonth() + 1).padStart(2, '0')}-${String(checkOutTime.getDate()).padStart(2, '0')}`,
+            date: getLocalISO(checkOutTime),
+            checkInAt: checkInMs,
+            checkOutAt: checkOutMs,
             checkIn: checkInTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             checkOut: checkOutTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             duration: this.msToTime(durationMs),
@@ -635,11 +685,11 @@ export class Attendance {
                 if (!Array.isArray(userLogs) || userLogs.length === 0) {
                     const db = window.AppFirestore;
                     if (!db) return [];
-                    let query = db.collection("attendance").where("user_id", "==", targetId);
-                    if (startDate) query = query.where("date", ">=", startDate);
-                    if (endDate) query = query.where("date", "<=", endDate);
-                    const snapshot = await query.get();
-                    userLogs = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+let query = db.collection("attendance").where("user_id", "==", targetId);
+if (startDate) query = query.where("date", ">=", startDate);
+if (endDate) query = query.where("date", "<=", endDate);
+const snapshot = await query.get();
+userLogs = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
                 }
 
                 const sortedLogs = (userLogs || []).sort((a, b) => String(b.id || "").localeCompare(String(a.id || ""))).map((log) => {
@@ -660,12 +710,14 @@ export class Attendance {
 
                 try {
                     const currentUserState = await AppDB.get("users", targetId);
-                    if (currentUserState && currentUserState.status === "in" && currentUserState.lastCheckIn) {
-                        const checkInTime = new Date(currentUserState.lastCheckIn);
-                        const virtualDate = `${checkInTime.getFullYear()}-${String(checkInTime.getMonth() + 1).padStart(2, '0')}-${String(checkInTime.getDate()).padStart(2, '0')}`;
+                    const activeSessionMs = currentUserState && currentUserState.status === "in" ? coerceEpochMs(currentUserState.lastCheckIn) : null;
+                    if (activeSessionMs !== null) {
+                        const checkInTime = new Date(activeSessionMs);
+                        const virtualDate = getLocalISO(checkInTime);
                         const virtualLog = {
                             id: "active_now",
                             date: virtualDate,
+                            checkInAt: activeSessionMs,
                             checkIn: checkInTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
                             checkOut: "Active Now",
                             duration: "Working...",

@@ -13,7 +13,7 @@ Firebase-backed attendance management system for CRWI staff. Vanilla JS (no fram
 - **Auth**: Client-side session in localStorage (`crwi_session_user`)
 - **Hosting**: Vercel (`vercel.json` configures SPA rewrites + cron jobs)
 - **PWA**: Service worker (`sw.js` generated at build), manifest.json
-- **AI**: OpenRouter API for assistant features (`api/assistant.js`)
+
 - **Notifications**: Telegram bot integration (`api/telegram-*.js`, `js/utils/telegram.js`)
 
 ## Commands
@@ -89,13 +89,13 @@ scripts/            ← build helpers (build-meta.cjs, generate-build-assets.cjs
 | `kanban-board.js` | Drag-drop task board |
 | `view-toggle.js` | Dashboard view switcher |
 | `team-activities.js` | Team activity feed |
-| `checkout-form.js` | Checkout summary with AI autofill |
+
 
 ### API Endpoints (Vercel Serverless)
 
 | Endpoint | Purpose |
 |----------|---------|
-| `api/assistant.js` | OpenRouter AI assistant |
+
 | `api/calendar-feed.js` | iCal feed for Outlook/Google Calendar |
 | `api/calendar-token.js` | Generate secure calendar tokens |
 | `api/telegram-webhook.js` | Telegram bot webhook handler |
@@ -117,7 +117,7 @@ scripts/            ← build helpers (build-meta.cjs, generate-build-assets.cjs
 - **OneDrive file deletion**: OneDrive can silently delete source files from `js/modules/`, `js/utils/`, etc. If Vite reports missing imports (e.g., "Failed to resolve import"), restore from `git checkout origin/main -- js/`. Keep project outside OneDrive or exclude it from sync.
 - **Check-in flow**: When status is "out", `handleAttendance()` renders a goal-setting modal (`renderCheckInModal`) instead of checking in directly. The modal calls `window.app_submitCheckIn()` which handles location, conflict detection, and day-plan creation.
 - **Cross-device conflict detection**: `app_submitCheckIn` checks `checkInResult.conflict` and shows `app_showSyncToast()` if another device already checked in.
-- **Vite config**: `vite.config.js` has `open: true` — browser auto-launches on `npx vite`. Custom plugins serve feast proxy (`/api/feast-proxy`) and AI assistant (`/ai/assistant`) in dev mode.
+- **Vite config**: `vite.config.js` has `open: true` — browser auto-launches on `npx vite`. Custom plugin serves feast proxy (`/api/feast-proxy`) in dev mode.
 
 ## Environment
 

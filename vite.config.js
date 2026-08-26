@@ -77,55 +77,12 @@ function createFeastDevPlugin() {
     };
 }
 
-function createAssistantDevPlugin(runtimeEnv) {
-    return {
-        name: 'assistant-dev-api',
-        configureServer(server) {
-            const handlerPath = resolve(__dirname, './api/assistant.js');
-            const handler = require(handlerPath);
-            server.middlewares.use(async (req, res, next) => {
-                const url = String(req.url || '').split('?')[0];
-                if (url !== '/ai/assistant' && url !== '/api/assistant') {
-                    next();
-                    return;
-                }
-
-                try {
-                    if (req.method === 'GET') {
-                        sendJson(res, 200, {
-                            ok: true,
-                            route: '/ai/assistant',
-                            backendRoute: '/api/assistant',
-                            configured: !!String(runtimeEnv.OPENROUTER_API_KEY || '').trim(),
-                            modes: ['staff-plan', 'checkout-summary', 'admin-report'],
-                            defaultModel: String(runtimeEnv.OPENROUTER_MODEL || 'openai/gpt-4o-mini').trim()
-                        });
-                        return;
-                    }
-
-                    if (req.method !== 'POST') {
-                        res.setHeader('Allow', 'GET, POST');
-                        sendJson(res, 405, { ok: false, error: 'Method not allowed' });
-                        return;
-                    }
-
-                    const body = await readBody(req);
-                    req.body = body;
-                    await handler(req, res);
-                } catch (err) {
-                    sendJson(res, 500, { ok: false, error: err?.message || 'Assistant dev route failed' });
-                }
-            });
-        }
-    };
-}
-
 export default defineConfig({
     root: './',
     plugins: (() => {
         const runtimeEnv = loadEnv(process.env.NODE_ENV || 'development', process.cwd(), '');
         Object.assign(process.env, runtimeEnv);
-        return [createFeastDevPlugin(), createAssistantDevPlugin({ ...process.env, ...runtimeEnv })];
+        return [createFeastDevPlugin()];
     })(),
     define: {
         __APP_BUILD_META__: JSON.stringify(buildMeta)

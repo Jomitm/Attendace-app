@@ -1240,6 +1240,11 @@ if (typeof window !== 'undefined') {
             if (window.app_showSyncToast) {
                 window.app_showSyncToast('Task marked as completed.');
             }
+            if (typeof window.app_refreshDashboard === 'function') {
+                window.app_refreshDashboard().catch((refreshErr) => {
+                    console.warn('Dashboard refresh after complete failed:', refreshErr);
+                });
+            }
             if (typeof window.app_refreshHeroAuditLive === 'function') {
                 window.app_refreshHeroAuditLive().catch((refreshErr) => {
                     console.warn('Hero refresh after complete failed:', refreshErr);

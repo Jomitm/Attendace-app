@@ -1,5 +1,5 @@
-import { AppDB } from './db.js';
-import { AppConfig } from '../config.js';
+import { AppDB as _AppDB } from './db.js';
+import { AppConfig as _AppConfig } from '../config.js';
 
 export class TaskClassificationSystem {
     constructor() {

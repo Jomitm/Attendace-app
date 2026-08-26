@@ -30,7 +30,8 @@ module.exports = [
       "no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
       "eqeqeq": ["error", "always", { "null": "ignore" }],
       "no-redeclare": "error",
-      "no-implicit-globals": "error"
+      "no-implicit-globals": "error",
+      "no-empty": ["error", { "allowEmptyCatch": true }]
     }
   },
   {

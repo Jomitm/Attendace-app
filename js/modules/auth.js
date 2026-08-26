@@ -5,6 +5,8 @@ export class Auth {
     constructor() {
         this.currentUser = null;
         this.sessionKey = 'crwi_session_user';
+        this.deviceTokenKey = 'crwi_session_token';
+        this.localToken = null;
         this.heartbeatInterval = null;
         this.userDocUnsubscribe = null;
     }
@@ -17,6 +19,12 @@ export class Auth {
         if (storedId) {
             this.currentUser = await AppDB.get('users', storedId);
             if (this.currentUser) {
+                this.localToken = localStorage.getItem(this.deviceTokenKey) || null;
+                // Session was superseded while offline (another device logged in) — kick locally.
+                if (this.currentUser.activeSessionToken && this.localToken && this.currentUser.activeSessionToken !== this.localToken) {
+                    this.forceLogout('Your session was ended because you logged in on another device.');
+                    return;
+                }
                 this.startHeartbeat();
                 this.startCurrentUserSync();
             }
@@ -38,6 +46,10 @@ export class Auth {
 
         const latest = await AppDB.get('users', sessionId);
         this.currentUser = latest || null;
+        this.localToken = localStorage.getItem(this.deviceTokenKey) || null;
+        if (latest && latest.activeSessionToken && this.localToken && latest.activeSessionToken !== this.localToken) {
+            this.forceLogout('Your session was ended because you logged in on another device.');
+        }
         return this.currentUser;
     }
 
@@ -60,7 +72,15 @@ export class Auth {
 
         if (user) {
             this.currentUser = user;
+            const token = this.generateSessionToken();
+            this.localToken = token;
             localStorage.setItem(this.sessionKey, user.id);
+            localStorage.setItem(this.deviceTokenKey, token);
+            await AppDB.put('users', {
+                id: user.id,
+                activeSessionToken: token,
+                activeSessionStartedAt: Date.now()
+            }).catch((err) => console.warn('Failed to set session token:', err));
             this.startHeartbeat();
             this.startCurrentUserSync();
             return true;
@@ -71,11 +91,51 @@ export class Auth {
     }
 
     async logout() {
+        const sessionId = localStorage.getItem(this.sessionKey);
+        const localToken = localStorage.getItem(this.deviceTokenKey);
+        if (sessionId && localToken) {
+            // Only clear the server token if it belongs to this device,
+            // so logging out here does not kill another device's session.
+            try {
+                const latest = await AppDB.get('users', sessionId);
+                if (latest && latest.activeSessionToken && latest.activeSessionToken === localToken) {
+                    await AppDB.put('users', { id: sessionId, activeSessionToken: null, activeSessionStartedAt: null });
+                }
+            } catch (err) {
+                console.warn('Failed to clear session token on logout:', err);
+            }
+        }
         this.stopHeartbeat();
         this.stopCurrentUserSync();
         this.currentUser = null;
+        this.localToken = null;
         localStorage.removeItem(this.sessionKey);
+        localStorage.removeItem(this.deviceTokenKey);
         window.location.reload();
+    }
+
+    forceLogout(message = 'Your session was ended.') {
+        try {
+            sessionStorage.setItem('crwi_auth_notice', message);
+        } catch { /* ignore */ }
+        this.stopHeartbeat();
+        this.stopCurrentUserSync();
+        this.currentUser = null;
+        this.localToken = null;
+        try {
+            localStorage.removeItem(this.sessionKey);
+            localStorage.removeItem(this.deviceTokenKey);
+        } catch { /* ignore */ }
+        window.location.reload();
+    }
+
+    generateSessionToken() {
+        try {
+            if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+                return window.crypto.randomUUID();
+            }
+        } catch { /* fall through */ }
+        return 'sess_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 12);
     }
 
     getUser() {
@@ -165,6 +225,15 @@ export class Auth {
                         return;
                     }
                     const latestUser = { ...doc.data(), id: doc.id };
+
+                    // Single active session enforcement: if the server token changed and
+                    // no longer matches this device, end this session locally.
+                    const localToken = localStorage.getItem(this.deviceTokenKey) || this.localToken;
+                    if (latestUser.activeSessionToken && localToken && latestUser.activeSessionToken !== localToken) {
+                        this.forceLogout('You have been logged out because you logged in on another device.');
+                        return;
+                    }
+
                     this.currentUser = latestUser;
                     window.dispatchEvent(new CustomEvent('app:user-sync', { detail: latestUser }));
                 }, (err) => {

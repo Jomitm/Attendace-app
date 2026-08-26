@@ -68,6 +68,42 @@ const measurePerf = (name, startMark, endMark) => {
     }
 };
 
+let dashboardPerfBadgeShown = false;
+
+const showDashboardPerfBadge = (fetchMs, renderMs) => {
+    try {
+        if (typeof document === 'undefined' || !document.body) return;
+        // Only surface the badge on the first dashboard load of the session, then let it disappear.
+        if (dashboardPerfBadgeShown) return;
+        let badge = document.getElementById('dashboard-perf-badge');
+        if (!badge) {
+            badge = document.createElement('div');
+            badge.id = 'dashboard-perf-badge';
+            badge.style.cssText = 'position:fixed;right:8px;bottom:8px;z-index:99999;background:rgba(15,23,42,.92);color:#e2e8f0;font:600 12px/1.45 ui-monospace,Menlo,Consolas,monospace;padding:6px 10px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.4);pointer-events:none;letter-spacing:.2px;transition:opacity .5s;';
+            document.body.appendChild(badge);
+        }
+        const fetchLabel = (typeof fetchMs === 'number') ? `${fetchMs} ms` : '…';
+        const renderLabel = (typeof renderMs === 'number') ? ` · render ${renderMs} ms` : '';
+        badge.textContent = `Dashboard fetch ${fetchLabel}${renderLabel}`;
+        badge.style.opacity = '1';
+        dashboardPerfBadgeShown = true;
+        if (window.__dashboardPerfBadgeTimer) clearTimeout(window.__dashboardPerfBadgeTimer);
+        window.__dashboardPerfBadgeTimer = setTimeout(() => {
+            try {
+                const b = document.getElementById('dashboard-perf-badge');
+                if (b) {
+                    b.style.opacity = '0';
+                    setTimeout(() => b.remove(), 600);
+                }
+            } catch {
+                /* ignore */
+            }
+        }, 4000);
+    } catch {
+        /* ignore */
+    }
+};
+
 const getDashboardTodayIso = () => {
     try {
         return new Intl.DateTimeFormat('en-CA', { timeZone: DASHBOARD_IST_TIME_ZONE }).format(new Date());
@@ -155,10 +191,9 @@ const renderPlannedTaskItem = (row, index, viewerId, isAdmin) => {
     // Check if task is assigned to someone other than the viewer
     const isAssignedToOther = row.assignedTo && String(row.assignedTo) !== String(row.userId);
     const assignmentAttribution = isAssignedToOther ? `
-        <div class="dashboard-planned-task-assignment-badges">
             <span class="dashboard-planned-task-assigned-to-badge">Assigned to ${safeHtml(row.assignedToName || '')}</span>
             ${row.assignedByName ? `<span class="dashboard-planned-task-assigned-by-badge">by ${safeHtml(row.assignedByName)}</span>` : ''}
-        </div>` : '';
+        ` : '';
 
     return `
         <div class="dashboard-planned-task-item ${safeHtml(String(row.status || '').toLowerCase().replace(/\s+/g, '-'))}${isAssignedToOther ? ' dashboard-planned-task-item-assigned' : ''}" tabindex="0" role="button" aria-label="Toggle actions for ${safeHtml(row.task)}">
@@ -170,7 +205,6 @@ const renderPlannedTaskItem = (row, index, viewerId, isAdmin) => {
                     <span class="dashboard-planned-task-chip">${safeHtml(row.date)}</span>
                     <span class="dashboard-planned-task-chip">${safeHtml(row.planScope)}</span>
                     ${stepCount ? `<span class="dashboard-planned-task-chip">${stepCount} step${stepCount === 1 ? '' : 's'}</span>` : ''}
-                    ${assignmentAttribution}
                 </div>
             </div>
             <div class="dashboard-planned-task-actions">
@@ -187,6 +221,7 @@ const renderPlannedTaskItem = (row, index, viewerId, isAdmin) => {
                     <i class="fa-brands fa-microsoft"></i><span>Outlook</span>
                 </button>
             </div>
+            ${assignmentAttribution}
         </div>
     `;
 };
@@ -1923,6 +1958,7 @@ export function renderStaffDirectory(allUsers, _notifications, currentUser) {
 
 export async function renderDashboard() {
     markPerf('dashboard:render:start');
+    const dashRenderStart = performance.now();
     window.app_closeDashboardCardMaximize?.();
     const user = window.AppAuth.getUser();
     const isAdmin = window.app_hasPerm('dashboard', 'view', user);
@@ -1946,6 +1982,7 @@ export async function renderDashboard() {
     const wvIf = (key, html) => wv[key] !== false ? html : '';
     const densityClass = shouldApplyCustomization && customizationSettings.layoutDensity === 'compact' ? ' dashboard-density-compact' : '';
 
+    const dashFetchStart = performance.now();
     console.time('DashboardFetch');
     markPerf('dashboard:fetch:start');
 
@@ -2091,6 +2128,8 @@ export async function renderDashboard() {
     markPerf('dashboard:fetch:end');
     measurePerf('dashboard:fetch', 'dashboard:fetch:start', 'dashboard:fetch:end');
     console.timeEnd('DashboardFetch');
+    const dashFetchMs = Math.round(performance.now() - dashFetchStart);
+    showDashboardPerfBadge(dashFetchMs, null);
 
     // Fetch personal performance data (non-blocking — renders when ready)
     const personalPerfPromise = window.AppAnalytics?.getPersonalPerformance
@@ -2484,6 +2523,8 @@ export async function renderDashboard() {
 
     markPerf('dashboard:render:end');
     measurePerf('dashboard:render', 'dashboard:render:start', 'dashboard:render:end');
+    const dashRenderMs = Math.round(performance.now() - dashRenderStart);
+    showDashboardPerfBadge(dashFetchMs, dashRenderMs);
 
     // Deferred: populate personal performance widget after HTML is in DOM
     personalPerfPromise.then(personalPerfData => {

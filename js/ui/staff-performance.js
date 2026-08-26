@@ -153,7 +153,7 @@ function detailChipsHtml(details, stats) {
     // Use stats (same source as Monthly Stats card) for attendance metrics
     const daysWorked = stats?.present ?? details.daysWorked;
     const extraHours = stats?.extraWorkedHours ?? details.extraHours;
-    const lateCount = stats?.late ?? details.lateDays;
+    const _lateCount = stats?.late ?? details.lateDays;
     if (daysWorked) chips.push(`<span class="perf-chip"><i class="fa-solid fa-calendar"></i> ${daysWorked} days worked</span>`);
     if (details.taskCompleted) chips.push(`<span class="perf-chip perf-chip-green"><i class="fa-solid fa-check"></i> ${details.taskCompleted} completed</span>`);
     if (details.taskInProgress) chips.push(`<span class="perf-chip perf-chip-blue"><i class="fa-solid fa-spinner"></i> ${details.taskInProgress} in progress</span>`);

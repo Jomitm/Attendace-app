@@ -1,6 +1,24 @@
+const crypto = require('crypto');
 const { getDb } = require('./_firebase-admin');
 
 const TELEGRAM_API = 'https://api.telegram.org';
+
+// Vercel sends "Authorization: Bearer <CRON_SECRET>" on scheduled invocations
+// when CRON_SECRET is configured in project env. Enforced only when set, so
+// existing deployments keep working until the secret is added.
+function cronSecretIsValid(req) {
+    const expected = process.env.CRON_SECRET;
+    if (!expected) {
+        console.warn('CRON_SECRET is not set — scheduler endpoint accepts unauthenticated triggers.');
+        return true;
+    }
+    const header = String(req.headers?.authorization || '');
+    const match = /^Bearer\s+(.+)$/i.exec(header);
+    if (!match) return false;
+    const a = Buffer.from(match[1]);
+    const b = Buffer.from(expected);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
 
 async function sendMessage(token, chatId, text) {
     const resp = await fetch(`${TELEGRAM_API}/bot${token}/sendMessage`, {
@@ -205,7 +223,13 @@ async function weeklyLeaderboard(db, token) {
 }
 
 module.exports = async (req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    // Server-to-server endpoint (cron + operators) — no browser CORS needed.
+    if (!cronSecretIsValid(req)) {
+        res.statusCode = 401;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.end(JSON.stringify({ ok: false, error: 'Unauthorized' }));
+        return;
+    }
 
     if (req.method !== 'POST' && req.method !== 'GET') {
         res.statusCode = 405;
@@ -262,6 +286,6 @@ module.exports = async (req, res) => {
     } catch (err) {
         console.error('Scheduler error:', err);
         res.statusCode = 500;
-        res.end(JSON.stringify({ ok: false, error: err.message }));
+        res.end(JSON.stringify({ ok: false, error: 'Scheduler failed' }));
     }
 };

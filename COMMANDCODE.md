@@ -10,7 +10,7 @@ When significant changes are made or key decisions are discussed in a session, I
 
 - **Stack**: Vanilla JS SPA + Vite 7 + Firebase Firestore (Compat SDK via CDN)
 - **Auth**: Custom username/password (Firestore `users` collection + localStorage `crwi_session_user`)
-- **Hosting**: Vercel (`vercel.json` rewrites `/ai/assistant` → serverless fn)
+- **Hosting**: Vercel (`vercel.json` configures SPA rewrites)
 - **Entry**: `index.html` → `js/app.js` (hash-based SPA router)
 - **Config**: `js/config.js` (AppConfig — hours, grace bands, late penalty, hero policy)
 - **DB adapter**: `js/modules/db.js` (Firestore abstraction with in-memory cache + TTL)
@@ -56,16 +56,7 @@ See `memory.md` — key caches include daily summaries (24h), hero stats (24h, s
 
 ---
 
-## AI Integration
 
-- **Client**: `js/modules/ai-assistant.js` → `POST /ai/assistant`
-- **Server**: `api/assistant.js` (resolves to `api/grokHandler.js` using xAI/Grok API)
-- **Middleman**: `api/_assistant-common.js` (prompt engineering, response validation, audit logging)
-- **Context feeder**: `js/modules/ai-context-feeder.js` (builds staff context packs)
-- **Env key**: `XAI_API_KEY` / `GROK_API_KEY` in `.env`
-- **Dev proxy**: Vite inline plugin routes `/ai/assistant` to `api/assistant.js`
-
----
 
 ## Routes (Hash-based SPA)
 
@@ -79,7 +70,7 @@ See `memory.md` — key caches include daily summaries (24h), hero stats (24h, s
 | `#policies` | Policies & leave | `js/modules/policies.js` |
 | `#minutes` | Meeting minutes | `js/ui/minutes-ui.js` |
 | `#letter-pad` | Letter pad | `js/ui/letter-pad.js` |
-| `#staff-ai-memory` | AI memory (admin) | `js/ui/admin.js` |
+
 | `#admin` | Admin panel | `js/ui/admin.js` |
 | `#master-sheet` | Attendance sheet | `js/ui/master-sheet.js` |
 | `#salary` | Salary processing | `js/ui/payroll.js` |
@@ -91,7 +82,7 @@ See `memory.md` — key caches include daily summaries (24h), hero stats (24h, s
 
 ## Key Collections (Firestore)
 
-`users`, `attendance`, `leaves`, `minutes`, `work_plans`, `staff_messages`, `salaries`, `settings`, `events`, `daily_summaries`, `journey_reflections`, `policies`, `admin_policies`, `budget_heads`, `task_activity_events`, `ai_assistant_logs`, `ai_staff_context`
+`users`, `attendance`, `leaves`, `minutes`, `work_plans`, `staff_messages`, `salaries`, `settings`, `events`, `daily_summaries`, `journey_reflections`, `policies`, `admin_policies`, `budget_heads`, `task_activity_events`
 
 ---
 

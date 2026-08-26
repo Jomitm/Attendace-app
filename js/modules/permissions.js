@@ -51,13 +51,6 @@ export function canManageAttendanceSheet(user = getCurrentUser()) {
     return hasPerm('attendance', 'admin', user) || !!user.canManageAttendanceSheet;
 }
 
-export function canAccessStaffAiMemory(user = getCurrentUser()) {
-    if (!user) return false;
-    return isAdminUser(user)
-        || hasPerm('users', 'admin', user)
-        || !!user.canAccessStaffAiMemory;
-}
-
 export function canManageBirthdays(user = getCurrentUser()) {
     if (!user) return false;
     return isAdminUser(user)
@@ -87,7 +80,6 @@ if (typeof window !== 'undefined') {
     window.app_hasPerm = hasPerm;
     window.app_canAccessLetterPad = canAccessLetterPad;
     window.app_canManageAttendanceSheet = canManageAttendanceSheet;
-    window.app_canAccessStaffAiMemory = canAccessStaffAiMemory;
     window.app_canManageBirthdays = canManageBirthdays;
     window.app_canAdminBirthdays = canAdminBirthdays;
     window.app_canCustomizeDashboard = canCustomizeDashboard;
