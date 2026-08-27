@@ -1,8 +1,24 @@
+# Firestore Security Rules — CRWI Attendance App
+#
+# This file mirrors the rules deployed in the Firebase console. Keep the two
+# in sync: edit here, then `firebase deploy --only firestore:rules` (requires a
+# firebase.json with a `firestore.rules` pointer), or paste into the console.
+#
+# IMPORTANT: This app uses pure client-side custom authentication. Firebase
+# request.auth is therefore always null, so access is gated by this allowlist of
+# known collections rather than by per-user auth. Only collections listed below
+# are readable/writable by the client; everything else is denied by default.
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // The app uses client-side auth state, so access is gated by a strict
-    // collection allowlist instead of request.auth.
+
+    // The application uses pure client-side custom authentication.
+    // request.auth is always null, so we must allow public read/write
+    // to keep the login flow and data syncing functional.
+
+    // Safety Measure: Restrict arbitrary reads/writes to ONLY
+    // the known collections the application expects and uses.
     match /{collectionName}/{document=**} {
       allow read, write: if collectionName in [
         'users',
@@ -20,14 +36,14 @@ service cloud.firestore {
         'daily_summaries',
         'daily_summaries_meta',
         'summary_locks',
-        'journey_reflections',
         'app_meta',
         'policies',
         'admin_policies',
         'annual_plan',
         'day_plan',
         'budget_heads',
-        'task_activity_events'
+        'task_activity_events',
+        'classification_patterns'
       ];
     }
   }
