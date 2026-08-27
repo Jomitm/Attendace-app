@@ -234,6 +234,7 @@ if (typeof window !== 'undefined') {
         // Functions with data attribute args
         onAction('view-logs', (el) => window.app_viewLogs?.(el.dataset.userId || ''));
         onAction('edit-user', (el) => window.app_editUser?.(el.dataset.userId || ''));
+        onAction('impersonate-user', (el) => window.app_impersonateUser?.(el.dataset.userId || ''));
         onAction('undo-leave', (el) => window.app_undoLeaveDecision?.(el.dataset.leaveId || ''));
         onAction('approve-leave', (el) => window.app_approveLeave?.(el.dataset.leaveId || ''));
         onAction('reject-leave', (el) => window.app_rejectLeave?.(el.dataset.leaveId || ''));
@@ -652,6 +653,11 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         </div>
     `;
 
+    const viewerUser = window.AppAuth && window.AppAuth.getUser && window.AppAuth.getUser();
+    const ownerUsernames = (Array.isArray(AppConfig.OWNER_USERNAMES)
+        ? AppConfig.OWNER_USERNAMES.map(s => String(s).toLowerCase()) : []);
+    const isOwnerViewer = !!(viewerUser && ownerUsernames.includes(String(viewerUser.username || '').toLowerCase()));
+
     const renderStaffBlock = (isExpanded = false) => `
         <div class="admin-staff-head">
             <div class="admin-staff-head-actions">
@@ -684,6 +690,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                             <td>
                                 <div class="admin-row-actions">
                                     <button type="button" data-ts-action="view-logs" data-user-id="${u.id}" class="admin-icon-btn"><i class="fa-solid fa-list-check"></i></button>
+                                    ${isOwnerViewer ? `<button type="button" data-ts-action="impersonate-user" data-user-id="${u.id}" class="admin-icon-btn" title="Login as this user"><i class="fa-solid fa-arrow-right-to-bracket"></i></button>` : ''}
                                     ${window.app_hasPerm('users', 'admin') ? `<button type="button" data-ts-action="edit-user" data-user-id="${u.id}" class="admin-icon-btn"><i class="fa-solid fa-pen"></i></button>` : ''}
                                 </div>
                             </td>

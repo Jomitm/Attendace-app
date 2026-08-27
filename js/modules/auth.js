@@ -9,6 +9,12 @@ export class Auth {
         this.localToken = null;
         this.heartbeatInterval = null;
         this.userDocUnsubscribe = null;
+        // Impersonation (owner "Login as user"): when active, currentUser is the
+        // impersonated staff member while the owner's real session is preserved
+        // underneath (_realUser/_realToken) so they can snap back without re-login.
+        this.isImpersonating = false;
+        this._realUser = null;
+        this._realToken = null;
     }
 
     async init() {
@@ -71,23 +77,145 @@ export class Auth {
         });
 
         if (user) {
-            this.currentUser = user;
-            const token = this.generateSessionToken();
-            this.localToken = token;
-            localStorage.setItem(this.sessionKey, user.id);
-            localStorage.setItem(this.deviceTokenKey, token);
+            const localToken = localStorage.getItem(this.deviceTokenKey) || null;
+            const foreignToken = user.activeSessionToken || null;
+            const startedAt = user.activeSessionStartedAt || 0;
+            const windowMs = (AppConfig && AppConfig.SESSION_TAKEOVER_PROMPT_WINDOW_MS) || (24 * 60 * 60 * 1000);
+            const recent = (Date.now() - startedAt) <= windowMs;
+            const hasConflict = !!foreignToken && foreignToken !== localToken && recent;
+            const isOwner = (AppConfig && Array.isArray(AppConfig.OWNER_USERNAMES)
+                ? AppConfig.OWNER_USERNAMES.map(s => String(s).toLowerCase())
+                : []).includes((user.username || '').toLowerCase());
+
+            // The developer/owner account is exempt from the takeover prompt and the
+            // single-session auto-checkout: they can log in on any device without being
+            // asked or kicking their other sessions.
+            if (hasConflict && !isOwner) {
+                // Another device has a recent active session. Ask before taking over.
+                return { needsConflictConfirmation: true, user };
+            }
+            return this._establishSession(user, isOwner);
+        } else {
+            console.warn('Login failed: invalid credentials.');
+        }
+        return false;
+    }
+
+    // Establishes the local session for a verified user. For the owner account we
+    // reuse the existing activeSessionToken (if any) so multiple devices share one
+    // session and are never auto-checked-out. Normal users get a fresh token, which
+    // ends any other device's session.
+    async _establishSession(user, isOwner = false) {
+        let token = this.generateSessionToken();
+        if (isOwner && user.activeSessionToken) {
+            // Share the existing token across the owner's devices (no autocheckout).
+            token = user.activeSessionToken;
+        }
+        this.localToken = token;
+        this.currentUser = user;
+        localStorage.setItem(this.sessionKey, user.id);
+        localStorage.setItem(this.deviceTokenKey, token);
+        if (!isOwner || !user.activeSessionToken) {
             await AppDB.put('users', {
                 id: user.id,
                 activeSessionToken: token,
                 activeSessionStartedAt: Date.now()
             }).catch((err) => console.warn('Failed to set session token:', err));
-            this.startHeartbeat();
-            this.startCurrentUserSync();
-            return true;
-        } else {
-            console.warn('Login failed: invalid credentials.');
         }
-        return false;
+        this.startHeartbeat();
+        this.startCurrentUserSync();
+        return true;
+    }
+
+    // Called when the user confirms they want to sign in here and sign out the
+    // other device. Reuses the user object captured at login time (no extra read).
+    async confirmTakeoverLogin(user) {
+        if (!user || !user.id) return false;
+        return this._establishSession(user);
+    }
+
+    // Owner-only login used by the dedicated #owner login page. Validates the
+    // credentials like login(), but refuses (without side effects) any account
+    // that is not listed in AppConfig.OWNER_USERNAMES. Unlike login(), it never
+    // writes a session token or ends another device's session for non-owners.
+    // Returns: true (owner session established), false (bad credentials),
+    // or { denied: 'not-owner' } (valid creds but not an owner account).
+    async loginOwner(username, password) {
+        const users = AppDB.getCached
+            ? await AppDB.getCached(
+                AppDB.getCacheKey('authUsers', 'users', { mode: 'login' }),
+                (AppConfig?.READ_CACHE_TTLS?.users || 60000),
+                () => AppDB.getAll('users')
+            )
+            : await AppDB.getAll('users');
+        const cleanUser = username.trim().toLowerCase();
+        const cleanPass = password.trim();
+
+        const user = users.find(u => {
+            const uName = (u.username || "").toLowerCase().trim();
+            const uEmail = (u.email || "").toLowerCase().trim();
+            return (uName === cleanUser || uEmail === cleanUser) && u.password.trim() === cleanPass;
+        });
+
+        if (!user) {
+            console.warn('Owner login failed: invalid credentials.');
+            return false;
+        }
+
+        const isOwner = (AppConfig && Array.isArray(AppConfig.OWNER_USERNAMES)
+            ? AppConfig.OWNER_USERNAMES.map(s => String(s).toLowerCase())
+            : []).includes((user.username || '').toLowerCase());
+
+        if (!isOwner) {
+            // Valid credentials but not an owner account: refuse without
+            // establishing a session or touching the shared token.
+            return { denied: 'not-owner' };
+        }
+
+        return this._establishSession(user, true);
+    }
+
+    // Owner-only "Login as user": opens a staff account in a viewing session
+    // WITHOUT overwriting the target's activeSessionToken, so their real device
+    // is never force-logged-out. The owner's own session is preserved underneath
+    // and restored on stopImpersonating(). Only available to OWNER_USERNAMES.
+    async impersonate(userId) {
+        const me = this.currentUser;
+        if (!me) return false;
+        const ownerUsernames = (AppConfig && Array.isArray(AppConfig.OWNER_USERNAMES)
+            ? AppConfig.OWNER_USERNAMES.map(s => String(s).toLowerCase()) : []);
+        const isOwner = ownerUsernames.includes(String(me.username || '').toLowerCase());
+        if (!isOwner) return false;
+
+        const target = await AppDB.get('users', userId).catch(() => null);
+        if (!target) return false;
+        if (target.id === me.id) return false; // cannot impersonate self
+
+        this._realUser = me;
+        this._realToken = this.localToken;
+        this.isImpersonating = true;
+
+        // Pause the owner's realtime sync/heartbeat so they don't overwrite the
+        // impersonated currentUser or write the owner's presence to the target.
+        this.stopCurrentUserSync();
+        this.stopHeartbeat();
+
+        this.currentUser = { ...target, id: target.id };
+        window.dispatchEvent(new CustomEvent('app:impersonation-start', { detail: this.currentUser }));
+        return true;
+    }
+
+    async stopImpersonating() {
+        if (!this.isImpersonating) return false;
+        this.isImpersonating = false;
+        this.currentUser = this._realUser;
+        this.localToken = this._realToken;
+        this._realUser = null;
+        this._realToken = null;
+        this.startCurrentUserSync();
+        this.startHeartbeat();
+        window.dispatchEvent(new CustomEvent('app:impersonation-end', { detail: this.currentUser }));
+        return true;
     }
 
     async logout() {
@@ -109,8 +237,10 @@ export class Auth {
         this.stopCurrentUserSync();
         this.currentUser = null;
         this.localToken = null;
-        localStorage.removeItem(this.sessionKey);
-        localStorage.removeItem(this.deviceTokenKey);
+        try {
+            localStorage.removeItem(this.sessionKey);
+            localStorage.removeItem(this.deviceTokenKey);
+        } catch { /* ignore */ }
         window.location.reload();
     }
 

@@ -1223,8 +1223,16 @@ if (typeof window !== 'undefined') {
                 return;
             }
             if (!planId || !Number.isInteger(taskIndex) || !window.AppCalendar?.updateTaskStatus) return;
+            const comment = (typeof window.app_promptOptionalComment === 'function')
+                ? await window.app_promptOptionalComment('Add a note for completing this task?', 'Completion note (optional)')
+                : '';
+            if (comment === null) return; // user skipped/cancelled
             btn.disabled = true;
-            await window.AppCalendar.updateTaskStatus(planId, taskIndex, 'completed');
+            await window.AppCalendar.updateTaskStatus(planId, taskIndex, 'completed', null, { completionComment: comment });
+            // Reflect on the work-completion report (checkout summary draft).
+            if (typeof window.app_appendCompletedTaskToSummary === 'function') {
+                await window.app_appendCompletedTaskToSummary(planId, taskIndex, comment);
+            }
             const state = getTeamActivitiesState();
             if (Array.isArray(state.data)) {
                 state.data = state.data.map((row) => {

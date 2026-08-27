@@ -2000,3 +2000,26 @@
 .plan-editor-classification-helper strong {
     font-weight: 800;
 }
+
+.plan-editor-comment-field {
+    margin-top: 0.7rem;
+}
+
+.plan-editor-comment-field label {
+    display: block;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #475569;
+    margin-bottom: 0.3rem;
+}
+
+.plan-editor-comment {
+    width: 100%;
+    padding: 0.55rem 0.65rem;
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    font-family: inherit;
+    resize: vertical;
+    box-sizing: border-box;
+}

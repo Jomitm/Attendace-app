@@ -3384,8 +3384,11 @@ async function router() {
         document.body.style.background = '#f3f4f6';
         if (contentArea) {
             try {
-                // Prefer AppUI.renderLogin if available, otherwise keep existing markup
-                if (window.AppUI && typeof window.AppUI.renderLogin === 'function') {
+                // Dedicated owner portal at #owner: render the restricted owner
+                // login instead of the standard staff login.
+                if (rawHash === 'owner' && window.AppUI && typeof window.AppUI.renderOwnerLogin === 'function') {
+                    contentArea.innerHTML = AppUI.renderOwnerLogin();
+                } else if (window.AppUI && typeof window.AppUI.renderLogin === 'function') {
                     contentArea.innerHTML = AppUI.renderLogin();
                 }
             } catch (err) {
@@ -3403,6 +3406,13 @@ async function router() {
     window.AppSiteAnnouncement?.start?.();
 
     // LOGGED IN
+    // The #owner route is only an entry point; once authenticated, send the
+    // owner to the normal dashboard so the hash doesn't linger on /#owner.
+    if (rawHash === 'owner') {
+        window.location.hash = 'dashboard';
+        return;
+    }
+    app_toggleImpersonationBanner();
     // Clear mobile specific states on route change
     toggleMobileSidebar(false);
 
@@ -3413,10 +3423,19 @@ async function router() {
     // Update Side Profile
     const sideProfile = document.querySelector('.sidebar-footer .user-mini-profile');
     if (sideProfile) {
+        const impActive = !!(window.AppAuth && window.AppAuth.isImpersonating && window.AppAuth.currentUser);
+        const impName = impActive
+            ? String(window.AppAuth.currentUser.name || window.AppAuth.currentUser.username || 'user').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+            : '';
         sideProfile.innerHTML = `
                 <img src="${user.avatar || 'https://ui-avatars.com/api/?name=User'}" alt="User">
                 <div>
                     <p class="user-name">${user.name || 'Staff Member'}</p>
+                    ${impActive ? `<p class="impersonation-side-note">Viewing as ${impName}</p>
+                    <span class="impersonation-side-actions">
+                        <button type="button" class="impersonation-side-link" onclick="window.app_setImpersonationBannerHidden(false)">Show banner</button>
+                        <button type="button" class="impersonation-side-link danger" onclick="window.app_exitImpersonation()">Exit view</button>
+                    </span>` : ''}
                 </div>
                 <i class="fa-solid fa-gear user-settings-icon"></i>
             `;
@@ -5170,6 +5189,47 @@ window.app_updateCheckoutTaskActionMeta = (key, field, value) => {
     window.app_renderCheckoutActionPreview();
 };
 
+window.app_setPostponeWorkStatus = (key, val, btn) => {
+    // Toggle the visual selection first so a click always gives feedback, even if
+    // persisting the value downstream throws for any reason.
+    const group = btn && btn.closest && btn.closest('.postpone-work-status-group');
+    if (group) group.querySelectorAll('.ps-btn').forEach((b) => b.classList.toggle('active', b === btn));
+    try {
+        if (window.app_updateCheckoutTaskActionMeta) window.app_updateCheckoutTaskActionMeta(key, 'postponeWorkStatus', val);
+    } catch (err) {
+        console.warn('Failed to persist postpone work status:', err);
+    }
+};
+
+// Prompts for an optional comment in a modal. Resolves with the trimmed string
+// (empty string if left blank) on confirm, or null if cancelled/skipped.
+window.app_promptOptionalComment = function (title, placeholder) {
+    return new Promise((resolve) => {
+        const modalId = 'optional-comment-modal';
+        document.getElementById(modalId)?.remove();
+        const html = `
+            <div class="modal-overlay" id="${modalId}" style="display:flex;">
+                <div class="modal-content" style="max-width:440px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.8rem;">
+                        <h3 style="margin:0; font-size:1.05rem;">${window.app_escapeHtml ? window.app_escapeHtml(title || 'Add a note') : (title || 'Add a note')}</h3>
+                        <button type="button" onclick="document.getElementById('${modalId}')?.remove(); window.app_resolveOptionalComment(null);" style="background:none; border:none; font-size:1.1rem; cursor:pointer;">&times;</button>
+                    </div>
+                    <textarea id="optional-comment-input" rows="3" placeholder="${window.app_escapeHtml ? window.app_escapeHtml(placeholder || '') : (placeholder || '')}" style="width:100%; padding:0.6rem; border:1px solid #d1d5db; border-radius:8px;"></textarea>
+                    <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1rem;">
+                        <button type="button" class="action-btn secondary" onclick="document.getElementById('${modalId}')?.remove(); window.app_resolveOptionalComment(null);" style="padding:0.55rem 0.9rem;">Skip</button>
+                        <button type="button" class="action-btn" onclick="window.app_resolveOptionalComment(document.getElementById('optional-comment-input')?.value || '');" style="padding:0.55rem 0.9rem;">Add</button>
+                    </div>
+                </div>
+            </div>`;
+        window.app_showModal(html, modalId);
+        window.app_resolveOptionalComment = (val) => {
+            document.getElementById(modalId)?.remove();
+            delete window.app_resolveOptionalComment;
+            resolve(val);
+        };
+    });
+};
+
 window.app_clearCheckoutTaskError = (key) => {
     const modal = document.querySelector(`.checkout-action-detail-modal[data-checkout-key="${app_escapeCssValue(key)}"]`);
     if (!modal) return;
@@ -5277,6 +5337,8 @@ window.app_openCheckoutActionModal = (key) => {
     const postponeReason = app_escapeHtml(details.actionMeta?.postponeReason || '');
     const delegateNote = app_escapeHtml(details.actionMeta?.delegateNote || '');
     const delegateUserId = app_escapeHtml(details.actionMeta?.delegateUserId || '');
+    const completionComment = app_escapeHtml(details.actionMeta?.completionComment || '');
+    const postponeWorkStatus = details.actionMeta?.postponeWorkStatus || 'not_started';
     const candidateOptions = Object.keys(userMap)
         .filter((userId) => String(userId) !== String(currentUserId))
         .map((userId) => {
@@ -5306,12 +5368,20 @@ window.app_openCheckoutActionModal = (key) => {
                 </div>
                 <div class="checkout-task-action-extra" data-action-panel-section="complete" style="display:${details.action === 'complete' ? 'block' : 'none'};">
                     <div class="checkout-task-action-help">This task will be marked completed during check-out.</div>
+                    <label for="complete-comment-${app_escapeJsSingleQuote(key)}">Completion note (optional)</label>
+                    <textarea id="complete-comment-${app_escapeJsSingleQuote(key)}" rows="2" data-action-field="completionComment" placeholder="Optional note about how the task was completed..." oninput="window.app_updateCheckoutTaskActionMeta('${app_escapeJsSingleQuote(key)}','completionComment', this.value)">${completionComment}</textarea>
                 </div>
                 <div class="checkout-task-action-extra" data-action-panel-section="postpone" style="display:${details.action === 'postpone' ? 'block' : 'none'};">
                     <label for="postpone-date-${app_escapeJsSingleQuote(key)}">New Date</label>
                     <input id="postpone-date-${app_escapeJsSingleQuote(key)}" type="date" min="${minPostponeDate}" data-action-field="postponeDate" value="${postponeDate}" onchange="window.app_updateCheckoutTaskActionMeta('${app_escapeJsSingleQuote(key)}','postponeDate', this.value)">
                     <label for="postpone-reason-${app_escapeJsSingleQuote(key)}">Reason</label>
                     <textarea id="postpone-reason-${app_escapeJsSingleQuote(key)}" rows="2" data-action-field="postponeReason" placeholder="Optional reason" oninput="window.app_updateCheckoutTaskActionMeta('${app_escapeJsSingleQuote(key)}','postponeReason', this.value)">${postponeReason}</textarea>
+                    <div class="checkout-postpone-status-label">Work done before postponing</div>
+                    <div class="postpone-work-status-group" role="group" aria-label="Work status before postponing">
+                        <button type="button" class="ps-btn ${postponeWorkStatus === 'not_started' ? 'active' : ''}" data-ps="not_started" onclick="window.app_setPostponeWorkStatus('${app_escapeJsSingleQuote(key)}','not_started', this)">Not Started</button>
+                        <button type="button" class="ps-btn ${postponeWorkStatus === 'work_started' ? 'active' : ''}" data-ps="work_started" onclick="window.app_setPostponeWorkStatus('${app_escapeJsSingleQuote(key)}','work_started', this)">Work Started</button>
+                        <button type="button" class="ps-btn ${postponeWorkStatus === 'in_progress' ? 'active' : ''}" data-ps="in_progress" onclick="window.app_setPostponeWorkStatus('${app_escapeJsSingleQuote(key)}','in_progress', this)">In Progress</button>
+                    </div>
                 </div>
                 <div class="checkout-task-action-extra" data-action-panel-section="delegate" style="display:${details.action === 'delegate' ? 'block' : 'none'};">
                     <label for="delegate-user-${app_escapeJsSingleQuote(key)}">Assign To</label>
@@ -5416,6 +5486,10 @@ window.app_applyCheckoutTaskUpdates = async (updates = [], options = {}) => {
         });
         plan.updatedAt = new Date().toISOString();
         await window.AppDB.put('work_plans', plan);
+        if (mutation.nextTask.status === 'completed') {
+            // Upgrade the work-completion summary line with the optional comment.
+            await window.app_appendCompletedTaskToSummary(update.planId, update.taskIndex, mutation.nextTask.completionComment);
+        }
         if (mutation.postponedTask) {
             const postponedTask = mutation.postponedTask;
             // Postponed copies go to the assignee's plan; the source task stays in
@@ -5644,6 +5718,8 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
         const sizeCategory = block.querySelector('.plan-size-category')?.value || '';
         const purposeCategory = block.querySelector('.plan-purpose-category')?.value || '';
         const priorityLevel = block.querySelector('.plan-priority-level')?.value || '';
+        const completionComment = String(block.querySelector('.plan-completion-comment')?.value || '').trim();
+        const postponeWorkStatus = block.querySelector('.plan-postpone-work-status')?.value || '';
         // Provenance (postpone/carry-forward metadata) must survive the edit+
         // save round-trip, otherwise it gets silently dropped.
         const provenance = (window.app_deserializeTaskProvenance?.(block.querySelector('.plan-provenance')?.value || '') || {});
@@ -5678,7 +5754,9 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
                 isPrivate,
                 sizeCategory,
                 purposeCategory,
-                priorityLevel
+                priorityLevel,
+                completionComment,
+                postponeWorkStatus: postponeWorkStatus || null
             };
             // Newly marked postponed (was not postponed before this save): schedule
             // a copy for tomorrow so "Postponed" really moves the task to the next
@@ -6244,11 +6322,14 @@ window.app_deleteMeeting = async (id) => {
 
 
 // Helper to postpone a task
-window.app_postponeTask = async (planId, taskIndex, targetDate) => {
+window.app_postponeTask = async (planId, taskIndex, targetDate, postponeWorkStatus) => {
     if (!targetDate) {
         window.app_openPostponeModal?.(planId, taskIndex);
         return;
     }
+    const ws = (postponeWorkStatus === 'work_started' || postponeWorkStatus === 'in_progress' || postponeWorkStatus === 'not_started')
+        ? postponeWorkStatus
+        : 'not_started';
     try {
         // Read plan/task and validate BEFORE mutating the source task, so a failed
         // postpone never strands the original as 'postponed' without a copy.
@@ -6273,6 +6354,7 @@ window.app_postponeTask = async (planId, taskIndex, targetDate) => {
         const sourcePatch = await window.AppDB.get('work_plans', planId).catch(() => null);
         if (sourcePatch && sourcePatch.plans?.[taskIndex]) {
             sourcePatch.plans[taskIndex].postponedToDate = targetDate;
+            sourcePatch.plans[taskIndex].postponeWorkStatus = ws;
             sourcePatch.updatedAt = new Date().toISOString();
             await window.AppDB.put('work_plans', sourcePatch).catch(() => null);
         }
@@ -6287,6 +6369,7 @@ window.app_postponeTask = async (planId, taskIndex, targetDate) => {
             sourceTaskIndex: taskIndex,
             postponedFromDate: fromDate,
             status: 'postponed',
+            postponeWorkStatus: ws,
             assignedTo: assigneeId,
             assignedToName: freshTask.assignedToName || plan?.userName || ''
         });
@@ -6298,9 +6381,16 @@ window.app_postponeTask = async (planId, taskIndex, targetDate) => {
     }
 };
 
+window.app_selectPostponeWorkStatus = function (val, btn) {
+    window._postponeWorkStatus = val;
+    const group = btn && btn.closest && btn.closest('.postpone-work-status-group');
+    if (group) group.querySelectorAll('.ps-btn').forEach((b) => b.classList.toggle('active', b === btn));
+};
+
 window.app_openPostponeModal = function (planId, taskIndex) {
     const modalId = 'postpone-task-modal';
     document.getElementById(modalId)?.remove();
+    window._postponeWorkStatus = 'not_started';
     const istNow = app_getISTNowDate();
     const tomorrowDate = new Date(istNow);
     tomorrowDate.setDate(tomorrowDate.getDate() + 1);
@@ -6314,6 +6404,12 @@ window.app_openPostponeModal = function (planId, taskIndex) {
                     </div>
                     <label for="postpone-date-input" style="display:block; margin-bottom:0.35rem; font-size:0.85rem; color:#475569; font-weight:600;">Select date</label>
                     <input id="postpone-date-input" type="date" value="${tomorrow}" style="width:100%; padding:0.6rem; border:1px solid #d1d5db; border-radius:8px;">
+                    <div class="checkout-postpone-status-label" style="margin-top:0.9rem;">Work done before postponing</div>
+                    <div class="postpone-work-status-group" role="group" aria-label="Work status before postponing">
+                        <button type="button" class="ps-btn active" data-ps="not_started" onclick="window.app_selectPostponeWorkStatus('not_started', this)">Not Started</button>
+                        <button type="button" class="ps-btn" data-ps="work_started" onclick="window.app_selectPostponeWorkStatus('work_started', this)">Work Started</button>
+                        <button type="button" class="ps-btn" data-ps="in_progress" onclick="window.app_selectPostponeWorkStatus('in_progress', this)">In Progress</button>
+                    </div>
                     <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1rem;">
                         <button type="button" class="action-btn secondary" onclick="document.getElementById('${modalId}')?.remove()" style="padding:0.55rem 0.9rem;">Cancel</button>
                         <button type="button" class="action-btn" onclick="window.app_confirmPostponeTask('${planId}', ${taskIndex})" style="padding:0.55rem 0.9rem;">Confirm</button>
@@ -6326,8 +6422,9 @@ window.app_openPostponeModal = function (planId, taskIndex) {
 window.app_confirmPostponeTask = async function (planId, taskIndex) {
     const targetDate = document.getElementById('postpone-date-input')?.value;
     if (!targetDate) return alert('Please select a date.');
+    const ws = window._postponeWorkStatus || 'not_started';
     document.getElementById('postpone-task-modal')?.remove();
-    await window.app_postponeTask(planId, taskIndex, targetDate);
+    await window.app_postponeTask(planId, taskIndex, targetDate, ws);
 };
 window.app_openDelegateModal = async function (planId, taskIndex) {
     const modalId = 'delegate-task-modal';
@@ -6403,16 +6500,26 @@ window.app_checkoutPostponeChip = function (task) {
     return window.app_formatPostponeChip ? window.app_formatPostponeChip(task) : '';
 };
 
-window.app_appendCompletedTaskToSummary = async function (planId, taskIndex) {
+window.app_appendCompletedTaskToSummary = async function (planId, taskIndex, comment) {
     const plan = await window.AppDB.get('work_plans', planId);
     const task = plan?.plans?.[taskIndex];
     if (!task) return;
     const details = (task.subPlans && task.subPlans.length) ? ` (${task.subPlans.join(', ')})` : '';
-    const line = `- ${task.task}${details}`;
+    // Base line (without the optional comment) is the de-dupe key so a later
+    // call with a comment upgrades the same line instead of duplicating it.
+    const baseLine = `- ${task.task}${details}`.trim();
+    const commentStr = (comment && String(comment).trim()) ? ` — ${String(comment).trim()}` : '';
+    const line = `${baseLine}${commentStr}`;
     const summaryTextarea = document.getElementById('checkout-work-summary');
     const current = (summaryTextarea?.value || window.app_checkoutSummaryDraft || '').trim();
-    const exists = current.split('\n').some(l => l.trim() === line.trim());
-    const next = exists ? current : (current ? `${current}\n${line}` : line);
+    const lines = current ? current.split('\n') : [];
+    const idx = lines.findIndex(l => {
+        const t = l.trim();
+        return t === baseLine || t.startsWith(`${baseLine} —`);
+    });
+    if (idx >= 0) lines[idx] = line;
+    else lines.push(line);
+    const next = lines.join('\n');
     window.app_checkoutSummaryDraft = next;
     if (summaryTextarea) {
         summaryTextarea.value = next;
@@ -7865,7 +7972,122 @@ window.app_openTeamActivities = async function () {
     }
 };
 
+// Completes a successful login: records login location and redirects.
+async function app_finalizeLogin(pos) {
+    const currentUser = window.AppAuth.getUser();
+    if (currentUser) {
+        currentUser.lastLoginLocation = {
+            lat: pos ? pos.lat : null,
+            lng: pos ? pos.lng : null,
+            capturedAt: Date.now()
+        };
+        await window.AppDB.put('users', currentUser);
+    }
+    window.location.href = window.location.pathname + '?_=' + Date.now() + window.location.hash;
+}
+
+// Shows the "sign in here / sign out the other device" prompt when another
+// recent session exists. Confirming calls confirmTakeoverLogin (which overwrites
+// the shared token, ending the other device's session via its realtime listener).
+function app_showSessionTakeoverModal(user, pos) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.id = 'session-takeover-overlay';
+    overlay.innerHTML = `
+        <div class="modal-content session-takeover-modal" role="dialog" aria-modal="true">
+            <h3>Already signed in elsewhere</h3>
+            <p>This account is already signed in on another device. Would you like to sign in here and automatically sign out the other device?</p>
+            <div class="session-takeover-actions">
+                <button type="button" class="action-btn secondary" id="takeover-cancel-btn">Cancel</button>
+                <button type="button" class="action-btn" id="takeover-confirm-btn">Sign in here &amp; sign out other</button>
+            </div>
+        </div>`;
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+    overlay.querySelector('#takeover-cancel-btn').addEventListener('click', close);
+    overlay.querySelector('#takeover-confirm-btn').addEventListener('click', async () => {
+        const btn = overlay.querySelector('#takeover-confirm-btn');
+        btn.disabled = true;
+        try {
+            const ok = await window.AppAuth.confirmTakeoverLogin(user);
+            if (!ok) {
+                alert('Could not sign in. Please try again.');
+                btn.disabled = false;
+                return;
+            }
+            await app_finalizeLogin(pos);
+        } catch (err) {
+            alert('Login failed: ' + String(err));
+            btn.disabled = false;
+        }
+    });
+}
+
 // --- Global Event Delegation ---
+
+// Owner "Login as user" (impersonation): switches the active view to the
+// target staff account WITHOUT overwriting their session token, then re-renders
+// the current route as them. Exiting restores the owner's real session.
+window.app_impersonateUser = async (userId) => {
+    if (!userId) return;
+    const ok = await window.AppAuth.impersonate(userId);
+    if (!ok) {
+        alert('You do not have permission to log in as this user.');
+        return;
+    }
+    // Re-render the current route as the impersonated user.
+    window.dispatchEvent(new Event('hashchange'));
+};
+
+window.app_exitImpersonation = async () => {
+    await window.AppAuth.stopImpersonating();
+    window.dispatchEvent(new Event('hashchange'));
+};
+
+// While impersonating, the banner can be hidden by the owner. A small control
+// also lives in the sidebar profile so they can always restore/exit.
+let impersonationBannerHidden = false;
+
+window.app_setImpersonationBannerHidden = (hidden) => {
+    impersonationBannerHidden = !!hidden;
+    const banner = document.getElementById('impersonation-banner');
+    if (banner) banner.style.display = impersonationBannerHidden ? 'none' : '';
+};
+
+// Shows/hides the persistent banner while impersonating, so the owner always
+// knows they are acting as someone else and can return to their session.
+function app_toggleImpersonationBanner() {
+    const existing = document.getElementById('impersonation-banner');
+    const auth = window.AppAuth;
+    const active = !!(auth && auth.isImpersonating && auth.currentUser);
+    if (active) {
+        const rawName = auth.currentUser.name || auth.currentUser.username || 'user';
+        const name = String(rawName).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        if (!existing) {
+            const banner = document.createElement('div');
+            banner.id = 'impersonation-banner';
+            banner.innerHTML = `
+                <span class="impersonation-banner-label">
+                    <i class="fa-solid fa-user-secret"></i> Viewing as <strong>${name}</strong>
+                </span>
+                <span class="impersonation-banner-actions">
+                    <button type="button" id="hide-impersonation-btn" class="action-btn ghost">Hide</button>
+                    <button type="button" id="exit-impersonation-btn" class="action-btn">Exit &amp; return to owner</button>
+                </span>`;
+            document.body.appendChild(banner);
+            banner.querySelector('#exit-impersonation-btn').addEventListener('click', () => window.app_exitImpersonation());
+            banner.querySelector('#hide-impersonation-btn').addEventListener('click', () => window.app_setImpersonationBannerHidden(true));
+        } else {
+            const label = existing.querySelector('.impersonation-banner-label strong');
+            if (label) label.textContent = name;
+        }
+        window.app_setImpersonationBannerHidden(impersonationBannerHidden);
+    } else {
+        if (existing) existing.remove();
+        impersonationBannerHidden = false;
+    }
+}
 
 document.addEventListener('submit', (e) => {
     // Force prevent default for ALL forms in this app to prevent query param reloads
@@ -7879,26 +8101,47 @@ document.addEventListener('submit', (e) => {
     if (id === 'manual-log-form') handleManualLog(e);
     else if (id === 'checkout-form') window.app_submitCheckOut(e);
     else if (id === 'add-user-form') handleAddUser(e);
+    else if (id === 'owner-login-form') {
+        (async () => {
+            const fd = new FormData(e.target);
+            try {
+                const pos = await app_getAttendanceLocation();
+                const result = await window.AppAuth.loginOwner(fd.get('username'), fd.get('password'));
+                if (result && result.denied === 'not-owner') {
+                    alert('This portal is for owner access only.');
+                    return;
+                }
+                if (!result) {
+                    alert('Invalid Credentials');
+                    return;
+                }
+                window.location.hash = 'dashboard';
+                await app_finalizeLogin(pos);
+            } catch (err) {
+                const errStr = String(err);
+                if (errStr.includes('permission-denied') || errStr.includes('FirebaseError')) {
+                    alert(`Database Error: ${errStr}\n\nAccess to the database was blocked. Please check your Firebase Firestore Security Rules.`);
+                } else {
+                    alert(`Login blocked: ${errStr}\n\nPlease enable location and try again.`);
+                }
+            }
+        })();
+    }
     else if (id === 'login-form') {
         (async () => {
             const fd = new FormData(e.target);
             try {
                 const pos = await app_getAttendanceLocation();
-                const success = await window.AppAuth.login(fd.get('username'), fd.get('password'));
-                if (!success) {
+                const result = await window.AppAuth.login(fd.get('username'), fd.get('password'));
+                if (result && result.needsConflictConfirmation) {
+                    app_showSessionTakeoverModal(result.user, pos);
+                    return;
+                }
+                if (!result) {
                     alert('Invalid Credentials');
                     return;
                 }
-                const currentUser = window.AppAuth.getUser();
-                if (currentUser) {
-                    currentUser.lastLoginLocation = {
-                        lat: pos.lat,
-                        lng: pos.lng,
-                        capturedAt: Date.now()
-                    };
-                    await window.AppDB.put('users', currentUser);
-                }
-                window.location.href = window.location.pathname + '?_=' + Date.now() + window.location.hash;
+                await app_finalizeLogin(pos);
             } catch (err) {
                 const errStr = String(err);
                 if (errStr.includes('permission-denied') || errStr.includes('FirebaseError')) {

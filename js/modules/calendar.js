@@ -993,7 +993,7 @@ export class Calendar {
     /**
      * Update task status (admin or user can mark completed/not-completed)
      */
-    async updateTaskStatus(planId, taskIndex, newStatus, completedDate = null) {
+    async updateTaskStatus(planId, taskIndex, newStatus, completedDate = null, opts = null) {
         try {
             const plan = await this.db.get('work_plans', planId);
             if (!plan || !plan.plans || !plan.plans[taskIndex]) {
@@ -1003,6 +1003,12 @@ export class Calendar {
             plan.plans[taskIndex].status = newStatus;
             if (newStatus === 'completed' && !plan.plans[taskIndex].completedDate) {
                 plan.plans[taskIndex].completedDate = completedDate || new Date().toISOString().split('T')[0];
+            }
+            if (newStatus === 'completed' && opts && typeof opts.completionComment === 'string') {
+                plan.plans[taskIndex].completionComment = opts.completionComment.trim();
+            }
+            if ((newStatus === 'postponed') && opts && typeof opts.postponeWorkStatus === 'string') {
+                plan.plans[taskIndex].postponeWorkStatus = opts.postponeWorkStatus;
             }
             plan.updatedAt = new Date().toISOString();
 

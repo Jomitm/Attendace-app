@@ -149,5 +149,21 @@ export const AppConfig = {
         if (!user) return false;
         const username = String(user.username || '').toLowerCase().trim();
         return username === this.DEMO_USER_USERNAME;
-    }
+    },
+    // Points awarded to a task that was postponed, based on how much work had
+    // already been done before it was moved. Consumed by rating.js calculateTaskPoints.
+    POSTPONE_WORK_STATUS_POINTS: {
+        not_started: 0,
+        work_started: 3,
+        in_progress: 5
+    },
+    // When logging in while another session token exists, only prompt the user to
+    // "sign in here / sign out the other device" if that session started recently.
+    // Uses activeSessionStartedAt (written at login) so no extra Firestore reads/writes
+    // are introduced. A stale token from a long-closed tab is taken over silently.
+    SESSION_TAKEOVER_PROMPT_WINDOW_MS: 24 * 60 * 60 * 1000,
+    // Developer/owner accounts exempt from the takeover prompt and single-session
+    // auto-checkout. They may log in on any device and share one session token
+    // across devices without being asked or kicked. List by login username.
+    OWNER_USERNAMES: ['jomit']
 };

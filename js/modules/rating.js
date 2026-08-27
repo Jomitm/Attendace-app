@@ -70,6 +70,14 @@ export class RatingSystem {
             case 'not-completed':
                 points = -3; // Cancelled/abandoned
                 break;
+            case 'postponed': {
+                // Points reflect how much work was done before the task was moved.
+                const map = (window.AppConfig && window.AppConfig.POSTPONE_WORK_STATUS_POINTS)
+                    || { not_started: 0, work_started: 3, in_progress: 5 };
+                const ws = task.postponeWorkStatus;
+                points = (ws && typeof map[ws] === 'number') ? map[ws] : 0;
+                break;
+            }
         }
 
         return points;

@@ -948,6 +948,16 @@ export async function openPlanEditor(args) {
     body.appendChild(textarea);
     body.appendChild(grid);
 
+    const commentField = createElement('div', { className: 'plan-editor-field plan-editor-comment-field' });
+    commentField.innerHTML = '<label>Completion Note (optional)</label>';
+    const commentTextarea = createElement('textarea', {
+        className: 'plan-editor-comment',
+        textContent: planData.completionComment || '',
+        attributes: { placeholder: 'Optional note added when this task is completed...', rows: '2' }
+    });
+    commentField.appendChild(commentTextarea);
+    body.appendChild(commentField);
+
     /* ── Classification helper banner ── */
     const classHelper = createElement('div', {
         className: 'plan-editor-classification-helper',
@@ -1082,7 +1092,8 @@ export async function openPlanEditor(args) {
                 isPrivate: privateCheckbox.checked,
                 sizeCategory: sizeSelect.value || '',
                 purposeCategory: purposeSelect.value || '',
-                priorityLevel: prioritySelect.value || ''
+                priorityLevel: prioritySelect.value || '',
+                completionComment: String(commentTextarea.value || '').trim()
             };
 
             const blockArgs = {
@@ -1497,6 +1508,8 @@ export function dayPlanRenderBlockV3(args) {
         <input class="plan-size-category" value="${esc(plan.sizeCategory || '')}">
         <input class="plan-purpose-category" value="${esc(plan.purposeCategory || '')}">
         <input class="plan-priority-level" value="${esc(plan.priorityLevel || '')}">
+        <input class="plan-completion-comment" value="${esc(plan.completionComment || '')}">
+        <input class="plan-postpone-work-status" value="${esc(plan.postponeWorkStatus || '')}">
         <input class="plan-provenance" type="hidden" value="${esc(serializeTaskProvenance(plan, { _originalStatus: plan._originalStatus !== undefined ? plan._originalStatus : (plan.status || '') }))}">
     `;
     if (plan.subPlans) {
@@ -1665,6 +1678,7 @@ export function app_extractBlockData(block) {
     const sizeCategory = block.querySelector('.plan-size-category')?.value || '';
     const purposeCategory = block.querySelector('.plan-purpose-category')?.value || '';
     const priorityLevel = block.querySelector('.plan-priority-level')?.value || '';
+    const completionComment = String(block.querySelector('.plan-completion-comment')?.value || '').trim();
 
     const subPlans = Array.from(block.querySelectorAll('.sub-plan-input')).map(i => i.value);
     const tags = Array.from(block.querySelectorAll('.tag-chip')).map(c => ({
@@ -1680,7 +1694,7 @@ export function app_extractBlockData(block) {
         ...provenance,
         task, status, planScope, budgetHeadId, assignedTo, assignedToName, startDate, endDate,
         subPlans, tags, carryForwardRootId, isRemoved, isPrivate, assignedFromPlanId,
-        sizeCategory, purposeCategory, priorityLevel
+        sizeCategory, purposeCategory, priorityLevel, completionComment
     };
 }
 
