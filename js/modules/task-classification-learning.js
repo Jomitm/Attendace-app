@@ -134,8 +134,10 @@ async function loadPatterns(forceRefresh = false) {
     try {
         const db = AppDB.db;
         if (db) {
+            // Shared across all staff: read the global pattern set (every user's
+            // learned classifications), not just the current user's. Local store
+            // remains a per-user offline cache merged on top.
             const snapshot = await db.collection(COLLECTION)
-                .where('userId', '==', currentUser.id)
                 .orderBy('updatedAt', 'desc')
                 .limit(MAX_PATTERNS_PER_USER)
                 .get();
