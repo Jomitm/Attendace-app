@@ -967,10 +967,17 @@ export async function openPlanEditor(args) {
 
         const applySuggestion = async () => {
             const text = String(textarea.value || '').trim();
-            if (text.length < 8) return;
+            if (text.length < 3) {
+                suggestionIndicator.style.display = 'none';
+                return;
+            }
             try {
                 const suggestion = await suggestClassification(text);
-                if (!suggestion) return;
+                if (!suggestion) {
+                    suggestionIndicator.textContent = 'Learning your patterns…';
+                    suggestionIndicator.style.display = '';
+                    return;
+                }
                 if (!sizeSelect.value && suggestion.sizeCategory) {
                     sizeSelect.value = suggestion.sizeCategory;
                 }
@@ -982,6 +989,9 @@ export async function openPlanEditor(args) {
                 }
                 const anyFilled = suggestion.sizeCategory || suggestion.purposeCategory || suggestion.priorityLevel;
                 if (anyFilled) {
+                    suggestionIndicator.textContent = suggestion.sampleTask
+                        ? `Auto-filled from “${suggestion.sampleTask}”`
+                        : 'Auto-filled from history';
                     suggestionIndicator.style.display = '';
                 }
             } catch (__) { void __; }
@@ -1273,12 +1283,22 @@ export async function quickAddPersonalPlan(date = null, targetUserId = null) {
 
     const applyQuickSuggestion = async () => {
         const text = String(taskField.value || '').trim();
-        if (text.length < 8) return;
+        if (text.length < 3) {
+            quickSuggestionIndicator.style.display = 'none';
+            return;
+        }
         try {
             const suggestion = await suggestClassification(text);
-            if (!suggestion) return;
+            if (!suggestion) {
+                quickSuggestionIndicator.textContent = 'Learning your patterns…';
+                quickSuggestionIndicator.style.display = '';
+                return;
+            }
             if (!prioritySelect.value && suggestion.priorityLevel) {
                 prioritySelect.value = suggestion.priorityLevel;
+                quickSuggestionIndicator.textContent = suggestion.sampleTask
+                    ? `Auto-filled from “${suggestion.sampleTask}”`
+                    : 'Auto-filled from history';
                 quickSuggestionIndicator.style.display = '';
             }
         } catch (__) { void __; }

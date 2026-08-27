@@ -16,7 +16,7 @@ import { AppAuth } from './auth.js';
 
 const COLLECTION = 'classification_patterns';
 const MAX_PATTERNS_PER_USER = 200;
-const SUGGESTION_MIN_CONFIDENCE = 2;
+const SUGGESTION_MIN_CONFIDENCE = 1;
 
 function normalizeText(text) {
     return String(text || '')
