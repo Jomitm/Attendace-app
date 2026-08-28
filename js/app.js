@@ -6374,8 +6374,8 @@ window.app_postponeTask = async (planId, taskIndex, targetDate, postponeWorkStat
             assignedToName: freshTask.assignedToName || plan?.userName || ''
         });
         if (window.AppStore && window.AppStore.invalidatePlans) window.AppStore.invalidatePlans();
+        if (window.app_refreshDashboard) await window.app_refreshDashboard();
         alert(`Task postponed to ${targetDate}`);
-        if (typeof handleAttendance === 'function') await handleAttendance();
     } catch (err) {
         alert("Failed to postpone task: " + err.message);
     }
@@ -6583,8 +6583,8 @@ window.app_markTaskCompleted = async function (planId, taskIndex) {
         if (window.AppStore && window.AppStore.invalidatePlans) {
             window.AppStore.invalidatePlans();
         }
+        if (window.app_refreshDashboard) await window.app_refreshDashboard();
         alert('Task marked as completed.');
-        if (typeof handleAttendance === 'function') await handleAttendance();
     } catch (err) {
         alert('Failed to mark completed: ' + err.message);
     }
@@ -6976,6 +6976,12 @@ window.app_testExtraTimeUI = (extraHours = 3, extraMinutes = 30) => {
 };
 
 async function handleAttendance() {
+    if (window.AppAuth?.isImpersonating) {
+        if (typeof window.app_showSyncToast === 'function') window.app_showSyncToast('Attendance is disabled while viewing as another user. Exit view to use attendance.');
+        return;
+    }
+    if (attendanceActionInFlight) return;
+    attendanceActionInFlight = true;
     const btn = document.getElementById('attendance-btn');
     const locationText = document.getElementById('location-text');
     const { status } = await window.AppAttendance.getStatus();
@@ -6985,7 +6991,6 @@ async function handleAttendance() {
         btn.classList.add('btn-loading');
         btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Loading...`;
     }
-    attendanceActionInFlight = true;
 
     try {
         if (status === 'out') {
@@ -7305,6 +7310,10 @@ async function handleAttendance() {
 }
 
 window.app_pauseSession = async function () {
+    if (window.AppAuth?.isImpersonating) {
+        if (typeof window.app_showSyncToast === 'function') window.app_showSyncToast('Attendance is disabled while viewing as another user.');
+        return;
+    }
     if (attendanceActionInFlight) return;
     attendanceActionInFlight = true;
     const attendanceBtn = document.getElementById('attendance-btn');
@@ -7336,6 +7345,10 @@ window.app_pauseSession = async function () {
 };
 
 window.app_resumeSession = async function () {
+    if (window.AppAuth?.isImpersonating) {
+        if (typeof window.app_showSyncToast === 'function') window.app_showSyncToast('Attendance is disabled while viewing as another user.');
+        return;
+    }
     if (attendanceActionInFlight) return;
     attendanceActionInFlight = true;
     const attendanceBtn = document.getElementById('attendance-btn');
@@ -7395,10 +7408,17 @@ window.app_showCheckoutValidationPopup = async function (messages = []) {
 
 window.app_submitCheckOut = async function (event) {
     event.preventDefault();
+    if (window.AppAuth?.isImpersonating) {
+        if (typeof window.app_showSyncToast === 'function') window.app_showSyncToast('Check-out is disabled while viewing as another user.');
+        return;
+    }
+    if (attendanceActionInFlight) return;
+    attendanceActionInFlight = true;
     const form = event?.target?.tagName === 'FORM'
         ? event.target
         : (event?.submitter?.closest ? event.submitter.closest('form') : document.getElementById('checkout-form'));
     if (!form) {
+        attendanceActionInFlight = false;
         alert('Check-out form is not available. Please close and reopen the checkout window.');
         return;
     }
@@ -7406,7 +7426,6 @@ window.app_submitCheckOut = async function (event) {
     const activeUser = window.AppAuth.getUser();
     const budgetHeadId = app_normalizeBudgetHeadId(activeUser?.currentBudgetHeadId || 'UNALLOCATED');
     const submitBtn = event?.submitter || form.querySelector('button[type="submit"]') || form.querySelector('.action-btn');
-    attendanceActionInFlight = true;
 
     try {
         if (submitBtn) {
@@ -7922,7 +7941,22 @@ function setupDashboardEvents() {
     const btn = document.getElementById('attendance-btn');
     const readOnly = !!window.app_dashboardReadOnly;
     const targetUser = window.app_dashboardTargetUser || null;
-    if (btn && !readOnly) btn.addEventListener('click', handleAttendance);
+    const impersonating = !!window.AppAuth?.isImpersonating;
+    if (btn) {
+        if (impersonating) {
+            btn.disabled = true;
+            btn.title = 'Exit view to use attendance';
+            btn.classList.add('btn-disabled-impersonating');
+        } else {
+            btn.classList.remove('btn-disabled-impersonating');
+        }
+        // Idempotent binding: avoid stacking multiple listeners on the same element
+        if (btn._attendanceBoundHandler) {
+            btn.removeEventListener('click', btn._attendanceBoundHandler);
+        }
+        btn._attendanceBoundHandler = handleAttendance;
+        if (!readOnly && !impersonating) btn.addEventListener('click', handleAttendance);
+    }
     startTimer(targetUser, readOnly);
     applyUpdateCtaState();
     if (window.app_refreshNotificationBell) {

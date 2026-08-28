@@ -59,6 +59,11 @@ OmniRoute/
 public/sw.js
 public/version.json
 generated/
+.generated/
+
+# Agentation — local dev annotation overlay (do not commit)
+js/agentation-setup.js
+js/agentation-*.js
 
 # Deprecated / misc
 nemotron.js

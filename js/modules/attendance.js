@@ -504,6 +504,23 @@ export class Attendance {
         }
         const pauseCount = pauseEvents.filter(evt => evt && evt.type === 'pause').length;
 
+        // Session-scoped dedup: if a record with the same checkInAt (±60s) already exists, this is a double-submit/retry — don't create a duplicate.
+        try {
+            if (AppDB.queryMany) {
+                const existing = await AppDB.queryMany('attendance', [{ field: 'user_id', operator: '==', value: user.id }], { limit: 20 });
+                if (Array.isArray(existing)) {
+                    const dup = existing.find((r) => {
+                        const v = Number(r.checkInAt);
+                        return Number.isFinite(v) && Math.abs(v - checkInMs) < 60000;
+                    });
+                    if (dup) {
+                        if (window.AppActivity) window.AppActivity.stop();
+                        return { ok: true, conflict: false, deduped: true, existingId: dup.id };
+                    }
+                }
+            }
+        } catch { /* best-effort dedup */ }
+
         const log = {
             id: this._nextId(),
             user_id: user.id,
