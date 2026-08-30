@@ -84,6 +84,6 @@ export async function linkTelegramAccount(chatId) {
 }
 
 export function getTelegramLinkUrl() {
-    const botUsername = 'crwi_attendance_bot';
+    const botUsername = 'CRWIAttendancebot';
     return `https://t.me/${botUsername}?start=link`;
 }

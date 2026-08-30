@@ -50,7 +50,7 @@ module.exports = async (req, res) => {
         return;
     }
 
-    const botUsername = process.env.TELEGRAM_BOT_USERNAME || 'crwi_attendance_bot';
+    const botUsername = process.env.TELEGRAM_BOT_USERNAME || 'CRWIAttendancebot';
     const expiryMs = Date.now() + 10 * 60 * 1000;
     const token = signToken(userId, expiryMs, secret);
     const url = `https://t.me/${botUsername}?start=${token}`;
