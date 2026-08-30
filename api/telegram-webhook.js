@@ -87,6 +87,28 @@ function verifyLinkToken(token) {
     } catch { return null; }
 }
 
+async function resolveLinkToken(db, token) {
+    const t = String(token || '').trim();
+    if (!t) return null;
+    // Short token (stored in Firestore) — fits Telegram 64 char limit
+    if (t.length <= 20 && /^[A-Za-z0-9_-]+$/.test(t) && db) {
+        try {
+            const snap = await db.collection('telegram_link_tokens').doc(t).get();
+            if (snap.exists) {
+                const data = snap.data();
+                const expiryMs = Number(data.expiryMs);
+                if (!Number.isFinite(expiryMs) || Date.now() > expiryMs) return null;
+                const userId = String(data.userId || '').trim();
+                if (!userId) return null;
+                // One-time use — delete after use
+                try { await snap.ref.delete(); } catch {}
+                return userId;
+            }
+        } catch {}
+    }
+    return verifyLinkToken(t);
+}
+
 async function findUserByChatId(db, chatId) {
     const snap = await db.collection('users').where('telegramChatId', '==', String(chatId)).limit(1).get();
     if (snap.empty) return null;
@@ -448,7 +470,7 @@ module.exports = async (req, res) => {
         if (startMatch) {
             const tokenPart = String(startMatch[1] || '').trim();
             if (tokenPart && tokenPart.toLowerCase() !== 'link') {
-                const linkedUserId = verifyLinkToken(tokenPart);
+                const linkedUserId = await resolveLinkToken(db, tokenPart);
                 if (linkedUserId) {
                     const targetRef = db.collection('users').doc(linkedUserId);
                     const targetSnap = await targetRef.get();
