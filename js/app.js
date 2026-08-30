@@ -9302,8 +9302,15 @@ window.app_connectOutlook = async () => {
         if (loadingEl) loadingEl.style.display = 'none';
         if (resultEl) {
             resultEl.style.display = 'block';
+            const webcalUrl = String(data.feedUrl).replace(/^https:/, 'webcal:');
+            const googleUrl = `https://calendar.google.com/calendar/r?cid=${encodeURIComponent(data.feedUrl)}`;
             resultEl.innerHTML = `
                 <div style="text-align:left;">
+                    <div style="display:grid;gap:0.5rem;margin-bottom:1rem;">
+                        <a href="${webcalUrl}" style="display:block;text-align:center;padding:0.7rem;background:#0078d4;color:#fff;border-radius:8px;text-decoration:none;font-weight:700;"><i class="fa-brands fa-microsoft" style="margin-right:0.4rem;"></i>Add to Outlook (one tap)</a>
+                        <a href="${googleUrl}" target="_blank" rel="noopener" style="display:block;text-align:center;padding:0.7rem;background:#fff;color:#374151;border:1px solid #d1d5db;border-radius:8px;text-decoration:none;font-weight:600;">Add to Google Calendar</a>
+                        <button onclick="window.app_downloadOutlookICS('${data.feedUrl}')" style="width:100%;padding:0.7rem;background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:8px;cursor:pointer;font-weight:600;">⬇️ Download .ics file</button>
+                    </div>
                     <div style="background:#f3f4f6;border-radius:8px;padding:1rem;margin-bottom:1rem;word-break:break-all;">
                         <code style="font-size:0.8rem;color:#0078d4;" id="outlook-feed-url">${data.feedUrl}</code>
                     </div>
@@ -9323,7 +9330,7 @@ window.app_connectOutlook = async () => {
                             ${data.instructions.outlookWeb.map(s => `<li>${s}</li>`).join('')}
                         </ol>
                     </div>
-                    <p style="font-size:0.75rem;color:#9ca3af;margin-top:1rem;">Feed expires: ${new Date(data.expiresAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                    <p style="font-size:0.75rem;color:#9ca3af;margin-top:1rem;">Feed shows your tasks, leaves and events as all-day blocks for 7 days back to 30 days forward. Expires: ${new Date(data.expiresAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
                 </div>
             `;
         }
@@ -9335,6 +9342,24 @@ window.app_connectOutlook = async () => {
             resultEl.style.display = 'block';
             resultEl.innerHTML = `<p style="color:#dc2626;">Failed: ${err.message}</p>`;
         }
+    }
+};
+
+window.app_downloadOutlookICS = async (feedUrl) => {
+    try {
+        const resp = await fetch(feedUrl);
+        const text = await resp.text();
+        const blob = new Blob([text], { type: 'text/calendar;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'CRWI-calendar.ics';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+    } catch {
+        window.open(feedUrl, '_blank');
     }
 };
 

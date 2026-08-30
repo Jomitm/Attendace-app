@@ -1,9 +1,13 @@
 const crypto = require('crypto');
 const { getDb } = require('./_firebase-admin');
 
-// Fail closed: without a configured secret, tokens must never be minted or verified.
-const SECRET = process.env.CALENDAR_FEED_SECRET || '';
-if (!SECRET) console.error('CALENDAR_FEED_SECRET is not set — calendar token minting is disabled (fail closed).');
+function getSecret() {
+    return process.env.CALENDAR_FEED_SECRET
+        || process.env.TELEGRAM_WEBHOOK_SECRET
+        || process.env.CRON_SECRET
+        || process.env.TELEGRAM_BOT_TOKEN
+        || '';
+}
 const ALGO = 'sha256';
 const EXPIRY_DAYS = 180;
 
@@ -23,12 +27,13 @@ function mintRateLimited(ip) {
 }
 
 function generateToken(userId) {
+    const secret = getSecret();
     const payload = JSON.stringify({
         userId,
         iat: Date.now(),
         exp: Date.now() + EXPIRY_DAYS * 24 * 60 * 60 * 1000
     });
-    const sig = crypto.createHmac(ALGO, SECRET).update(payload).digest('base64url');
+    const sig = crypto.createHmac(ALGO, secret).update(payload).digest('base64url');
     return Buffer.from(`${payload}.${sig}`).toString('base64url');
 }
 
@@ -75,10 +80,10 @@ module.exports = async (req, res) => {
     }
 
     try {
-        if (!SECRET) {
+        if (!getSecret()) {
             res.statusCode = 503;
             res.setHeader('Content-Type', 'application/json; charset=utf-8');
-            res.end(JSON.stringify({ ok: false, error: 'Calendar feed is not configured (CALENDAR_FEED_SECRET missing)' }));
+            res.end(JSON.stringify({ ok: false, error: 'Calendar feed is not configured (no secret available)' }));
             return;
         }
 

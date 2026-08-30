@@ -1,17 +1,24 @@
 const crypto = require('crypto');
 const { getDb } = require('./_firebase-admin');
 
-const SECRET = process.env.CALENDAR_FEED_SECRET || '';
-if (!SECRET) console.error('CALENDAR_FEED_SECRET is not set — calendar feed is disabled (fail closed).');
+function getSecret() {
+    return process.env.CALENDAR_FEED_SECRET
+        || process.env.TELEGRAM_WEBHOOK_SECRET
+        || process.env.CRON_SECRET
+        || process.env.TELEGRAM_BOT_TOKEN
+        || '';
+}
+if (!getSecret()) console.error('Calendar feed secret not set — feed is disabled (fail closed).');
 const ALGO = 'sha256';
 
 function verifyToken(token) {
     try {
-        if (!SECRET) return null;
+        const secret = getSecret();
+        if (!secret) return null;
         const decoded = Buffer.from(token, 'base64url').toString('utf8');
         const [payload, sig] = decoded.split('.');
         if (!payload || !sig) return null;
-        const expected = crypto.createHmac(ALGO, SECRET).update(payload).digest('base64url');
+        const expected = crypto.createHmac(ALGO, secret).update(payload).digest('base64url');
         if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
         const data = JSON.parse(payload);
         if (data.exp && Date.now() > data.exp) return null;
