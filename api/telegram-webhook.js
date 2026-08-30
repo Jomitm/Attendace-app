@@ -58,6 +58,35 @@ function getLocalTime(offsetHours = 5.5) {
     return local.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
 }
 
+function getLinkSecret() {
+    return process.env.TELEGRAM_LINK_SECRET
+        || process.env.TELEGRAM_WEBHOOK_SECRET
+        || process.env.CRON_SECRET
+        || process.env.TELEGRAM_BOT_TOKEN
+        || '';
+}
+
+function verifyLinkToken(token) {
+    try {
+        const secret = getLinkSecret();
+        if (!secret || !token) return null;
+        const raw = Buffer.from(String(token).trim(), 'base64url').toString('utf8');
+        const parts = raw.split(':');
+        if (parts.length < 3) return null;
+        const hmac = parts.pop();
+        const expiryStr = parts.pop();
+        const userId = parts.join(':');
+        const expiryMs = Number(expiryStr);
+        if (!userId || !Number.isFinite(expiryMs) || Date.now() > expiryMs) return null;
+        const payload = `${userId}:${expiryMs}`;
+        const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+        const a = Buffer.from(hmac);
+        const b = Buffer.from(expected);
+        if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+        return userId;
+    } catch { return null; }
+}
+
 async function findUserByChatId(db, chatId) {
     const snap = await db.collection('users').where('telegramChatId', '==', String(chatId)).limit(1).get();
     if (snap.empty) return null;
@@ -401,7 +430,8 @@ module.exports = async (req, res) => {
     }
 
     const chatId = message.chat?.id;
-    const text = (message.text || '').trim().toUpperCase();
+    const rawText = (message.text || '').trim();
+    const text = rawText.toUpperCase();
     const firstName = message.from?.first_name || '';
     const lastName = message.from?.last_name || '';
     const fullName = `${firstName} ${lastName}`.trim() || 'Staff';
@@ -413,6 +443,46 @@ module.exports = async (req, res) => {
     }
 
     try {
+        // Check for secure one-click link: /start <TOKEN> where TOKEN = base64url(userId:expiry:hmac)
+        const startMatch = rawText.match(/^\/start\s+(\S+)/i);
+        if (startMatch) {
+            const tokenPart = String(startMatch[1] || '').trim();
+            if (tokenPart && tokenPart.toLowerCase() !== 'link') {
+                const linkedUserId = verifyLinkToken(tokenPart);
+                if (linkedUserId) {
+                    const targetRef = db.collection('users').doc(linkedUserId);
+                    const targetSnap = await targetRef.get();
+                    if (targetSnap.exists) {
+                        const existingChat = String(targetSnap.data()?.telegramChatId || '');
+                        const newChat = String(chatId);
+                        if (existingChat === newChat) {
+                            await sendMessage(token, chatId,
+                                `✅ <b>Already connected!</b>\n\nYou are linked as <b>${targetSnap.data()?.name || fullName}</b>.\n` +
+                                `You will now get your 8am work plan, 9:30 check-in reminder, 6pm check-out reminder, and team updates here.\n\n` +
+                                `This was a sample message — if you see this, you are all set.`,
+                                buildKeyboard()
+                            );
+                        } else {
+                            await targetRef.update({ telegramChatId: newChat });
+                            await sendMessage(token, chatId,
+                                `✅ <b>Telegram connected!</b>\n\nHi ${targetSnap.data()?.name || fullName}! Your Telegram is now linked.\n\n` +
+                                `You will now get:\n` +
+                                `• 8am — your work plan for today\n` +
+                                `• 9:30am — reminder if you forgot to check in\n` +
+                                `• 6pm — reminder if you forgot to check out\n` +
+                                `• Instant — when someone gives you work\n\n` +
+                                `This is a sample message — if you see this, you are all set. ✅`,
+                                buildKeyboard()
+                            );
+                        }
+                    }
+                    res.statusCode = 200;
+                    res.end(JSON.stringify({ ok: true, linked: !!targetSnap.exists }));
+                    return;
+                }
+            }
+        }
+
         const user = await findUserByChatId(db, chatId);
 
         // If user not linked, send linking instructions
@@ -422,9 +492,9 @@ module.exports = async (req, res) => {
                 `Your Telegram account is not linked to CRWI Attendance yet.\n\n` +
                 `To link your account:\n` +
                 `1. Open the CRWI Attendance app\n` +
-                `2. Go to Settings → Telegram\n` +
-                `3. Tap "Link Telegram Account"\n\n` +
-                `Or ask your admin to link your account manually.`,
+                `2. Go to Profile → tap "Connect Telegram"\n` +
+                `3. Tap the button that opens Telegram and press Start\n\n` +
+                `You will get a sample message here to confirm.`,
                 { remove_keyboard: true }
             );
             res.statusCode = 200;

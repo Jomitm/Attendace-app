@@ -6671,6 +6671,18 @@ window.app_delegateTo = async function (planId, taskIndex, userId, options = {})
                 read: false
             });
             await window.AppDB.put('users', recUser);
+            // Telegram instant for assignee (personal DM)
+            try {
+                const chatId = String(recUser.telegramChatId || '').trim();
+                if (chatId) {
+                    const shortTask = String(task.task || 'Delegated task').slice(0, 80);
+                    fetch('/api/telegram-send', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ chatId, text: `📌 <b>${currentUser.name}</b> assigned you work: "${shortTask}"` })
+                    }).catch(() => {});
+                }
+            } catch {}
         }
 
         if (window.AppStore && window.AppStore.invalidatePlans) {
@@ -9108,32 +9120,99 @@ window.app_editUser = async (userId) => {
     }
 };
 
+window.app_unlinkTelegram = async () => {
+    const user = window.AppAuth.getUser();
+    if (!user) return;
+    if (!user.telegramChatId) {
+        window.app_showSyncToast('Telegram is not linked.');
+        return;
+    }
+    if (!confirm('Disconnect Telegram? You will stop getting personal notifications (8am work plan, 9:30/6pm reminders, task assigned).')) return;
+    try {
+        const fresh = await window.AppDB?.get?.('users', user.id);
+        if (!fresh) throw new Error('User not found');
+        fresh.telegramChatId = '';
+        await window.AppDB.put('users', fresh);
+        if (window.AppAuth?.refreshCurrentUserFromDB) await window.AppAuth.refreshCurrentUserFromDB();
+        window.app_showSyncToast('Telegram disconnected.');
+        const contentArea = document.getElementById('page-content');
+        if (contentArea && window.location.hash === '#profile') contentArea.innerHTML = await window.AppUI.renderProfile();
+        if (typeof window.app_closeModal === 'function') window.app_closeModal();
+        else document.querySelector('.modal-overlay')?.remove();
+    } catch (err) {
+        alert('Failed to disconnect: ' + (err.message || err));
+    }
+};
+
 window.app_linkTelegram = async () => {
     const user = window.AppAuth.getUser();
     if (!user) return;
 
     if (user.telegramChatId) {
-        alert(`✅ Telegram is already linked!\n\nYour account is connected to Telegram.\nChat ID: ${user.telegramChatId}`);
+        const html = `
+            <div style="text-align:center;padding:1.5rem;">
+                <i class="fa-brands fa-telegram" style="font-size:3rem;color:#229ED9;margin-bottom:0.5rem;display:block;"></i>
+                <h3 style="margin-bottom:0.25rem;">✅ Telegram Connected</h3>
+                <p style="color:#16a34a;font-weight:600;margin-bottom:1rem;">You will get your personal messages here</p>
+                <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:0.75rem 1rem;margin:0 auto 1rem;max-width:360px;text-align:left;font-size:0.85rem;color:#374151;">
+                    <div>• 8am — your work plan for today</div>
+                    <div>• 9:30am — if you forgot to check in</div>
+                    <div>• 6pm — if you forgot to check out</div>
+                    <div>• Instant — when someone gives you work</div>
+                </div>
+                <div style="background:#f3f4f6;border-radius:8px;padding:0.5rem;margin:0 auto 1.25rem;max-width:360px;font-size:0.75rem;color:#6b7280;word-break:break-all;">Chat ID: ${String(user.telegramChatId).slice(0,4)}••••${String(user.telegramChatId).slice(-4)}</div>
+                <button onclick="window.app_unlinkTelegram()" style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:8px;padding:0.6rem 1.2rem;font-weight:600;cursor:pointer;width:100%;max-width:360px;">Disconnect Telegram</button>
+                <p style="font-size:0.75rem;color:#9ca3af;margin-top:0.75rem;">You can reconnect anytime with one tap.</p>
+            </div>
+        `;
+        window.app_showModal(html, 'telegram-link-modal');
         return;
     }
 
-    const html = `
-        <div style="text-align:center;padding:1.5rem;">
-            <i class="fa-brands fa-telegram" style="font-size:3rem;color:#2563eb;margin-bottom:1rem;display:block;"></i>
-            <h3 style="margin-bottom:0.5rem;">Link Your Telegram Account</h3>
-            <p style="color:#6b7280;margin-bottom:1.5rem;">Follow these steps to enable Telegram commands:</p>
-            <ol style="text-align:left;max-width:320px;margin:0 auto 1.5rem;color:#374151;line-height:1.8;">
-                <li>Open Telegram and search for <b>@crwi_attendance_bot</b></li>
-                <li>Send <b>/start</b> to the bot</li>
-                <li>Copy the code shown below and send it to the bot</li>
-            </ol>
-            <div style="background:#f3f4f6;border-radius:8px;padding:1rem;margin-bottom:1rem;">
-                <code style="font-size:1.2rem;color:#2563eb;letter-spacing:2px;">${user.id.slice(-8).toUpperCase()}</code>
-            </div>
-            <p style="font-size:0.8rem;color:#9ca3af;">Or tell your admin to set your <code>telegramChatId</code> manually.</p>
+    const loadingHtml = `
+        <div style="text-align:center;padding:2rem;">
+            <i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;color:#2563eb;margin-bottom:1rem;display:block;"></i>
+            <p style="color:#6b7280;">Generating your secure link…</p>
         </div>
     `;
-    window.app_showModal(html, 'telegram-link-modal');
+    window.app_showModal(loadingHtml, 'telegram-link-modal');
+    try {
+        const resp = await fetch('/api/telegram-generate-link', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: user.id })
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || !data.ok || !data.url) throw new Error(data.error || 'Failed to generate link');
+        const encoded = encodeURIComponent(data.url);
+        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encoded}`;
+        const html = `
+            <div style="text-align:center;padding:1.5rem;">
+                <i class="fa-brands fa-telegram" style="font-size:3rem;color:#229ED9;margin-bottom:0.5rem;display:block;"></i>
+                <h3 style="margin-bottom:0.25rem;">Connect Telegram in One Tap</h3>
+                <p style="color:#6b7280;margin-bottom:1rem;font-size:0.9rem;">Tap the button or scan the QR — then press <b>Start</b> in Telegram</p>
+                <a href="${data.url}" target="_blank" rel="noopener" style="display:inline-block;background:#229ED9;color:#fff;border-radius:8px;padding:0.75rem 1.5rem;font-weight:700;text-decoration:none;margin-bottom:1rem;"><i class="fa-brands fa-telegram" style="margin-right:0.5rem;"></i>Open Telegram to Connect</a>
+                <div style="margin:0 auto 1rem;max-width:220px;background:#fff;padding:8px;border-radius:12px;border:1px solid #e5e7eb;">
+                    <img src="${qrUrl}" alt="Scan to connect Telegram" style="width:100%;height:auto;display:block;border-radius:8px;" loading="lazy">
+                </div>
+                <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:0.75rem 1rem;margin:0 auto;max-width:360px;text-align:left;font-size:0.85rem;color:#1e40af;">
+                    <div style="font-weight:700;margin-bottom:0.25rem;">After you tap Start:</div>
+                    <div>• You will get a sample message — <i>"✅ Connected!"</i> — to confirm</div>
+                    <div>• This link expires in 10 minutes for safety</div>
+                    <div style="margin-top:0.5rem;font-size:0.75rem;color:#6b7280;word-break:break-all;">Link: <a href="${data.url}" target="_blank" style="color:#2563eb;">${data.url}</a></div>
+                </div>
+                <p style="font-size:0.75rem;color:#9ca3af;margin-top:0.75rem;">On desktop, scan the QR with your phone. On phone, just tap the button.</p>
+            </div>
+        `;
+        const modal = document.getElementById('telegram-link-modal');
+        if (modal) modal.querySelector('.modal-content') ? (modal.querySelector('.modal-content').innerHTML = html) : (modal.innerHTML = html);
+        else window.app_showModal(html, 'telegram-link-modal');
+    } catch (err) {
+        const html = `<div style="text-align:center;padding:1.5rem;"><p style="color:#dc2626;">Failed to make link: ${String(err.message || err)}</p><p style="color:#6b7280;font-size:0.85rem;">Please try again or ask your admin to set telegramChatId manually.</p></div>`;
+        const modal = document.getElementById('telegram-link-modal');
+        if (modal) modal.querySelector('.modal-content') ? (modal.querySelector('.modal-content').innerHTML = html) : (modal.innerHTML = html);
+        else window.app_showModal(html, 'telegram-link-modal');
+    }
 };
 
 window.app_connectOutlook = async () => {

@@ -41,6 +41,32 @@ export function telegramNotifyTaskTagged(tagger, task) {
     sendTelegramNotification(`📋 <b>${tagger}</b> tagged you in: "${shortTask}"`);
 }
 
+export async function sendPersonalTelegram(chatId, text) {
+    try {
+        if (!chatId || !text) return;
+        await fetch(TELEGRAM_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, chatId: String(chatId) })
+        }).catch(() => {});
+    } catch {}
+}
+
+export async function notifyUserById(userId, text) {
+    try {
+        if (!userId || !text) return;
+        const user = await window.AppDB?.get?.('users', String(userId));
+        const chatId = user?.telegramChatId ? String(user.telegramChatId) : '';
+        if (!chatId) return;
+        await sendPersonalTelegram(chatId, text);
+    } catch {}
+}
+
+export function telegramNotifyTaskAssigned(assigner, task, assigneeChatId) {
+    const shortTask = (task || '').length > 80 ? task.slice(0, 80) + '...' : (task || 'untitled');
+    if (assigneeChatId) sendPersonalTelegram(assigneeChatId, `📌 <b>${assigner}</b> assigned you work: "${shortTask}"`);
+}
+
 export async function linkTelegramAccount(chatId) {
     try {
         const user = window.AppAuth?.getUser?.();

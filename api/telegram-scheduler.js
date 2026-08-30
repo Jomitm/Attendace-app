@@ -222,6 +222,149 @@ async function weeklyLeaderboard(db, token) {
     return { leaderboard: true, count: entries.length, totalHours };
 }
 
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function findJomitUser(db) {
+    let snap = await db.collection('users').where('username', '==', 'jomit').limit(1).get();
+    if (!snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() };
+    snap = await db.collection('users').where('name', '==', 'Jomit Mathew').limit(1).get();
+    if (!snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() };
+    return null;
+}
+
+// ── Personal Work Plan (8 AM IST) ────────────────────────────────────
+async function personalWorkPlanDigest(db, token) {
+    const users = await getLinkedUsers(db);
+    if (!users.length) return { personalWorkPlan: true, sent: 0, reason: 'no linked users' };
+    const today = getLocalISO();
+    // Fetch all work_plans for today in one query to save reads
+    let plansByUser = {};
+    try {
+        const plansSnap = await db.collection('work_plans').where('date', '==', today).get();
+        plansSnap.forEach(doc => {
+            const data = doc.data();
+            const uid = data.userId || data.ownerUserId || '';
+            if (!uid) return;
+            if (!plansByUser[uid]) plansByUser[uid] = [];
+            const tasks = Array.isArray(data.plans) ? data.plans : (data.plan ? [data.plan] : []);
+            plansByUser[uid] = plansByUser[uid].concat(tasks);
+        });
+    } catch {}
+    let sent = 0;
+    for (const user of users) {
+        const tasks = (plansByUser[user.id] || []).filter(t => !t.isRemoved);
+        let msg;
+        if (!tasks.length) {
+            msg = `☀️ Good morning ${user.name || 'there'}!\n\n` +
+                  `📅 ${today} — <b>YOU HAVE NO TASK TODAY</b>\n\n` +
+                  `Enjoy your day or check with your manager for new work.`;
+        } else {
+            const total = tasks.length;
+            const pending = tasks.filter(t => !['completed', 'not-completed', 'cancelled'].includes(String(t.status))).length;
+            const completed = tasks.filter(t => String(t.status) === 'completed').length;
+            msg = `☀️ Good morning ${user.name || 'there'}!\n\n` +
+                  `📋 <b>Your work plan for ${today}</b> — ${total} tasks (${pending} pending, ${completed} completed)\n\n` +
+                  tasks.slice(0, 10).map((t, i) => {
+                      const tt = t.task || t.title || t.description || 'Untitled task';
+                      const st = String(t.status || 'pending');
+                      return `${i + 1}. ${tt} — <i>${st}</i>`;
+                  }).join('\n') +
+                  (total > 10 ? `\n…and ${total - 10} more` : '') +
+                  `\n\nHave a productive day!`;
+        }
+        await sendMessage(token, user.telegramChatId, msg);
+        sent++;
+        if (sent % 10 === 0) await sleep(300);
+        else await sleep(120);
+    }
+    return { personalWorkPlan: true, sent };
+}
+
+// ── Forgot Check-in (9:30 AM IST) ───────────────────────────────────
+async function forgotCheckInDigest(db, token) {
+    const users = await getLinkedUsers(db);
+    const today = getLocalISO();
+    let sent = 0;
+    for (const user of users) {
+        const lastIn = user.lastCheckIn ? getLocalISOFromEpoch(user.lastCheckIn) : '';
+        const isCheckedIn = user.status === 'in' && lastIn === today;
+        if (isCheckedIn) continue;
+        const msg = `⏰ <b>Reminder — you forgot to check in</b>\n\n` +
+                    `Hi ${user.name || 'there'}, you have not checked in yet today (${today}).\n` +
+                    `Please open the app and check in by 9:30 to avoid being marked late.`;
+        await sendMessage(token, user.telegramChatId, msg);
+        sent++;
+        await sleep(120);
+    }
+    return { forgotCheckIn: true, sent };
+}
+
+function getLocalISOFromEpoch(epochMs) {
+    const d = new Date(Number(epochMs));
+    const utc = d.getTime() + d.getTimezoneOffset() * 60000;
+    const local = new Date(utc + 5.5 * 3600000);
+    return `${local.getFullYear()}-${String(local.getMonth() + 1).padStart(2, '0')}-${String(local.getDate()).padStart(2, '0')}`;
+}
+
+// ── Forgot Check-out (6 PM IST) ─────────────────────────────────────
+async function forgotCheckOutDigest(db, token) {
+    const users = await getLinkedUsers(db);
+    const today = getLocalISO();
+    let sent = 0;
+    for (const user of users) {
+        const lastIn = user.lastCheckIn ? getLocalISOFromEpoch(user.lastCheckIn) : '';
+        const isStillIn = user.status === 'in' && lastIn === today;
+        if (!isStillIn) continue;
+        const msg = `🔔 <b>Reminder — you forgot to check out</b>\n\n` +
+                    `Hi ${user.name || 'there'}, you are still checked in since today.\n` +
+                    `Please check out before you leave. If you already left, open the app and check out now.`;
+        await sendMessage(token, user.telegramChatId, msg);
+        sent++;
+        await sleep(120);
+    }
+    return { forgotCheckOut: true, sent };
+}
+
+// ── Jomit Team Digests (10 AM signed-in, 6 PM signed-out) ────────────
+async function jomitTeamDigest(db, token, slot) {
+    const jomit = await findJomitUser(db);
+    const jomitChatId = jomit?.telegramChatId ? String(jomit.telegramChatId) : null;
+    const groupChatId = process.env.TELEGRAM_CHAT_ID;
+    if (!jomitChatId && !groupChatId) return { jomitTeam: false, reason: 'no chat id' };
+    const today = getLocalISO();
+    const usersSnap = await db.collection('users').get();
+    const allStaff = [];
+    usersSnap.forEach(doc => {
+        const u = doc.data();
+        if (u.status === 'archived' || u.isAdmin || u.role === 'Administrator') return;
+        allStaff.push({ id: doc.id, ...u });
+    });
+    const isInToday = (u) => u.status === 'in' && getLocalISOFromEpoch(u.lastCheckIn) === today;
+    const checkedIn = allStaff.filter(isInToday);
+    const notCheckedIn = allStaff.filter(u => !isInToday(u));
+    const stillIn = checkedIn;
+    const signedOut = allStaff.filter(u => !isInToday(u) && u.lastCheckIn);
+    let msg;
+    if (slot === '10am') {
+        msg = `📋 <b>Team Check-in — ${today} 10am</b>\n\n` +
+              `✅ Checked in: <b>${checkedIn.length}</b> / ${allStaff.length}\n` +
+              (checkedIn.slice(0, 15).map(u => `• ${u.name || u.id}`).join('\n') || '• —') + `\n\n` +
+              `⏰ Not yet in: <b>${notCheckedIn.length}</b>\n` +
+              (notCheckedIn.slice(0, 15).map(u => `• ${u.name || u.id}`).join('\n') || '• All in!') +
+              `\n\n🔔 Late after 9:15 is marked late.`;
+    } else {
+        msg = `📋 <b>Team Check-out — ${today} 6pm</b>\n\n` +
+              `🚪 Signed out: <b>${signedOut.length}</b> / ${allStaff.length}\n` +
+              `⏱️ Still checked in: <b>${stillIn.length}</b>\n` +
+              (stillIn.slice(0, 15).map(u => `• ${u.name || u.id}`).join('\n') || '• All signed out!') +
+              `\n\nPlease remind those still in to check out.`;
+    }
+    let sentTo = [];
+    if (jomitChatId) { await sendMessage(token, jomitChatId, msg); sentTo.push('jomit'); }
+    if (groupChatId) { await sendMessage(token, groupChatId, msg); sentTo.push('group'); }
+    return { jomitTeam: true, slot, sentTo, checkedIn: checkedIn.length, total: allStaff.length };
+}
+
 module.exports = async (req, res) => {
     // Server-to-server endpoint (cron + operators) — no browser CORS needed.
     if (!cronSecretIsValid(req)) {
@@ -274,11 +417,50 @@ module.exports = async (req, res) => {
             results.leaderboard = await weeklyLeaderboard(db, token);
         }
 
-        // If specific task requested, run only that
+        // Personal work plan at 8 AM Mon-Sat (day 1-6)
+        if (task === 'personal_workplan' || (day >= 1 && day <= 6 && hour === 8)) {
+            results.personal_workplan = await personalWorkPlanDigest(db, token);
+        }
+
+        // Forgot check-in at 9:30 AM Mon-Sat
+        if (task === 'forgot_checkin') {
+            results.forgot_checkin = await forgotCheckInDigest(db, token);
+        }
+
+        // Jomit team 10 AM Mon-Sat
+        if (task === 'jomit_team_10am' || (day >= 1 && day <= 6 && hour === 10)) {
+            results.jomit_team_10am = await jomitTeamDigest(db, token, '10am');
+        }
+
+        // Forgot check-out at 6 PM Mon-Sat (18)
+        if (task === 'forgot_checkout' || (day >= 1 && day <= 6 && hour === 18)) {
+            // avoid double-send when standup already ran at 18 for personal forgot — run only for dedicated task param
+            if (task === 'forgot_checkout') results.forgot_checkout = await forgotCheckOutDigest(db, token);
+            else if (task === 'forgot_checkout' || task === '') {
+                // when triggered by hour 18 without specific task, run forgot checkout as well
+                if (!results.forgot_checkout) results.forgot_checkout = await forgotCheckOutDigest(db, token);
+            }
+        }
+
+        // Jomit team 6 PM Mon-Sat
+        if (task === 'jomit_team_6pm') {
+            results.jomit_team_6pm = await jomitTeamDigest(db, token, '6pm');
+        }
+        // Auto-run jomit 6pm team when hour 18 and day 1-6 and no specific task (alongside forgot checkout)
+        if (!task && day >= 1 && day <= 6 && hour === 18) {
+            if (!results.jomit_team_6pm) results.jomit_team_6pm = await jomitTeamDigest(db, token, '6pm');
+        }
+
+        // If specific task requested, run only that (fallback for direct task calls)
         if (task && !results[task]) {
             if (task === 'absentee') results.absentee = await absenteeAlert(db, token);
             else if (task === 'standup') results.standup = await dailyStandup(db, token);
             else if (task === 'leaderboard') results.leaderboard = await weeklyLeaderboard(db, token);
+            else if (task === 'personal_workplan') results.personal_workplan = await personalWorkPlanDigest(db, token);
+            else if (task === 'forgot_checkin') results.forgot_checkin = await forgotCheckInDigest(db, token);
+            else if (task === 'forgot_checkout') results.forgot_checkout = await forgotCheckOutDigest(db, token);
+            else if (task === 'jomit_team_10am') results.jomit_team_10am = await jomitTeamDigest(db, token, '10am');
+            else if (task === 'jomit_team_6pm') results.jomit_team_6pm = await jomitTeamDigest(db, token, '6pm');
         }
 
         res.statusCode = 200;

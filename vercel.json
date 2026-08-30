@@ -30,6 +30,10 @@
         {
             "source": "/api/telegram-scheduler",
             "destination": "/api/telegram-scheduler"
+        },
+        {
+            "source": "/api/telegram-generate-link",
+            "destination": "/api/telegram-generate-link"
         }
     ],
     "crons": [
@@ -44,6 +48,26 @@
         {
             "path": "/api/telegram-scheduler?task=leaderboard",
             "schedule": "30 3 * * 1"
+        },
+        {
+            "path": "/api/telegram-scheduler?task=personal_workplan",
+            "schedule": "30 2 * * 1-6"
+        },
+        {
+            "path": "/api/telegram-scheduler?task=forgot_checkin",
+            "schedule": "0 4 * * 1-6"
+        },
+        {
+            "path": "/api/telegram-scheduler?task=jomit_team_10am",
+            "schedule": "30 4 * * 1-6"
+        },
+        {
+            "path": "/api/telegram-scheduler?task=forgot_checkout",
+            "schedule": "30 12 * * 1-6"
+        },
+        {
+            "path": "/api/telegram-scheduler?task=jomit_team_6pm",
+            "schedule": "30 12 * * 1-6"
         }
     ]
 }

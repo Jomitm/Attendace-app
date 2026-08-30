@@ -19,19 +19,37 @@ module.exports = async (req, res) => {
     }
 
     const token = process.env.TELEGRAM_BOT_TOKEN;
-    const chatId = process.env.TELEGRAM_CHAT_ID;
+    const envChatId = process.env.TELEGRAM_CHAT_ID;
 
-    if (!token || !chatId) {
+    if (!token) {
         res.statusCode = 503;
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.end(JSON.stringify({
             ok: false,
-            error: 'Telegram not configured. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in Vercel env vars.'
+            error: 'Telegram not configured. Set TELEGRAM_BOT_TOKEN in Vercel env vars.'
         }));
         return;
     }
 
-    const { text } = req.body || {};
+    const { text, chatId: bodyChatId, chat_id: bodyChatIdAlt, userId: bodyUserId } = req.body || {};
+    let chatId = bodyChatId || bodyChatIdAlt || null;
+    // Allow personal send via userId lookup if chatId not directly provided
+    if (!chatId && bodyUserId) {
+        try {
+            const { getDb } = require('./_firebase-admin');
+            const db = getDb();
+            if (db) {
+                const snap = await db.collection('users').doc(String(bodyUserId)).get();
+                if (snap.exists) chatId = snap.data()?.telegramChatId || null;
+            }
+        } catch {}
+    }
+    if (!chatId) chatId = envChatId;
+    if (!chatId) {
+        res.statusCode = 503;
+        res.end(JSON.stringify({ ok: false, error: 'No chatId available' }));
+        return;
+    }
 
     if (!text || typeof text !== 'string') {
         res.statusCode = 400;

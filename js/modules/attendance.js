@@ -333,10 +333,27 @@ export class Attendance {
             const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             const hour = now.getHours();
             const minute = now.getMinutes();
-            if (hour > 10 || (hour === 10 && minute > 0)) {
+            const isLate = hour > 10 || (hour === 10 && minute > 0);
+            if (isLate) {
                 telegramNotifyLateCheckIn(userName, timeStr);
             } else {
                 telegramNotifyCheckIn(userName, timeStr);
+            }
+            // Also notify Jomit personally for late cases (if Jomit is linked and not the same user)
+            if (isLate) {
+                try {
+                    const users = await AppDB.getAll('users');
+                    const jomit = users.find(u => String(u.username).toLowerCase() === 'jomit' || String(u.name).toLowerCase() === 'jomit mathew');
+                    const jomitChat = jomit?.telegramChatId ? String(jomit.telegramChatId).trim() : '';
+                    const userChat = String(user.telegramChatId || '').trim();
+                    if (jomitChat && jomitChat !== userChat) {
+                        fetch('/api/telegram-send', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ chatId: jomitChat, text: `⚠️ <b>${userName}</b> checked in LATE at ${timeStr} — notifying you as owner` })
+                        }).catch(() => {});
+                    }
+                } catch {}
             }
         } catch { /* best-effort */ }
 
