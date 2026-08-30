@@ -9150,7 +9150,8 @@ window.app_linkTelegram = async () => {
 
     if (user.telegramChatId) {
         const html = `
-            <div style="text-align:center;padding:1.5rem;">
+            <div style="text-align:center;padding:1.5rem;position:relative;">
+                <button onclick="document.getElementById('telegram-link-modal')?.remove(); document.body.style.overflow=''" style="position:absolute;top:0.5rem;right:0.5rem;width:2rem;height:2rem;border:1px solid #fed7aa;border-radius:999px;background:#fff7ed;color:#9a3412;font-size:1.1rem;cursor:pointer;z-index:1;">×</button>
                 <i class="fa-brands fa-telegram" style="font-size:3rem;color:#229ED9;margin-bottom:0.5rem;display:block;"></i>
                 <h3 style="margin-bottom:0.25rem;">✅ Telegram Connected</h3>
                 <p style="color:#16a34a;font-weight:600;margin-bottom:1rem;">You will get your personal messages here</p>
@@ -9170,7 +9171,8 @@ window.app_linkTelegram = async () => {
     }
 
     const loadingHtml = `
-        <div style="text-align:center;padding:2rem;">
+        <div style="text-align:center;padding:2rem;position:relative;">
+            <button onclick="document.getElementById('telegram-link-modal')?.remove(); document.body.style.overflow=''" style="position:absolute;top:0.5rem;right:0.5rem;width:2rem;height:2rem;border:1px solid #fed7aa;border-radius:999px;background:#fff7ed;color:#9a3412;font-size:1.1rem;cursor:pointer;z-index:1;">×</button>
             <i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;color:#2563eb;margin-bottom:1rem;display:block;"></i>
             <p style="color:#6b7280;">Generating your secure link…</p>
         </div>
@@ -9189,7 +9191,8 @@ window.app_linkTelegram = async () => {
         const qrFallback = `https://quickchart.io/qr?text=${encoded}&size=300`;
         const startCmd = `/start ${data.token}`;
         const html = `
-            <div style="text-align:center;padding:1.5rem;">
+            <div style="text-align:center;padding:1.5rem;position:relative;">
+                <button onclick="document.getElementById('telegram-link-modal')?.remove(); document.body.style.overflow=''" style="position:absolute;top:0.5rem;right:0.5rem;width:2rem;height:2rem;border:1px solid #fed7aa;border-radius:999px;background:#fff7ed;color:#9a3412;font-size:1.1rem;cursor:pointer;z-index:1;">×</button>
                 <i class="fa-brands fa-telegram" style="font-size:3rem;color:#229ED9;margin-bottom:0.5rem;display:block;"></i>
                 <h3 style="margin-bottom:0.25rem;">Connect Telegram in One Tap</h3>
                 <p style="color:#6b7280;margin-bottom:1rem;font-size:0.9rem;">Tap the button or scan the QR — then press <b>Start</b> in Telegram</p>
@@ -9266,7 +9269,8 @@ window.app_connectOutlook = async () => {
     if (!user) return;
 
     const html = `
-        <div style="text-align:center;padding:1.5rem;">
+        <div style="text-align:center;padding:1.5rem;position:relative;">
+            <button onclick="document.getElementById('outlook-connect-modal')?.remove(); document.body.style.overflow=''" style="position:absolute;top:0.5rem;right:0.5rem;width:2rem;height:2rem;border:1px solid #fed7aa;border-radius:999px;background:#fff7ed;color:#9a3412;font-size:1.1rem;cursor:pointer;z-index:1;">×</button>
             <i class="fa-brands fa-microsoft" style="font-size:3rem;color:#0078d4;margin-bottom:1rem;display:block;"></i>
             <h3 style="margin-bottom:0.5rem;">Connect to Outlook Calendar</h3>
             <p style="color:#6b7280;margin-bottom:1.5rem;">Sync your CRWI tasks, leaves, and events to Outlook.</p>

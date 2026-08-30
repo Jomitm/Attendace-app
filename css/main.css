@@ -1114,13 +1114,53 @@ td {
     border-radius: 1rem;
     border: 1px solid #f5d0a6;
     width: 100%;
-    max-width: 500px;
-    max-height: 90vh;
+    max-width: 560px;
+    max-height: 85vh;
+    max-height: 85dvh;
     overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
     box-shadow: 0 22px 36px rgba(15, 23, 42, 0.24), 0 4px 12px rgba(120, 53, 15, 0.15);
     position: relative;
     animation: scaleIn var(--motion-med) var(--easing-emphasized);
     transition: transform var(--motion-med) var(--easing-emphasized);
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-overlay {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 16px;
+}
+
+/* Compact Outlook + Telegram pop-outs */
+#outlook-connect-modal .modal-content,
+#telegram-link-modal .modal-content,
+#telegram-register-modal .modal-content {
+    max-width: 560px;
+    width: min(560px, 92vw);
+}
+
+#outlook-connect-modal .outlook-feed-url {
+    max-height: 96px;
+    overflow: auto;
+    word-break: break-all;
+    overflow-wrap: anywhere;
+}
+
+#telegram-link-modal .telegram-qr-wrap {
+    max-height: 50vh;
+    overflow: auto;
+    display: flex;
+    justify-content: center;
+}
+
+#telegram-link-modal .telegram-qr-wrap img {
+    max-width: 260px;
+    width: 100%;
+    height: auto;
+    object-fit: contain;
 }
 
 .modal-content h2,
