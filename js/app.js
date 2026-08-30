@@ -9185,7 +9185,8 @@ window.app_linkTelegram = async () => {
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok || !data.ok || !data.url) throw new Error(data.error || 'Failed to generate link');
         const encoded = encodeURIComponent(data.url);
-        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encoded}`;
+        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&ecc=H&qzone=1&data=${encoded}`;
+        const qrFallback = `https://quickchart.io/qr?text=${encoded}&size=300`;
         const startCmd = `/start ${data.token}`;
         const html = `
             <div style="text-align:center;padding:1.5rem;">
@@ -9197,8 +9198,9 @@ window.app_linkTelegram = async () => {
                     <button onclick="navigator.clipboard.writeText('${data.url}').then(()=>{const e=document.getElementById('copy-feedback'); if(e){e.textContent='Link copied!'; setTimeout(()=>e.textContent='',2000);}}).catch(()=>alert('Copy failed, please copy manually'))" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:8px;padding:0.5rem 1rem;font-size:0.85rem;cursor:pointer;margin-right:0.5rem;"><i class="fa-regular fa-copy" style="margin-right:0.25rem;"></i>Copy Link</button>
                     <span id="copy-feedback" style="font-size:0.75rem;color:#16a34a;margin-left:0.5rem;"></span>
                 </div>
-                <div style="margin:0 auto 1rem;max-width:220px;background:#fff;padding:8px;border-radius:12px;border:1px solid #e5e7eb;">
-                    <img src="${qrUrl}" alt="Scan to connect Telegram" style="width:100%;height:auto;display:block;border-radius:8px;" loading="lazy">
+                <div style="margin:0 auto 1rem;max-width:280px;background:#fff;padding:12px;border-radius:12px;border:1px solid #e5e7eb;text-align:center;">
+                    <img src="${qrUrl}" alt="Scan to connect Telegram" style="width:100%;height:auto;display:block;border-radius:8px;max-width:260px;margin:0 auto;" loading="lazy" onerror="this.onerror=null;this.src='${qrFallback}';this.style.display='block';">
+                    <div style="font-size:0.7rem;color:#9ca3af;margin-top:0.5rem;">Scan with Telegram or your phone camera</div>
                 </div>
                 <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:0.75rem 1rem;margin:0 auto;max-width:360px;text-align:left;font-size:0.85rem;color:#1e40af;">
                     <div style="font-weight:700;margin-bottom:0.25rem;">After you tap Start:</div>
