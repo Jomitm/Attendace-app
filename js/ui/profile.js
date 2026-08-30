@@ -58,6 +58,7 @@ export async function renderProfile() {
         };
 
         const isViewingSelf = profileUser.id === user.id;
+        const isOwner = isViewingSelf && (String(user.username || '').toLowerCase() === 'jomit' || String(user.name || '').toLowerCase() === 'jomit mathew' || !!user.isAdmin);
         const attendanceRate = monthlyStats?.attendanceRate ?? '—';
         const punctualityRate = monthlyStats?.punctualityRate ?? '—';
         const totalHours = monthlyStats?.totalHours ?? '—';
@@ -260,6 +261,12 @@ export async function renderProfile() {
                                     <span>${profileUser.telegramChatId ? '✅ Telegram Linked' : 'Link Telegram'}</span>
                                     <i class="fa-solid fa-chevron-right pro-quick-arrow"></i>
                                 </button>
+                                ${isOwner ? `
+                                <button class="pro-quick-item" onclick="window.app_registerTelegramWebhook()" title="One-time setup to connect Telegram bot to this app">
+                                    <span class="pro-quick-icon" style="background:#fef3c7;color:#d97706;"><i class="fa-solid fa-link"></i></span>
+                                    <span>Register Telegram Webhook</span>
+                                    <i class="fa-solid fa-chevron-right pro-quick-arrow"></i>
+                                </button>` : ''}
                                 <button class="pro-quick-item" onclick="window.app_connectOutlook()">
                                     <span class="pro-quick-icon" style="background:#eff6ff;color:#0078d4;"><i class="fa-brands fa-microsoft"></i></span>
                                     <span>Connect to Outlook</span>

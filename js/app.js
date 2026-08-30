@@ -9215,6 +9215,37 @@ window.app_linkTelegram = async () => {
     }
 };
 
+window.app_registerTelegramWebhook = async () => {
+    const user = window.AppAuth.getUser();
+    if (!user) { alert('Please log in first.'); return; }
+    if (!confirm('Register Telegram webhook now? This is a one-time setup to connect the Telegram bot to this app. Do this once after you set TELEGRAM_BOT_TOKEN in Vercel.')) return;
+    const htmlLoading = `<div style="text-align:center;padding:2rem;"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;color:#2563eb;margin-bottom:1rem;display:block;"></i><p style="color:#6b7280;">Registering webhook…</p></div>`;
+    window.app_showModal(htmlLoading, 'telegram-register-modal');
+    try {
+        const resp = await fetch('/api/telegram-register-webhook', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: user.id })
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || !data.ok) throw new Error(data.error || 'Failed to register webhook');
+        const okHtml = `<div style="text-align:center;padding:1.5rem;">
+            <i class="fa-solid fa-check-circle" style="font-size:3rem;color:#16a34a;margin-bottom:0.5rem;display:block;"></i>
+            <h3 style="margin-bottom:0.5rem;">Webhook Registered!</h3>
+            <p style="color:#6b7280;margin-bottom:1rem;word-break:break-all;">URL: ${data.webhookUrl || 'ok'}</p>
+            <p style="color:#6b7280;font-size:0.85rem;">Now try "Connect Telegram" again — you will get the sample message instantly.</p>
+        </div>`;
+        const modal = document.getElementById('telegram-register-modal');
+        if (modal) modal.querySelector('.modal-content') ? (modal.querySelector('.modal-content').innerHTML = okHtml) : (modal.innerHTML = okHtml);
+        else window.app_showModal(okHtml, 'telegram-register-modal');
+    } catch (err) {
+        const errHtml = `<div style="text-align:center;padding:1.5rem;"><p style="color:#dc2626;">Failed: ${String(err.message || err)}</p><p style="color:#6b7280;font-size:0.85rem;">Make sure TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET are set in Vercel, then try again.</p></div>`;
+        const modal = document.getElementById('telegram-register-modal');
+        if (modal) modal.querySelector('.modal-content') ? (modal.querySelector('.modal-content').innerHTML = errHtml) : (modal.innerHTML = errHtml);
+        else window.app_showModal(errHtml, 'telegram-register-modal');
+    }
+};
+
 window.app_connectOutlook = async () => {
     const user = window.AppAuth.getUser();
     if (!user) return;

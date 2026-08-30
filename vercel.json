@@ -34,6 +34,10 @@
         {
             "source": "/api/telegram-generate-link",
             "destination": "/api/telegram-generate-link"
+        },
+        {
+            "source": "/api/telegram-register-webhook",
+            "destination": "/api/telegram-register-webhook"
         }
     ],
     "crons": [
