@@ -9186,12 +9186,17 @@ window.app_linkTelegram = async () => {
         if (!resp.ok || !data.ok || !data.url) throw new Error(data.error || 'Failed to generate link');
         const encoded = encodeURIComponent(data.url);
         const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encoded}`;
+        const startCmd = `/start ${data.token}`;
         const html = `
             <div style="text-align:center;padding:1.5rem;">
                 <i class="fa-brands fa-telegram" style="font-size:3rem;color:#229ED9;margin-bottom:0.5rem;display:block;"></i>
                 <h3 style="margin-bottom:0.25rem;">Connect Telegram in One Tap</h3>
                 <p style="color:#6b7280;margin-bottom:1rem;font-size:0.9rem;">Tap the button or scan the QR — then press <b>Start</b> in Telegram</p>
-                <a href="${data.url}" target="_blank" rel="noopener" style="display:inline-block;background:#229ED9;color:#fff;border-radius:8px;padding:0.75rem 1.5rem;font-weight:700;text-decoration:none;margin-bottom:1rem;"><i class="fa-brands fa-telegram" style="margin-right:0.5rem;"></i>Open Telegram to Connect</a>
+                <a href="${data.url}" target="_blank" rel="noopener" style="display:inline-block;background:#229ED9;color:#fff;border-radius:8px;padding:0.75rem 1.5rem;font-weight:700;text-decoration:none;margin-bottom:0.75rem;"><i class="fa-brands fa-telegram" style="margin-right:0.5rem;"></i>Open Telegram to Connect</a>
+                <div style="margin-bottom:0.75rem;">
+                    <button onclick="navigator.clipboard.writeText('${data.url}').then(()=>{const e=document.getElementById('copy-feedback'); if(e){e.textContent='Link copied!'; setTimeout(()=>e.textContent='',2000);}}).catch(()=>alert('Copy failed, please copy manually'))" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:8px;padding:0.5rem 1rem;font-size:0.85rem;cursor:pointer;margin-right:0.5rem;"><i class="fa-regular fa-copy" style="margin-right:0.25rem;"></i>Copy Link</button>
+                    <span id="copy-feedback" style="font-size:0.75rem;color:#16a34a;margin-left:0.5rem;"></span>
+                </div>
                 <div style="margin:0 auto 1rem;max-width:220px;background:#fff;padding:8px;border-radius:12px;border:1px solid #e5e7eb;">
                     <img src="${qrUrl}" alt="Scan to connect Telegram" style="width:100%;height:auto;display:block;border-radius:8px;" loading="lazy">
                 </div>
@@ -9201,7 +9206,15 @@ window.app_linkTelegram = async () => {
                     <div>• This link expires in 10 minutes for safety</div>
                     <div style="margin-top:0.5rem;font-size:0.75rem;color:#6b7280;word-break:break-all;">Link: <a href="${data.url}" target="_blank" style="color:#2563eb;">${data.url}</a></div>
                 </div>
-                <p style="font-size:0.75rem;color:#9ca3af;margin-top:0.75rem;">On desktop, scan the QR with your phone. On phone, just tap the button.</p>
+                <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:0.75rem 1rem;margin:0.75rem auto 0;max-width:360px;text-align:left;font-size:0.8rem;color:#9a3412;">
+                    <div style="font-weight:700;margin-bottom:0.25rem;">If the button shows "no handler for tg://":</div>
+                    <div>Your computer does not have Telegram app — scan the QR with your phone, or open Telegram on your phone, search <b>@CRWIAttendancebot</b> and send:</div>
+                    <div style="background:#f3f4f6;border-radius:6px;padding:0.4rem 0.6rem;margin-top:0.5rem;font-family:monospace;word-break:break-all;display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">
+                        <span id="start-cmd-text">${startCmd}</span>
+                        <button onclick="navigator.clipboard.writeText('${startCmd}').then(()=>alert('Copied! Paste it to the bot in Telegram'))" style="background:#fff;border:1px solid #d1d5db;border-radius:6px;padding:0.25rem 0.5rem;font-size:0.75rem;cursor:pointer;flex-shrink:0;">Copy</button>
+                    </div>
+                </div>
+                <p style="font-size:0.75rem;color:#9ca3af;margin-top:0.75rem;">On desktop without Telegram app, scan the QR with your phone. On phone, just tap the button.</p>
             </div>
         `;
         const modal = document.getElementById('telegram-link-modal');
