@@ -38,7 +38,6 @@ import { renderTeamActivitiesPage } from './ui/team-activities.js';
 import { renderDashboardSectionPage, initDashboardSectionPage } from './ui/dashboard-sections.js';
 import { renderLetterPad } from './ui/letter-pad.js';
 import { renderJourneyReflectionCard } from './ui/journey-reflection.js';
-import { renderSiteAnnouncement } from './ui/site-announcement.js';
 import { initDashboardLayout, toggleEditMode, applyDashboardLayout, isEditModeActive } from './ui/dashboard-layout.js';
 import { renderKanbanBoard, initKanbanBoard, startKanbanRealtimeListener, stopKanbanRealtimeListener } from './ui/kanban-board.js';
 import { renderViewToggle, initViewToggle, ensureViewToggleCSS } from './ui/view-toggle.js';
@@ -80,7 +79,6 @@ export {
     initDashboardSectionPage,
     renderLetterPad,
     renderJourneyReflectionCard,
-    renderSiteAnnouncement,
     initDashboardLayout,
     toggleEditMode,
     applyDashboardLayout,
@@ -130,7 +128,6 @@ export const AppUI = {
     initDashboardSectionPage,
     renderLetterPad,
     renderJourneyReflectionCard,
-    renderSiteAnnouncement,
     initDashboardLayout,
     toggleEditMode,
     applyDashboardLayout,
