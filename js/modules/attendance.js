@@ -339,19 +339,25 @@ export class Attendance {
             } else {
                 telegramNotifyCheckIn(userName, timeStr);
             }
-            // Also notify Jomit personally for late cases (if Jomit is linked and not the same user)
+            // Also notify configured recipients for late cases
             if (isLate) {
                 try {
-                    const users = await AppDB.getAll('users');
-                    const jomit = users.find(u => String(u.username).toLowerCase() === 'jomit' || String(u.name).toLowerCase() === 'jomit mathew');
-                    const jomitChat = jomit?.telegramChatId ? String(jomit.telegramChatId).trim() : '';
-                    const userChat = String(user.telegramChatId || '').trim();
-                    if (jomitChat && jomitChat !== userChat) {
-                        fetch('/api/telegram-send', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ chatId: jomitChat, text: `⚠️ <b>${userName}</b> checked in LATE at ${timeStr} — notifying you as owner` })
-                        }).catch(() => {});
+                    const { getLateNotificationRecipients } = await import('../ui/admin-late-notification.js');
+                    const recipients = await getLateNotificationRecipients();
+                    if (recipients.length > 0) {
+                        const users = await AppDB.getAll('users');
+                        const userChat = String(user.telegramChatId || '').trim();
+                        for (const recipientName of recipients) {
+                            const recipient = users.find(u => String(u.username).toLowerCase() === recipientName || String(u.name).toLowerCase() === recipientName);
+                            const recipientChat = recipient?.telegramChatId ? String(recipient.telegramChatId).trim() : '';
+                            if (recipientChat && recipientChat !== userChat) {
+                                fetch('/api/telegram-send', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ chatId: recipientChat, text: `⚠️ <b>${userName}</b> checked in LATE at ${timeStr} — notifying you as admin` })
+                                }).catch(() => {});
+                            }
+                        }
                     }
                 } catch {}
             }

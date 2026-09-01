@@ -6,6 +6,7 @@
 import { safeHtml } from './helpers.js';
 import { AppConfig } from '../config.js';
 import { SiteAnnouncement } from './site-announcement.js';
+import { renderLateNotificationBody, bindLateNotificationListeners } from './admin-late-notification.js';
 import { onAction } from '../utils/action-router.js';
 
 const ADMIN_MAX_OVERLAY_ID = 'admin-card-max-overlay';
@@ -270,6 +271,9 @@ if (typeof window !== 'undefined') {
 
         // Card mode toggles
         onAction('admin-toggle-card-mode', (el) => window.app_toggleAdminCardMode?.(el.dataset.cardId || '', el.dataset.mode || 'tile', el));
+
+        // Late notification recipients
+        bindLateNotificationListeners();
     }
 }
 
@@ -1071,6 +1075,17 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
             accentClass: 'admin-card-accent-blue',
             compactHtml: SiteAnnouncement.renderAdminBody(siteAnnouncementSettings || {}),
             expandedHtml: SiteAnnouncement.renderAdminBody(siteAnnouncementSettings || {})
+        });
+
+        const lateNotifHtml = await renderLateNotificationBody(false);
+        const lateNotifExpandedHtml = await renderLateNotificationBody(true);
+        pushCard({
+            id: 'late-notifications',
+            title: 'Late Check-in Notifications',
+            className: 'admin-section-card',
+            accentClass: 'admin-card-accent-amber',
+            compactHtml: lateNotifHtml,
+            expandedHtml: lateNotifExpandedHtml
         });
     }
 

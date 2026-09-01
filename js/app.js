@@ -7736,6 +7736,7 @@ async function handleAddUser(e) {
         name: name,
         username: username,
         password: password,
+        passwordSetupRequired: !password,
         role: formData.get('role'),
         dept: formData.get('dept'),
         email: email,
@@ -8151,10 +8152,13 @@ document.addEventListener('submit', (e) => {
         (async () => {
             const fd = new FormData(e.target);
             try {
-                const pos = await app_getAttendanceLocation();
                 const result = await window.AppAuth.loginOwner(fd.get('username'), fd.get('password'));
                 if (result && result.denied === 'not-owner') {
                     alert('This portal is for owner access only.');
+                    return;
+                }
+                if (result && result.needsPasswordSetup) {
+                    contentArea.innerHTML = AppUI.renderOwnerPasswordSetup(result.username || '');
                     return;
                 }
                 if (!result) {
@@ -8162,7 +8166,7 @@ document.addEventListener('submit', (e) => {
                     return;
                 }
                 window.location.hash = 'dashboard';
-                await app_finalizeLogin(pos);
+                await app_finalizeLogin();
             } catch (err) {
                 const errStr = String(err);
                 if (errStr.includes('permission-denied') || errStr.includes('FirebaseError')) {
@@ -8170,6 +8174,39 @@ document.addEventListener('submit', (e) => {
                 } else {
                     alert(`Login blocked: ${errStr}\n\nPlease enable location and try again.`);
                 }
+            }
+        })();
+    }
+    else if (id === 'owner-password-setup-form') {
+        (async () => {
+            const fd = new FormData(e.target);
+            const newPass = fd.get('newPassword');
+            const confirmPass = fd.get('confirmPassword');
+            const username = fd.get('username');
+            if (newPass !== confirmPass) {
+                alert('Passwords do not match.');
+                return;
+            }
+            if (!newPass || newPass.length < 4) {
+                alert('Password must be at least 4 characters.');
+                return;
+            }
+            try {
+                const users = await window.AppDB.getAll('users');
+                const user = users.find(u => (u.username || '').toLowerCase() === (username || '').toLowerCase());
+                if (!user) {
+                    alert('User not found.');
+                    return;
+                }
+                const result = await window.AppAuth.setPassword(user.id, newPass);
+                if (result && result.error) {
+                    alert(result.error);
+                    return;
+                }
+                sessionStorage.setItem('crwi_auth_notice', 'Password set successfully. Please sign in.');
+                window.location.hash = 'owner';
+            } catch (err) {
+                alert('Failed to set password: ' + String(err));
             }
         })();
     }

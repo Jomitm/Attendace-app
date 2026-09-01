@@ -1620,8 +1620,15 @@ export class Analytics {
                 { start: dataset.start, end: dataset.end }
             );
             const taskBuckets = this.buildHeroTaskBuckets(normalizedTasks);
+            const ownerUsernames = new Set(
+                (Array.isArray(AppConfig?.OWNER_USERNAMES) ? AppConfig.OWNER_USERNAMES : [])
+                    .map((u) => String(u || '').toLowerCase().trim())
+                    .filter(Boolean)
+            );
             const rankedMap = new Map(ranked.map((row, index) => [String(row.userId), { ...row, rank: index + 1 }]));
-            const rows = (Array.isArray(dataset.users) ? dataset.users : []).map((user) => {
+            const eligibleUsers = (Array.isArray(dataset.users) ? dataset.users : [])
+                .filter((user) => !ownerUsernames.has(String(user?.username || '').toLowerCase().trim()));
+            const rows = eligibleUsers.map((user) => {
                 const userId = String(user?.id || '').trim();
                 const stats = rankedMap.get(userId) || { ...this.createZeroHeroStats(userId), rank: null };
                 const isEligible = stats.taskPlanned >= minPlannedTasks

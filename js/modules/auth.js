@@ -154,7 +154,8 @@ export class Auth {
         const user = users.find(u => {
             const uName = (u.username || "").toLowerCase().trim();
             const uEmail = (u.email || "").toLowerCase().trim();
-            return (uName === cleanUser || uEmail === cleanUser) && u.password.trim() === cleanPass;
+            const passMatch = u.password ? u.password.trim() === cleanPass : cleanPass === '';
+            return (uName === cleanUser || uEmail === cleanUser) && passMatch;
         });
 
         if (!user) {
@@ -167,12 +168,26 @@ export class Auth {
             : []).includes((user.username || '').toLowerCase());
 
         if (!isOwner) {
-            // Valid credentials but not an owner account: refuse without
-            // establishing a session or touching the shared token.
             return { denied: 'not-owner' };
         }
 
+        if (user.passwordSetupRequired) {
+            return { needsPasswordSetup: true, userId: user.id, username: user.username };
+        }
+
         return this._establishSession(user, true);
+    }
+
+    async setPassword(userId, newPassword) {
+        if (!userId || !newPassword) return false;
+        const cleanPass = String(newPassword).trim();
+        if (cleanPass.length < 4) return { error: 'Password must be at least 4 characters.' };
+        await AppDB.put('users', {
+            id: userId,
+            password: cleanPass,
+            passwordSetupRequired: false
+        });
+        return true;
     }
 
     // Owner-only "Login as user": opens a staff account in a viewing session

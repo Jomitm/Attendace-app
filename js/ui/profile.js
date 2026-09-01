@@ -4,6 +4,7 @@
  */
 
 import { safeHtml } from './helpers.js';
+import { AppConfig } from '../config.js';
 
 export async function renderProfile() {
     try {
@@ -58,7 +59,7 @@ export async function renderProfile() {
         };
 
         const isViewingSelf = profileUser.id === user.id;
-        const isOwner = isViewingSelf && (String(user.username || '').toLowerCase() === 'jomit' || String(user.name || '').toLowerCase() === 'jomit mathew' || !!user.isAdmin);
+        const isOwner = isViewingSelf && (AppConfig.OWNER_USERNAMES.includes(String(user.username || '').toLowerCase()) || !!user.isAdmin);
         const attendanceRate = monthlyStats?.attendanceRate ?? '—';
         const punctualityRate = monthlyStats?.punctualityRate ?? '—';
         const totalHours = monthlyStats?.totalHours ?? '—';

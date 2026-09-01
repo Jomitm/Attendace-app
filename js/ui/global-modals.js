@@ -322,11 +322,11 @@ export function renderModals() {
                     <div style="display: flex; gap: 1rem; background: #f9fafb; padding: 1rem; border-radius: 0.5rem; border: 1px dashed #d1d5db;">
                         <label class="gm-flex-fill">
                             Login ID
-                            <input type="text" name="username" placeholder="e.g. jomit" required class="gm-input">
+                            <input type="text" name="username" placeholder="e.g. john.doe" required class="gm-input">
                         </label>
                         <label class="gm-flex-fill">
                             Password
-                            <input type="text" name="password" placeholder="e.g. secret123" required class="gm-input">
+                            <input type="text" name="password" placeholder="Leave empty for first-login setup" class="gm-input">
                         </label>
                     </div>
 

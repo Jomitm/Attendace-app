@@ -224,10 +224,11 @@ async function weeklyLeaderboard(db, token) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-async function findJomitUser(db) {
-    let snap = await db.collection('users').where('username', '==', 'jomit').limit(1).get();
+async function findAdminUser(db) {
+    // Look for users with isAdmin flag or Administrator role
+    let snap = await db.collection('users').where('isAdmin', '==', true).limit(1).get();
     if (!snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() };
-    snap = await db.collection('users').where('name', '==', 'Jomit Mathew').limit(1).get();
+    snap = await db.collection('users').where('role', '==', 'Administrator').limit(1).get();
     if (!snap.empty) return { id: snap.docs[0].id, ...snap.docs[0].data() };
     return null;
 }
@@ -325,12 +326,12 @@ async function forgotCheckOutDigest(db, token) {
     return { forgotCheckOut: true, sent };
 }
 
-// ── Jomit Team Digests (10 AM signed-in, 6 PM signed-out) ────────────
-async function jomitTeamDigest(db, token, slot) {
-    const jomit = await findJomitUser(db);
-    const jomitChatId = jomit?.telegramChatId ? String(jomit.telegramChatId) : null;
+// ── Team Digests (10 AM signed-in, 6 PM signed-out) ──────────────────
+async function teamDigest(db, token, slot) {
+    const admin = await findAdminUser(db);
+    const adminChatId = admin?.telegramChatId ? String(admin.telegramChatId) : null;
     const groupChatId = process.env.TELEGRAM_CHAT_ID;
-    if (!jomitChatId && !groupChatId) return { jomitTeam: false, reason: 'no chat id' };
+    if (!adminChatId && !groupChatId) return { teamDigest: false, reason: 'no chat id' };
     const today = getLocalISO();
     const usersSnap = await db.collection('users').get();
     const allStaff = [];
@@ -360,9 +361,9 @@ async function jomitTeamDigest(db, token, slot) {
               `\n\nPlease remind those still in to check out.`;
     }
     let sentTo = [];
-    if (jomitChatId) { await sendMessage(token, jomitChatId, msg); sentTo.push('jomit'); }
+    if (adminChatId) { await sendMessage(token, adminChatId, msg); sentTo.push('admin'); }
     if (groupChatId) { await sendMessage(token, groupChatId, msg); sentTo.push('group'); }
-    return { jomitTeam: true, slot, sentTo, checkedIn: checkedIn.length, total: allStaff.length };
+    return { teamDigest: true, slot, sentTo, checkedIn: checkedIn.length, total: allStaff.length };
 }
 
 module.exports = async (req, res) => {
@@ -428,8 +429,8 @@ module.exports = async (req, res) => {
         }
 
         // Jomit team 10 AM Mon-Sat
-        if (task === 'jomit_team_10am' || (day >= 1 && day <= 6 && hour === 10)) {
-            results.jomit_team_10am = await jomitTeamDigest(db, token, '10am');
+        if (task === 'team_digest_10am' || (day >= 1 && day <= 6 && hour === 10)) {
+            results.team_digest_10am = await teamDigest(db, token, '10am');
         }
 
         // Forgot check-out at 6 PM Mon-Sat (18)
@@ -442,13 +443,13 @@ module.exports = async (req, res) => {
             }
         }
 
-        // Jomit team 6 PM Mon-Sat
-        if (task === 'jomit_team_6pm') {
-            results.jomit_team_6pm = await jomitTeamDigest(db, token, '6pm');
+        // Team digest 6 PM Mon-Sat
+        if (task === 'team_digest_6pm') {
+            results.team_digest_6pm = await teamDigest(db, token, '6pm');
         }
-        // Auto-run jomit 6pm team when hour 18 and day 1-6 and no specific task (alongside forgot checkout)
+        // Auto-run team digest 6pm when hour 18 and day 1-6 and no specific task (alongside forgot checkout)
         if (!task && day >= 1 && day <= 6 && hour === 18) {
-            if (!results.jomit_team_6pm) results.jomit_team_6pm = await jomitTeamDigest(db, token, '6pm');
+            if (!results.team_digest_6pm) results.team_digest_6pm = await teamDigest(db, token, '6pm');
         }
 
         // If specific task requested, run only that (fallback for direct task calls)
@@ -459,8 +460,8 @@ module.exports = async (req, res) => {
             else if (task === 'personal_workplan') results.personal_workplan = await personalWorkPlanDigest(db, token);
             else if (task === 'forgot_checkin') results.forgot_checkin = await forgotCheckInDigest(db, token);
             else if (task === 'forgot_checkout') results.forgot_checkout = await forgotCheckOutDigest(db, token);
-            else if (task === 'jomit_team_10am') results.jomit_team_10am = await jomitTeamDigest(db, token, '10am');
-            else if (task === 'jomit_team_6pm') results.jomit_team_6pm = await jomitTeamDigest(db, token, '6pm');
+            else if (task === 'team_digest_10am') results.team_digest_10am = await teamDigest(db, token, '10am');
+            else if (task === 'team_digest_6pm') results.team_digest_6pm = await teamDigest(db, token, '6pm');
         }
 
         res.statusCode = 200;

@@ -79,16 +79,16 @@ export const AppConfig = {
         FALLBACK_TO_PREVIOUS_DAY: true
     },
     HERO_POLICY: {
-        SCHEMA_VERSION: 6,
+        SCHEMA_VERSION: 7,
         WINDOW_DAYS: 7,
         FALLBACK_LOOKBACK_DAYS: 90,
         WEIGHTS: {
-            completionRate: 0.20,
-            absoluteVolume: 0.30,
+            completionRate: 0.35,
+            absoluteVolume: 0.15,
             executionQuality: 0.20,
-            missPenalty: 0.10,
-            postponedPenalty: 0.02,
-            planningBreadth: 0.15
+            missPenalty: 0.15,
+            postponedPenalty: 0.05,
+            planningBreadth: 0.10
         },
         EXPECTED_WEEKLY_TASKS: 5,
         ATTENDANCE_MODIFIER: {
@@ -101,7 +101,7 @@ export const AppConfig = {
             hours: 40,
             qualityChars: 500
         },
-        DEFAULT_ACTIVITY_SCORE: 70,
+        DEFAULT_ACTIVITY_SCORE: 50,
         MIN_EVIDENCE: {
             minDays: 3,
             minDurationMs: 14400000,
@@ -125,7 +125,7 @@ export const AppConfig = {
         LEAVE_REQUESTS_LIMIT: 5,
         LEAVE_HISTORY_LIMIT: 8,
         ACTIVITY_MONTHS_BACK: 8,
-        HERO_VERSION_BADGE: 'v6'
+        HERO_VERSION_BADGE: 'v7'
     },
     DASHBOARD_CUSTOMIZATION: {
         DOC_PATH: 'settings/dashboard_customization',
@@ -165,5 +165,5 @@ export const AppConfig = {
     // Developer/owner accounts exempt from the takeover prompt and single-session
     // auto-checkout. They may log in on any device and share one session token
     // across devices without being asked or kicked. List by login username.
-    OWNER_USERNAMES: ['jomit']
+    OWNER_USERNAMES: ['owner']
 };

@@ -42,7 +42,7 @@ module.exports = async (req, res) => {
         return;
     }
 
-    // Verify caller is owner (jomit)
+    // Verify caller is admin
     try {
         const snap = await db.collection('users').doc(userId).get();
         if (!snap.exists) {
@@ -51,15 +51,15 @@ module.exports = async (req, res) => {
             return;
         }
         const user = snap.data();
-        const isOwner = String(user.username || '').toLowerCase() === 'jomit' || String(user.name || '').toLowerCase() === 'jomit mathew';
-        if (!isOwner && !user.isAdmin) {
+        const isAdmin = user.isAdmin || String(user.role || '').toLowerCase() === 'administrator';
+        if (!isAdmin) {
             res.statusCode = 403;
-            res.end(JSON.stringify({ ok: false, error: 'Only owner can register webhook' }));
+            res.end(JSON.stringify({ ok: false, error: 'Only admin can register webhook' }));
             return;
         }
     } catch (e) {
         res.statusCode = 500;
-        res.end(JSON.stringify({ ok: false, error: 'Failed to verify owner' }));
+        res.end(JSON.stringify({ ok: false, error: 'Failed to verify admin' }));
         return;
     }
 
