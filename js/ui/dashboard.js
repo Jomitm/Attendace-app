@@ -776,6 +776,57 @@ function ensureDashboardActionDelegates() {
     });
 }
 
+function getHeroScoringHelpHtml() {
+    const policy = window.AppHeroPolicy || AppConfig?.HERO_POLICY || {};
+    const configuredWeights = policy.DIMENSION_WEIGHTS || {};
+    const defaultWeights = { punctuality: 0.15, attendance: 0.20, taskExecution: 0.25, productivity: 0.15, planning: 0.15, compliance: 0.10 };
+    const weights = Object.fromEntries(Object.entries(defaultWeights).map(([key, fallback]) => [key, Number.isFinite(Number(configuredWeights[key])) && Number(configuredWeights[key]) >= 0 ? Number(configuredWeights[key]) : fallback]));
+    const weightTotal = Object.values(weights).reduce((sum, value) => sum + value, 0) || 1;
+    const rules = policy.SCORING_RULES || {};
+    const bonus = rules.CLASSIFICATION_BONUS || {};
+    const priority = rules.PRIORITY_WEIGHTS || {};
+    const pause = policy.PAUSE_DISCIPLINE || {};
+    const execution = rules.TASK_EXECUTION_WEIGHTS || {};
+    const productivity = rules.PRODUCTIVITY_WEIGHTS || {};
+    const compliance = rules.COMPLIANCE_PENALTY || {};
+    const evidence = policy.MIN_EVIDENCE || {};
+    const weightRows = Object.entries(weights).map(([key, value]) => `<li><span>${safeHtml(key === 'taskExecution' ? 'Task completion' : key[0].toUpperCase() + key.slice(1))}</span><strong>${Math.round((value / weightTotal) * 100)}%</strong></li>`).join('');
+    const priorityRows = ['urgent', 'important', 'standard', 'flexible'].map((key) => `<li><span>${safeHtml(key[0].toUpperCase() + key.slice(1))}</span><strong>${safeHtml(String(priority[key] ?? 1))}x</strong></li>`).join('');
+    return `
+        <div class="hero-help-modal-head">
+            <div><h3>How Hero scoring works</h3><p>The rules below are the current saved policy.</p></div>
+            <button type="button" class="dashboard-max-close" onclick="window.app_closeHeroScoringHelp?.()" aria-label="Close scoring help"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="hero-help-modal-body">
+            <h4>Score weighting</h4>
+            <ul class="hero-help-list">${weightRows}</ul>
+            <h4>Priority</h4>
+            <p>Priority affects task importance. When at least ${safeHtml(String(bonus.minTasks ?? 5))} tasks are planned and ${Math.round(Number(bonus.minPriorityRatio ?? 0.8) * 100)}% have Priority set, the total score receives <strong>+${safeHtml(String(bonus.points ?? 3))}</strong> bonus points.</p>
+            <ul class="hero-help-list">${priorityRows}</ul>
+            <h4>Other rules</h4>
+            <ul class="hero-help-list">
+                <li><span>Task execution</span><strong>Completion ${safeHtml(String(execution.completion ?? 0.5))}, on-time ${safeHtml(String(execution.onTime ?? 0.2))}</strong></li>
+                <li><span>Pause discipline</span><strong>${safeHtml(String(pause.maxPausesPerDay ?? 3))} pauses / ${safeHtml(String(pause.maxPauseMinsPerDay ?? 45))} mins per day</strong></li>
+                <li><span>Productivity</span><strong>Activity ${safeHtml(String(productivity.activity ?? 0.4))}, notes ${safeHtml(String(productivity.workDescription ?? 0.3))}</strong></li>
+                <li><span>Compliance</span><strong>Location penalty ${safeHtml(String(compliance.locationMismatch ?? 50))}, auto-checkout penalty ${safeHtml(String(compliance.autoCheckout ?? 50))}</strong></li>
+            </ul>
+            <h4>Eligibility</h4>
+            <p>To qualify, staff need at least ${safeHtml(String(evidence.minDays ?? 3))} attendance days, ${safeHtml(String(Math.round(Number(evidence.minDurationMs ?? 14400000) / 3600000)))} tracked hours, and ${safeHtml(String(evidence.minPlannedTasks ?? 3))} planned tasks.</p>
+            <p class="hero-help-note">The primary period is ${safeHtml(String(policy.WINDOW_DAYS ?? 7))} calendar days. If nobody qualifies, the system may use the extended ${safeHtml(String(policy.FALLBACK_LOOKBACK_DAYS ?? 90))}-day period. Scores are limited to 100.</p>
+        </div>`;
+}
+
+window.app_openHeroScoringHelp = function () {
+    const modalId = 'hero-scoring-help-modal';
+    document.getElementById(modalId)?.remove();
+    const html = `<div class="modal-overlay" id="${modalId}" style="display:flex;"><div class="modal-content hero-help-modal-shell">${getHeroScoringHelpHtml()}</div></div>`;
+    (document.getElementById('modal-container') || document.body).insertAdjacentHTML('beforeend', html);
+};
+
+window.app_closeHeroScoringHelp = function () {
+    document.getElementById('hero-scoring-help-modal')?.remove();
+};
+
 // --- Dashboard Components ---
 
 export function renderHeroCard(heroData, heroMeta = {}) {
@@ -811,6 +862,7 @@ export function renderHeroCard(heroData, heroMeta = {}) {
                     <div class="hero-label-badge">Hero of the Week</div>
                     <div class="dashboard-hero-stats-head-right">
                         ${heroMeta.generatedAt ? `<span class="hero-sync-time" title="Source: ${heroMeta.source || heroData?.source || 'unknown'}">Synced ${timeAgo(heroMeta.generatedAt)}</span>` : ''}
+                        <button type="button" class="hero-help-btn" onclick="window.app_openHeroScoringHelp?.()" title="How Hero scoring works" aria-label="How Hero scoring works"><i class="fa-solid fa-circle-question"></i></button>
                         ${refreshButtonHTML}
                     </div>
                 </div>
@@ -842,7 +894,7 @@ export function renderHeroCard(heroData, heroMeta = {}) {
         ? Math.round(Number(heroData.confidence) * 100)
         : 0;
     const periodLabel = heroData?.period === 'yesterday_back_7_days'
-        ? 'Last 7 Completed Days'
+        ? 'Previous Calendar Days'
         : 'Weekly';
     const usedFallbackWindow = !!(heroData?.meta?.usedFallbackWindow);
     const heroWindowDays = Math.max(7, Number(heroData?.meta?.windowDays || 0));
@@ -856,6 +908,7 @@ export function renderHeroCard(heroData, heroMeta = {}) {
                 <div class="hero-label-badge">Hero of the Week</div>
                 <div class="dashboard-hero-stats-head-right">
                     ${heroMeta.generatedAt ? `<span class="hero-sync-time" title="Source: ${heroMeta.source || heroData?.source || 'unknown'}">Synced ${timeAgo(heroMeta.generatedAt)}</span>` : ''}
+                    <button type="button" class="hero-help-btn" onclick="window.app_openHeroScoringHelp?.()" title="How Hero scoring works" aria-label="How Hero scoring works"><i class="fa-solid fa-circle-question"></i></button>
                     ${refreshButtonHTML}
                 </div>
             </div>
@@ -1051,7 +1104,7 @@ function renderHeroLeaderboardExpanded(leaderboardData, heroData = null) {
     const winnerId = String(leaderboardData?.winnerUserId || heroData?.user?.id || '');
     const periodLabel = meta.startDate && meta.endDate
         ? `${safeHtml(meta.startDate)} to ${safeHtml(meta.endDate)}`
-        : 'Last 7 completed days';
+        : 'Previous calendar days';
 
     if (!rows.length) {
         return `

@@ -30,9 +30,33 @@ export class Leaves {
                 ...(base.WEIGHTS || {}),
                 ...(stored.WEIGHTS || {})
             },
+            DIMENSION_WEIGHTS: {
+                ...(base.DIMENSION_WEIGHTS || {}),
+                ...(stored.DIMENSION_WEIGHTS || {})
+            },
+            SCORING_RULES: {
+                ...(base.SCORING_RULES || {}),
+                ...(stored.SCORING_RULES || {}),
+                SIZE_WEIGHTS: { ...(base.SCORING_RULES?.SIZE_WEIGHTS || {}), ...(stored.SCORING_RULES?.SIZE_WEIGHTS || {}) },
+                PRIORITY_WEIGHTS: { ...(base.SCORING_RULES?.PRIORITY_WEIGHTS || {}), ...(stored.SCORING_RULES?.PRIORITY_WEIGHTS || {}) },
+                TASK_EXECUTION_WEIGHTS: { ...(base.SCORING_RULES?.TASK_EXECUTION_WEIGHTS || {}), ...(stored.SCORING_RULES?.TASK_EXECUTION_WEIGHTS || {}) },
+                POSTPONE_CREDIT: { ...(base.SCORING_RULES?.POSTPONE_CREDIT || {}), ...(stored.SCORING_RULES?.POSTPONE_CREDIT || {}) },
+                PRODUCTIVITY_WEIGHTS: { ...(base.SCORING_RULES?.PRODUCTIVITY_WEIGHTS || {}), ...(stored.SCORING_RULES?.PRODUCTIVITY_WEIGHTS || {}) },
+                PLANNING_WEIGHTS: { ...(base.SCORING_RULES?.PLANNING_WEIGHTS || {}), ...(stored.SCORING_RULES?.PLANNING_WEIGHTS || {}) },
+                CLASSIFICATION_BONUS: { ...(base.SCORING_RULES?.CLASSIFICATION_BONUS || {}), ...(stored.SCORING_RULES?.CLASSIFICATION_BONUS || {}) },
+                COMPLEXITY_BONUS: { ...(base.SCORING_RULES?.COMPLEXITY_BONUS || {}), ...(stored.SCORING_RULES?.COMPLEXITY_BONUS || {}) },
+                PURPOSE_BONUS: { ...(base.SCORING_RULES?.PURPOSE_BONUS || {}), ...(stored.SCORING_RULES?.PURPOSE_BONUS || {}) },
+                PAUSE_PENALTY: { ...(base.SCORING_RULES?.PAUSE_PENALTY || {}), ...(stored.SCORING_RULES?.PAUSE_PENALTY || {}) },
+                COMPLIANCE_PENALTY: { ...(base.SCORING_RULES?.COMPLIANCE_PENALTY || {}), ...(stored.SCORING_RULES?.COMPLIANCE_PENALTY || {}) },
+                DEFAULTS: { ...(base.SCORING_RULES?.DEFAULTS || {}), ...(stored.SCORING_RULES?.DEFAULTS || {}) }
+            },
             ATTENDANCE_MODIFIER: {
                 ...(base.ATTENDANCE_MODIFIER || {}),
                 ...(stored.ATTENDANCE_MODIFIER || {})
+            },
+            PAUSE_DISCIPLINE: {
+                ...(base.PAUSE_DISCIPLINE || {}),
+                ...(stored.PAUSE_DISCIPLINE || {})
             },
             CAPS: {
                 ...(base.CAPS || {}),

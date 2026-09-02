@@ -79,7 +79,7 @@ export const AppConfig = {
         FALLBACK_TO_PREVIOUS_DAY: true
     },
     HERO_POLICY: {
-        SCHEMA_VERSION: 7,
+        SCHEMA_VERSION: 8,
         WINDOW_DAYS: 7,
         FALLBACK_LOOKBACK_DAYS: 90,
         WEIGHTS: {
@@ -90,12 +90,42 @@ export const AppConfig = {
             postponedPenalty: 0.05,
             planningBreadth: 0.10
         },
+        DIMENSION_WEIGHTS: {
+            punctuality: 0.15,
+            attendance: 0.20,
+            taskExecution: 0.25,
+            productivity: 0.15,
+            planning: 0.15,
+            compliance: 0.10
+        },
+        SCORING_RULES: {
+            SIZE_WEIGHTS: { 'single-action': 1, 'quick-task': 2, 'small-task': 3, 'medium-task': 5, 'large-task': 8, 'major-project': 12 },
+            PRIORITY_WEIGHTS: { urgent: 1.5, important: 1.2, standard: 1.0, flexible: 0.8 },
+            TASK_EXECUTION_WEIGHTS: { completion: 0.5, onTime: 0.2, missed: 0.3 },
+            POSTPONE_CREDIT: { workStarted: 0.3, inProgress: 0.6 },
+            PRODUCTIVITY_WEIGHTS: { activity: 0.4, extraHours: 0.3, workDescription: 0.3 },
+            PLANNING_WEIGHTS: { planVolume: 0.6, subPlans: 0.2, completed: 20, subPlanPoints: 20 },
+            EXPECTED_EXTRA_HOURS_PER_DAY: 0.5,
+            EVIDENCE_MIN_CHARS: 40,
+            PRODUCTIVITY_DESCRIPTION_CHARS_PER_DAY: 200,
+            CLASSIFICATION_BONUS: { minTasks: 5, minPriorityRatio: 0.8, points: 3, warningRatio: 0.4 },
+            COMPLEXITY_BONUS: { mediumThreshold: 3, highThreshold: 5, mediumPoints: 3, highPoints: 5 },
+            PURPOSE_BONUS: { minPurposes: 2, fullPurposes: 4, points: 1, fullPoints: 3 },
+            PAUSE_PENALTY: { pauseCountPoints: 10, pauseMinutesBlock: 10 },
+            COMPLIANCE_PENALTY: { locationMismatch: 50, autoCheckout: 50 },
+            DEFAULTS: { punctuality: 50, activity: 50, onTimeRate: 100 }
+        },
         EXPECTED_WEEKLY_TASKS: 5,
         ATTENDANCE_MODIFIER: {
             base: 0.9,
-            maxBonus: 0.15,
-            consistencyImpact: 0.65,
+            maxBonus: 10,
+            consistencyImpact: 8,
+            consistencyBonus: 10,
             effortImpact: 0.35
+        },
+        PAUSE_DISCIPLINE: {
+            maxPausesPerDay: 3,
+            maxPauseMinsPerDay: 45
         },
         CAPS: {
             hours: 40,

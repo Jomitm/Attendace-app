@@ -18,7 +18,18 @@ if errorlevel 1 (
     if errorlevel 1 goto :fail
 )
 
-echo [1/4] Staging changes...
+for /f "delims=" %%I in ('git branch --show-current') do set "CURRENT_BRANCH=%%I"
+if /i not "%CURRENT_BRANCH%"=="main" goto :wrong_branch
+
+echo [1/5] Running validation...
+npm run lint
+if errorlevel 1 goto :fail
+npm run test:unit
+if errorlevel 1 goto :fail
+npm run build
+if errorlevel 1 goto :fail
+
+echo [2/5] Staging changes...
 git add -A
 if errorlevel 1 goto :fail
 
@@ -48,7 +59,15 @@ if not defined HAS_CHANGES (
     goto :end
 )
 
-echo [2/4] Creating commit...
+echo.
+echo Staged changes:
+git diff --cached --stat
+echo.
+set "CONFIRM_PUSH="
+set /p CONFIRM_PUSH="Create commit and push these changes? (Y/N): "
+if /i not "%CONFIRM_PUSH%"=="Y" goto :cancel
+
+echo [3/5] Creating commit...
 set "COMMIT_MSG="
 set /p COMMIT_MSG="Enter commit message (or press Enter for default): "
 if not defined COMMIT_MSG set "COMMIT_MSG=Update %DATE% %TIME%"
@@ -57,8 +76,8 @@ if errorlevel 1 goto :fail
 
 for /f "delims=" %%I in ('git rev-parse --short HEAD') do set "CURRENT_SHA=%%I"
 
-echo [3/4] Pushing to GitHub...
-git push origin main --force
+echo [4/5] Pushing to GitHub...
+git push origin main
 if errorlevel 1 goto :fail
 
 echo.
@@ -84,6 +103,22 @@ echo Check the Git output above for the error message.
 echo.
 pause
 exit /b 1
+
+:wrong_branch
+echo.
+echo Deployment cancelled because the current branch is not main.
+echo Current branch: %CURRENT_BRANCH%
+echo Switch to main and rerun this script.
+echo.
+pause
+exit /b 1
+
+:cancel
+echo.
+echo Deployment cancelled. No commit or push was performed.
+echo.
+pause
+exit /b 0
 
 :missing_identity
 echo.

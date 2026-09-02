@@ -1,5 +1,9 @@
 # Dependencies
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
 # Build output
 dist/
@@ -28,6 +32,18 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Local tooling / deployment state
+.vercel/
+.firebase/
+.cache/
+.vite/
+
+# Test coverage and temporary output
+coverage/
+*.tmp
+*.temp
+*.bak
 
 # Test artifacts
 playwright-report/
