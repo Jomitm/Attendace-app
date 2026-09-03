@@ -156,7 +156,7 @@ export function renderModals() {
                         </label>
                         <label class="gm-flex-fill">
                             Password
-                            <input type="text" name="password" id="edit-user-password" required class="gm-input">
+                            <div class="password-field-wrap"><input type="password" name="password" id="edit-user-password" autocomplete="new-password" placeholder="Leave blank to keep current password" class="gm-input"><button type="button" class="password-toggle" onclick="window.app_togglePasswordVisibility(this)" aria-label="Show password" title="Show password"><i class="fa-solid fa-eye"></i></button></div>
                         </label>
                     </div>
 
@@ -326,7 +326,7 @@ export function renderModals() {
                         </label>
                         <label class="gm-flex-fill">
                             Password
-                            <input type="text" name="password" placeholder="Leave empty for first-login setup" class="gm-input">
+                            <div class="password-field-wrap"><input type="password" name="password" placeholder="Leave empty for first-login setup" autocomplete="new-password" class="gm-input"><button type="button" class="password-toggle" onclick="window.app_togglePasswordVisibility(this)" aria-label="Show password" title="Show password"><i class="fa-solid fa-eye"></i></button></div>
                         </label>
                     </div>
 

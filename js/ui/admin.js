@@ -15,7 +15,8 @@ const ADMIN_MAX_BODY_ID = 'admin-card-max-body';
 const ADMIN_CARD_MODE_TILE = 'tile';
 const ADMIN_CARD_MODE_ORIGINAL = 'original';
 const ADMIN_CARD_MODE_FULLSCREEN = 'fullscreen';
-const ADMIN_CARD_MODES = new Set([ADMIN_CARD_MODE_TILE, ADMIN_CARD_MODE_ORIGINAL, ADMIN_CARD_MODE_FULLSCREEN]);
+const ADMIN_CARD_MODE_COLLAPSED = 'collapsed';
+const ADMIN_CARD_MODES = new Set([ADMIN_CARD_MODE_TILE, ADMIN_CARD_MODE_ORIGINAL, ADMIN_CARD_MODE_FULLSCREEN, ADMIN_CARD_MODE_COLLAPSED]);
 
 const ensureAdminMaxOverlay = () => {
     let overlay = document.getElementById(ADMIN_MAX_OVERLAY_ID);
@@ -78,11 +79,11 @@ const closeAdminMaxOverlay = () => {
     if (closingCardId) {
         const cardEl = getAdminCardElementById(closingCardId);
         if (cardEl) {
-            setAdminCardModeClass(cardEl, ADMIN_CARD_MODE_TILE);
-            cardEl.dataset.adminCardMode = ADMIN_CARD_MODE_TILE;
+            setAdminCardModeClass(cardEl, ADMIN_CARD_MODE_COLLAPSED);
+            cardEl.dataset.adminCardMode = ADMIN_CARD_MODE_COLLAPSED;
         }
         if (window._adminCardModeState) {
-            window._adminCardModeState[closingCardId] = ADMIN_CARD_MODE_TILE;
+            window._adminCardModeState[closingCardId] = ADMIN_CARD_MODE_COLLAPSED;
         }
     }
     if (trigger && typeof trigger.focus === 'function') {
@@ -123,8 +124,11 @@ const getAdminCardElementById = (cardId) => {
 
 const setAdminCardModeClass = (cardEl, mode) => {
     if (!cardEl) return;
-    cardEl.classList.remove('admin-card-mode-tile', 'admin-card-mode-original');
-    if (mode === ADMIN_CARD_MODE_ORIGINAL) {
+    cardEl.classList.remove('admin-card-mode-tile', 'admin-card-mode-original', 'admin-card-mode-collapsed');
+    if (mode === ADMIN_CARD_MODE_COLLAPSED) {
+        cardEl.classList.add('admin-card-mode-collapsed');
+        cardEl.classList.remove('full-width');
+    } else if (mode === ADMIN_CARD_MODE_ORIGINAL) {
         cardEl.classList.add('admin-card-mode-original');
         if (cardEl.dataset.adminOriginalFullWidth === '1') {
             cardEl.classList.add('full-width');
@@ -133,6 +137,13 @@ const setAdminCardModeClass = (cardEl, mode) => {
         cardEl.classList.add('admin-card-mode-tile');
         cardEl.classList.remove('full-width');
     }
+    const header = cardEl.querySelector('.admin-card-collapse-trigger');
+    if (header) {
+        const isExpanded = mode !== ADMIN_CARD_MODE_COLLAPSED;
+        header.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+        header.setAttribute('aria-label', `${isExpanded ? 'Collapse' : 'Expand'} ${cardEl.querySelector('.admin-card-title')?.textContent || 'admin card'}`);
+    }
+    cardEl.setAttribute('aria-expanded', mode === ADMIN_CARD_MODE_COLLAPSED ? 'false' : 'true');
 };
 
 const applyAdminCardMode = (cardId, mode, triggerEl = null) => {
@@ -141,7 +152,7 @@ const applyAdminCardMode = (cardId, mode, triggerEl = null) => {
     if (!cards.length) return;
     cards.forEach((card) => {
         const isTarget = card.getAttribute('data-admin-card') === String(cardId);
-        const nextMode = isTarget ? mode : ADMIN_CARD_MODE_TILE;
+        const nextMode = isTarget ? mode : String(card.dataset.adminCardMode || ADMIN_CARD_MODE_COLLAPSED);
         setAdminCardModeClass(card, nextMode);
         card.dataset.adminCardMode = nextMode;
     });
@@ -178,6 +189,14 @@ if (typeof window !== 'undefined') {
             return;
         }
         applyAdminCardMode(cardId, safeMode, triggerEl || null);
+    };
+    window.app_toggleAdminCardCollapse = (cardId, triggerEl = null) => {
+        if (!cardId) return;
+        const cardEl = getAdminCardElementById(cardId);
+        if (!cardEl) return;
+        const currentMode = String(cardEl.dataset.adminCardMode || ADMIN_CARD_MODE_COLLAPSED);
+        const nextMode = currentMode === ADMIN_CARD_MODE_COLLAPSED ? ADMIN_CARD_MODE_TILE : ADMIN_CARD_MODE_COLLAPSED;
+        applyAdminCardMode(cardId, nextMode, triggerEl || null);
     };
     window.app_toggleAdminCardMaximize = (cardId, triggerEl = null) => {
         window.app_toggleAdminCardMode?.(cardId, ADMIN_CARD_MODE_FULLSCREEN, triggerEl || null);
@@ -271,6 +290,13 @@ if (typeof window !== 'undefined') {
 
         // Card mode toggles
         onAction('admin-toggle-card-mode', (el) => window.app_toggleAdminCardMode?.(el.dataset.cardId || '', el.dataset.mode || 'tile', el));
+        onAction('admin-toggle-card-collapse', (el) => window.app_toggleAdminCardCollapse?.(el.dataset.cardId || '', el));
+        document.addEventListener('keydown', (event) => {
+            const header = event.target?.closest?.('.dashboard-admin-view .admin-card-collapse-trigger');
+            if (!header || !['Enter', ' '].includes(event.key)) return;
+            event.preventDefault();
+            window.app_toggleAdminCardCollapse?.(header.dataset.cardId || '', header);
+        });
 
         // Late notification recipients
         bindLateNotificationListeners();
@@ -1035,8 +1061,8 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         };
 
         cards.push(`
-            <section class="card admin-card-compact admin-card-mode-tile ${className} ${accentClass}" data-admin-card="${id}" data-admin-card-mode="tile" data-admin-original-full-width="0">
-                <div class="admin-card-header-row">
+            <section class="card admin-card-compact admin-card-mode-collapsed ${className} ${accentClass}" data-admin-card="${id}" data-admin-card-mode="collapsed" data-admin-original-full-width="0" aria-expanded="false">
+                <div class="admin-card-header-row admin-card-collapse-trigger" data-ts-action="admin-toggle-card-collapse" data-card-id="${id}" role="button" tabindex="0" aria-expanded="false" aria-label="Expand ${safeHtml(title)}">
                     <h3 class="admin-card-title">${safeHtml(title)}</h3>
                     ${buildAdminCardModeControls(id, title)}
                 </div>

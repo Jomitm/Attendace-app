@@ -22,11 +22,11 @@ for /f "delims=" %%I in ('git branch --show-current') do set "CURRENT_BRANCH=%%I
 if /i not "%CURRENT_BRANCH%"=="main" goto :wrong_branch
 
 echo [1/5] Running validation...
-npm run lint
+call npm run lint
 if errorlevel 1 goto :fail
-npm run test:unit
+call npm run test:unit
 if errorlevel 1 goto :fail
-npm run build
+call npm run build
 if errorlevel 1 goto :fail
 
 echo [2/5] Staging changes...
@@ -99,7 +99,7 @@ exit /b 0
 :fail
 echo.
 echo Deployment failed.
-echo Check the Git output above for the error message.
+echo Check the output above for the error message.
 echo.
 pause
 exit /b 1

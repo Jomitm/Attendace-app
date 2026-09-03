@@ -4207,7 +4207,7 @@ function app_startCheckoutLocationCapture(message = 'Capturing location') {
 async function app_getCheckoutSubmitLocation() {
     if (app_isCheckoutLocationFresh()) return checkoutLocationSession.pos;
     app_setCheckoutLocationProgress('Capturing location for checkout', true);
-    const locationTimeoutMs = 9000;
+    const locationTimeoutMs = 20000;
     return Promise.race([
         app_startCheckoutLocationCapture('Capturing location for checkout'),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Location request timed out.')), locationTimeoutMs))
@@ -7893,6 +7893,9 @@ window.app_submitEditUser = async (e) => {
         permissions: window.app_getPermissionsFromUI('edit')
     };
 
+    // Leave the existing password unchanged when no replacement is entered.
+    if (!userData.password) delete userData.password;
+
     console.log("Executing Update for User:", userData);
     if (userData.isAdmin) {
         userData.canManageAttendanceSheet = true;
@@ -9100,7 +9103,7 @@ window.app_editUser = async (userId) => {
     setVal('#edit-user-id', user.id);
     setVal('#edit-user-name', user.name);
     setVal('#edit-user-username', user.username);
-    setVal('#edit-user-password', user.password);
+    setVal('#edit-user-password', '');
     setVal('#edit-user-role', user.role);
     setVal('#edit-user-dept', user.dept);
     setVal('#edit-user-email', user.email);
