@@ -1,0 +1,211 @@
+/* Compact attendance action card. */
+.modern-dashboard .dashboard-primary-row > .dashboard-checkin-card {
+  container-type: inline-size;
+  container-name: checkin-card;
+}
+
+@media (min-width: 640px) {
+  .modern-dashboard .dashboard-primary-row > .dashboard-checkin-card {
+    /* Compact padding only — the card stretches to match its row siblings
+       (see the tablet-only rule below for the shrink-to-content behavior). */
+    padding: 0.7rem !important;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-head {
+    gap: 0.55rem;
+    margin-bottom: 0.3rem;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-identity {
+    min-width: 0;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-state-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.28rem;
+    margin-top: 0.2rem;
+    color: #64748b;
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-state-dot {
+    width: 0.42rem;
+    height: 0.42rem;
+    border-radius: 50%;
+    background: #94a3b8;
+  }
+
+  .modern-dashboard .dashboard-checkin-card.dashboard-checkin-state-active {
+    border-left-color: #10b981 !important;
+  }
+
+  .modern-dashboard .dashboard-checkin-card.dashboard-checkin-state-active .dashboard-checkin-state-dot {
+    background: #10b981;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
+  }
+
+  .modern-dashboard .dashboard-checkin-card.dashboard-checkin-state-paused {
+    border-left-color: #f59e0b !important;
+  }
+
+  .modern-dashboard .dashboard-checkin-card.dashboard-checkin-state-paused .dashboard-checkin-state-dot {
+    background: #f59e0b;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14);
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-avatar-wrap,
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-avatar {
+    width: 32px;
+    height: 32px;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-timer-wrap {
+    flex: 0 1 auto;
+    margin-bottom: 0.35rem;
+    padding: 0.1rem 0;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .clock-ring {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 0.05rem;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .timer-display {
+    font-size: 1.65rem;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-action-row {
+    gap: 0.35rem;
+    margin-bottom: 0.35rem;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-btn {
+    min-height: 34px;
+    padding: 0.35rem 0.55rem;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-location {
+    padding-top: 0.15rem;
+    line-height: 1.2;
+  }
+}
+
+/* Tablet only (640–1023px): the primary row is 2 columns, so let the
+   check-in card shrink to its content instead of stretching the row. */
+@media (min-width: 640px) and (max-width: 1023.98px) {
+  .modern-dashboard .dashboard-primary-row > .dashboard-checkin-card {
+    align-self: start;
+    height: auto;
+    min-height: 0;
+  }
+}
+
+@media (max-width: 639px) {
+  .modern-dashboard .dashboard-checkin-card {
+    padding: 0.6rem !important;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-head {
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-avatar-wrap,
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-avatar {
+    width: 32px;
+    height: 32px;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-state-label {
+    font-size: 0.64rem;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-timer-wrap {
+    flex: 0 1 auto;
+    margin-bottom: 0.25rem;
+    padding: 0.1rem 0;
+    background: transparent;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .clock-ring {
+    display: none;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .timer-display {
+    font-size: 1.55rem;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-action-row {
+    gap: 0.3rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-btn {
+    min-height: 34px;
+    padding: 0.35rem 0.5rem;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-location {
+    padding-top: 0.1rem;
+    line-height: 1.15;
+  }
+}
+
+@container checkin-card (min-width: 480px) {
+  .modern-dashboard .dashboard-primary-row > .dashboard-checkin-card {
+    display: grid;
+    grid-template-columns: minmax(145px, 1fr) minmax(120px, 0.9fr) minmax(145px, 1fr);
+    grid-template-areas:
+      "identity timer actions"
+      "location location location";
+    align-items: center;
+    column-gap: 0.75rem;
+    row-gap: 0.3rem;
+    padding: 0.65rem 0.8rem !important;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-head {
+    grid-area: identity;
+    justify-content: flex-start;
+    margin: 0;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-timer-wrap {
+    grid-area: timer;
+    margin: 0;
+    padding: 0;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-action-row {
+    grid-area: actions;
+    width: 100%;
+    margin: 0;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-location {
+    grid-area: location;
+    justify-content: flex-start;
+    text-align: left;
+    border-top: 1px solid rgba(203, 213, 225, 0.7);
+    margin-top: 0.15rem;
+    padding-top: 0.35rem;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-state-label {
+    margin-top: 0.1rem;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-btn {
+    min-width: 0;
+    white-space: nowrap;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-countdown,
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-overtime {
+    display: none !important;
+  }
+}

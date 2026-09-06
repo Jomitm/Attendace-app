@@ -302,7 +302,9 @@ export const Widget = {
                     <i class="fa-solid fa-grip-lines"></i>
                 </div>
                 <div class="widget-controls">
-                    <i class="fa-solid fa-expand widget-close" onclick="window.Widget.toggle()" title="Full View"></i>
+                    <button type="button" class="widget-close" onclick="window.Widget.toggle()" title="Full View" aria-label="Toggle full view">
+                        <i class="fa-solid fa-expand" aria-hidden="true"></i>
+                    </button>
                 </div>
             </div>
             <div class="card check-in-widget">

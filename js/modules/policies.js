@@ -113,7 +113,7 @@ export const AppPolicies = {
                                         <i class="fa-solid fa-arrows-rotate"></i> Sync Leave Categories
                                     </button>
                                 ` : ''}
-                                <button onclick="document.getElementById('leave-modal').style.display='flex'" class="action-btn policies-request-btn">
+                                <button onclick="window.app_openModal('leave-modal')" class="action-btn policies-request-btn">
                                     <i class="fa-solid fa-paper-plane"></i> Request Leave
                                 </button>
                             </div>

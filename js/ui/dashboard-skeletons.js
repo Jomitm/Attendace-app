@@ -18,6 +18,15 @@ const SKELETON_KEYFRAMES = `
 .skeleton-line.full { width: 100%; }
 .skeleton-circle { border-radius: 50%; ${SKELETON_BASE} }
 .skeleton-rect { border-radius: 8px; ${SKELETON_BASE} }
+.dashboard-load-status { display: flex; align-items: center; gap: 0.85rem; padding: 0.9rem 1.1rem; border-radius: 16px; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.06); border: 1px solid #e2e8f0; }
+.dashboard-load-spinner { width: 26px; height: 26px; flex-shrink: 0; border-radius: 50%; border: 3px solid #e2e8f0; border-top-color: #3f63a8; animation: dashboard-load-spin 0.9s linear infinite; }
+@keyframes dashboard-load-spin { to { transform: rotate(360deg); } }
+.dashboard-load-status-copy { flex: 1; min-width: 0; }
+.dashboard-load-status-title { font-weight: 800; font-size: 0.95rem; color: #1c2430; }
+.dashboard-load-status-text { font-size: 0.82rem; color: #6b7a90; margin-top: 2px; }
+.dashboard-load-progress { height: 5px; border-radius: 999px; background: #eef2f7; margin-top: 0.5rem; overflow: hidden; }
+#dashboard-load-progress-fill { height: 100%; width: 0%; border-radius: 999px; background: linear-gradient(90deg, #3f63a8, #6fb14a); transition: width 0.3s ease; }
+.dashboard-load-status-count { flex-shrink: 0; font-size: 0.75rem; font-weight: 700; color: #6b7a90; }
 `;
 
 let _skeletonStyleInjected = false;
@@ -127,6 +136,15 @@ export function renderDashboardSkeletons() {
     ensureSkeletonStyles();
     return `
     <div style="display:grid; gap:1rem; padding:1rem;">
+        <div class="dashboard-load-status" role="status" aria-live="polite">
+            <span class="dashboard-load-spinner" aria-hidden="true"></span>
+            <div class="dashboard-load-status-copy">
+                <div class="dashboard-load-status-title">Getting your dashboard ready…</div>
+                <div id="dashboard-load-status-text" class="dashboard-load-status-text">Connecting…</div>
+                <div class="dashboard-load-progress" aria-hidden="true"><div id="dashboard-load-progress-fill"></div></div>
+            </div>
+            <div id="dashboard-load-status-count" class="dashboard-load-status-count"></div>
+        </div>
         ${renderCheckinSkeleton()}
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
             ${renderWorklogSkeleton()}

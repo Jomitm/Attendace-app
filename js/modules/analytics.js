@@ -2,6 +2,28 @@ import { AppDB } from './db.js';
 import { AppConfig } from '../config.js';
 import { isTaskVisibleToViewer, getCurrentViewerId } from '../utils/task-visibility.js';
 
+// Truncating by recency alone can exclude all completed tasks (recent entries
+// are usually still in-progress), leaving the dashboard's Team Activity
+// "Completed" column empty. Keep a fair mix of both instead.
+function buildBalancedActivityPreview(activities, limit) {
+    const rows = Array.isArray(activities) ? activities : [];
+    if (rows.length <= limit) return rows;
+
+    const completed = rows.filter((row) => String(row?.status || '').trim().toLowerCase() === 'completed');
+    const other = rows.filter((row) => String(row?.status || '').trim().toLowerCase() !== 'completed');
+
+    const half = Math.max(1, Math.floor(limit / 2));
+    const completedSlice = completed.slice(0, half);
+    const otherSlice = other.slice(0, limit - completedSlice.length);
+    const remaining = limit - completedSlice.length - otherSlice.length;
+    if (remaining > 0) {
+        completedSlice.push(...completed.slice(completedSlice.length, completedSlice.length + remaining));
+    }
+
+    const kept = new Set([...completedSlice, ...otherSlice]);
+    return rows.filter((row) => kept.has(row));
+}
+
 const DEFAULT_SCORING_RULES = {
     SIZE_WEIGHTS: { 'single-action': 1, 'quick-task': 2, 'small-task': 3, 'medium-task': 5, 'large-task': 8, 'major-project': 12 },
     PRIORITY_WEIGHTS: { urgent: 1.5, important: 1.2, standard: 1.0, flexible: 0.8 },
@@ -1049,6 +1071,7 @@ export class Analytics {
             taskMissed: 0,
             taskPostponed: 0,
             completionRate: 0,
+            simpleCompletionRate: 0,
             punctuality: 0,
             attendanceScore: 0,
             taskExecution: 0,
@@ -1554,6 +1577,7 @@ export class Analytics {
                 weightedCompleted = taskCompleted;
             }
             const completionRate = weightedPlanned > 0 ? (weightedCompleted / weightedPlanned) * 100 : 0;
+            const simpleCompletionRate = taskPlanned > 0 ? (taskCompleted / taskPlanned) * 100 : 0;
             const onTimeRate = taskCompleted > 0 ? (onTimeCompleted / taskCompleted) * 100 : scoringDefaults.onTimeRate;
             const missRate = taskPlanned > 0 ? (taskMissed / taskPlanned) * 100 : 0;
             const taskExecution = Math.max(0, Math.min(100, Math.round(
@@ -1649,6 +1673,7 @@ export class Analytics {
                 taskMissed,
                 taskPostponed,
                 completionRate: Number(completionRate.toFixed(1)),
+                simpleCompletionRate: Number(simpleCompletionRate.toFixed(1)),
                 classifiedCount,
                 classifiedRatio: Number(classifiedRatio.toFixed(2)),
                 classificationBonus,
@@ -1978,7 +2003,7 @@ export class Analytics {
             generatedAt: Date.now(),
             hero: (hero && hero.state !== 'fetch_error') ? hero : null,
             heroLeaderboard: (heroLeaderboard && heroLeaderboard.state !== 'fetch_error') ? heroLeaderboard : null,
-            teamActivityPreview: (teamActivities || []).slice(0, activityLimit),
+            teamActivityPreview: buildBalancedActivityPreview(teamActivities, activityLimit),
             range: {
                 startIso: monthStart.toISOString().split('T')[0],
                 endIso: monthEnd.toISOString().split('T')[0]

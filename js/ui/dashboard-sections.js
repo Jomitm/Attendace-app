@@ -384,6 +384,8 @@ const renderTeamScheduleSection = async (from, to) => {
             <td>${safeHtml(row.status || 'Pending')}</td>
         </tr>
     `).join('');
+    const plannedCount = Array.isArray(plans) ? plans.length : 0;
+    const leaveCount = Array.isArray(leaves) ? leaves.length : 0;
     return {
         title: 'Team Schedule',
         html: `
@@ -394,6 +396,10 @@ const renderTeamScheduleSection = async (from, to) => {
                         <button type="button" class="action-btn secondary" onclick="window.app_quickAddPersonalPlan?.()" title="Add Personal Plan">Add Personal Plan</button>
                         <button type="button" class="action-btn secondary" onclick="window.app_quickEditPersonalPlan?.()" title="Edit Personal Plan">Edit Personal Plan</button>
                     </div>
+                </div>
+                <div class="dashboard-schedule-summary" aria-label="Schedule summary">
+                    <span><strong>${plannedCount}</strong> planned</span>
+                    <span><strong>${leaveCount}</strong> ${leaveCount === 1 ? 'leave' : 'leaves'}</span>
                 </div>
                 <div class="table-container"><table class="data-table"><thead><tr><th>Date</th><th>Staff</th><th>Tasks</th><th>Action</th></tr></thead><tbody>${planRows || '<tr><td colspan="4">No planned work in range.</td></tr>'}</tbody></table></div>
             </div>

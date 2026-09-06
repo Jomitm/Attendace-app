@@ -218,7 +218,7 @@ if (typeof window !== 'undefined') {
         // Show modal
         onAction('show-modal', (el) => {
             const id = el.dataset.target || '';
-            if (id) document.getElementById(id).style.display = 'flex';
+            if (id) window.app_openModal(id);
         });
 
         // Backup / Reset data (with ternary safety checks already handled in template)

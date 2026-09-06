@@ -1011,7 +1011,7 @@ table {
 
 th,
 td {
-    padding: 0.6rem;
+    padding: 0.28rem 0.4rem;
     text-align: left;
     border-bottom: 1px solid #E5E7EB;
 }
@@ -1537,7 +1537,7 @@ td {
 
 .compact-table th,
 .compact-table td {
-    padding: 8px 12px;
+    padding: 0.3rem 0.5rem;
     font-size: 0.85rem;
 }
 
@@ -3000,13 +3000,13 @@ textarea:focus {
     text-transform: uppercase;
     letter-spacing: 0.05em;
     text-align: left;
-    padding: 0.45rem 0.55rem;
+    padding: 0.3rem 0.4rem;
     border-bottom: 1px solid #e2e8f0;
     cursor: pointer;
 }
 
 .team-activities-table tbody td {
-    padding: 0.45rem 0.55rem;
+    padding: 0.3rem 0.4rem;
     border-bottom: 1px solid #f1f5f9;
     font-size: 0.78rem;
     color: #0f172a;
@@ -6370,7 +6370,7 @@ textarea:focus {
 
 .hero-leaderboard-table th,
 .hero-leaderboard-table td {
-    padding: 0.75rem 0.7rem;
+    padding: 0.3rem 0.45rem;
     border-bottom: 1px solid #e2e8f0;
     text-align: left;
     font-size: 0.83rem;
@@ -8536,6 +8536,10 @@ body.dashboard-max-open {
     font-size: 0.74rem;
 }
 
+.minutes-table td {
+    padding: 0.3rem 0.5rem;
+}
+
 .minutes-row {
     cursor: pointer;
 }
@@ -9091,7 +9095,7 @@ body.dashboard-max-open {
 }
 
 .pro-leave-table th {
-    padding: 0.6rem 1.25rem;
+    padding: 0.3rem 0.5rem;
     text-align: left;
     font-size: 0.68rem;
     font-weight: 700;
@@ -9103,7 +9107,7 @@ body.dashboard-max-open {
 }
 
 .pro-leave-table td {
-    padding: 0.7rem 1.25rem;
+    padding: 0.3rem 0.5rem;
     color: #374151;
     border-bottom: 1px solid #f8fafc;
 }
@@ -10487,12 +10491,10 @@ body.dashboard-max-open {
     width: 100%;
     margin-left: 0;
     margin-right: 0;
-    height: clamp(72px, 4.7vw, 82px) !important;
-    block-size: clamp(72px, 4.7vw, 82px) !important;
-    min-height: clamp(72px, 4.7vw, 82px) !important;
-    min-block-size: clamp(72px, 4.7vw, 82px) !important;
-    max-height: 82px !important;
-    max-block-size: 82px !important;
+    /* Height is intentionally NOT locked: dashboard-modern.css sets a
+       min-height floor and the card grows with its content (title, welcome
+       line, rating chips) so nothing is clipped or spills over. */
+    min-height: clamp(72px, 4.7vw, 82px);
     padding: var(--hero-block-pad-y) var(--hero-block-pad-x) !important;
     align-self: start;
     box-sizing: border-box;
@@ -11503,9 +11505,8 @@ body.dashboard-max-open {
         --hero-block-pad-y: clamp(0.14rem, 1.2vw, 0.28rem);
         --hero-block-pad-x: clamp(0.4rem, 1.7vw, 0.54rem);
         --hero-logo-size: clamp(2rem, 8.6vw, 2.7rem);
-        height: clamp(72px, 20vw, 86px) !important;
-        min-height: clamp(72px, 20vw, 86px) !important;
-        max-height: 86px !important;
+        /* Same as desktop: floor only, card grows with content. */
+        min-height: clamp(72px, 20vw, 86px);
     }
 
     .dashboard-staff-view .dashboard-hero-title , .dashboard-admin-view .dashboard-hero-title {

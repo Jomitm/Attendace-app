@@ -1805,6 +1805,17 @@ window.app_showModal = (html, id) => {
     }
 };
 
+// Opens a pre-rendered overlay modal (e.g. add-user-modal, leave-modal).
+// Removes the gm-hidden guard class (which is !important) before showing.
+// ALWAYS use this instead of setting style.display directly, or the modal
+// stays hidden behind gm-hidden.
+window.app_openModal = (id) => {
+    const modal = typeof id === 'string' ? document.getElementById(id) : id;
+    if (!modal) return;
+    modal.classList.remove('gm-hidden');
+    modal.style.display = 'flex';
+};
+
 window.app_renderCarryForwardIssues = function (sortKey = 'date-desc') {
     const issues = Array.isArray(window.app_carryForwardIssues) ? window.app_carryForwardIssues : [];
     const maxRows = 200;
@@ -8022,24 +8033,15 @@ window.app_openTeamActivities = async function () {
     }
 };
 
-// Completes a successful login: records login location and redirects.
-async function app_finalizeLogin(pos) {
-    const currentUser = window.AppAuth.getUser();
-    if (currentUser) {
-        currentUser.lastLoginLocation = {
-            lat: pos ? pos.lat : null,
-            lng: pos ? pos.lng : null,
-            capturedAt: Date.now()
-        };
-        await window.AppDB.put('users', currentUser);
-    }
+// Completes a successful login and redirects.
+async function app_finalizeLogin() {
     window.location.href = window.location.pathname + '?_=' + Date.now() + window.location.hash;
 }
 
 // Shows the "sign in here / sign out the other device" prompt when another
 // recent session exists. Confirming calls confirmTakeoverLogin (which overwrites
 // the shared token, ending the other device's session via its realtime listener).
-function app_showSessionTakeoverModal(user, pos) {
+function app_showSessionTakeoverModal(user) {
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.id = 'session-takeover-overlay';
@@ -8066,7 +8068,7 @@ function app_showSessionTakeoverModal(user, pos) {
                 btn.disabled = false;
                 return;
             }
-            await app_finalizeLogin(pos);
+            await app_finalizeLogin();
         } catch (err) {
             alert('Login failed: ' + String(err));
             btn.disabled = false;
@@ -8217,24 +8219,22 @@ document.addEventListener('submit', (e) => {
         (async () => {
             const fd = new FormData(e.target);
             try {
-                const pos = await app_getAttendanceLocation();
                 const result = await window.AppAuth.login(fd.get('username'), fd.get('password'));
                 if (result && result.needsConflictConfirmation) {
-                    app_showSessionTakeoverModal(result.user, pos);
+                    app_showSessionTakeoverModal(result.user);
                     return;
                 }
                 if (!result) {
                     alert('Invalid Credentials');
                     return;
                 }
-                await app_finalizeLogin(pos);
+                await app_finalizeLogin();
             } catch (err) {
                 const errStr = String(err);
                 if (errStr.includes('permission-denied') || errStr.includes('FirebaseError')) {
                     alert(`Database Error: ${errStr}\n\nAccess to the database was blocked. Please check your Firebase Firestore Security Rules.`);
                 } else {
-                    // Only assume it's a location error if it's not a Firebase error
-                    alert(`Login blocked: ${errStr}\n\nPlease enable location and try again.`);
+                    alert(`Login failed: ${errStr}`);
                 }
             }
         })();
@@ -9063,7 +9063,7 @@ document.addEventListener('open-log-modal', () => {
     document.getElementById('log-start-time').value = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
     const later = new Date(now.getTime() + 3600000);
     document.getElementById('log-end-time').value = `${pad(later.getHours())}:${pad(later.getMinutes())}`;
-    modal.style.display = 'flex';
+    window.app_openModal('log-modal');
 });
 
 document.addEventListener('set-duration', (e) => {
@@ -9151,7 +9151,7 @@ window.app_editUser = async (userId) => {
 
     const modal = document.getElementById('edit-user-modal');
     if (modal) {
-        modal.style.display = 'flex';
+        window.app_openModal(modal);
         const pnl = document.getElementById('edit-user-permissions-panel');
         if (pnl) {
             // ALWAYS SHOW the permissions panel so admins can assign rights to any staff
@@ -9410,7 +9410,7 @@ window.app_downloadOutlookICS = async (feedUrl) => {
 window.app_notifyUser = (userId) => {
     console.log("Opening Notify for:", userId);
     document.getElementById('notify-user-id').value = userId;
-    document.getElementById('notify-modal').style.display = 'flex';
+    window.app_openModal('notify-modal');
 };
 
 window.app_quickAddTask = async (userId) => {
@@ -9531,7 +9531,7 @@ window.app_viewLogs = async (userId) => {
             </div>
             ${logsHTML}
         `;
-    document.getElementById('user-details-modal').style.display = 'flex';
+    window.app_openModal('user-details-modal');
 };
 
 window.app_openManualLogModal = (userId) => {

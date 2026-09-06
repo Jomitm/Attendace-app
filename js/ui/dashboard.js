@@ -304,12 +304,14 @@ export function renderPlannedTasksCard(workPlans, targetStaff = null, options = 
     const viewerId = String(currentUser?.id || '');
     const cardClass = String(options.cardClass || 'dashboard-worklog-card').trim() || 'dashboard-worklog-card';
     const listClass = String(options.listClass || 'dashboard-planned-task-list').trim() || 'dashboard-planned-task-list';
+    const taskCountLabel = `${rows.length} ${rows.length === 1 ? 'task' : 'tasks'}`;
 
     return `
         <div class="card ${cardClass}">
             <div class="dashboard-worklog-head dashboard-planned-task-head">
                 <div class="dashboard-planned-task-head-copy">
                     <h4>${safeHtml(title)} <span class="dashboard-worklog-staff">(${safeHtml(targetStaffName)})</span></h4>
+                    <span class="dashboard-card-summary">${taskCountLabel}</span>
                 </div>
             </div>
             <div class="${safeHtml(listClass)}">
@@ -1154,6 +1156,7 @@ function renderHeroLeaderboardExpanded(leaderboardData, heroData = null) {
                 <td>${renderMetricButton(entry, 'missed', stats.taskMissed, 'missed tasks')}</td>
                 <td>${Number(stats.days || 0)}</td>
                 <td>${Number(stats.hours || 0).toFixed(1)}h</td>
+                <td>${Number(stats.simpleCompletionRate ?? 0).toFixed(1)}%</td>
                 <td>${Number(stats.completionRate || 0).toFixed(1)}%</td>
                 <td>${Number(stats.finalScore || 0).toFixed(2)}</td>
                 <td>${stats.classificationBonus > 0 ? `<span class="hero-leaderboard-bonus-pill">+${stats.classificationBonus} priority</span>` : ''}</td>
@@ -1187,7 +1190,8 @@ function renderHeroLeaderboardExpanded(leaderboardData, heroData = null) {
                             <th>Missed</th>
                             <th>Days</th>
                             <th>Hours</th>
-                            <th>Completion</th>
+                            <th>Simple Completion</th>
+                            <th>Weighted Completion</th>
                             <th>Score</th>
                             <th>Bonus</th>
                             <th>Status</th>
@@ -2119,19 +2123,52 @@ export async function renderDashboard() {
     ));
     const currentWeekRange = getWeekRange(leaveHistoryDate);
 
+    // Staged loading feedback: every fetch below reports completion so the
+    // skeleton status banner can tell the user what is happening while they
+    // wait ("Loading your calendar… 4 of 15"). All updates are best-effort
+    // DOM writes — safe if the skeleton was already replaced.
+    const loadStagesTotal = 15;
+    let loadStagesDone = 0;
+    let loadSlowTimer = null;
+    const updateDashboardLoadProgress = (label) => {
+        loadStagesDone += 1;
+        try {
+            const textEl = document.getElementById('dashboard-load-status-text');
+            const fillEl = document.getElementById('dashboard-load-progress-fill');
+            const countEl = document.getElementById('dashboard-load-status-count');
+            if (textEl) textEl.textContent = label;
+            if (fillEl) fillEl.style.width = Math.round((loadStagesDone / loadStagesTotal) * 100) + '%';
+            if (countEl) countEl.textContent = loadStagesDone + ' of ' + loadStagesTotal;
+        } catch { /* best-effort */ }
+    };
+    const trackStage = (promise, label) => Promise.resolve(promise).then(
+        (value) => { updateDashboardLoadProgress(label); return value; },
+        (err) => { updateDashboardLoadProgress(label); throw err; }
+    );
+    try {
+        loadSlowTimer = setTimeout(() => {
+            try {
+                const textEl = document.getElementById('dashboard-load-status-text');
+                if (textEl && loadStagesDone < loadStagesTotal) {
+                    textEl.textContent = 'Still working — your data is on its way (' + loadStagesDone + ' of ' + loadStagesTotal + ' done)…';
+                }
+            } catch { /* ignore */ }
+        }, 8000);
+    } catch { /* ignore */ }
+
     // Parallel Fetch
     const [status, logs, monthlyStats, yearlyStats, calendarPlans, pendingLeaves, allUsers, collaborations, allLeaves, dailySummary, minutesData, attendanceLogs, weeklyAttendanceLogs, currentWeekWorkPlans, journeyReflectionState] = await Promise.all([
-        window.AppAttendance.getStatus(),
-        window.AppAttendance.getLogs(targetStaffId, { limit: 200 }),
-        window.AppAnalytics.getUserMonthlyStats(targetStaffId),
-        window.AppAnalytics.getUserYearlyStats(targetStaffId),
-        window.AppCalendar ? window.AppCalendar.getPlans() : { leaves: [], events: [] },
-        window.app_hasPerm('leaves', 'view') ? window.AppLeaves.getPendingLeaves() : Promise.resolve([]),
-        window.AppDB.getCached
+        trackStage(window.AppAttendance.getStatus(), 'Checking whether you are checked in…'),
+        trackStage(window.AppAttendance.getLogs(targetStaffId, { limit: 200 }), 'Loading your recent time logs…'),
+        trackStage(window.AppAnalytics.getUserMonthlyStats(targetStaffId), 'Totalling this month…'),
+        trackStage(window.AppAnalytics.getUserYearlyStats(targetStaffId), 'Totalling this year…'),
+        trackStage(window.AppCalendar ? window.AppCalendar.getPlans() : { leaves: [], events: [] }, 'Loading your calendar…'),
+        trackStage(window.app_hasPerm('leaves', 'view') ? window.AppLeaves.getPendingLeaves() : Promise.resolve([]), 'Checking leave requests…'),
+        trackStage(window.AppDB.getCached
             ? window.AppDB.getCached(window.AppDB.getCacheKey('dashboardUsers', 'users', {}), (AppConfig?.READ_CACHE_TTLS?.users || 60000), () => window.AppDB.getAll('users')).then(users => users.filter(u => !AppConfig.isDemoUser(u)))
-            : window.AppDB.getAll('users').then(users => users.filter(u => !AppConfig.isDemoUser(u))),
-        window.AppCalendar ? window.AppCalendar.getCollaborations(targetStaffId) : Promise.resolve([]),
-        window.app_hasPerm('leaves', 'view')
+            : window.AppDB.getAll('users').then(users => users.filter(u => !AppConfig.isDemoUser(u))), 'Loading the staff list…'),
+        trackStage(window.AppCalendar ? window.AppCalendar.getCollaborations(targetStaffId) : Promise.resolve([]), 'Loading shared tasks…'),
+        trackStage(window.app_hasPerm('leaves', 'view')
             ? (() => {
                 const leavesThirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
                 return window.AppDB.queryMany
@@ -2143,15 +2180,15 @@ export async function renderDashboard() {
                         return created >= leavesThirtyDaysAgo;
                     }));
             })()
-            : Promise.resolve([]),
-        dailySummaryPromise,
-        window.AppMinutes ? window.AppMinutes.getMinutes() : Promise.resolve([]),
-        (isAdmin && pendingMissedCheckoutLogIds.length)
+            : Promise.resolve([]), 'Loading leave history…'),
+        trackStage(dailySummaryPromise, 'Building today’s summary…'),
+        trackStage(window.AppMinutes ? window.AppMinutes.getMinutes() : Promise.resolve([]), 'Loading meeting notes…'),
+        trackStage((isAdmin && pendingMissedCheckoutLogIds.length)
             ? (window.AppDB.getManyByIds
                 ? window.AppDB.getManyByIds('attendance', pendingMissedCheckoutLogIds)
                 : Promise.all(pendingMissedCheckoutLogIds.map((id) => window.AppDB.get('attendance', id))).then((rows) => rows.filter(Boolean)))
-            : Promise.resolve([]),
-        (isAdmin && window.app_hasPerm('leaves', 'view'))
+            : Promise.resolve([]), 'Double-checking attendance records…'),
+        trackStage((isAdmin && window.app_hasPerm('leaves', 'view'))
             ? (window.AppDB.queryMany
                 ? window.AppDB.queryMany('attendance', [
                     { field: 'date', operator: '>=', value: currentWeekRange.startKey },
@@ -2161,8 +2198,8 @@ export async function renderDashboard() {
                     const d = String(row?.date || '');
                     return d >= currentWeekRange.startKey && d <= currentWeekRange.endKey;
                 })))
-            : Promise.resolve([]),
-        window.AppDB.queryMany
+            : Promise.resolve([]), 'Loading this week’s attendance…'),
+        trackStage(window.AppDB.queryMany
             ? window.AppDB.queryMany('work_plans', [
                 { field: 'date', operator: '>=', value: currentWeekRange.startKey },
                 { field: 'date', operator: '<=', value: currentWeekRange.endKey }
@@ -2170,14 +2207,15 @@ export async function renderDashboard() {
             : window.AppDB.getAll('work_plans').then((rows) => (rows || []).filter((row) => {
                 const d = String(row?.date || '');
                 return d >= currentWeekRange.startKey && d <= currentWeekRange.endKey;
-            })),
-        window.AppJourneyReflection ? window.AppJourneyReflection.buildDashboardState({
+            })), 'Loading this week’s plan…'),
+        trackStage(window.AppJourneyReflection ? window.AppJourneyReflection.buildDashboardState({
             viewerUser: user,
             targetUserId: targetStaffId,
             targetUserName: user.name,
             dateKey: todayStr
-        }) : Promise.resolve(null)
+        }) : Promise.resolve(null), 'Loading your daily reflection…')
     ]);
+    if (loadSlowTimer) clearTimeout(loadSlowTimer);
     markPerf('dashboard:fetch:end');
     measurePerf('dashboard:fetch', 'dashboard:fetch:start', 'dashboard:fetch:end');
     console.timeEnd('DashboardFetch');
@@ -2326,6 +2364,14 @@ export async function renderDashboard() {
         }
         : status;
     const isCheckedIn = statusData.status === 'in';
+    const checkinState = isCheckedIn
+        ? (statusData.isPaused ? 'paused' : 'active')
+        : 'out';
+    const checkinStateLabel = checkinState === 'active'
+        ? 'On the clock'
+        : checkinState === 'paused'
+            ? 'Paused'
+            : 'Not checked in';
     const notifications = user.notifications || [];
     const tagHistory = user.tagHistory || [];
     const usersById = new Map((allUsers || []).map((entry) => [String(entry.id), entry]));
@@ -2436,6 +2482,20 @@ export async function renderDashboard() {
     const primaryRowThirdCard = renderActivityLog(staffActivities);
     const renderYearlyPlanHTML = renderYearlyPlan(calendarPlans);
     const feastWidgetHTML = `<div class="dashboard-feast-widget" id="dashboard-feast-widget"><div class="dashboard-feast-widget-body"><div class="dashboard-feast-widget-text"><div class="dashboard-feast-widget-label">Today's Feast</div><div class="dashboard-feast-widget-name" id="dashboard-feast-name">Loading...</div><div class="dashboard-feast-widget-type" id="dashboard-feast-type"></div></div><i class="dashboard-feast-widget-icon" id="dashboard-feast-icon"></i><img class="dashboard-feast-widget-img" id="dashboard-feast-img" alt="" style="display:none"></div></div>`;
+    const personalPerfHTML = wvIf('staffPerformance', '<div id="dashboard-perf-slot" class="card" style="min-height:200px;"><div style="display:flex;align-items:center;justify-content:center;height:200px;color:#94a3b8;font-size:0.85rem;"><i class="fa-solid fa-spinner fa-spin" style="margin-right:0.5rem;"></i>Loading performance...</div></div>');
+    // Shared "My Performance" section, identical for admin and staff: it
+    // fills the main column right under the primary row (which would
+    // otherwise sit empty, especially for admins whose other widgets live
+    // in the Admin Workspace). Empty when the widget is toggled off so no
+    // orphan label renders.
+    const perfSectionHTML = personalPerfHTML ? `
+                <section class="dashboard-perf-section" aria-labelledby="dashboard-perf-title">
+                    <div class="dashboard-section-label" id="dashboard-perf-title">
+                        <span>My Performance</span>
+                        <span class="dashboard-section-label-rule" aria-hidden="true"></span>
+                    </div>
+                    ${personalPerfHTML}
+                </section>` : '';
     if (canViewAdminSections) {
         const hasExplicitSelection = !!window.app_selectedSummaryStaffId && window.app_selectedSummaryStaffId !== user.id;
         const weekRange = getWeekRange(leaveHistoryDate);
@@ -2458,7 +2518,6 @@ export async function renderDashboard() {
             canUndo: true
         });
 
-        const staffPerfHTML = wvIf('staffPerformance', '<div id="dashboard-perf-slot" class="card" style="min-height:200px;"><div style="display:flex;align-items:center;justify-content:center;height:200px;color:#94a3b8;font-size:0.85rem;"><i class="fa-solid fa-spinner fa-spin" style="margin-right:0.5rem;"></i>Loading performance...</div></div>');
         detailSectionHTML = `
                     <div class="dashboard-detail-section" data-zone-id="detailSection">
                         ${isFullAdmin ? `<div class="dashboard-admin-actions-row">
@@ -2466,7 +2525,6 @@ export async function renderDashboard() {
                             ${renderMissedCheckoutRequests(missedCheckoutRequests)}
                             ${historyHTML}
                         </div>` : ''}
-                        ${staffPerfHTML}
                         ${wvIf('teamActivity', primaryRowThirdCard)}
                         ${wvIf('journeyReflection', journeyReflectionHTML)}
                     </div>`;
@@ -2478,10 +2536,8 @@ export async function renderDashboard() {
                 ${renderStatsCard('Yearly Summary', isViewingSelf ? yearlyStats.label : `${yearlyStats.label} for ${targetStaff?.name || 'Staff'}`, yearlyStats, 'yearly')}
             </div>`);
     } else {
-        const staffPerfHTML = wvIf('staffPerformance', '<div id="dashboard-perf-slot" class="card" style="min-height:200px;"><div style="display:flex;align-items:center;justify-content:center;height:200px;color:#94a3b8;font-size:0.85rem;"><i class="fa-solid fa-spinner fa-spin" style="margin-right:0.5rem;"></i>Loading performance...</div></div>');
         detailSectionHTML = `
                     <div class="dashboard-detail-section" data-zone-id="detailSection">
-                        ${staffPerfHTML}
                         ${wvIf('teamActivity', primaryRowThirdCard)}
                         ${wvIf('staffLeaveSummary', renderStaffLeaveSummary(allLeaves, user))}
                         ${wvIf('journeyReflection', journeyReflectionHTML)}
@@ -2604,7 +2660,7 @@ export async function renderDashboard() {
     const viewportMode = typeof window !== 'undefined' && window.innerWidth < 768 ? 'mobile' : 'desktop';
     const todayDateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
     return `
-        <div class="dashboard-grid dashboard-staff-view modern-dashboard${densityClass}" data-viewport="${viewportMode}">
+        <div class="dashboard-grid dashboard-staff-view modern-dashboard${densityClass}${canViewAdminSections ? ' dashboard-has-admin-workspace' : ''}" data-viewport="${viewportMode}">
             ${notifHTML}
             ${taggedHTML}
             ${staffViewBannerHTML}
@@ -2648,12 +2704,16 @@ export async function renderDashboard() {
                 ${overdueTaskStripHTML || ''}
             </div>
 
-            <!-- ── Bento Grid Layout ── -->
-            <div class="modern-bento-grid">
-                <!-- Left Column (main content) -->
-                <div class="modern-bento-main">
-                    <div class="dashboard-primary-row" data-zone-id="primaryRow">
-                        <div class="card check-in-widget dashboard-primary-card dashboard-checkin-card">
+            <!-- ── Personal Workday ── -->
+            <section class="dashboard-personal-workday" aria-labelledby="dashboard-personal-title">
+                <div class="dashboard-section-label" id="dashboard-personal-title">
+                    <span>Personal Workday</span>
+                    <span class="dashboard-section-label-rule" aria-hidden="true"></span>
+                </div>
+                <div class="modern-bento-grid dashboard-personal-grid">
+                    <div class="modern-bento-main">
+                        <div class="dashboard-primary-row" data-zone-id="primaryRow">
+                        <div class="card check-in-widget dashboard-primary-card dashboard-checkin-card dashboard-checkin-state-${checkinState}">
                             <div class="dashboard-checkin-head">
                                 <div class="dashboard-checkin-avatar-wrap">
                                     <img src="${safeUrl(displayUser.avatar)}" alt="Profile" class="dashboard-checkin-avatar">
@@ -2662,6 +2722,7 @@ export async function renderDashboard() {
                                 <div class="dashboard-checkin-identity">
                                 <h4 class="dashboard-checkin-name">${safeHtml(displayUser.name)}</h4>
                                 <p class="text-muted dashboard-checkin-role">${safeHtml(displayUser.role)}</p>
+                                <span class="dashboard-checkin-state-label"><span class="dashboard-checkin-state-dot" aria-hidden="true"></span>${checkinStateLabel}</span>
                                 </div>
                             </div>
                             <div class="dashboard-checkin-timer-wrap">
@@ -2673,7 +2734,7 @@ export async function renderDashboard() {
                                     <div class="clock-center-dot"></div>
                                 </div>
                                 <div class="timer-display dashboard-checkin-timer" id="timer-display">${timerHTML}</div>
-                                <div id="timer-label" class="dashboard-checkin-timer-label">Elapsed Time Today</div>
+                                <div id="timer-label" class="dashboard-checkin-timer-label">${isCheckedIn ? checkinStateLabel : 'Ready to start'}</div>
                             </div>
                             <div id="countdown-container" class="dashboard-checkin-countdown">
                                 <div class="dashboard-checkin-countdown-meta"><span id="countdown-label">Time to checkout</span><span id="countdown-value" class="dashboard-checkin-countdown-value">--:--:--</span></div>
@@ -2689,7 +2750,6 @@ export async function renderDashboard() {
                             </div>
                             <div class="location-text dashboard-checkin-location" id="location-text" ${isCheckedIn && displayUser.currentLocation ? `data-lat="${displayUser.currentLocation.lat}" data-lng="${displayUser.currentLocation.lng}"` : ''}><i class="fa-solid fa-location-dot"></i><span>${isCheckedIn && displayUser.currentLocation ? `Lat: ${Number(displayUser.currentLocation.lat).toFixed(4)}, Lng: ${Number(displayUser.currentLocation.lng).toFixed(4)}` : 'Waiting for location...'}</span></div>
                         </div>
-                        <div class="dashboard-primary-col">${renderYearlyPlanHTML}</div>
                         <div class="dashboard-primary-col ${!isViewingSelf ? 'dashboard-primary-col-highlight' : ''}">${renderWorkLog(currentWeekWorkPlans, collaborations, targetStaff, minutesData, {
                             title: "Today's Planned Tasks",
                             subtitle: `For ${todayStr}`,
@@ -2697,16 +2757,28 @@ export async function renderDashboard() {
                             to: todayStr,
                             emptyMessage: 'No planned tasks for today.'
                         })}</div>
+                            <div class="dashboard-primary-col">${renderYearlyPlanHTML}</div>
+                        </div>
+
+                        ${perfSectionHTML}
+                        ${!canViewAdminSections ? detailSectionHTML : ''}
                     </div>
 
-                    ${detailSectionHTML}
+                    <aside class="modern-bento-sidebar" aria-label="Personal summaries">
+                        ${statsRowHTML}
+                    </aside>
                 </div>
 
-                <!-- Right Column (sidebar) -->
-                <div class="modern-bento-sidebar">
-                    ${statsRowHTML}
-                </div>
-            </div>
+                ${canViewAdminSections ? `
+                    <section class="dashboard-admin-workspace" aria-labelledby="dashboard-admin-title">
+                        <div class="dashboard-section-label dashboard-admin-section-label" id="dashboard-admin-title">
+                            <span>Admin Workspace</span>
+                            <span class="dashboard-section-label-rule" aria-hidden="true"></span>
+                            <span class="dashboard-section-label-note">Team actions and reviews</span>
+                        </div>
+                        ${detailSectionHTML}
+                    </section>` : ''}
+            </section>
         </div>`;
 }
 

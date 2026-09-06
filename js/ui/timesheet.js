@@ -15,7 +15,7 @@ function ensureTimesheetDelegates() {
         const openDay = event.target.closest('[data-timesheet-open-day]');
         if (openDay) { window.app_openTimesheetDayDetail?.(openDay.dataset.timesheetOpenDay); return; }
         const requestLeave = event.target.closest('[data-timesheet-request-leave]');
-        if (requestLeave) { const modal = document.getElementById('leave-modal'); if (modal) modal.style.display = 'flex'; return; }
+        if (requestLeave) { window.app_openModal('leave-modal'); return; }
         const manualLog = event.target.closest('[data-timesheet-manual-log]');
         if (manualLog) { document.dispatchEvent(new CustomEvent('open-log-modal')); return; }
         const monthDelta = event.target.closest('[data-timesheet-month-delta]');

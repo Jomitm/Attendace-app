@@ -73,7 +73,7 @@ export const AppConfig = {
         STALENESS_MS: 24 * 60 * 60 * 1000,
         TEAM_ACTIVITY_LIMIT: 15,
         LOCK_TTL_MS: 90000,
-        SCHEMA_VERSION: 6,
+        SCHEMA_VERSION: 7,
         GENERATE_ON_FIRST_CHECKIN: true,
         RECOMPUTE_CUTOFF_HOUR_IST: 17,
         FALLBACK_TO_PREVIOUS_DAY: true

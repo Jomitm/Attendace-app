@@ -40,6 +40,14 @@
   --md-danger: #ef4444;
   --md-text-muted: #6b7280;
 
+  --dashboard-font-body: 'Manrope', sans-serif;
+  --dashboard-font-label: 'Sora', sans-serif;
+  --dashboard-text-xs: 0.7rem;
+  --dashboard-text-sm: 0.78rem;
+  --dashboard-text-md: 0.92rem;
+  --dashboard-text-lg: 1.05rem;
+  --dashboard-text-display: 2.2rem;
+
   --md-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06);
   --md-shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
   --md-shadow-lg: 0 8px 30px rgba(15, 23, 42, 0.12);
@@ -142,7 +150,10 @@
 
 @media (min-width: 1024px) {
   .modern-dashboard .modern-bento-grid {
-    grid-template-columns: 1fr 360px;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+    /* Top-align columns so the shorter one (main vs stats rail) does not
+       stretch with dead air when the two sides have uneven content. */
+    align-items: start;
   }
 }
 
@@ -158,6 +169,96 @@
   flex-direction: column;
   gap: 1.25rem;
   min-width: 0;
+}
+
+/* Role-aware grouping keeps an admin's own workday visually separate from
+   management actions while preserving the existing widget/card structure. */
+.modern-dashboard .dashboard-personal-workday {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.modern-dashboard .dashboard-section-label {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: var(--md-primary);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.modern-dashboard .dashboard-section-label-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--md-outline-variant);
+}
+
+.modern-dashboard .dashboard-section-label-note {
+  color: var(--md-text-muted);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.modern-dashboard .dashboard-admin-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  padding-top: 1rem;
+  border-top: 2px solid rgba(0, 88, 190, 0.12);
+}
+
+.modern-dashboard .dashboard-admin-section-label {
+  color: var(--md-secondary);
+}
+
+.modern-dashboard .dashboard-admin-workspace .dashboard-detail-section {
+  margin-top: 0;
+}
+
+/* Shared "My Performance" section — identical position and width for admin
+   and staff, filling the main column under the primary row. Parent column
+   gap handles spacing, so no extra margin. The widget stacks internally
+   below 640px viewports (see .perf-main-layout responsive rule). */
+.modern-dashboard .dashboard-perf-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0;
+  min-width: 0;
+}
+
+/* Small laptops (1024–1199px): the main column narrows to ~480px, so stack
+   the radar/bars vertically instead of squeezing them side by side. */
+@media (min-width: 1024px) and (max-width: 1199px) {
+  .modern-dashboard .dashboard-perf-section .perf-main-layout {
+    flex-direction: column;
+    align-items: center;
+  }
+}
+
+/* Hooks emitted by the role-aware dashboard markup (Personal Workday /
+   Admin Workspace split). The personal grid follows the bento behavior
+   above; these rules keep the two zones visually distinct and prevent the
+   admin flag from altering the personal grid layout. */
+.modern-dashboard .dashboard-personal-grid {
+  align-content: start;
+}
+
+.dashboard-has-admin-workspace .dashboard-personal-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 1024px) {
+  .dashboard-has-admin-workspace .dashboard-personal-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+    align-items: start;
+  }
 }
 
 /* ── Glass Card ──────────────────────────────────────────── */
@@ -186,18 +287,13 @@
   margin-bottom: 0.4rem;
 }
 
-/* Hero card must grow to its content height so the "Your Rating" chip row (and
-   the % Complete chip) stays fully inside the card. The staff/admin compact rule
-   in main.css caps height at 72-82px with !important, which clips the chips;
-   these overrides (same !important weight, higher specificity) lift the cap. */
+/* Hero card grows with its content (title, welcome line, rating chips).
+   Only a min-height floor is set — never a locked height/max-height, which
+   previously clipped the chips or spilled them over the next card depending
+   on which stylesheet won the specificity war at a given viewport. */
 .modern-dashboard.dashboard-staff-view .dashboard-hero-card,
 .modern-dashboard.dashboard-admin-view .dashboard-hero-card {
-  height: clamp(84px, 5.4vw, 100px) !important;
-  block-size: clamp(84px, 5.4vw, 100px) !important;
-  min-height: clamp(84px, 5.4vw, 100px) !important;
-  min-block-size: clamp(84px, 5.4vw, 100px) !important;
-  max-height: clamp(84px, 5.4vw, 100px) !important;
-  max-block-size: clamp(84px, 5.4vw, 100px) !important;
+  min-height: clamp(84px, 5.4vw, 100px);
   overflow: hidden;
 }
 
@@ -525,11 +621,22 @@
   min-height: 0;
 }
 
-.modern-dashboard .dashboard-primary-col > .card {
+/* (0,5,0) specificity beats main.css `.dashboard-staff-view
+   .dashboard-primary-row > .dashboard-primary-col > .dashboard-team-schedule-card`
+   (0,4,0), which sets `overflow: visible` and lets schedule content paint
+   over the stats rail on narrow tracks. */
+.dashboard-staff-view.modern-dashboard .dashboard-primary-row .dashboard-primary-col > .card,
+.dashboard-admin-view.modern-dashboard .dashboard-primary-row .dashboard-primary-col > .card {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  /* Safety net: nothing inside a primary card (schedule header buttons,
+     long titles, calendars) may paint past the card edge onto the
+     neighbouring column or stats rail. Combined with min-width: 0 the card
+     itself always fits its track. */
+  min-width: 0;
+  overflow-x: clip;
 }
 
 /* Check-in card (direct grid child, tile mode): stretch to match the Team
@@ -554,8 +661,10 @@
 
 .modern-dashboard .dashboard-primary-col-highlight::before {
   content: 'Staff View';
+  /* Sits inside the card's padded header area instead of straddling the
+     top border, where it overlapped the card edge and nearby headings. */
   position: absolute;
-  top: -6px;
+  top: 8px;
   right: 8px;
   font-size: 0.6rem;
   font-weight: 700;
@@ -837,6 +946,36 @@
   color: var(--md-on-surface);
 }
 
+.modern-dashboard .dashboard-planned-task-head-copy {
+  min-width: 0;
+}
+
+.modern-dashboard .dashboard-card-summary {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--md-text-muted);
+  font-size: var(--dashboard-text-xs, 0.7rem);
+  line-height: 1.25;
+}
+
+.modern-dashboard .dashboard-planned-task-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--dashboard-text-md, 0.92rem);
+  line-height: 1.35;
+  font-weight: 700;
+}
+
+.modern-dashboard .dashboard-planned-task-meta,
+.modern-dashboard .dashboard-planned-task-chip {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .modern-dashboard .dashboard-planned-task-meta {
   display: flex;
   flex-wrap: wrap;
@@ -878,6 +1017,30 @@
 /* ── Team Schedule / Yearly Plan Card ────────────────────── */
 .modern-dashboard .dashboard-team-schedule-card {
   border: 1px solid rgba(226, 232, 240, 0.6);
+}
+
+.modern-dashboard .dashboard-schedule-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin: 0.65rem 0;
+}
+
+.modern-dashboard .dashboard-schedule-summary span {
+  min-width: 0;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-radius-sm);
+  background: var(--md-surface-container-low);
+  color: var(--md-text-muted);
+  font-size: var(--dashboard-text-xs, 0.7rem);
+  line-height: 1.25;
+}
+
+.modern-dashboard .dashboard-schedule-summary strong {
+  color: var(--md-primary);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Stats Cards (Sidebar) ──────────────────────────────── */
@@ -1105,9 +1268,10 @@
 
 .modern-dashboard .dashboard-hero-stats-card .hero-metrics {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0.5rem;
   margin-bottom: 0.75rem;
+  min-width: 0;
 }
 
 .modern-dashboard .dashboard-hero-stats-card .hero-metric {
@@ -1116,6 +1280,8 @@
   background: var(--md-surface-container-low);
   border: 1px solid var(--md-outline-variant);
   border-radius: var(--md-radius-sm);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .modern-dashboard .dashboard-hero-stats-card .hero-metric-value {
@@ -1125,11 +1291,13 @@
 }
 
 .modern-dashboard .dashboard-hero-stats-card .hero-metric-label {
-  font-size: 0.55rem;
+  font-size: 0.7rem;
   color: var(--md-on-surface-variant);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
 }
 
 /* Hero metrics — semantic colors by position */
@@ -1551,7 +1719,12 @@
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  flex-shrink: 0;
+  /* May shrink and wrap under the month nav in narrow (~220px) tracks
+     instead of forcing the whole card wider than its grid column. */
+  flex-shrink: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+  row-gap: 0.3rem;
 }
 
 .ts-btn {
@@ -1876,8 +2049,12 @@ textarea.gm-input {
   font-size: inherit;
 }
 
+/* Hidden modals must NEVER paint, regardless of stylesheet order, bundle
+   concatenation order, or stale cached copies of this file missing this
+   rule (a missing/losing .gm-hidden leaves every .modal-overlay, which is
+   display:flex, visible on page load). Hence !important. */
 .gm-hidden {
-  display: none;
+  display: none !important;
 }
 
 .gm-label-block {
@@ -2216,6 +2393,19 @@ textarea.gm-input {
   gap: 0.5rem;
 }
 
+[data-viewport="mobile"] .dashboard-section-label {
+  margin-top: 0.25rem;
+}
+
+[data-viewport="mobile"] .dashboard-section-label-note {
+  display: none;
+}
+
+[data-viewport="mobile"] .dashboard-admin-workspace {
+  margin-top: 0.25rem;
+  padding-top: 0.75rem;
+}
+
 [data-viewport="mobile"] .card {
   padding: 0.5rem;
 }
@@ -2248,10 +2438,9 @@ textarea.gm-input {
 
   .dashboard-staff-view .dashboard-hero-card,
   .dashboard-admin-view .dashboard-hero-card {
-    height: clamp(72px, 4.7vw, 82px) !important;
-    min-height: clamp(72px, 4.7vw, 82px) !important;
-    max-height: 82px !important;
-    padding: var(--hero-block-pad-y) var(--hero-block-pad-x) !important;
+    /* Floor only — the card grows with its content (see the rule above). */
+    min-height: clamp(72px, 4.7vw, 82px);
+    padding: var(--hero-block-pad-y) var(--hero-block-pad-x);
   }
 
   .dashboard-staff-view .dashboard-stats-row,
@@ -2292,6 +2481,40 @@ textarea.gm-input {
 
   .card {
     padding: 0.75rem;
+  }
+}
+
+/* Small laptops (1024–1199px) keep the same 3-column primary row as desktop
+   (see the ≥1024px rule above): forcing the check-in card full-width here
+   pushed every other card down and left half-empty rows. The ≥1200px rule
+   below only retunes the column fractions. */
+
+@media (min-width: 1200px) {
+  /* Minimums are 0 (not px floors): on 13–14" laptops the main column is
+     only ~700px wide, and hard floors (220+280+220+gaps) overflowed the
+     grid so the 3rd column slid under the stats rail. Tracks now always
+     fit; inner content wraps/clips via the rules below. */
+  .modern-dashboard .dashboard-primary-row {
+    grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.2fr) minmax(0, 1fr);
+  }
+}
+
+.modern-dashboard .dashboard-primary-row > .dashboard-checkin-card,
+.modern-dashboard .dashboard-primary-row > .dashboard-primary-col {
+  min-width: 0;
+}
+
+.modern-dashboard .dashboard-worklog-card .dashboard-planned-task-title {
+  line-height: 1.35;
+}
+
+@media (max-width: 639px) {
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-btn {
+    min-height: 42px;
+  }
+
+  .modern-dashboard .dashboard-worklog-card .dashboard-planned-task-list {
+    max-height: none;
   }
 }
 
@@ -2357,6 +2580,184 @@ textarea.gm-input {
 }
 .dashboard-staff-view .dashboard-stats-row {
   gap: 0.55rem;
+}
+
+/* Keep the personal summary rail in the grid flow at every desktop width. */
+.modern-dashboard .modern-bento-sidebar,
+.modern-dashboard .modern-bento-sidebar > *,
+.modern-dashboard .modern-bento-sidebar .dashboard-stats-row,
+.modern-dashboard .modern-bento-sidebar .dashboard-stats-row > * {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.modern-dashboard .modern-bento-sidebar .dashboard-hero-stats-card {
+  position: relative;
+  inset: auto;
+  transform: none;
+  align-self: stretch;
+}
+
+/* Final dashboard type scale. */
+.modern-dashboard {
+  font-family: var(--dashboard-font-body);
+}
+
+.modern-dashboard .dashboard-section-label,
+.modern-dashboard .dashboard-checkin-kicker,
+.modern-dashboard .dashboard-hero-card .dashboard-hero-eyebrow,
+.modern-dashboard .dashboard-feast-widget-label,
+.modern-dashboard .dashboard-hero-stats-card .hero-metric-label,
+.modern-dashboard .dashboard-hero-stats-card .hero-role,
+.modern-dashboard .dashboard-stats-card .dashboard-kpi-label,
+.modern-dashboard .dashboard-stats-card .dashboard-breakdown-label {
+  font-family: var(--dashboard-font-label);
+}
+
+.modern-dashboard .dashboard-section-label {
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+
+.modern-dashboard .dashboard-section-label-note,
+.modern-dashboard .dashboard-hero-card .dashboard-hero-eyebrow,
+.modern-dashboard .dashboard-checkin-kicker,
+.modern-dashboard .dashboard-feast-widget-label,
+.modern-dashboard .dashboard-hero-stats-card .hero-role,
+.modern-dashboard .dashboard-stats-card .dashboard-kpi-label,
+.modern-dashboard .dashboard-stats-card .dashboard-breakdown-label {
+  font-size: var(--dashboard-text-xs);
+  line-height: 1.3;
+}
+
+.modern-dashboard .dashboard-hero-card .dashboard-hero-title,
+.modern-dashboard .dashboard-feast-widget-name,
+.modern-dashboard .dashboard-stats-card .dashboard-stats-card-title,
+.modern-dashboard .dashboard-checkin-card .dashboard-checkin-name {
+  font-family: var(--dashboard-font-body);
+  font-size: var(--dashboard-text-lg);
+  line-height: 1.25;
+}
+
+.modern-dashboard .dashboard-feast-widget-type,
+.modern-dashboard .dashboard-hero-card .dashboard-hero-date,
+.modern-dashboard .dashboard-checkin-card .dashboard-checkin-role,
+.modern-dashboard .dashboard-stats-card .dashboard-stats-card-subtitle {
+  font-size: var(--dashboard-text-sm);
+  line-height: 1.35;
+}
+
+.modern-dashboard .dashboard-planned-task-title,
+.modern-dashboard .dashboard-worklog-card .dashboard-planned-task-title {
+  font-size: var(--dashboard-text-md);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.modern-dashboard .dashboard-planned-task-meta,
+.modern-dashboard .dashboard-planned-task-chip,
+.modern-dashboard .dashboard-hero-stats-card .hero-sync-time,
+.modern-dashboard .dashboard-hero-card .dashboard-hero-chip,
+.modern-dashboard .dashboard-hero-card .dashboard-hero-chip-label {
+  font-size: var(--dashboard-text-xs);
+  line-height: 1.3;
+}
+
+.modern-dashboard .dashboard-checkin-card .timer-display {
+  font-family: var(--dashboard-font-body);
+  font-size: var(--dashboard-text-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+.modern-dashboard .dashboard-hero-stats-card .hero-metric-label {
+  font-size: var(--dashboard-text-xs);
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+  overflow-wrap: anywhere;
+}
+
+.modern-dashboard .dashboard-hero-stats-card .hero-metric-value,
+.modern-dashboard .dashboard-stats-card .dashboard-kpi-value {
+  font-family: var(--dashboard-font-body);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 639px) {
+  .modern-dashboard .dashboard-planned-task-title,
+  .modern-dashboard .dashboard-worklog-card .dashboard-planned-task-title {
+    font-size: 0.88rem;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .timer-display {
+    font-size: 2rem;
+  }
+}
+
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .modern-dashboard .modern-bento-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 300px);
+  }
+
+  .modern-dashboard .dashboard-primary-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .modern-dashboard .dashboard-primary-row > .dashboard-checkin-card {
+    grid-column: span 2;
+  }
+}
+
+/* The attendance card is an action surface, not a full-height data panel. */
+@media (min-width: 640px) {
+  .modern-dashboard .dashboard-primary-row > .dashboard-checkin-card {
+    align-self: start !important;
+    height: auto !important;
+    min-height: 0;
+    padding: 0.7rem;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-head {
+    gap: 0.55rem;
+    margin-bottom: 0.45rem;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-avatar-wrap,
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-avatar {
+    width: 36px;
+    height: 36px;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-timer-wrap {
+    flex: 0 1 auto;
+    margin-bottom: 0.35rem;
+    padding: 0.15rem 0;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .timer-display {
+    font-size: 1.9rem;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-timer-label {
+    margin-top: 0.08rem;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-action-row {
+    gap: 0.35rem;
+    margin-bottom: 0.35rem;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-btn {
+    min-height: 36px;
+    padding: 0.42rem 0.65rem;
+  }
+
+  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-location {
+    padding-top: 0.15rem;
+    line-height: 1.2;
+  }
 }
 
 /* Phase 2 — Card Internal Spacing */
@@ -2520,11 +2921,19 @@ textarea.gm-input {
   gap: 0.55rem;
 }
 
-/* Admin actions row � three empty-state cards side by side */
+/* Admin actions row — three empty-state cards side by side on desktop,
+   two columns on tablets (three squeezed cards overflowed into each other),
+   one column on phones. */
 .dashboard-staff-view .dashboard-admin-actions-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 0.55rem;
+}
+
+@media (max-width: 1199px) {
+  .dashboard-staff-view .dashboard-admin-actions-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 @media (max-width: 768px) {
@@ -3091,3 +3500,9 @@ textarea.gm-input {
   gap: 0.4rem;
   overflow-x: visible;
 }
+
+/* NOTE: the compact check-in card rules live in ONE place only —
+   css/dashboard-checkin-compact.css (linked after this file). A duplicate
+   of that block used to sit here and re-imposed
+   `align-self: start !important` at every width, defeating row stretch.
+   It was removed; do not re-add it. */
