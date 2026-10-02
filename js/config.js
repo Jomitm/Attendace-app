@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * App Configuration
  * Centralizes business logic and constants.
@@ -116,9 +117,18 @@ export const AppConfig = {
             DEFAULTS: { punctuality: 50, activity: 50, onTimeRate: 100 }
         },
         EXPECTED_WEEKLY_TASKS: 5,
+        // 'pace' = partial current windows score against elapsed days only
+        // (a Wednesday score isn't punished for Thu–Sun that haven't happened).
+        // 'legacy' = always divide by the full window length.
+        PARTIAL_WINDOW_MODE: 'pace',
         ATTENDANCE_MODIFIER: {
             base: 0.9,
             maxBonus: 10,
+            // Expected attended hours per required working day (admin UI label
+            // "Expected Hours/Day"). `consistencyImpact` is the legacy key name
+            // for the same value — stored policy overrides predate this key, so
+            // readers must accept either (canonical wins, legacy is the alias).
+            expectedHoursPerDay: 8,
             consistencyImpact: 8,
             consistencyBonus: 10,
             effortImpact: 0.35
@@ -136,7 +146,34 @@ export const AppConfig = {
             minDays: 3,
             minDurationMs: 14400000,
             minPlannedTasks: 3
+        },
+        // AI-based winner selection (api/hero-select.js). The deterministic
+        // ranking still owns eligibility — the AI only picks one hero from the
+        // eligible candidates and the pick is stored per ranking period.
+        // ENABLED: false forces the normal top-ranked eligible winner everywhere.
+        // TIMEOUT_MS: client budget for the selection call; on timeout the
+        //   normal winner renders now and the AI pick lands on a later load.
+        AI_SELECTION: {
+            ENABLED: true,
+            TIMEOUT_MS: 8000
         }
+    },
+    // AI performance coach guards (reliability hardening).
+    // AI_SCORE_MAX_DELTA: the model's re-evaluated "AI Score" may differ from
+    //   the deterministic composite by at most this many points.
+    // NARRATIVE_DRIFT_POINTS: a cached daily narrative is regenerated when the
+    //   formula composite moves this many points after the narrative was written.
+    // AI_MAX_UPDATES_PER_DAY: autonomous re-checks — the coach may regenerate
+    //   its cached narrative/score at most this many times per calendar day
+    //   (the first run counts; a stale/broken narrative and the manual Refresh
+    //   button are never gated by this budget).
+    // AI_UPDATE_MIN_GAP_MS: minimum spacing between autonomous re-checks so
+    //   they happen occasionally instead of on every card render.
+    AI_POLICY: {
+        AI_SCORE_MAX_DELTA: 15,
+        NARRATIVE_DRIFT_POINTS: 5,
+        AI_MAX_UPDATES_PER_DAY: 3,
+        AI_UPDATE_MIN_GAP_MS: 3600000
     },
     SIMULATION_POLICY: {
         LEGACY_DUMMY_CLEANUP: {
@@ -186,6 +223,13 @@ export const AppConfig = {
         not_started: 0,
         work_started: 3,
         in_progress: 5
+    },
+    // Look-back window for AppCalendar.replanPostponedForDate: only personal
+    // work plans in [targetDate - LOOKBACK_DAYS .. targetDate] are scanned for
+    // arrived postpone copies and stranded postponed sources. Bounds the
+    // Firestore read on every day-plan maintenance run.
+    POSTPONE_REPLAN: {
+        LOOKBACK_DAYS: 180
     },
     // When logging in while another session token exists, only prompt the user to
     // "sign in here / sign out the other device" if that session started recently.

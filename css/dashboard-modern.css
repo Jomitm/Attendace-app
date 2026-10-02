@@ -1209,10 +1209,13 @@
   cursor: not-allowed;
 }
 
+/* Version badge sits inline (right-aligned) in the footer flex row. It used to be
+   position:absolute, which let wrapped footer pills (Confidence / badges) slide
+   underneath it and overlap. margin-left:auto keeps it pinned to the row end while
+   still reserving its space in layout. */
 .modern-dashboard .dashboard-hero-stats-card .hero-version-badge {
-  position: absolute;
-  bottom: 4px;
-  right: 8px;
+  margin-left: auto;
+  align-self: center;
   font-size: 0.65rem;
   color: #94a3b8;
   opacity: 0.7;
@@ -1225,6 +1228,25 @@
   color: #92400e;
   background: rgba(245, 158, 11, 0.12);
   border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+/* AI-selected hero badge — shown when the winner was picked by the AI jury
+   (api/hero-select.js) instead of simply being the top-ranked eligible row.
+   The tooltip carries the AI's one-sentence rationale. */
+.modern-dashboard .dashboard-hero-stats-card .hero-ai-pick-badge {
+  color: #5b21b6;
+  background: rgba(139, 92, 246, 0.12);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+}
+
+/* Footer pills (period / confidence) follow the same Material surface scheme as
+   the attendance pills so they stay readable on the light hero-card gradient.
+   The :not() exclusions keep the amber/violet badge colors above from being
+   overridden by this higher-specificity rule. */
+.modern-dashboard .dashboard-hero-stats-card .dashboard-hero-stats-foot .dashboard-kpi-tag:not(.hero-fallback-badge):not(.hero-ai-pick-badge) {
+  background: var(--md-surface-container);
+  border: 1px solid var(--md-outline-variant);
+  color: var(--md-on-surface-variant);
 }
 
 .modern-dashboard .dashboard-hero-stats-card .hero-label-badge {
@@ -3083,6 +3105,15 @@ textarea.gm-input {
   gap: 0.4rem;
   flex-shrink: 0;
 }
+/* Formula ring + AI score chip share one row — sized to the radar's 120px
+   column so the pair adds no extra height or width. */
+.perf-score-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 120px;
+}
 .perf-right {
   flex: 1;
   min-width: 0;
@@ -3091,8 +3122,8 @@ textarea.gm-input {
 /* Score ring */
 .perf-score-ring {
   position: relative;
-  width: 56px;
-  height: 56px;
+  width: 44px;
+  height: 44px;
 }
 .perf-score-ring svg {
   display: block;
@@ -3103,7 +3134,7 @@ textarea.gm-input {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.1rem;
+  font-size: 0.95rem;
   font-weight: 800;
 }
 

@@ -1,6 +1,8 @@
 import { AppDB } from './db.js';
 import { AppConfig } from '../config.js';
 import { isTaskVisibleToViewer, getCurrentViewerId } from '../utils/task-visibility.js';
+import { buildPerformanceWindows } from '../utils/perf-windows.js';
+import { isRequiredWorkingDay, countRequiredWorkingDays } from '../utils/working-days.js';
 
 // Truncating by recency alone can exclude all completed tasks (recent entries
 // are usually still in-progress), leaving the dashboard's Team Activity
@@ -73,6 +75,11 @@ export class Analytics {
         this.db = AppDB;
         this.chartInstance = null;
         this.memo = new Map();
+        // In-flight/resolved AI hero selections keyed by ranking period —
+        // dedupes the Promise.all(card + leaderboard) double call and keeps
+        // one pick per period for the page session. Failures are evicted so
+        // a later render/refresh can retry.
+        this._heroAiSelect = new Map();
         this._cachedHolidays = null;
         this._cachedHolidayYear = null;
         if (typeof window !== 'undefined' && window.addEventListener) {
@@ -1206,6 +1213,60 @@ export class Analytics {
         return 'in_progress';
     }
 
+    /**
+     * Effective (deduped) task rows for ONE scoring window, applying the same
+     * lineage rules as normalizeHeroTasks so the widget never counts a
+     * postponed source task and its carry-forward copy twice (widget and
+     * leaderboard must agree — Phase 2 parity fix).
+     *
+     * Dedupe is scoped to the window: a shadowing copy outside the window
+     * cannot remove the source from this window's counts.
+     *
+     * @param {Array} userPlans work-plan docs already filtered to one user/window
+     * @returns {Array<{wp, task, status}>} rows safe for score iteration
+     */
+    _effectiveWindowTasks(userPlans = []) {
+        const rows = [];
+        (userPlans || []).forEach((wp) => {
+            if (!wp || !Array.isArray(wp.plans)) return;
+            wp.plans.forEach((task, taskIndex) => {
+                if (!task || task.isRemoved === true) return;
+                if (!String(task.task || '').trim()) return;
+                rows.push({
+                    wp,
+                    task,
+                    taskIndex,
+                    status: this.classifyHeroTaskStatus(task.status, wp.date),
+                    planId: String(wp.id || ''),
+                    addedFrom: String(task.addedFrom || '').trim().toLowerCase(),
+                    sourcePlanId: String(task.sourcePlanId || '').trim(),
+                    sourceTaskIndex: Number(task.sourceTaskIndex)
+                });
+            });
+        });
+
+        // A source task superseded by an in-window postponed copy counts once (the copy).
+        const shadowedKeys = new Set();
+        rows.forEach((row) => {
+            if (row.addedFrom === 'postponed' && row.sourcePlanId && Number.isInteger(row.sourceTaskIndex)) {
+                shadowedKeys.add(`${row.sourcePlanId}::${row.sourceTaskIndex}`);
+            }
+        });
+        const filtered = rows.filter((row) => {
+            const key = `${row.planId}::${row.taskIndex}`;
+            return !(shadowedKeys.has(key) && row.addedFrom !== 'postponed');
+        });
+
+        // A completed instance wins over an earlier postponed shell of the same text.
+        const completedTexts = new Set();
+        filtered.forEach((row) => {
+            if (row.status === 'completed') completedTexts.add(String(row.task.task).toLowerCase().trim());
+        });
+        return filtered.filter((row) =>
+            !(row.status === 'postponed' && completedTexts.has(String(row.task.task).toLowerCase().trim()))
+        );
+    }
+
     normalizeHeroTasks(workPlans = []) {
         const rawRows = [];
         const shadowedSourceKeys = new Set();
@@ -1418,7 +1479,7 @@ export class Analytics {
         return byUser;
     }
 
-    rankHeroCandidates(attendanceStats = [], taskStats = new Map(), policy = {}, rawLogs = [], rawWorkPlans = [], dateRange = null) {
+    rankHeroCandidates(attendanceStats = [], taskStats = new Map(), policy = {}, rawLogs = [], rawWorkPlans = [], dateRange = null, holidayDates = new Set()) {
         // Use the same 6-dimension additive formula as the Performance widget
         const windowDays = Math.max(1, Number(policy.WINDOW_DAYS || 7));
         const expectedWeeklyTasks = Math.max(1, Number(policy.EXPECTED_WEEKLY_TASKS || 5));
@@ -1465,6 +1526,9 @@ export class Analytics {
         // Date range for deduplication — use the actual dataset range
         const rangeStart = dateRange?.start ? new Date(dateRange.start) : (() => { const d = new Date(); d.setDate(d.getDate() - windowDays); d.setHours(0, 0, 0, 0); return d; })();
         const rangeEnd = dateRange?.end ? new Date(dateRange.end) : (() => { const d = new Date(); d.setHours(23, 59, 59, 999); return d; })();
+        // Leaderboard denominators count required working days only (hero range
+        // always ends yesterday, so elapsed == full and pace does not apply).
+        const requiredDays = Math.max(1, countRequiredWorkingDays(rangeStart, rangeEnd, holidayDates));
 
         return Array.from(allUserIds).map((userId) => {
             const attendance = attendanceMap.get(String(userId)) || {
@@ -1486,11 +1550,14 @@ export class Analytics {
             const dedupedLogs = this.pickBestAttendanceLogPerDay(userRawLogs, rangeStart, rangeEnd);
 
             // ── PUNCTUALITY (0–100) ──
-            const lateDays = dedupedLogs.filter(l => l.lateCountable === true || String(l.type || '').toLowerCase() === 'late').length;
+            // Same rule as the widget: only required working days count.
+            const punctualityLogs = dedupedLogs.filter(l => isRequiredWorkingDay(l?.date || l?.dateKey, holidayDates));
+            const lateDays = punctualityLogs.filter(l => l.lateCountable === true || String(l.type || '').toLowerCase() === 'late').length;
+            const punctualityDays = punctualityLogs.length;
             const totalDays = dedupedLogs.length;
             const daysWorked = attendance.daysSet.size;
-            const basePunctuality = totalDays > 0
-                ? Math.max(0, Math.round(((totalDays - lateDays) / totalDays) * 100))
+            const basePunctuality = punctualityDays > 0
+                ? Math.max(0, Math.round(((punctualityDays - lateDays) / punctualityDays) * 100))
                 : scoringDefaults.punctuality;
             // Pause discipline penalty
             const pausePolicy = policy.PAUSE_DISCIPLINE || {};
@@ -1505,12 +1572,15 @@ export class Analytics {
             const punctuality = Math.max(0, basePunctuality - pausePenalty);
 
             // ── ATTENDANCE (0–100) ──
-            const daysScore = Math.min(100, Math.round((daysWorked / windowDays) * 100));
+            const daysScore = Math.min(100, Math.round((daysWorked / requiredDays) * 100));
             const attMod = policy.ATTENDANCE_MODIFIER || {};
-            const expectedHoursPerDay = Number.isFinite(Number(attMod.consistencyImpact)) ? Number(attMod.consistencyImpact) : 8;
+            // Expected attended hours per required day: canonical key first,
+            // legacy alias (consistencyImpact) second, default 8.
+            const expectedHoursRaw = attMod.expectedHoursPerDay ?? attMod.consistencyImpact;
+            const expectedHoursPerDay = Number.isFinite(Number(expectedHoursRaw)) ? Number(expectedHoursRaw) : 8;
             const maxHoursBonus = Number.isFinite(Number(attMod.maxBonus)) ? Number(attMod.maxBonus) : 10;
             const totalHours = attendance.totalDurationMs / (1000 * 60 * 60);
-            const expectedTotalHours = expectedHoursPerDay * windowDays;
+            const expectedTotalHours = expectedHoursPerDay * requiredDays;
             const hoursBonus = expectedTotalHours > 0
                 ? Math.min(maxHoursBonus, Math.round((totalHours / expectedTotalHours) * maxHoursBonus))
                 : 0;
@@ -1531,54 +1601,50 @@ export class Analytics {
             const attendanceScore = Math.min(100, daysScore + hoursBonus + consistencyBonus);
 
             // ── TASK EXECUTION (0–100) ──
-            // Count tasks from raw work plans (same logic as _computeWeekPerformance)
+            // Same effective (postpone-deduped) rows as the widget.
+            const effectiveTasks = this._effectiveWindowTasks(userRawPlans);
             let taskPlanned = 0, taskCompleted = 0, taskMissed = 0, taskPostponed = 0, taskInProgress = 0;
-            let onTimeCompleted = 0;
+            let onTimeCompleted = 0, timedCompleted = 0;
             let weightedPlanned = 0, weightedCompleted = 0;
             let classifiedCount = 0;
-            userRawPlans.forEach(wp => {
-                if (!Array.isArray(wp?.plans)) return;
-                wp.plans.forEach(task => {
-                    if (!task || task.isRemoved === true) return;
-                    if (!String(task.task || '').trim()) return;
-                    taskPlanned++;
-                    const tw = sizeWeights[task.sizeCategory] ?? 1;
-                    const pw = priorityWeights[task.priorityLevel] ?? 1.0;
-                    weightedPlanned += tw * pw;
-                    const hasClassification = !!task.priorityLevel;
-                    if (hasClassification) classifiedCount++;
-                    const status = this.classifyHeroTaskStatus(task.status, wp.date);
-                    if (status === 'completed') {
-                        taskCompleted++;
-                        weightedCompleted += tw * pw;
-                        if (task.completedDate && wp.date) {
-                            const diffMs = new Date(task.completedDate).getTime() - new Date(wp.date + 'T23:59:59').getTime();
-                            if (diffMs <= 0) onTimeCompleted++;
-                        } else {
-                            onTimeCompleted++;
-                        }
-                    } else if (status === 'missed') taskMissed++;
-                    else if (status === 'postponed') {
-                        taskPostponed++;
-                        const ws = String(task.postponeWorkStatus || '');
-                        const credit = ws === 'in_progress' ? postponeCredit.inProgress : ws === 'work_started' ? postponeCredit.workStarted : 0;
-                        weightedCompleted += tw * pw * credit;
+            effectiveTasks.forEach(({ wp, task, status }) => {
+                taskPlanned++;
+                const effSize = task.sizeCategory || task.aiSizeCategory;
+                const effPriority = task.priorityLevel || task.aiPriorityLevel;
+                const tw = sizeWeights[effSize] ?? 1;
+                const pw = priorityWeights[effPriority] ?? 1.0;
+                weightedPlanned += tw * pw;
+                const hasClassification = !!(task.priorityLevel || task.aiPriorityLevel);
+                if (hasClassification) classifiedCount++;
+                if (status === 'completed') {
+                    taskCompleted++;
+                    weightedCompleted += tw * pw;
+                    if (task.completedDate && wp.date) {
+                        timedCompleted++;
+                        const diffMs = new Date(task.completedDate).getTime() - new Date(wp.date + 'T23:59:59').getTime();
+                        if (diffMs <= 0) onTimeCompleted++;
                     }
-                    else taskInProgress++;
-                });
+                    // Missing completedDate = unknown timing, excluded from the rate.
+                } else if (status === 'missed') taskMissed++;
+                else if (status === 'postponed') {
+                    taskPostponed++;
+                    const ws = String(task.postponeWorkStatus || '');
+                    const credit = ws === 'in_progress' ? postponeCredit.inProgress : ws === 'work_started' ? postponeCredit.workStarted : 0;
+                    weightedCompleted += tw * pw * credit;
+                }
+                else taskInProgress++;
             });
             // Fallback to aggregated stats if raw plans produced nothing
             if (taskPlanned === 0) {
                 taskPlanned = tasks.planned; taskCompleted = tasks.completed;
                 taskMissed = tasks.missed; taskPostponed = tasks.postponed;
                 taskInProgress = tasks.inProgress;
-                onTimeCompleted = tasks.completed; // best guess
                 weightedPlanned = taskPlanned;
                 weightedCompleted = taskCompleted;
             }
             const completionRate = weightedPlanned > 0 ? (weightedCompleted / weightedPlanned) * 100 : 0;
             const simpleCompletionRate = taskPlanned > 0 ? (taskCompleted / taskPlanned) * 100 : 0;
-            const onTimeRate = taskCompleted > 0 ? (onTimeCompleted / taskCompleted) * 100 : scoringDefaults.onTimeRate;
+            const onTimeRate = timedCompleted > 0 ? (onTimeCompleted / timedCompleted) * 100 : scoringDefaults.onTimeRate;
             const missRate = taskPlanned > 0 ? (taskMissed / taskPlanned) * 100 : 0;
             const taskExecution = Math.max(0, Math.min(100, Math.round(
                 completionRate * executionWeights.completion + onTimeRate * executionWeights.onTime - missRate * executionWeights.missed
@@ -1599,27 +1665,21 @@ export class Analytics {
             const workDescDepth = dedupedLogs.reduce((sum, l) => sum + String(l?.workDescription || '').length, 0);
             const qualityCharsPerDay = Number(policy.CAPS?.qualityChars ?? scoringRules.PRODUCTIVITY_DESCRIPTION_CHARS_PER_DAY);
             const depthScore = Math.min(100, (workDescDepth / Math.max(1, totalDays * qualityCharsPerDay)) * 100);
-            const expectedExtraHours = Math.max(1, windowDays * Number(scoringRules.EXPECTED_EXTRA_HOURS_PER_DAY));
+            const expectedExtraHours = Math.max(1, requiredDays * Number(scoringRules.EXPECTED_EXTRA_HOURS_PER_DAY));
             const extraHoursScore = Math.min(100, (extraHours / expectedExtraHours) * 100);
             const productivity = Math.round(avgActivity * productivityWeights.activity + extraHoursScore * productivityWeights.extraHours + depthScore * productivityWeights.workDescription);
 
             // ── PLANNING (0–100) ──
             const planVolume = Math.min(100, (taskPlanned / expectedTasks) * 100);
-            const subPlanCount = userRawPlans.reduce((sum, wp) =>
-                sum + (Array.isArray(wp?.plans) ? wp.plans.filter(t =>
-                    Array.isArray(t?.subPlans) && t.subPlans.length > 0
-                ).length : 0), 0
+            const subPlanCount = effectiveTasks.reduce((sum, row) =>
+                sum + (Array.isArray(row.task?.subPlans) && row.task.subPlans.length > 0 ? 1 : 0), 0
             );
             const subPlanScore = Math.min(100, subPlanCount * planningWeights.subPlanPoints);
             // Task complexity bonus
             const sizeBuckets = {};
-            userRawPlans.forEach(wp => {
-                if (!Array.isArray(wp?.plans)) return;
-                wp.plans.forEach(task => {
-                    if (!task || task.isRemoved === true) return;
-                    const cat = task.sizeCategory || 'small-task';
-                    sizeBuckets[cat] = (sizeBuckets[cat] || 0) + 1;
-                });
+            effectiveTasks.forEach(({ task }) => {
+                const cat = task.sizeCategory || task.aiSizeCategory || 'small-task';
+                sizeBuckets[cat] = (sizeBuckets[cat] || 0) + 1;
             });
             const totalWeighted = Object.entries(sizeBuckets).reduce((sum, [cat, count]) =>
                 sum + (sizeWeights[cat] ?? 1) * count, 0);
@@ -1628,12 +1688,8 @@ export class Analytics {
             const complexityBonus = avgComplexity >= complexityRule.highThreshold ? complexityRule.highPoints : avgComplexity >= complexityRule.mediumThreshold ? complexityRule.mediumPoints : 0;
             // Purpose diversity bonus
             const purposeSet = new Set();
-            userRawPlans.forEach(wp => {
-                if (!Array.isArray(wp?.plans)) return;
-                wp.plans.forEach(task => {
-                    if (!task || task.isRemoved === true) return;
-                    if (task.purposeCategory) purposeSet.add(task.purposeCategory);
-                });
+            effectiveTasks.forEach(({ task }) => {
+                if (task.purposeCategory) purposeSet.add(task.purposeCategory);
             });
             const purposeBonus = purposeSet.size >= purposeRule.fullPurposes ? purposeRule.fullPoints : purposeSet.size >= purposeRule.minPurposes ? purposeRule.points : 0;
             const planning = Math.min(100, Math.round(planVolume * planningWeights.planVolume + subPlanScore * planningWeights.subPlans + (taskCompleted > 0 ? planningWeights.completed : 0) + complexityBonus + purposeBonus));
@@ -1719,7 +1775,7 @@ export class Analytics {
         return Number(((confidenceTasks + confidenceDays + confidenceHours) / 3).toFixed(2));
     }
 
-    buildDatedHeroPayload(winningStats, dataset, { primaryWindow, source, policy }) {
+    buildDatedHeroPayload(winningStats, dataset, { primaryWindow, source, policy, selection = null }) {
         const winner = (Array.isArray(dataset?.users) ? dataset.users : []).find(u => String(u?.id) === String(winningStats?.userId || ''));
         if (!winner) {
             return this.createNoHeroPayload({ reason: 'No valid user mapping found for hero candidates.', period: 'yesterday_back_7_days', source });
@@ -1731,6 +1787,7 @@ export class Analytics {
             reason: this.determineHeroReason(winningStats),
             period: 'yesterday_back_7_days',
             source,
+            selection,
             confidence: this.computeHeroConfidence(winningStats, policy, dataset?.windowDays || primaryWindow),
             schemaVersion: Number(policy.SCHEMA_VERSION || 1),
             meta: {
@@ -1740,6 +1797,85 @@ export class Analytics {
                 usedFallbackWindow: Number(dataset?.windowDays || primaryWindow) > primaryWindow
             }
         };
+    }
+
+    // ── AI winner selection (POST /api/hero-select) ───────────────
+    // The deterministic ranking above owns eligibility; the AI only picks
+    // ONE hero from the eligible candidates and the server remembers the
+    // pick per period. Returns { by:'ai', userId, rationale, model } or
+    // null — NEVER throws. Every failure path (policy off, no AI key,
+    // timeout, 401, invalid answer) resolves to null so the caller keeps
+    // the normal top-ranked eligible winner (today's behavior).
+    async selectHeroWithAi(rows, periodKey, policy = {}) {
+        const aiPolicy = policy.AI_SELECTION || {};
+        if (aiPolicy.ENABLED === false) return null;
+        if (!/^\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}$/.test(String(periodKey || ''))) return null;
+        const eligible = (Array.isArray(rows) ? rows : []).filter((row) => row?.isEligible && row?.user?.id);
+        if (!eligible.length) return null;
+
+        const existing = this._heroAiSelect.get(periodKey);
+        if (existing) return existing;
+
+        const allowed = new Set(eligible.map((row) => String(row.user.id)));
+        const pending = (async () => {
+            const res = await this.fetchHeroAiPick(periodKey, eligible, aiPolicy);
+            const pick = res?.pick || null;
+            if (!pick || !allowed.has(String(pick.userId || ''))) return null;
+            return {
+                by: 'ai',
+                userId: String(pick.userId),
+                rationale: String(pick.rationale || ''),
+                model: String(pick.model || '')
+            };
+        })().catch(() => null);
+
+        this._heroAiSelect.set(periodKey, pending);
+        pending.then((value) => {
+            if (!value) this._heroAiSelect.delete(periodKey);
+        });
+        return pending;
+    }
+
+    async fetchHeroAiPick(periodKey, eligibleRows, aiPolicy = {}) {
+        if (typeof fetch !== 'function') return null;
+        const timeoutMs = Math.max(1000, Number(aiPolicy.TIMEOUT_MS) || 8000);
+        const controller = typeof AbortController === 'function' ? new AbortController() : null;
+        const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+        try {
+            const token = (await window.AppFirebaseAuth?.currentUser?.getIdToken?.()) || '';
+            const resp = await fetch('/api/hero-select', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { Authorization: `Bearer ${token}` } : {})
+                },
+                body: JSON.stringify({
+                    periodKey,
+                    candidates: eligibleRows.map((row) => {
+                        const s = row.stats || {};
+                        return {
+                            id: String(row.user.id),
+                            name: String(row.user.name || row.user.username || ''),
+                            rank: Number.isFinite(Number(row.rank)) ? Number(row.rank) : null,
+                            score: Number(s.finalScore) || 0,
+                            days: Number(s.days) || 0,
+                            hours: Math.round((Number(s.hours) || 0) * 10) / 10,
+                            planned: Number(s.taskPlanned) || 0,
+                            completed: Number(s.taskCompleted) || 0,
+                            inProgress: Number(s.taskInProgress) || 0,
+                            postponed: Number(s.taskPostponed) || 0,
+                            missed: Number(s.taskMissed) || 0,
+                            punctuality: Number(s.punctuality) || 0
+                        };
+                    })
+                }),
+                signal: controller?.signal
+            });
+            if (!resp.ok) return null;
+            return await resp.json();
+        } finally {
+            if (timer) clearTimeout(timer);
+        }
     }
 
     /**
@@ -1760,6 +1896,7 @@ export class Analytics {
 
         const rankWindow = async (windowDays) => {
             const dataset = await this.getHeroSharedDataset({ ...options, windowDays });
+            const holidayDates = await this.getHolidayDateSetInRange(dataset.start, dataset.end).catch(() => new Set());
             const normalizedLogs = this.normalizeHeroLogs(dataset.logs);
             const normalizedTasks = this.normalizeHeroTasksFromActivities(dataset.activityRows, dataset.users);
             const taskStats = this.mergeTaskStats(
@@ -1772,7 +1909,8 @@ export class Analytics {
                 { ...policy, WINDOW_DAYS: windowDays },
                 dataset.logs,
                 dataset.workPlans,
-                { start: dataset.start, end: dataset.end }
+                { start: dataset.start, end: dataset.end },
+                holidayDates
             );
             const taskBuckets = this.buildHeroTaskBuckets(normalizedTasks);
             const ownerUsernames = new Set(
@@ -1823,6 +1961,22 @@ export class Analytics {
             }
         }
 
+        // Optional AI winner selection — overrides only the winning row; rows
+        // stay rank-sorted for the audit table. Any failure keeps the
+        // deterministic winner (selection stays null).
+        let selection = null;
+        if (result.winner) {
+            const periodKey = `${this.toLocalDateKey(result.dataset?.start)}_${this.toLocalDateKey(result.dataset?.end)}`;
+            const pick = await this.selectHeroWithAi(result.rows, periodKey, policy);
+            const pickedRow = pick
+                ? result.rows.find((row) => String(row.user?.id) === pick.userId && row.isEligible)
+                : null;
+            if (pick && pickedRow) {
+                selection = { ...pick, periodKey };
+                result = { ...result, winner: pickedRow };
+            }
+        }
+
         return {
             policy,
             source,
@@ -1830,6 +1984,7 @@ export class Analytics {
             dataset: result.dataset,
             rows: result.rows,
             winnerRow: result.winner,
+            selection,
             usedFallbackWindow: Number(result.dataset?.windowDays || primaryWindow) > primaryWindow
         };
     }
@@ -1858,7 +2013,8 @@ export class Analytics {
             return this.buildDatedHeroPayload(ranking.winnerRow.stats, ranking.dataset, {
                 primaryWindow: ranking.primaryWindow,
                 source: ranking.source,
-                policy: ranking.policy
+                policy: ranking.policy,
+                selection: ranking.selection
             });
         } catch (err) {
             console.error('Hero Calculation Error:', err);
@@ -1884,6 +2040,7 @@ export class Analytics {
                 source: ranking.source,
                 rows: ranking.rows,
                 winnerUserId: ranking.winnerRow?.user?.id || null,
+                selection: ranking.selection || null,
                 meta: {
                     startDate: this.toLocalDateKey(ranking.dataset?.start),
                     endDate: this.toLocalDateKey(ranking.dataset?.end),
@@ -2340,93 +2497,81 @@ export class Analytics {
         const { punctuality: wPunctuality, attendance: wAttendance, taskExecution: wTaskExecution,
             productivity: wProductivity, planning: wPlanning, compliance: wCompliance } = resolveHeroDimensionWeights(policy);
 
-        // Build date ranges — non-overlapping windows, step = windowDays
-        const now = new Date();
-        const windows = [];
-        if (useCalendarMonth) {
-            // Calendar month: current month as primary, previous 3 months for trend
-            for (let i = 0; i < trendWeeks; i++) {
-                const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-                const monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
-                const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
-                const label = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-                windows.push({ start: monthStart, end: monthEnd, label, index: i });
-            }
-        } else if (windowDays >= 365) {
-            // Yearly: single year window + 12 monthly trend points
-            const yearStart = new Date(now.getFullYear(), 0, 1);
-            const yearEnd = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
-            windows.push({ start: yearStart, end: yearEnd, label: `${now.getFullYear()}`, index: 0 });
-        } else {
-            for (let i = 0; i < trendWeeks; i++) {
-                const end = new Date(now);
-                end.setDate(now.getDate() - (i * windowDays) - 1);
-                end.setHours(23, 59, 59, 999);
-                const start = new Date(end);
-                start.setDate(end.getDate() - (windowDays - 1));
-                start.setHours(0, 0, 0, 0);
-                const label = windowDays <= 7
-                    ? `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}–${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-                    : start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-                windows.push({ start, end, label, index: i });
-            }
-        }
+        // Score + trend windows. Contract (tests/unit/perf-windows.test.mjs):
+        // current window ENDS TODAY, windows are contiguous, trend >= 4 points,
+        // year period = single year score window + 12 monthly trend points.
+        const { scoreWindows, trendWindows } = buildPerformanceWindows({
+            now: new Date(),
+            windowDays,
+            trendWeeks,
+            calendarMonth: useCalendarMonth
+        });
 
-        // Fetch all needed data in parallel
-        const windowRanges = windows.map(w => ({ start: w.start, end: w.end }));
+        // One fetch spanning every window — attendance/work_plans are sliced
+        // in memory per window instead of one query per trend point.
+        const allWindows = [...scoreWindows, ...trendWindows];
+        const spanStart = new Date(Math.min(...allWindows.map((w) => w.start.getTime())));
+        const spanEnd = new Date(Math.max(...allWindows.map((w) => w.end.getTime())));
+        const spanStartIso = this.toLocalDateKey(spanStart);
+        const spanEndIso = this.toLocalDateKey(spanEnd);
 
-const [attendanceChunks, workPlanChunks] = await Promise.all([
-            Promise.all(windowRanges.map((r, _i) =>
-                this.getAttendanceInRange(r.start, r.end, `perf:${userId}:${_i}`)
-            )),
-            Promise.all(windowRanges.map((r, _i) => {
-                const startIso = this.toLocalDateKey(r.start);
-                const endIso = this.toLocalDateKey(r.end);
-                return this.db.queryMany
-                    ? this.db.queryMany('work_plans', [
-                        { field: 'date', operator: '>=', value: startIso },
-                        { field: 'date', operator: '<=', value: endIso }
-                    ])
-                    : this.db.getAll('work_plans').then(rows =>
-                        (rows || []).filter(row => {
-                            const d = String(row?.date || '');
-                            return d >= startIso && d <= endIso;
-                        })
-                    );
-            }))
+        const [attendanceAll, workPlanAll, holidayDates] = await Promise.all([
+            this.getAttendanceInRange(spanStart, spanEnd, `perf:${userId}`),
+            this.db.queryMany
+                ? this.db.queryMany('work_plans', [
+                    { field: 'date', operator: '>=', value: spanStartIso },
+                    { field: 'date', operator: '<=', value: spanEndIso }
+                ])
+                : this.db.getAll('work_plans').then((rows) =>
+                    (rows || []).filter((row) => {
+                        const d = String(row?.date || '');
+                        return d >= spanStartIso && d <= spanEndIso;
+                    })
+                ),
+            this.getHolidayDateSetInRange(spanStart, spanEnd).catch(() => new Set())
         ]);
 
         // Filter to target user
         const filterUser = (logs) => logs.filter(l =>
             String(l?.userId || l?.user_id || '') === String(userId)
         );
+        const allUserLogs = filterUser(attendanceAll || []);
+        const allUserPlans = (workPlanAll || []).filter(p =>
+            String(p?.userId || p?.user_id || '') === String(userId)
+        );
 
-        // Compute scores for each window
-        const windowScores = windows.map((win, i) => {
-            let userLogs = filterUser(attendanceChunks[i] || []);
-            // Deduplicate: one log per day (same as Monthly Stats)
-            userLogs = this.pickBestAttendanceLogPerDay(userLogs, win.start, win.end);
-            const userPlans = (workPlanChunks[i] || []).filter(p =>
-                String(p?.userId || p?.user_id || '') === String(userId)
-            );
-            return this._computeWeekPerformance(userLogs, userPlans, win, {
-                wPunctuality, wAttendance, wTaskExecution, wProductivity, wPlanning, wCompliance,
-                windowDays: useCalendarMonth ? Math.max(1, Math.round((win.end - win.start) / (1000 * 60 * 60 * 24)) + 1) : windowDays,
-                caps, weights, policy
+        // Score a window by slicing the shared span fetch. Memoized so windows
+        // shared between the score and trend sets are only computed once.
+        const scoreCache = new Map();
+        const scoreWindow = (win) => {
+            if (scoreCache.has(win)) return scoreCache.get(win);
+            const userLogs = this.pickBestAttendanceLogPerDay(allUserLogs, win.start, win.end);
+            const startIso = this.toLocalDateKey(win.start);
+            const endIso = this.toLocalDateKey(win.end);
+            const userPlans = allUserPlans.filter((p) => {
+                const d = String(p?.date || '');
+                return d >= startIso && d <= endIso;
             });
-        });
+            const scored = this._computeWeekPerformance(userLogs, userPlans, win, {
+                wPunctuality, wAttendance, wTaskExecution, wProductivity, wPlanning, wCompliance,
+                windowDays: win.days,
+                caps, weights, policy,
+                holidayDates: holidayDates instanceof Set ? holidayDates : new Set()
+            });
+            scoreCache.set(win, scored);
+            return scored;
+        };
 
-        // Current week is index 0 (most recent)
-        const current = windowScores[0] || this._emptyPerformance();
+        // Current period is index 0 (most recent)
+        const current = scoreWindow(scoreWindows[0]) || this._emptyPerformance();
 
         // Get the SAME attendance stats that getUserMonthlyStats() returns
         // so both the Performance widget and Monthly Stats card show identical numbers
-        const currentUserLogs = filterUser(attendanceChunks[0] || []);
-        const canonicalUserLogs = this.pickBestAttendanceLogPerDay(currentUserLogs, windows[0].start, windows[0].end);
+        const canonicalUserLogs = this.pickBestAttendanceLogPerDay(allUserLogs, scoreWindows[0].start, scoreWindows[0].end);
         const currentStats = this.calculateStatsForLogs(canonicalUserLogs);
 
-        // Build trend (index 0 = oldest, ascending chronological, max 6 points)
-        const trend = windowScores.slice().reverse().slice(-6).map((ws, _i) => ({
+        // Trend: ascending chronological (oldest first), capped at 12 points
+        const trend = trendWindows.map((win) => scoreWindow(win)).reverse().slice(-12).map((ws) => ({
             week: ws.label,
             score: ws.composite
         }));
@@ -2450,12 +2595,15 @@ const [attendanceChunks, workPlanChunks] = await Promise.all([
         const empty = this._emptyPerformance();
         // windowDays is scoped to the try block — recompute it here or the
         // fallback path itself throws a ReferenceError.
-        return { ...empty, userId, trend: [], insights: [], windowDays: Math.max(1, Number(options.windowDays ?? 7)), computedAt: Date.now() };
+        // error:true lets the UI show a retry card instead of a fake all-zero
+        // performance (a Firestore outage must not read as "you scored 0").
+        return { ...empty, userId, trend: [], insights: [], windowDays: Math.max(1, Number(options.windowDays ?? 7)), computedAt: Date.now(), error: true };
     }
     }
 
     _computeWeekPerformance(userLogs, userPlans, week, config) {
         const { wPunctuality, wAttendance, wTaskExecution, wProductivity, wPlanning, wCompliance, windowDays, _caps, _weights, policy } = config;
+        const holidayDates = config.holidayDates instanceof Set ? config.holidayDates : new Set();
         const scoringRules = resolveHeroScoringRules(policy);
         const executionWeights = scoringRules.TASK_EXECUTION_WEIGHTS;
         const postponeCredit = scoringRules.POSTPONE_CREDIT;
@@ -2471,12 +2619,31 @@ const [attendanceChunks, workPlanChunks] = await Promise.all([
         const scoringDefaults = scoringRules.DEFAULTS;
         const label = week.label;
 
+        // ── WINDOW DAY CONTEXT (Phase 2: pace + required working days) ──
+        // A partial current window scores against days that have actually
+        // elapsed (PARTIAL_WINDOW_MODE 'pace'), and denominators count only
+        // required working days (Mon–Fri minus configured holidays), so a
+        // Monday score isn't judged against a full week that hasn't happened.
+        const now = config.now instanceof Date && !Number.isNaN(config.now.getTime()) ? config.now : new Date();
+        const paceMode = String(policy?.PARTIAL_WINDOW_MODE || 'pace') !== 'legacy';
+        const winStart = week.start instanceof Date ? week.start : new Date(week.start);
+        const winEnd = week.end instanceof Date ? week.end : new Date(week.end);
+        const isPartial = Number.isNaN(winEnd.getTime()) ? false : winEnd.getTime() > now.getTime();
+        const effectiveEnd = isPartial && winStart.getTime() <= now.getTime() ? now : winEnd;
+        const requiredDaysFull = countRequiredWorkingDays(winStart, winEnd, holidayDates);
+        const requiredDaysElapsed = countRequiredWorkingDays(winStart, effectiveEnd, holidayDates);
+        const denomRequiredDays = Math.max(1, paceMode ? requiredDaysElapsed : requiredDaysFull);
+
         // ── PUNCTUALITY (0–100) ──
-        const lateDays = userLogs.filter(l => l.lateCountable === true || String(l.type || '').toLowerCase() === 'late').length;
+        // Only logs on required working days enter the punctuality rate: a
+        // late Sunday check-in is voluntary time, not a lateness offense.
+        const punctualityLogs = userLogs.filter(l => isRequiredWorkingDay(l?.date, holidayDates));
+        const lateDays = punctualityLogs.filter(l => l.lateCountable === true || String(l.type || '').toLowerCase() === 'late').length;
+        const punctualityDays = punctualityLogs.length;
         const totalDays = userLogs.length;
         const daysWorked = new Set(userLogs.map(l => String(l.date || ''))).size;
-        const basePunctuality = totalDays > 0
-            ? Math.max(0, Math.round(((totalDays - lateDays) / totalDays) * 100))
+        const basePunctuality = punctualityDays > 0
+            ? Math.max(0, Math.round(((punctualityDays - lateDays) / punctualityDays) * 100))
             : scoringDefaults.punctuality;
         // Pause discipline penalty
         const pausePolicy = policy?.PAUSE_DISCIPLINE || {};
@@ -2493,9 +2660,14 @@ const [attendanceChunks, workPlanChunks] = await Promise.all([
         const punctuality = Math.max(0, basePunctuality - pausePenalty);
 
         // ── ATTENDANCE (0–100) ──
-        const daysScore = Math.min(100, Math.round((daysWorked / windowDays) * 100));
+        // Denominator = required working days elapsed in the window (not raw
+        // calendar days), so weekends/holidays don't dilute attendance.
+        const daysScore = Math.min(100, Math.round((daysWorked / denomRequiredDays) * 100));
         const attMod = policy?.ATTENDANCE_MODIFIER || {};
-        const expectedHoursPerDay = Number.isFinite(Number(attMod.consistencyImpact)) ? Number(attMod.consistencyImpact) : 8;
+        // Expected attended hours per required day: canonical key first,
+        // legacy alias (consistencyImpact) second, default 8.
+        const expectedHoursRaw = attMod.expectedHoursPerDay ?? attMod.consistencyImpact;
+        const expectedHoursPerDay = Number.isFinite(Number(expectedHoursRaw)) ? Number(expectedHoursRaw) : 8;
         const maxHoursBonus = Number.isFinite(Number(attMod.maxBonus)) ? Number(attMod.maxBonus) : 10;
         const totalMs = userLogs.reduce((sum, l) => {
             const type = String(l?.type || '');
@@ -2503,7 +2675,7 @@ const [attendanceChunks, workPlanChunks] = await Promise.all([
             return sum + Math.max(0, Number(l.durationMs) || 0);
         }, 0);
         const totalHours = totalMs / (1000 * 60 * 60);
-        const expectedTotalHours = expectedHoursPerDay * windowDays;
+        const expectedTotalHours = expectedHoursPerDay * denomRequiredDays;
         const hoursBonus = expectedTotalHours > 0
             ? Math.min(maxHoursBonus, Math.round((totalHours / expectedTotalHours) * maxHoursBonus))
             : 0;
@@ -2525,45 +2697,46 @@ const [attendanceChunks, workPlanChunks] = await Promise.all([
         const attendance = Math.min(100, daysScore + hoursBonus + consistencyBonus);
 
         // ── TASK EXECUTION (0–100) ──
+        // Effective rows apply postpone-lineage dedupe (widget ↔ leaderboard parity).
+        const effectiveTasks = this._effectiveWindowTasks(userPlans);
         let taskPlanned = 0, taskCompleted = 0, taskMissed = 0, taskPostponed = 0, taskInProgress = 0;
-        let onTimeCompleted = 0, lateCompleted = 0;
+        let onTimeCompleted = 0, lateCompleted = 0, timedCompleted = 0;
         let weightedPlanned = 0, weightedCompleted = 0;
         let classifiedCount = 0;
-        userPlans.forEach(wp => {
-            if (!Array.isArray(wp?.plans)) return;
-            wp.plans.forEach(task => {
-                if (!task || task.isRemoved === true) return;
-                if (!String(task.task || '').trim()) return;
-                taskPlanned++;
-                const tw = sizeWeights[task.sizeCategory] ?? 1;
-                const pw = priorityWeights[task.priorityLevel] ?? 1.0;
-                weightedPlanned += tw * pw;
-                const hasClassification = !!task.priorityLevel;
-                if (hasClassification) classifiedCount++;
-                const status = this.classifyHeroTaskStatus(task.status, wp.date);
-                if (status === 'completed') {
-                    taskCompleted++;
-                    weightedCompleted += tw * pw;
-                    // On-time check
-                    if (task.completedDate && wp.date) {
-                        const diffMs = new Date(task.completedDate).getTime() - new Date(wp.date + 'T23:59:59').getTime();
-                        if (diffMs <= 0) onTimeCompleted++;
-                        else lateCompleted++;
-                    } else {
-                        onTimeCompleted++; // no date = assumed on-time
-                    }
-                } else if (status === 'missed') taskMissed++;
-                else if (status === 'postponed') {
-                    taskPostponed++;
-                    const ws = String(task.postponeWorkStatus || '');
-                    const credit = ws === 'in_progress' ? postponeCredit.inProgress : ws === 'work_started' ? postponeCredit.workStarted : 0;
-                    weightedCompleted += tw * pw * credit;
+        effectiveTasks.forEach(({ wp, task, status }) => {
+            taskPlanned++;
+            // AI-classified size/priority fill in when a human hasn't set them
+            // (aiSizeCategory/aiPriorityLevel written by ai-performance-coach.js)
+            const effSize = task.sizeCategory || task.aiSizeCategory;
+            const effPriority = task.priorityLevel || task.aiPriorityLevel;
+            const tw = sizeWeights[effSize] ?? 1;
+            const pw = priorityWeights[effPriority] ?? 1.0;
+            weightedPlanned += tw * pw;
+            const hasClassification = !!(task.priorityLevel || task.aiPriorityLevel);
+            if (hasClassification) classifiedCount++;
+            if (status === 'completed') {
+                taskCompleted++;
+                weightedCompleted += tw * pw;
+                // On-time check. Tasks completed without a completion timestamp
+                // have UNKNOWN timing — they no longer count as on-time by
+                // default (they're excluded from the rate instead).
+                if (task.completedDate && wp.date) {
+                    timedCompleted++;
+                    const diffMs = new Date(task.completedDate).getTime() - new Date(wp.date + 'T23:59:59').getTime();
+                    if (diffMs <= 0) onTimeCompleted++;
+                    else lateCompleted++;
                 }
-                else taskInProgress++;
-            });
+            } else if (status === 'missed') taskMissed++;
+            else if (status === 'postponed') {
+                taskPostponed++;
+                const ws = String(task.postponeWorkStatus || '');
+                const credit = ws === 'in_progress' ? postponeCredit.inProgress : ws === 'work_started' ? postponeCredit.workStarted : 0;
+                weightedCompleted += tw * pw * credit;
+            }
+            else taskInProgress++;
         });
         const completionRate = weightedPlanned > 0 ? (weightedCompleted / weightedPlanned) * 100 : 0;
-        const onTimeRate = taskCompleted > 0 ? (onTimeCompleted / taskCompleted) * 100 : scoringDefaults.onTimeRate;
+        const onTimeRate = timedCompleted > 0 ? (onTimeCompleted / timedCompleted) * 100 : scoringDefaults.onTimeRate;
         const missRate = taskPlanned > 0 ? (taskMissed / taskPlanned) * 100 : 0;
         const taskExecution = Math.max(0, Math.min(100, Math.round(
             completionRate * executionWeights.completion + onTimeRate * executionWeights.onTime - missRate * executionWeights.missed
@@ -2590,7 +2763,7 @@ const [attendanceChunks, workPlanChunks] = await Promise.all([
         );
         const qualityCharsPerDay = Number(policy.CAPS?.qualityChars ?? scoringRules.PRODUCTIVITY_DESCRIPTION_CHARS_PER_DAY);
         const depthScore = Math.min(100, (workDescDepth / Math.max(1, totalDays * qualityCharsPerDay)) * 100);
-        const expectedExtraHours = Math.max(1, windowDays * Number(scoringRules.EXPECTED_EXTRA_HOURS_PER_DAY));
+        const expectedExtraHours = Math.max(1, denomRequiredDays * Number(scoringRules.EXPECTED_EXTRA_HOURS_PER_DAY));
         const extraHoursScore = Math.min(100, (extraHours / expectedExtraHours) * 100);
         const productivity = Math.round(
             avgActivity * productivityWeights.activity + extraHoursScore * productivityWeights.extraHours + depthScore * productivityWeights.workDescription
@@ -2598,23 +2771,20 @@ const [attendanceChunks, workPlanChunks] = await Promise.all([
 
         // ── PLANNING (0–100) ──
         const expectedWeeklyTasks = Math.max(1, Number(policy.EXPECTED_WEEKLY_TASKS || 5));
-        const expectedTasks = Math.max(1, Math.round(expectedWeeklyTasks * (windowDays / 7)));
+        // Expected tasks pace with elapsed required days; a full window keeps
+        // the classic weekly expectation.
+        const requiredDayRatio = requiredDaysFull > 0 ? denomRequiredDays / requiredDaysFull : 1;
+        const expectedTasks = Math.max(1, Math.round(expectedWeeklyTasks * (windowDays / 7) * requiredDayRatio));
         const planVolume = Math.min(100, (taskPlanned / expectedTasks) * 100);
-        const subPlanCount = userPlans.reduce((sum, wp) =>
-            sum + (Array.isArray(wp?.plans) ? wp.plans.filter(t =>
-                Array.isArray(t?.subPlans) && t.subPlans.length > 0
-            ).length : 0), 0
+        const subPlanCount = effectiveTasks.reduce((sum, row) =>
+            sum + (Array.isArray(row.task?.subPlans) && row.task.subPlans.length > 0 ? 1 : 0), 0
         );
         const subPlanScore = Math.min(100, subPlanCount * planningWeights.subPlanPoints);
         // Task complexity bonus
         const sizeBuckets = {};
-        userPlans.forEach(wp => {
-            if (!Array.isArray(wp?.plans)) return;
-            wp.plans.forEach(task => {
-                if (!task || task.isRemoved === true) return;
-                const cat = task.sizeCategory || 'small-task';
-                sizeBuckets[cat] = (sizeBuckets[cat] || 0) + 1;
-            });
+        effectiveTasks.forEach(({ task }) => {
+            const cat = task.sizeCategory || task.aiSizeCategory || 'small-task';
+            sizeBuckets[cat] = (sizeBuckets[cat] || 0) + 1;
         });
         const totalWeighted = Object.entries(sizeBuckets).reduce((sum, [cat, count]) =>
             sum + (sizeWeights[cat] ?? 1) * count, 0);
@@ -2623,12 +2793,8 @@ const [attendanceChunks, workPlanChunks] = await Promise.all([
             const complexityBonus = avgComplexity >= complexityRule.highThreshold ? complexityRule.highPoints : avgComplexity >= complexityRule.mediumThreshold ? complexityRule.mediumPoints : 0;
         // Purpose diversity bonus
         const purposeSet = new Set();
-        userPlans.forEach(wp => {
-            if (!Array.isArray(wp?.plans)) return;
-            wp.plans.forEach(task => {
-                if (!task || task.isRemoved === true) return;
-                if (task.purposeCategory) purposeSet.add(task.purposeCategory);
-            });
+        effectiveTasks.forEach(({ task }) => {
+            if (task.purposeCategory) purposeSet.add(task.purposeCategory);
         });
             const purposeBonus = purposeSet.size >= purposeRule.fullPurposes ? purposeRule.fullPoints : purposeSet.size >= purposeRule.minPurposes ? purposeRule.points : 0;
             const planning = Math.min(100, Math.round(planVolume * planningWeights.planVolume + subPlanScore * planningWeights.subPlans + (taskCompleted > 0 ? planningWeights.completed : 0) + complexityBonus + purposeBonus));
@@ -2670,8 +2836,12 @@ const [attendanceChunks, workPlanChunks] = await Promise.all([
             },
             details: {
                 lateDays, totalDays, daysWorked,
+                requiredDays: requiredDaysFull,
+                requiredDaysElapsed,
+                attendanceDenom: denomRequiredDays,
+                windowPartial: isPartial,
                 taskPlanned, taskCompleted, taskMissed, taskPostponed, taskInProgress,
-                onTimeCompleted, lateCompleted,
+                onTimeCompleted, lateCompleted, timedCompleted,
                 avgActivity: Math.round(avgActivity), extraHours: Number(extraHours.toFixed(1)),
                 locationMismatches, autoCheckouts,
                 classifiedCount, classifiedRatio: Number(classifiedRatio.toFixed(2)),

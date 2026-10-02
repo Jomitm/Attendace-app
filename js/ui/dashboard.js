@@ -9,7 +9,7 @@ import { normalizeTaskStatus } from '../utils/task-status.js';
 import { isTaskVisibleToViewer } from '../utils/task-visibility.js';
 import { renderYearlyPlan } from './team-schedule.js';
 import { renderJourneyReflectionCard } from './journey-reflection.js';
-import { renderStaffPerformance, cleanupPerformanceChart, renderTeamPerformanceExpanded } from './staff-performance.js';
+import { renderStaffPerformance, cleanupPerformanceChart, renderTeamPerformanceExpanded, PERF_PERIODS } from './staff-performance.js';
 import { AppConfig } from '../config.js';
 import {
   DASHBOARD_CARD_MODE_TILE,
@@ -439,6 +439,31 @@ function setDashboardHeroBundle(heroData, leaderboardData, heroMeta = window.app
     window.app_dashboardHeroMeta = heroMeta;
     return normalized;
 }
+
+// Re-patch the hero slot from a live recompute. Used when the stored daily
+// summary is stale or predates AI winner selection (payload has no `selection`
+// field), so the AI-pick badge can render without waiting for the next summary
+// regeneration. One shot per trigger — never re-schedules itself.
+const patchHeroSlotFromLiveAudit = () => {
+    if (!window.app_refreshHeroAuditLive) return;
+    window.app_refreshHeroAuditLive({})
+        .then(() => new Promise((r) => setTimeout(r, 250)))
+        .then(() => {
+            const slot = document.querySelector('.hero-slot');
+            if (slot) {
+                slot.outerHTML = renderHeroCard(window.app_dashboardHeroData, window.app_dashboardHeroMeta || {});
+                setTimeout(() => { initDashboardCardControls(); attachHeroCardHandlers(); }, 0);
+            }
+        })
+        .catch(() => {});
+};
+
+// True when the card payload cannot show an AI-pick badge yet: either the
+// stored summary was written before AI selection shipped (no key at all) or
+// the selection resolved to null (AI unavailable — retry on next load).
+const heroPayloadMissingAiSelection = (heroData) =>
+    heroData?.state === 'winner'
+    && (!('selection' in (heroData || {})) || heroData.selection == null);
 const renderHeroExpandedAuditMarkup = () => {
     return `${renderHeroCard(window.app_dashboardHeroData, window.app_dashboardHeroMeta || {})}${renderHeroLeaderboardExpanded(window.app_dashboardHeroLeaderboard, window.app_dashboardHeroData)}`;
 };
@@ -903,6 +928,9 @@ export function renderHeroCard(heroData, heroMeta = {}) {
     const fallbackBadgeHTML = usedFallbackWindow
         ? `<span class="dashboard-kpi-tag hero-fallback-badge" title="No staff met the minimum hero criteria in the standard window, so the ranking was automatically widened to ${heroWindowDays} days.">Extended window</span>`
         : '';
+    const aiPickBadgeHTML = heroData?.selection?.by === 'ai'
+        ? `<span class="dashboard-kpi-tag hero-ai-pick-badge" title="${safeHtml(heroData.selection.rationale || 'Selected by AI from the eligible candidates.')}">AI pick</span>`
+        : '';
 
     return `
         <div class="card dashboard-hero-stats-card hero-slot ${isNew ? 'is-new-summary' : ''}">
@@ -962,6 +990,7 @@ export function renderHeroCard(heroData, heroMeta = {}) {
                 <span class="dashboard-kpi-tag">${safeHtml(periodLabel)}</span>
                 <span class="dashboard-kpi-tag">Confidence ${confidencePct}%</span>
                 ${fallbackBadgeHTML}
+                ${aiPickBadgeHTML}
                 <span class="hero-version-badge" title="Hero Calculation Algorithm Version">v5</span>
             </div>
         </div>`;
@@ -2164,47 +2193,27 @@ export async function renderDashboard() {
         trackStage(window.AppAnalytics.getUserYearlyStats(targetStaffId), 'Totalling this year…'),
         trackStage(window.AppCalendar ? window.AppCalendar.getPlans() : { leaves: [], events: [] }, 'Loading your calendar…'),
         trackStage(window.app_hasPerm('leaves', 'view') ? window.AppLeaves.getPendingLeaves() : Promise.resolve([]), 'Checking leave requests…'),
-        trackStage(window.AppDB.getCached
-            ? window.AppDB.getCached(window.AppDB.getCacheKey('dashboardUsers', 'users', {}), (AppConfig?.READ_CACHE_TTLS?.users || 60000), () => window.AppDB.getAll('users')).then(users => users.filter(u => !AppConfig.isDemoUser(u)))
-            : window.AppDB.getAll('users').then(users => users.filter(u => !AppConfig.isDemoUser(u))), 'Loading the staff list…'),
+        trackStage(
+            window.AppUserService.getActiveStaff().then(users => users.filter(u => !AppConfig.isDemoUser(u))), 'Loading the staff list…'),
         trackStage(window.AppCalendar ? window.AppCalendar.getCollaborations(targetStaffId) : Promise.resolve([]), 'Loading shared tasks…'),
         trackStage(window.app_hasPerm('leaves', 'view')
-            ? (() => {
+            ? window.AppLeaveService.getAll().then((rows) => {
                 const leavesThirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-                return window.AppDB.queryMany
-                    ? window.AppDB.queryMany('leaves', [
-                        { field: 'createdAt', operator: '>=', value: leavesThirtyDaysAgo }
-                    ])
-                    : window.AppDB.getAll('leaves').then((rows) => (rows || []).filter((row) => {
-                        const created = String(row?.createdAt || row?.date || '');
-                        return created >= leavesThirtyDaysAgo;
-                    }));
-            })()
+                return (rows || []).filter((row) => {
+                    const created = String(row?.createdAt || row?.date || '');
+                    return created >= leavesThirtyDaysAgo;
+                });
+            })
             : Promise.resolve([]), 'Loading leave history…'),
         trackStage(dailySummaryPromise, 'Building today’s summary…'),
         trackStage(window.AppMinutes ? window.AppMinutes.getMinutes() : Promise.resolve([]), 'Loading meeting notes…'),
         trackStage((isAdmin && pendingMissedCheckoutLogIds.length)
-            ? (window.AppDB.getManyByIds
-                ? window.AppDB.getManyByIds('attendance', pendingMissedCheckoutLogIds)
-                : Promise.all(pendingMissedCheckoutLogIds.map((id) => window.AppDB.get('attendance', id))).then((rows) => rows.filter(Boolean)))
+            ? Promise.all(pendingMissedCheckoutLogIds.map((id) => window.AppAttendanceService.get(id))).then((rows) => rows.filter(Boolean))
             : Promise.resolve([]), 'Double-checking attendance records…'),
         trackStage((isAdmin && window.app_hasPerm('leaves', 'view'))
-            ? (window.AppDB.queryMany
-                ? window.AppDB.queryMany('attendance', [
-                    { field: 'date', operator: '>=', value: currentWeekRange.startKey },
-                    { field: 'date', operator: '<=', value: currentWeekRange.endKey }
-                ])
-                : window.AppDB.getAll('attendance').then((rows) => (rows || []).filter((row) => {
-                    const d = String(row?.date || '');
-                    return d >= currentWeekRange.startKey && d <= currentWeekRange.endKey;
-                })))
+            ? window.AppAttendanceService.getByDateRange(currentWeekRange.startKey, currentWeekRange.endKey)
             : Promise.resolve([]), 'Loading this week’s attendance…'),
-        trackStage(window.AppDB.queryMany
-            ? window.AppDB.queryMany('work_plans', [
-                { field: 'date', operator: '>=', value: currentWeekRange.startKey },
-                { field: 'date', operator: '<=', value: currentWeekRange.endKey }
-            ])
-            : window.AppDB.getAll('work_plans').then((rows) => (rows || []).filter((row) => {
+        trackStage(            window.AppAnalyticsService.getWorkPlans().then((rows) => (rows || []).filter((row) => {
                 const d = String(row?.date || '');
                 return d >= currentWeekRange.startKey && d <= currentWeekRange.endKey;
             })), 'Loading this week’s plan…'),
@@ -2222,9 +2231,15 @@ export async function renderDashboard() {
     const dashFetchMs = Math.round(performance.now() - dashFetchStart);
     showDashboardPerfBadge(dashFetchMs, null);
 
-    // Fetch personal performance data (non-blocking — renders when ready)
+    // Fetch personal performance data (non-blocking — renders when ready).
+    // Shares PERF_PERIODS with the staff-performance tab switcher so fetch and
+    // render always agree on windowDays/trendWeeks (they diverged before).
+    const personalPerfPeriod = PERF_PERIODS[0];
     const personalPerfPromise = window.AppAnalytics?.getPersonalPerformance
-        ? window.AppAnalytics.getPersonalPerformance(targetStaffId, { windowDays: 7, trendWeeks: 4 }).catch(() => null)
+        ? window.AppAnalytics.getPersonalPerformance(targetStaffId, {
+            windowDays: personalPerfPeriod.windowDays,
+            trendWeeks: personalPerfPeriod.trendWeeks
+        }).catch(() => null)
         : Promise.resolve(null);
 
     const heroMeta = {
@@ -2249,23 +2264,11 @@ export async function renderDashboard() {
     // If the daily summary served a stale/fallback doc (e.g. yesterday's), the mini card
     // may show old data. Patch it from the live leaderboard once after render so the card
     // and the audit table always reflect the current window.
+    // Also patch when the payload predates AI winner selection (or the selection
+    // was null) so the AI-pick badge renders without waiting for a summary regen.
     const isStaleHeroSource = heroData != null && String(heroMeta.source || '').startsWith('fallback');
-    if (isStaleHeroSource) {
-        setTimeout(() => {
-            if (window.app_refreshHeroAuditLive) {
-                window.app_refreshHeroAuditLive({}).then(() => {
-                    // Allow async Firestore listeners / global updates to settle before
-                    // reading app_dashboardHeroData / app_dashboardHeroMeta.
-                    return new Promise((r) => setTimeout(r, 250));
-                }).then(() => {
-                    const slot = document.querySelector('.hero-slot');
-                    if (slot) {
-                        slot.outerHTML = renderHeroCard(window.app_dashboardHeroData, window.app_dashboardHeroMeta || {});
-                        setTimeout(() => { initDashboardCardControls(); attachHeroCardHandlers(); }, 0);
-                    }
-                }).catch(() => {});
-            }
-        }, 1000);
+    if (isStaleHeroSource || heroPayloadMissingAiSelection(heroData)) {
+        setTimeout(patchHeroSlotFromLiveAudit, 1000);
     }
 
     // If heroData is null (summary still generating), wait for it and patch when ready
@@ -2284,6 +2287,9 @@ export async function renderDashboard() {
             if (slot) {
                 slot.outerHTML = renderHeroCard(bundle.heroData, updatedMeta);
                 setTimeout(() => { initDashboardCardControls(); attachHeroCardHandlers(); }, 0);
+            }
+            if (heroPayloadMissingAiSelection(bundle.heroData)) {
+                setTimeout(patchHeroSlotFromLiveAudit, 1000);
             }
         }).catch((err) => {
             console.warn('Hero shared summary deferred load failed:', err);
@@ -2643,7 +2649,12 @@ export async function renderDashboard() {
             if (slot && personalPerfData) {
                 const perfVisible = wv['staffPerformance'] !== false;
                 if (perfVisible) {
-                    slot.outerHTML = renderStaffPerformance(personalPerfData, { windowDays: 7 });
+                    slot.outerHTML = renderStaffPerformance(personalPerfData, {
+                        windowDays: personalPerfPeriod.windowDays,
+                        period: personalPerfPeriod.key
+                    });
+                    // AI Coach — once-a-day classify backfill + narrative (non-blocking)
+                    import('./staff-performance.js').then(m => m.hydrateAICoach?.(personalPerfData, 'week').catch(() => {})).catch(() => {});
                 } else {
                     slot.style.display = 'none';
                 }

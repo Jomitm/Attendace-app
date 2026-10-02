@@ -2829,8 +2829,6 @@ textarea:focus {
 
     .dashboard-hero-stats-foot {
         gap: 0.2rem;
-        max-height: 1.35rem;
-        overflow: hidden;
     }
 
     .dashboard-hero-stats-foot .dashboard-kpi-tag {
@@ -11617,10 +11615,6 @@ body.dashboard-max-open {
     color: #475569 !important;
 }
 
-.dashboard-staff-view .dashboard-hero-stats-card .dashboard-kpi-tag , .dashboard-admin-view .dashboard-hero-stats-card .dashboard-kpi-tag {
-    color: #0369a1 !important;
-}
-
 .dashboard-staff-view .dashboard-hero-stats-card .hero-label-badge , .dashboard-admin-view .dashboard-hero-stats-card .hero-label-badge {
     background: rgba(200, 146, 47, 0.22);
     border-color: rgba(255, 214, 153, 0.34);
@@ -11652,13 +11646,11 @@ body.dashboard-max-open {
     font-size: 0.48rem;
 }
 
-.dashboard-staff-view .dashboard-hero-stats-card .dashboard-hero-stats-foot .dashboard-kpi-tag , .dashboard-admin-view .dashboard-hero-stats-card .dashboard-hero-stats-foot .dashboard-kpi-tag {
-    background: rgba(255, 255, 255, 0.09);
-    border-color: rgba(255, 255, 255, 0.16);
-    color: #dbeafe !important;
-}
-
-
+/* NOTE: the hero-card footer .dashboard-kpi-tag overrides that used to live here
+   (white-glass background + color:#dbeafe !important) were removed — the card
+   background is now a light gradient, so near-white text washed the footer pills
+   out to invisible and the !important also suppressed the fallback/AI badge
+   colors. Footer tags are styled by dashboard-modern.css instead. */
 
 .dashboard-section-page {
     display: flex;

@@ -20,6 +20,22 @@
     ],
     "rewrites": [
         {
+            "source": "/api/auth-login",
+            "destination": "/api/auth-login"
+        },
+        {
+            "source": "/api/auth-set-password",
+            "destination": "/api/auth-set-password"
+        },
+        {
+            "source": "/api/ai-insights",
+            "destination": "/api/ai-insights"
+        },
+        {
+            "source": "/api/hero-select",
+            "destination": "/api/hero-select"
+        },
+        {
             "source": "/api/telegram-send",
             "destination": "/api/telegram-send"
         },
