@@ -159,10 +159,12 @@ export default async function handler(req, res) {
         }
 
         // Performance mode gets a performance-specific fallback (never the
-        // generic team one, which produced wrong-context output).
+        // generic team one, which produced wrong-context output). Metrics are
+        // passed as-is — trimMetrics()' chat whitelist would strip
+        // composite/dimensions and yield a 0/100 score.
         if (mode === 'performance') {
             return res.status(200).json({
-                insight: generatePerformanceFallback(trimMetrics(metrics)),
+                insight: generatePerformanceFallback(metrics || {}),
                 source: 'rule-based',
                 model: 'fallback'
             });

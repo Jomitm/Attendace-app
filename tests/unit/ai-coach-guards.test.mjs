@@ -10,6 +10,7 @@ globalThis.window = {
 const {
     _extractAiScore,
     _clampAiScore,
+    _ensureAiScore,
     _isStaleNarrative,
     _heuristicClassify
 } = await import('../../js/modules/ai-performance-coach.js');
@@ -50,6 +51,28 @@ test('_extractAiScore strips the score line and bounds the extracted value', () 
     const none = _extractAiScore('Just a narrative.');
     assert.equal(none.aiScore, null);
     assert.equal(none.narrative, 'Just a narrative.');
+});
+
+test('_ensureAiScore keeps valid scores and heals null ones from local signals', () => {
+    const perf = {
+        composite: 79,
+        dimensions: { punctuality: { score: 100 }, taskExecution: { score: 54 } },
+        details: { taskCompleted: 15, taskPostponed: 10, taskMissed: 0, lateDays: 0, totalDays: 5, extraHours: 23 },
+        trend: []
+    };
+
+    // A valid score passes through untouched (still clamped).
+    assert.deepEqual(_ensureAiScore(72, 'good week', perf, 79), { aiScore: 72, scoreReason: 'good week' });
+
+    // A null score heals to a real number within ±AI_SCORE_MAX_DELTA.
+    const healed = _ensureAiScore(null, '', perf, 79);
+    assert.ok(Number.isInteger(healed.aiScore), 'healed score is an integer');
+    assert.ok(Math.abs(healed.aiScore - 79) <= 15, 'healed score within AI_SCORE_MAX_DELTA');
+    assert.ok(healed.scoreReason.length > 0, 'healed reason present');
+
+    // Even a broken payload never throws and never returns null.
+    const bare = _ensureAiScore(null, '', {}, 79);
+    assert.ok(Number.isInteger(bare.aiScore));
 });
 
 // ── Narrative staleness / drift (Phase 3a) ────────────────────────────────

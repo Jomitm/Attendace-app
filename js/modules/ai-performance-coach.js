@@ -97,9 +97,10 @@ export function _perfFingerprint(perfData) {
 
 async function _authedFetch(body) {
     const token = await window.AppFirebaseAuth?.currentUser?.getIdToken?.() || '';
-    // Hard timeout — the coach UI must never hang on a stuck request.
+    // Hard timeout - the coach UI must never hang on a stuck request. 30s beats
+    // the server's worst-case model chain (4 models × 6s).
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20000);
+    const timer = setTimeout(() => controller.abort(), 30000);
     try {
         return await fetch('/api/ai-insights', {
             method: 'POST',
@@ -379,6 +380,15 @@ export async function runDailyPerformanceAI(perfData, periodKey = 'week') {
     }
 
     if (cached?.narrative && !stale) {
+        // Heal a scoreless cache in place (an older build cached null aiScore):
+        // the ring chip re-reads today's cache and hides without a number.
+        if (cached.aiScore == null) {
+            const healed = _ensureAiScore(null, cached.scoreReason, perfData, composite);
+            cached.aiScore = healed.aiScore;
+            cached.scoreReason = healed.scoreReason;
+            _lsSet(cacheKey, cached);
+            console.info('[PerfAI] healed scoreless cached narrative');
+        }
         // Autonomous re-check: regenerate only when the underlying data
         // actually changed, the min gap since the last check has passed, AND
         // today's update budget isn't exhausted. Otherwise serve the cache.
@@ -403,7 +413,12 @@ export async function runDailyPerformanceAI(perfData, periodKey = 'week') {
         if (res.ok) {
             const data = await res.json();
             if (data.insight) {
-                const { narrative, aiScore, scoreReason } = _extractAiScore(data.insight, composite);
+                const extracted = _extractAiScore(data.insight, composite);
+                // Never cache a scoreless narrative: if the model skipped its
+                // trailing "AI Score:" line, derive the number from local
+                // signals so the ring chip always has one to show.
+                const { aiScore, scoreReason } = _ensureAiScore(extracted.aiScore, extracted.scoreReason, perfData, composite);
+                const narrative = extracted.narrative;
                 // Validate the FRESH response too — a server that hasn't picked
                 // up the snapshot fix still sends empty-fed narratives. Never
                 // cache or show one; fall back to the client-side generator.
@@ -519,6 +534,22 @@ export function _clampAiScore(score, composite) {
         s = Math.max(lo, Math.min(hi, s));
     }
     return s;
+}
+
+/**
+ * Guarantee a numeric AI score for the ring chip. A null score (model skipped
+ * its trailing "AI Score:" line, or an older cache predates the field) is
+ * healed from the local generator so today's cache never goes scoreless.
+ * @param {number|null} aiScore extracted score, if any
+ * @param {string} scoreReason reason line from the narrative, if any
+ * @param {any} perfData personal performance payload (for the local generator)
+ * @param {number} composite current deterministic composite
+ * @returns {{aiScore: number|null, scoreReason: string}}
+ */
+export function _ensureAiScore(aiScore, scoreReason, perfData, composite) {
+    if (aiScore != null) return { aiScore: _clampAiScore(aiScore, composite), scoreReason: scoreReason || '' };
+    const local = _localPerformanceNarrative(perfData || {});
+    return { aiScore: _clampAiScore(local.aiScore, composite), scoreReason: scoreReason || local.scoreReason };
 }
 
 /**

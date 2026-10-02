@@ -34,18 +34,26 @@ Rules:
 - Use the conversation history for context: resolve follow-ups ("what about yesterday?", "and my tasks?") against earlier turns. If the latest question is a follow-up, answer it in that context.`;
 
 // Fallback chain: primary + backups. Overridable via AI_MODEL_CHAIN env var.
-// Slugs verified against the live OpenRouter catalog (old free chain returned
-// 404s — free tiers churn, re-verify when every model fails).
+// Slugs probed live 2026-10-02 (OpenRouter free tiers churn — re-verify when
+// every model fails). laguna-xs and north-mini-code return properly formatted
+// narratives; the gemmas are the most capable but hit transient 429s. Dropped:
+// ling/nemotron-super (no-status), inkling (403), ultra (38s queue), lightning
+// (leaks chain-of-thought as content), qwen/lfm/dots/apodex (unformatted).
 const DEFAULT_MODEL_CHAIN = [
-    'inclusionai/ling-3.0-flash-sante:free',
-    'nvidia/nemotron-3-super-120b-a12b:free',
     'google/gemma-4-31b-it:free',
+    'poolside/laguna-xs-2.1:free',
+    'google/gemma-4-26b-a4b-it:free',
+    'cohere/north-mini-code:free',
     'qwen/qwen3.8-27b:free'
 ];
 
 const MAX_TOKENS = 600;
 const TEMPERATURE = 0.4;
 const TIMEOUT_MS = 15000;
+// Per-attempt budget for the fallback chain: full narratives on these free
+// models need up to ~8s (6s truncated them). Fast failures (429) don't burn
+// it; the client still caps the coach at 30s and the hero at 8s.
+const CHAIN_TIMEOUT_MS = 9000;
 
 function trimMetrics(metrics) {
     if (!metrics || typeof metrics !== 'object') return {};
@@ -105,9 +113,9 @@ function sanitizeHistory(history, maxMessages = 24) {
     return out.slice(-maxMessages);
 }
 
-async function callOnce(url, headers, apiKey, model, userPrompt, history = [], systemPrompt = SYSTEM_PROMPT) {
+async function callOnce(url, headers, apiKey, model, userPrompt, history = [], systemPrompt = SYSTEM_PROMPT, timeoutMs = TIMEOUT_MS) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
         const res = await fetch(url, {
             method: 'POST',
@@ -142,8 +150,6 @@ async function callOnce(url, headers, apiKey, model, userPrompt, history = [], s
         clearTimeout(timer);
     }
 }
-
-const RETRYABLE = (err) => !err.status || err.status === 429 || err.status >= 500;
 
 // ── Task classification (AI-weighted performance) ──────────────
 const CLASSIFY_PROMPT = `You classify work tasks for a performance scoring system.
@@ -180,6 +186,24 @@ Rules:
 
 const VALID_SIZES = ['single-action', 'quick-task', 'small-task', 'medium-task', 'large-task', 'major-project'];
 const VALID_PRIORITIES = ['urgent', 'important', 'standard', 'flexible'];
+
+/** Deterministic "AI-style" re-evaluated score: the signals a fair manager weighs. */
+function computeFallbackAiScore(metrics) {
+    const det = metrics?.details || {};
+    let aiScore = Math.round(Number(metrics?.composite) || 0);
+    if (det.taskCompleted > 0 && det.taskPostponed === 0 && det.taskMissed === 0) aiScore += 3;
+    if (det.taskPostponed > 2) aiScore -= 2;
+    if (det.taskMissed > 2) aiScore -= 3;
+    if (Number(det.extraHours) >= 2) aiScore += 2;
+    if (det.lateDays === 0 && det.totalDays > 0) aiScore += 1;
+    return Math.max(0, Math.min(100, Math.round(aiScore)));
+}
+
+function aiScoreReason(aiScore, composite) {
+    return aiScore > composite ? 'context behind the numbers is favorable'
+        : aiScore < composite ? 'pending work and signals outweigh the raw formula'
+        : 'formula already reflects the situation fairly';
+}
 
 function generatePerformanceFallback(metrics) {
     const dims = metrics?.dimensions || {};
@@ -225,17 +249,8 @@ function generatePerformanceFallback(metrics) {
         compliance: 'Check out from your registered location to avoid mismatches.'
     };
     lines.push(`### Recommendation\n${weakest && steps[weakest] ? steps[weakest] : 'Keep your current routine and finish today\'s plan.'}`);
-    let aiScore = composite;
-    if (det.taskCompleted > 0 && det.taskPostponed === 0 && det.taskMissed === 0) aiScore += 3;
-    if (det.taskPostponed > 2) aiScore -= 2;
-    if (det.taskMissed > 2) aiScore -= 3;
-    if (Number(det.extraHours) >= 2) aiScore += 2;
-    if (det.lateDays === 0 && det.totalDays > 0) aiScore += 1;
-    aiScore = Math.max(0, Math.min(100, Math.round(aiScore)));
-    const reason = aiScore > composite ? 'context behind the numbers is favorable'
-        : aiScore < composite ? 'pending work and signals outweigh the raw formula'
-        : 'formula already reflects the situation fairly';
-    lines.push(`AI Score: ${aiScore} — ${reason}.`);
+    const aiScore = computeFallbackAiScore(metrics);
+    lines.push(`AI Score: ${aiScore} — ${aiScoreReason(aiScore, composite)}.`);
     return lines.join('\n\n');
 }
 
@@ -340,17 +355,44 @@ async function callAI({ metrics, question, history, mode }) {
     }
 
     const priorMessages = sanitizeHistory(history);
+    // One attempt per model: rotating to the next model IS the retry (an
+    // immediate 429 re-hit would fail again, and 2 attempts × 4 models blew
+    // every client budget).
     for (const provider of providers) {
         for (const model of provider.models) {
-            for (let attempt = 1; attempt <= 2; attempt++) {
-                try {
-                    const result = await callOnce(provider.url, provider.headers, provider.key, model, userPrompt, priorMessages, systemPrompt);
-                    return { ...result, source: 'ai', degraded: model !== provider.models[0] };
-                } catch (err) {
-                    const name = err.name === 'AbortError' ? 'timeout' : `HTTP ${err.status || '?'}`;
-                    console.warn(`[ai-provider] ${provider.name}/${model} attempt ${attempt} failed (${name})`);
-                    if (!RETRYABLE(err)) break;
+            try {
+                const result = await callOnce(provider.url, provider.headers, provider.key, model, userPrompt, priorMessages, systemPrompt, CHAIN_TIMEOUT_MS);
+                // Reject unstructured output (reasoning models sometimes leak
+                // their chain-of-thought as content) so the next model runs.
+                if (mode === 'performance' && !/^\s*### Fact/im.test(result.insight)) {
+                    console.warn(`[ai-provider] ${provider.name}/${model} returned unstructured performance output — skipping`);
+                    continue;
                 }
+                if (mode === 'hero') {
+                    const m = result.insight.match(/\{[\s\S]*\}/);
+                    let pick = null;
+                    try { pick = m ? JSON.parse(m[0]) : null; } catch { /* not JSON */ }
+                    if (!pick?.userId) {
+                        console.warn(`[ai-provider] ${provider.name}/${model} returned no hero JSON — skipping`);
+                        continue;
+                    }
+                }
+                if (mode === 'performance' && !/AI\s*Score\s*:\s*\d{1,3}/i.test(result.insight)) {
+                    // Model skipped the trailing score line the chip parses
+                    // (its thinking may merely QUOTE the prompt's placeholder)
+                    // — append the deterministic equivalent so the client
+                    // never caches a scoreless narrative.
+                    const composite = Math.round(Number(trimmed.composite) || 0);
+                    const score = computeFallbackAiScore(trimmed);
+                    console.warn(`[ai-provider] ${provider.name}/${model} missing AI Score line — appended score ${score}`);
+                    result.insight = `${result.insight.trimEnd()}\n\nAI Score: ${score} — ${aiScoreReason(score, composite)}.`;
+                }
+                return { ...result, source: 'ai', degraded: model !== provider.models[0] };
+            } catch (err) {
+                const name = err.name === 'AbortError' ? 'timeout'
+                    : err.status ? `HTTP ${err.status}`
+                    : String(err.message || err).slice(0, 80);
+                console.warn(`[ai-provider] ${provider.name}/${model} failed (${name})`);
             }
         }
     }

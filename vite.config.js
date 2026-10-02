@@ -228,9 +228,11 @@ function createAiInsightsDevPlugin() {
 
                     // No key configured, or every provider/model failed.
                     // Performance mode gets its own snapshot-aware fallback.
+                    // Pass metrics as-is: trimMetrics()' chat whitelist would
+                    // strip composite/dimensions and yield a 0/100 score.
                     if (mode === 'performance') {
                         return sendJson(res, 200, {
-                            insight: generatePerformanceFallback(trimMetrics(metrics)),
+                            insight: generatePerformanceFallback(metrics || {}),
                             source: 'rule-based',
                             model: 'fallback'
                         });

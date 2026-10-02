@@ -23,7 +23,12 @@ test('chain contains no known-dead OpenRouter slugs (404 regression)', async () 
     const dead = [
         'mistralai/mistral-7b-instruct:free',
         'meta-llama/llama-3.3-70b-instruct:free',
-        'google/gemma-2-9b-it:free'
+        'google/gemma-2-9b-it:free',
+        // Probed dead/unusable 2026-10-02: no-status failures, 403, ~38s queue.
+        'inclusionai/ling-3.0-flash-sante:free',
+        'nvidia/nemotron-3-super-120b-a12b:free',
+        'thinkingmachines/inkling:free',
+        'nvidia/nemotron-3-ultra-550b-a55b:free'
     ];
     for (const d of dead) {
         assert.ok(!models.includes(d), `dead slug must not be in chain: ${d}`);

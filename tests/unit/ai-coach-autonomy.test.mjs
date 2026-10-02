@@ -85,3 +85,40 @@ test('a stale (0/100) narrative regenerates even at the budget cap', async () =>
     const r = await runDailyPerformanceAI(payload(12), 'week');
     assert.equal(r.fromCache, false, 'correctness repair bypasses the budget');
 });
+
+test('cache hit with a null aiScore is healed in place without burning the budget', async () => {
+    store.clear();
+    const p = payload();
+    store.set(cacheKey, JSON.stringify({
+        narrative: 'You scored 70/100 this week.',
+        aiScore: null,
+        scoreReason: '',
+        composite: 70,
+        fp: _perfFingerprint(p),
+        at: Date.now()
+    }));
+    setRuns(3, Date.now()); // budget exhausted — the heal must not need a run
+    const r = await runDailyPerformanceAI(p, 'week');
+    assert.equal(r.fromCache, true, 'still served from cache');
+    assert.ok(Number.isInteger(r.aiScore), 'healed score returned');
+    assert.equal(getRuns().count, 3, 'no run consumed');
+    assert.ok(getCache()?.aiScore != null, 'cache rewritten with a numeric score');
+});
+
+test('a model response missing its AI Score line is healed before caching', async () => {
+    store.clear();
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({
+        ok: true,
+        json: async () => ({ insight: '### Fact\nEverything checks out.', model: 'stub-model', source: 'ai' })
+    });
+    try {
+        const r = await runDailyPerformanceAI(payload(), 'week');
+        assert.equal(r.fromCache, false);
+        assert.match(r.narrative, /Everything checks out/);
+        assert.ok(Number.isInteger(r.aiScore), 'healed score returned from a scoreless insight');
+        assert.ok(getCache()?.aiScore != null, 'cache never written scoreless');
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
