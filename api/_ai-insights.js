@@ -1,4 +1,4 @@
-// api/ai-insights.js
+// api/_ai-insights.js
 // Vercel serverless function: generates AI insights from metrics data.
 //
 // Security: requires a valid Firebase ID token (Authorization: Bearer <idToken>).

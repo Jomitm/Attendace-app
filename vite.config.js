@@ -4,10 +4,10 @@ import { readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
-// Same pure quota rules the production function uses (api/ai-insights.js).
+// Same pure quota rules the production function uses (api/_ai-insights.js).
 import { quotaLimit, isQuotaRequest, nextUtcMidnight, quotaMessage, quotaContext } from './api/_ai-quota.js';
 // Same pure hero-selection rules the production function uses (api/hero-select.js).
-import { parseHeroAiResponse, sanitizeCandidates } from './api/_hero-select.js';
+import { parseHeroAiResponse, sanitizeCandidates } from './api/_hero-select-core.js';
 
 const require = createRequire(import.meta.url);
 const { readBuildMeta } = require('./scripts/build-meta.cjs');

@@ -10,7 +10,7 @@
 // (question: null) are exempt — but tool_plan is *blocked* when the limit is
 // hit so a capped-out user can't still burn provider calls on the pre-check.
 //
-// No Firestore/firebase imports here — I/O lives in api/ai-insights.js so
+// No Firestore/firebase imports here — I/O lives in api/_ai-insights.js so
 // these stay unit-testable (tests/unit/ai-quota.test.mjs).
 
 const LIMIT_ENV = 'AI_DAILY_QUESTION_LIMIT';

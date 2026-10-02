@@ -1,6 +1,6 @@
-// api/ai-briefing.js — Proactive daily briefing (push, not reactive chat).
+// api/_ai-briefing.js — Proactive daily briefing (push, not reactive chat).
 // Generates a short AI briefing from each opted-in user's snapshot and sends it
-// via the existing Telegram integration (api/telegram-send.js). Designed for a
+// via the existing Telegram integration (api/_telegram-send.js). Designed for a
 // Vercel Cron trigger — add to vercel.json:
 //   "crons": [{ "path": "/api/ai-briefing", "schedule": "0 2 * * *" }]
 // (02:00 UTC ≈ 07:30 IST morning briefing.)
@@ -11,7 +11,7 @@
 // Note: this endpoint is cron-only (no user token). It is protected by the
 // CRON_SECRET env var — Vercel sends it as `Authorization: Bearer $CRON_SECRET`.
 
-import { initializeFirebaseAdmin } from './_firebase-admin.js';
+import { getAdmin, getDb } from './_firebase-admin.js';
 
 export default async function handler(req, res) {
     // Cron secret check (Vercel sets Authorization header automatically when
@@ -28,8 +28,8 @@ export default async function handler(req, res) {
     }
 
     try {
-        const admin = initializeFirebaseAdmin();
-        const db = admin ? (await import('./_firebase-admin.js')).getDb?.() || (await import('./_firebase-admin.js')).getDb() : null;
+        const admin = getAdmin();
+        const db = admin ? getDb() : null;
         if (!db) return res.status(500).json({ error: 'Server configuration error' });
 
         // Opted-in users only

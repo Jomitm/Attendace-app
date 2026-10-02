@@ -18,42 +18,63 @@
             ]
         }
     ],
+    "functions": {
+        "api/index.js": {
+            "maxDuration": 60
+        }
+    },
     "rewrites": [
         {
             "source": "/api/auth-login",
-            "destination": "/api/auth-login"
+            "destination": "/api/index?route=auth-login"
         },
         {
             "source": "/api/auth-set-password",
-            "destination": "/api/auth-set-password"
+            "destination": "/api/index?route=auth-set-password"
         },
         {
             "source": "/api/ai-insights",
-            "destination": "/api/ai-insights"
+            "destination": "/api/index?route=ai-insights"
+        },
+        {
+            "source": "/api/ai-briefing",
+            "destination": "/api/index?route=ai-briefing"
         },
         {
             "source": "/api/hero-select",
-            "destination": "/api/hero-select"
+            "destination": "/api/index?route=hero-select"
+        },
+        {
+            "source": "/api/calendar-feed",
+            "destination": "/api/index?route=calendar-feed"
+        },
+        {
+            "source": "/api/calendar-token",
+            "destination": "/api/index?route=calendar-token"
+        },
+        {
+            "source": "/api/feast-proxy",
+            "destination": "/api/index?route=feast-proxy"
         },
         {
             "source": "/api/telegram-send",
-            "destination": "/api/telegram-send"
+            "destination": "/api/index?route=telegram-send"
         },
         {
             "source": "/api/telegram-webhook",
-            "destination": "/api/telegram-webhook"
+            "destination": "/api/index?route=telegram-webhook"
         },
         {
             "source": "/api/telegram-scheduler",
-            "destination": "/api/telegram-scheduler"
+            "destination": "/api/index?route=telegram-scheduler"
         },
         {
             "source": "/api/telegram-generate-link",
-            "destination": "/api/telegram-generate-link"
+            "destination": "/api/index?route=telegram-generate-link"
         },
         {
             "source": "/api/telegram-register-webhook",
-            "destination": "/api/telegram-register-webhook"
+            "destination": "/api/index?route=telegram-register-webhook"
         }
     ],
     "crons": [

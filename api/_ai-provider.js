@@ -1,5 +1,5 @@
 // api/_ai-provider.js
-// Shared AI provider — used by BOTH api/ai-insights.js (production) and the
+// Shared AI provider — used by BOTH api/_ai-insights.js (production) and the
 // Vite dev plugin in vite.config.js, so local dev and production always behave
 // the same way: same prompt, same policy knowledge, same model fallback chain.
 //

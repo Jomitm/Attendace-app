@@ -1,4 +1,4 @@
-// api/auth-set-password.js — Vercel Serverless
+// api/_auth-set-password.js — Vercel Serverless
 // Changes a user's password server-side. Removes plaintext from Firestore.
 
 const { getAdmin, getDb } = require('./_firebase-admin.js');

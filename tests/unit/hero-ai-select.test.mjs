@@ -1,5 +1,5 @@
 // tests/unit/hero-ai-select.test.mjs
-// AI Hero-of-the-Week selection rules (api/_hero-select.js + provider parity):
+// AI Hero-of-the-Week selection rules (api/_hero-select-core.js + provider parity):
 //   1. Period keys and Firestore doc ids are stable and safe.
 //   2. Candidates = eligible rows only, compact stats, capped.
 //   3. The model answer is validated against the allow-list — anything else
@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const { buildHeroPeriodKey, heroSelectionDocId, sanitizeCandidates, buildHeroCandidates, parseHeroAiResponse } =
-    await import('../../api/_hero-select.js');
+    await import('../../api/_hero-select-core.js');
 
 const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
 

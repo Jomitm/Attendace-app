@@ -1,4 +1,4 @@
-// api/auth-login.js — Vercel Serverless
+// api/_auth-login.js — Vercel Serverless
 // Receives username/email + password, returns a Firebase Auth custom token.
 // The client never sees other users' passwords — all comparison happens here.
 
