@@ -15,11 +15,13 @@ globalThis.window = { location: { reload() {} }, dispatchEvent() {}, addEventLis
 
 let putCalls = [];
 AppDB.put = async (coll, data) => { putCalls.push({ coll, data }); };
-// Force a fresh getAll on every call (avoid the in-memory read cache under Node,
-// which would otherwise serve the first test's users to later tests).
 AppDB.getCached = async (key, ttl, loader) => (typeof loader === 'function' ? loader() : undefined);
 
 AppConfig.OWNER_USERNAMES = ['jomit'];
+
+// Mock Firebase Auth
+globalThis.firebase = { auth: () => ({ signInWithCustomToken: async () => {}, signOut: async () => {}, currentUser: null }) };
+AppAuth._getFirebaseAuth = () => globalThis.firebase.auth();
 
 beforeEach(() => {
     store.clear();
@@ -28,12 +30,30 @@ beforeEach(() => {
     AppAuth.localToken = null;
 });
 
+function mockFetch(user, options = {}) {
+    globalThis.fetch = async (url, _opts) => {
+        if (url === '/api/auth-login') {
+            if (options.fail) {
+                return { ok: false, json: async () => ({ error: 'Invalid credentials' }) };
+            }
+            return {
+                ok: true,
+                json: async () => ({
+                    customToken: 'mock-custom-token',
+                    user
+                })
+            };
+        }
+        return { ok: false, json: async () => ({ error: 'Not found' }) };
+    };
+}
+
 describe('owner-only login', () => {
     it('rejects a valid non-owner credential without writing a session token', async () => {
-        AppDB.getAll = async () => ([{
-            id: 'u_alice', username: 'alice', password: 'pass',
+        mockFetch({
+            id: 'u_alice', username: 'alice',
             activeSessionToken: 'tok_alice', activeSessionStartedAt: Date.now()
-        }]);
+        });
 
         const result = await AppAuth.loginOwner('alice', 'pass');
         assert.deepEqual(result, { denied: 'not-owner' });
@@ -43,16 +63,16 @@ describe('owner-only login', () => {
     });
 
     it('returns false for invalid credentials', async () => {
-        AppDB.getAll = async () => ([{ id: 'u_alice', username: 'alice', password: 'pass' }]);
+        mockFetch(null, { fail: true });
         const result = await AppAuth.loginOwner('alice', 'wrong');
         assert.equal(result, false);
     });
 
     it('logs the owner in and reuses the shared token', async () => {
-        AppDB.getAll = async () => ([{
-            id: 'u_jomit', username: 'jomit', password: 'pass',
+        mockFetch({
+            id: 'u_jomit', username: 'jomit',
             activeSessionToken: 'tok_jomit', activeSessionStartedAt: Date.now()
-        }]);
+        });
 
         const result = await AppAuth.loginOwner('jomit', 'pass');
         assert.equal(result, true);
@@ -63,7 +83,7 @@ describe('owner-only login', () => {
     });
 
     it('establishes a token for the owner on first login', async () => {
-        AppDB.getAll = async () => ([{ id: 'u_jomit', username: 'jomit', password: 'pass' }]);
+        mockFetch({ id: 'u_jomit', username: 'jomit' });
         const result = await AppAuth.loginOwner('jomit', 'pass');
         assert.equal(result, true);
         const wroteToken = putCalls.find((c) => c.data && c.data.activeSessionToken);

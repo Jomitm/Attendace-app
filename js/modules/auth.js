@@ -9,16 +9,17 @@ export class Auth {
         this.localToken = null;
         this.heartbeatInterval = null;
         this.userDocUnsubscribe = null;
-        // Impersonation (owner "Login as user"): when active, currentUser is the
-        // impersonated staff member while the owner's real session is preserved
-        // underneath (_realUser/_realToken) so they can snap back without re-login.
         this.isImpersonating = false;
         this._realUser = null;
         this._realToken = null;
     }
 
+    // Helper: get Firebase Auth instance (loaded via CDN)
+    _getFirebaseAuth() {
+        return window.AppFirebaseAuth || (typeof firebase !== 'undefined' ? firebase.auth() : null);
+    }
+
     async init() {
-        // Depend on AppDB
         await AppDB.init();
 
         const storedId = localStorage.getItem(this.sessionKey);
@@ -26,7 +27,6 @@ export class Auth {
             this.currentUser = await AppDB.get('users', storedId);
             if (this.currentUser) {
                 this.localToken = localStorage.getItem(this.deviceTokenKey) || null;
-                // Session was superseded while offline (another device logged in) — kick locally.
                 if (this.currentUser.activeSessionToken && this.localToken && this.currentUser.activeSessionToken !== this.localToken) {
                     this.forceLogout('Your session was ended because you logged in on another device.');
                     return;
@@ -44,8 +44,6 @@ export class Auth {
             return null;
         }
 
-        // Optimization: If a realtime listener is active and we have a user,
-        // trust the memory version to avoid race conditions with stale get() calls.
         if (this.userDocUnsubscribe && this.currentUser && this.currentUser.id === sessionId) {
             return this.currentUser;
         }
@@ -59,24 +57,33 @@ export class Auth {
         return this.currentUser;
     }
 
+    // Main login — calls server endpoint, gets custom token, signs in with Firebase Auth
+    // Falls back to client-side login when server endpoint is unavailable (local dev)
     async login(username, password) {
-        const users = AppDB.getCached
-            ? await AppDB.getCached(
-                AppDB.getCacheKey('authUsers', 'users', { mode: 'login' }),
-                (AppConfig?.READ_CACHE_TTLS?.users || 60000),
-                () => AppDB.getAll('users')
-            )
-            : await AppDB.getAll('users');
-        const cleanUser = username.trim().toLowerCase();
-        const cleanPass = password.trim();
+        try {
+            const response = await fetch('/api/auth-login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ identifier: username, password })
+            });
 
-        const user = users.find(u => {
-            const uName = (u.username || "").toLowerCase().trim();
-            const uEmail = (u.email || "").toLowerCase().trim();
-            return (uName === cleanUser || uEmail === cleanUser) && u.password.trim() === cleanPass;
-        });
+            const data = await response.json();
 
-        if (user) {
+            if (!response.ok || !data.customToken) {
+                console.warn('Login failed:', data.error || 'Unknown error');
+                return false;
+            }
+
+            // Sign in with Firebase Auth using the custom token
+            const auth = this._getFirebaseAuth();
+            if (auth) {
+                await auth.signInWithCustomToken(data.customToken);
+            }
+
+            // Use the user data returned from the server
+            const user = data.user;
+
+            // Check session conflict (same logic as before)
             const localToken = localStorage.getItem(this.deviceTokenKey) || null;
             const foreignToken = user.activeSessionToken || null;
             const startedAt = user.activeSessionStartedAt || 0;
@@ -87,28 +94,46 @@ export class Auth {
                 ? AppConfig.OWNER_USERNAMES.map(s => String(s).toLowerCase())
                 : []).includes((user.username || '').toLowerCase());
 
-            // The developer/owner account is exempt from the takeover prompt and the
-            // single-session auto-checkout: they can log in on any device without being
-            // asked or kicking their other sessions.
             if (hasConflict && !isOwner) {
-                // Another device has a recent active session. Ask before taking over.
                 return { needsConflictConfirmation: true, user };
             }
             return this._establishSession(user, isOwner);
-        } else {
-            console.warn('Login failed: invalid credentials.');
+        } catch (err) {
+            // Server endpoint unavailable — fall back to client-side login (local dev)
+            console.warn('Server login unavailable, falling back to client-side login:', err.message);
+            return this._loginLocal(username, password);
         }
-        return false;
     }
 
-    // Establishes the local session for a verified user. For the owner account we
-    // reuse the existing activeSessionToken (if any) so multiple devices share one
-    // session and are never auto-checked-out. Normal users get a fresh token, which
-    // ends any other device's session.
+    // Client-side login fallback (original behavior for local dev)
+    async _loginLocal(username, password) {
+        const allUsers = await AppDB.getAll('users').catch(() => []);
+        const user = allUsers.find(u =>
+            (u.username || '').toLowerCase() === String(username).trim().toLowerCase()
+        );
+        if (!user || user.password !== String(password).trim()) {
+            return false;
+        }
+
+        const localToken = localStorage.getItem(this.deviceTokenKey) || null;
+        const foreignToken = user.activeSessionToken || null;
+        const startedAt = user.activeSessionStartedAt || 0;
+        const windowMs = (AppConfig && AppConfig.SESSION_TAKEOVER_PROMPT_WINDOW_MS) || (24 * 60 * 60 * 1000);
+        const recent = (Date.now() - startedAt) <= windowMs;
+        const hasConflict = !!foreignToken && foreignToken !== localToken && recent;
+        const isOwner = (AppConfig && Array.isArray(AppConfig.OWNER_USERNAMES)
+            ? AppConfig.OWNER_USERNAMES.map(s => String(s).toLowerCase())
+            : []).includes((user.username || '').toLowerCase());
+
+        if (hasConflict && !isOwner) {
+            return { needsConflictConfirmation: true, user };
+        }
+        return this._establishSession(user, isOwner);
+    }
+
     async _establishSession(user, isOwner = false) {
         let token = this.generateSessionToken();
         if (isOwner && user.activeSessionToken) {
-            // Share the existing token across the owner's devices (no autocheckout).
             token = user.activeSessionToken;
         }
         this.localToken = token;
@@ -127,39 +152,62 @@ export class Auth {
         return true;
     }
 
-    // Called when the user confirms they want to sign in here and sign out the
-    // other device. Reuses the user object captured at login time (no extra read).
     async confirmTakeoverLogin(user) {
         if (!user || !user.id) return false;
         return this._establishSession(user);
     }
 
-    // Owner-only login used by the dedicated #owner login page. Validates the
-    // credentials like login(), but refuses (without side effects) any account
-    // that is not listed in AppConfig.OWNER_USERNAMES. Unlike login(), it never
-    // writes a session token or ends another device's session for non-owners.
-    // Returns: true (owner session established), false (bad credentials),
-    // or { denied: 'not-owner' } (valid creds but not an owner account).
+    // Owner-only login — server validates owner status
+    // Falls back to client-side login when server endpoint is unavailable (local dev)
     async loginOwner(username, password) {
-        const users = AppDB.getCached
-            ? await AppDB.getCached(
-                AppDB.getCacheKey('authUsers', 'users', { mode: 'login' }),
-                (AppConfig?.READ_CACHE_TTLS?.users || 60000),
-                () => AppDB.getAll('users')
-            )
-            : await AppDB.getAll('users');
-        const cleanUser = username.trim().toLowerCase();
-        const cleanPass = password.trim();
+        try {
+            const response = await fetch('/api/auth-login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ identifier: username, password })
+            });
 
-        const user = users.find(u => {
-            const uName = (u.username || "").toLowerCase().trim();
-            const uEmail = (u.email || "").toLowerCase().trim();
-            const passMatch = u.password ? u.password.trim() === cleanPass : cleanPass === '';
-            return (uName === cleanUser || uEmail === cleanUser) && passMatch;
-        });
+            const data = await response.json();
 
-        if (!user) {
-            console.warn('Owner login failed: invalid credentials.');
+            if (!response.ok || !data.customToken) {
+                console.warn('Owner login failed:', data.error || 'Unknown error');
+                return false;
+            }
+
+            const user = data.user;
+            const isOwner = (AppConfig && Array.isArray(AppConfig.OWNER_USERNAMES)
+                ? AppConfig.OWNER_USERNAMES.map(s => String(s).toLowerCase())
+                : []).includes((user.username || '').toLowerCase());
+
+            if (!isOwner) {
+                return { denied: 'not-owner' };
+            }
+
+            // Sign in with Firebase Auth
+            const auth = this._getFirebaseAuth();
+            if (auth) {
+                await auth.signInWithCustomToken(data.customToken);
+            }
+
+            if (user.passwordSetupRequired) {
+                return { needsPasswordSetup: true, userId: user.id, username: user.username };
+            }
+
+            return this._establishSession(user, true);
+        } catch (err) {
+            // Server endpoint unavailable — fall back to client-side owner login (local dev)
+            console.warn('Server owner login unavailable, falling back to client-side:', err.message);
+            return this._loginOwnerLocal(username, password);
+        }
+    }
+
+    // Client-side owner login fallback (original behavior for local dev)
+    async _loginOwnerLocal(username, password) {
+        const allUsers = await AppDB.getAll('users').catch(() => []);
+        const user = allUsers.find(u =>
+            (u.username || '').toLowerCase() === String(username).trim().toLowerCase()
+        );
+        if (!user || user.password !== String(password).trim()) {
             return false;
         }
 
@@ -182,18 +230,28 @@ export class Auth {
         if (!userId || !newPassword) return false;
         const cleanPass = String(newPassword).trim();
         if (cleanPass.length < 4) return { error: 'Password must be at least 4 characters.' };
-        await AppDB.put('users', {
-            id: userId,
-            password: cleanPass,
-            passwordSetupRequired: false
-        });
-        return true;
+
+        try {
+            const auth = this._getFirebaseAuth();
+            const idToken = auth && auth.currentUser ? await auth.currentUser.getIdToken() : null;
+
+            const response = await fetch('/api/auth-set-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId, newPassword: cleanPass, idToken })
+            });
+
+            const data = await response.json();
+            if (!response.ok) {
+                return { error: data.error || 'Failed to set password' };
+            }
+            return true;
+        } catch (err) {
+            console.warn('Set password error:', err);
+            return { error: 'Network error' };
+        }
     }
 
-    // Owner-only "Login as user": opens a staff account in a viewing session
-    // WITHOUT overwriting the target's activeSessionToken, so their real device
-    // is never force-logged-out. The owner's own session is preserved underneath
-    // and restored on stopImpersonating(). Only available to OWNER_USERNAMES.
     async impersonate(userId) {
         const me = this.currentUser;
         if (!me) return false;
@@ -204,14 +262,12 @@ export class Auth {
 
         const target = await AppDB.get('users', userId).catch(() => null);
         if (!target) return false;
-        if (target.id === me.id) return false; // cannot impersonate self
+        if (target.id === me.id) return false;
 
         this._realUser = me;
         this._realToken = this.localToken;
         this.isImpersonating = true;
 
-        // Pause the owner's realtime sync/heartbeat so they don't overwrite the
-        // impersonated currentUser or write the owner's presence to the target.
         this.stopCurrentUserSync();
         this.stopHeartbeat();
 
@@ -237,8 +293,6 @@ export class Auth {
         const sessionId = localStorage.getItem(this.sessionKey);
         const localToken = localStorage.getItem(this.deviceTokenKey);
         if (sessionId && localToken) {
-            // Only clear the server token if it belongs to this device,
-            // so logging out here does not kill another device's session.
             try {
                 const latest = await AppDB.get('users', sessionId);
                 if (latest && latest.activeSessionToken && latest.activeSessionToken === localToken) {
@@ -247,6 +301,11 @@ export class Auth {
             } catch (err) {
                 console.warn('Failed to clear session token on logout:', err);
             }
+        }
+        // Sign out from Firebase Auth
+        const auth = this._getFirebaseAuth();
+        if (auth) {
+            try { await auth.signOut(); } catch { /* ignore */ }
         }
         this.stopHeartbeat();
         this.stopCurrentUserSync();
@@ -263,6 +322,11 @@ export class Auth {
         try {
             sessionStorage.setItem('crwi_auth_notice', message);
         } catch { /* ignore */ }
+        // Sign out from Firebase Auth
+        const auth = this._getFirebaseAuth();
+        if (auth) {
+            try { auth.signOut(); } catch { /* ignore */ }
+        }
         this.stopHeartbeat();
         this.stopCurrentUserSync();
         this.currentUser = null;
@@ -288,13 +352,11 @@ export class Auth {
     }
 
     async updateUser(userData) {
-        // Find existing to preserve fields like avatar if not provided
         const existing = await AppDB.get('users', userData.id);
         if (!existing) return false;
 
         const updated = { ...existing, ...userData };
 
-        // Sync Admin Status
         if (userData.isAdmin === true || userData.isAdmin === 'true') {
             updated.isAdmin = true;
         } else {
@@ -304,14 +366,12 @@ export class Auth {
 
         console.log(`Auth: User ${updated.id} update - Role: ${updated.role}, Admin: ${updated.isAdmin}`);
 
-        // Only regenerate default avatar if name changed AND no new avatar provided
         if (userData.name && userData.name !== existing.name && !userData.avatar) {
             updated.avatar = `https://ui-avatars.com/api/?name=${userData.name}&background=random&color=fff`;
         }
 
         await AppDB.put('users', updated);
 
-        // If current user is the one being updated, refresh memory state
         if (this.currentUser && this.currentUser.id === updated.id) {
             this.currentUser = updated;
         }
@@ -339,9 +399,7 @@ export class Auth {
             }
         };
 
-        // Immediate update
         updateLastSeen();
-        // Then every 2 minutes
         this.heartbeatInterval = setInterval(updateLastSeen, 120000);
         console.log("Presence Heartbeat started.");
     }
@@ -371,8 +429,6 @@ export class Auth {
                     }
                     const latestUser = { ...doc.data(), id: doc.id };
 
-                    // Single active session enforcement: if the server token changed and
-                    // no longer matches this device, end this session locally.
                     const localToken = localStorage.getItem(this.deviceTokenKey) || this.localToken;
                     if (latestUser.activeSessionToken && localToken && latestUser.activeSessionToken !== localToken) {
                         this.forceLogout('You have been logged out because you logged in on another device.');
@@ -397,6 +453,5 @@ export class Auth {
     }
 }
 
-// Export to Window (Global)
 export const AppAuth = new Auth();
 if (typeof window !== 'undefined') window.AppAuth = AppAuth;

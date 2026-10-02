@@ -25,3 +25,7 @@ if (typeof window !== 'undefined') window.AppFirestore = AppFirestore;
 // Initialize & Export Firebase Storage to Window
 export const AppStorage = (typeof firebase !== 'undefined' && firebase.storage) ? firebase.storage() : null;
 if (typeof window !== 'undefined') window.AppStorage = AppStorage;
+
+// Initialize & Export Firebase Auth to Window
+export const AppFirebaseAuth = (typeof firebase !== 'undefined' && firebase.auth) ? firebase.auth() : null;
+if (typeof window !== 'undefined') window.AppFirebaseAuth = AppFirebaseAuth;

@@ -15,11 +15,13 @@ globalThis.window = { location: { reload() {} }, dispatchEvent() {}, addEventLis
 
 let putCalls = [];
 AppDB.put = async (coll, data) => { putCalls.push({ coll, data }); };
-// Force a fresh getAll on every call (avoid the in-memory read cache under Node,
-// which would otherwise serve the first test's users to later tests).
 AppDB.getCached = async (key, ttl, loader) => (typeof loader === 'function' ? loader() : undefined);
 
 AppConfig.OWNER_USERNAMES = ['jomit'];
+
+// Mock Firebase Auth
+globalThis.firebase = { auth: () => ({ signInWithCustomToken: async () => {}, signOut: async () => {}, currentUser: null }) };
+AppAuth._getFirebaseAuth = () => globalThis.firebase.auth();
 
 beforeEach(() => {
     store.clear();
@@ -28,12 +30,27 @@ beforeEach(() => {
     AppAuth.localToken = null;
 });
 
+function mockFetch(user) {
+    globalThis.fetch = async (url, _opts) => {
+        if (url === '/api/auth-login') {
+            return {
+                ok: true,
+                json: async () => ({
+                    customToken: 'mock-custom-token',
+                    user
+                })
+            };
+        }
+        return { ok: false, json: async () => ({ error: 'Not found' }) };
+    };
+}
+
 describe('owner account session exemption', () => {
     it('a normal user with a recent foreign session is asked to confirm takeover', async () => {
-        AppDB.getAll = async () => ([{
-            id: 'u_alice', username: 'alice', password: 'pass',
+        mockFetch({
+            id: 'u_alice', username: 'alice',
             activeSessionToken: 'tok_alice', activeSessionStartedAt: Date.now()
-        }]);
+        });
         store.set('crwi_session_token', 'some-other-device-token');
 
         const result = await AppAuth.login('alice', 'pass');
@@ -41,10 +58,10 @@ describe('owner account session exemption', () => {
     });
 
     it('the owner with a recent foreign session is NOT prompted and reuses the token', async () => {
-        AppDB.getAll = async () => ([{
-            id: 'u_jomit', username: 'jomit', password: 'pass',
+        mockFetch({
+            id: 'u_jomit', username: 'jomit',
             activeSessionToken: 'tok_jomit', activeSessionStartedAt: Date.now()
-        }]);
+        });
         store.set('crwi_session_token', 'some-other-device-token');
 
         const result = await AppAuth.login('jomit', 'pass');
@@ -56,10 +73,7 @@ describe('owner account session exemption', () => {
     });
 
     it('the owner logging in for the first time still creates a token', async () => {
-        AppDB.getAll = async () => ([{
-            id: 'u_jomit', username: 'jomit', password: 'pass'
-            // no activeSessionToken yet
-        }]);
+        mockFetch({ id: 'u_jomit', username: 'jomit' });
 
         const result = await AppAuth.login('jomit', 'pass');
         assert.equal(result, true);
