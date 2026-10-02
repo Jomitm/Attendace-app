@@ -71,6 +71,11 @@ export class Auth {
 
             if (!response.ok || !data.customToken) {
                 console.warn('Login failed:', data.error || 'Unknown error');
+                // Server-side failure (5xx) is not a credential problem — let
+                // the caller show a retry message instead of "Invalid Credentials".
+                if (response.status >= 500) {
+                    return { serverError: data.error || 'Server error' };
+                }
                 return false;
             }
 
@@ -171,6 +176,9 @@ export class Auth {
 
             if (!response.ok || !data.customToken) {
                 console.warn('Owner login failed:', data.error || 'Unknown error');
+                if (response.status >= 500) {
+                    return { serverError: data.error || 'Server error' };
+                }
                 return false;
             }
 

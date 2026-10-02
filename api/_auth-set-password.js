@@ -8,8 +8,17 @@ module.exports = async function handler(req, res) {
         return res.status(405).json({ error: 'Method not allowed' });
     }
 
+    // The runtime's lazy req.body getter throws on a malformed payload;
+    // surface that as a 400 instead of an opaque 500.
+    let body;
     try {
-        const { userId, newPassword, idToken } = req.body || {};
+        body = req.body || {};
+    } catch {
+        return res.status(400).json({ error: 'Invalid JSON body' });
+    }
+
+    try {
+        const { userId, newPassword, idToken } = body;
         if (!userId || !newPassword) {
             return res.status(400).json({ error: 'Missing userId or newPassword' });
         }

@@ -34,17 +34,22 @@ function mockFetch(user, options = {}) {
     globalThis.fetch = async (url, _opts) => {
         if (url === '/api/auth-login') {
             if (options.fail) {
-                return { ok: false, json: async () => ({ error: 'Invalid credentials' }) };
+                return {
+                    ok: false,
+                    status: options.status || 401,
+                    json: async () => ({ error: options.error || 'Invalid credentials' })
+                };
             }
             return {
                 ok: true,
+                status: 200,
                 json: async () => ({
                     customToken: 'mock-custom-token',
                     user
                 })
             };
         }
-        return { ok: false, json: async () => ({ error: 'Not found' }) };
+        return { ok: false, status: 404, json: async () => ({ error: 'Not found' }) };
     };
 }
 
@@ -66,6 +71,21 @@ describe('owner-only login', () => {
         mockFetch(null, { fail: true });
         const result = await AppAuth.loginOwner('alice', 'wrong');
         assert.equal(result, false);
+    });
+
+    it('login() maps a 401 to false but a 5xx to serverError', async () => {
+        mockFetch(null, { fail: true, status: 401 });
+        assert.equal(await AppAuth.login('alice', 'wrong'), false);
+
+        mockFetch(null, { fail: true, status: 503, error: 'Internal server error' });
+        const result = await AppAuth.login('alice', 'pass');
+        assert.ok(result && result.serverError, 'server failure must not look like bad credentials');
+    });
+
+    it('loginOwner() maps a 5xx to serverError', async () => {
+        mockFetch(null, { fail: true, status: 500, error: 'Internal server error' });
+        const result = await AppAuth.loginOwner('alice', 'pass');
+        assert.ok(result && result.serverError);
     });
 
     it('logs the owner in and reuses the shared token', async () => {

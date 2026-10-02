@@ -8185,6 +8185,10 @@ document.addEventListener('submit', (e) => {
             const fd = new FormData(e.target);
             try {
                 const result = await window.AppAuth.loginOwner(fd.get('username'), fd.get('password'));
+                if (result && result.serverError) {
+                    alert('Login service error — please try again in a moment.');
+                    return;
+                }
                 if (result && result.denied === 'not-owner') {
                     alert('This portal is for owner access only.');
                     return;
@@ -8247,6 +8251,10 @@ document.addEventListener('submit', (e) => {
             const fd = new FormData(e.target);
             try {
                 const result = await window.AppAuth.login(fd.get('username'), fd.get('password'));
+                if (result && result.serverError) {
+                    alert('Login service error — please try again in a moment.');
+                    return;
+                }
                 if (result && result.needsConflictConfirmation) {
                     app_showSessionTakeoverModal(result.user);
                     return;
