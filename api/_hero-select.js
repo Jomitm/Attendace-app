@@ -18,7 +18,17 @@ import { getAdmin, getDb } from './_firebase-admin.js';
 import { callAI } from './_ai-provider.js';
 import { buildHeroPeriodKey, heroSelectionDocId, parseHeroAiResponse, sanitizeCandidates } from './_hero-select-core.js';
 
-const ALLOWED_ORIGIN = process.env.APP_ORIGIN || 'https://crwiattendance.vercel.app';
+// Origins allowed to POST (custom domain + deployment domains). APP_ORIGIN
+// extends this list (comma-separated) so a misconfigured env can never lock
+// the live site out.
+const ALLOWED_ORIGINS = new Set(
+    [
+        'https://staff.crwi.org.in',
+        'https://crwi-staff-management-system.vercel.app',
+        'https://crwiattendance.vercel.app',
+        ...String(process.env.APP_ORIGIN || '').split(',')
+    ].map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean)
+);
 const MAX_BODY_BYTES = 64 * 1024;
 const PERIOD_RE = /^\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}$/;
 
@@ -29,7 +39,7 @@ function providersAvailable() {
 function applyCors(req, res) {
     const origin = req.headers.origin || '';
     const isDev = process.env.ALLOW_DEV_CORS === 'true';
-    const allowed = origin === ALLOWED_ORIGIN || isDev;
+    const allowed = ALLOWED_ORIGINS.has(origin) || isDev;
     res.setHeader('Access-Control-Allow-Origin', allowed ? origin : '');
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');

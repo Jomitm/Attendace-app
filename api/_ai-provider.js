@@ -82,7 +82,7 @@ function buildProviders() {
             name: 'openrouter',
             url: 'https://openrouter.ai/api/v1/chat/completions',
             headers: {
-                'HTTP-Referer': process.env.OPENROUTER_HTTP_REFERER || 'https://crwiattendance.vercel.app',
+                'HTTP-Referer': process.env.OPENROUTER_HTTP_REFERER || 'https://staff.crwi.org.in',
                 'X-Title': process.env.OPENROUTER_APP_TITLE || 'CRWI Attendance App'
             },
             models: buildModelChain(),
