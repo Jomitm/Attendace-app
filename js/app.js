@@ -1680,6 +1680,12 @@ const markLocalAttendanceMutation = () => {
     suppressSyncToastUntil = Date.now() + 3500;
 };
 
+const refreshAICenterIfActive = async () => {
+    if (typeof window.app_refreshAICenter === 'function' && String(window.location.hash || '').replace(/^#/, '') === 'ai-center') {
+        try { await window.app_refreshAICenter(); } catch (e) { console.warn('[app] AI Center refresh failed:', e); }
+    }
+};
+
 const handleUserSyncEvent = (ev) => {
     const syncedUser = ev.detail;
     if (!syncedUser) return;
@@ -1706,6 +1712,7 @@ const handleUserSyncEvent = (ev) => {
     }
 
     if (!isDashboard) {
+        void refreshAICenterIfActive();
         if (shouldShowCrossDeviceToast()) window.app_showSyncToast('Status updated from another device.');
         return;
     }
@@ -7041,6 +7048,7 @@ async function handleAttendance() {
             }
             markLocalAttendanceMutation();
             if (window.app_refreshDashboard) await window.app_refreshDashboard();
+            void refreshAICenterIfActive();
             if (checkInResult && checkInResult.resolvedMissedCheckout && checkInResult.noticeMessage) {
                 window.app_showAttendanceNotice(checkInResult.noticeMessage);
             }
@@ -7331,6 +7339,7 @@ async function handleAttendance() {
                     window.app_showSyncToast(result.message || 'Status updated from another device.');
                 }
                 await refreshDashboardAfterAttendance();
+                void refreshAICenterIfActive();
             }
         }
     } catch (err) {
@@ -7366,12 +7375,14 @@ window.app_pauseSession = async function () {
         if (result && result.conflict) {
             window.app_showSyncToast(result.message || 'Status updated from another device.');
             await refreshDashboardAfterAttendance();
+            void refreshAICenterIfActive();
             return;
         }
         if (result && result.ok) {
             if (window.AppActivity && window.AppActivity.stop) window.AppActivity.stop();
             markLocalAttendanceMutation();
             await refreshDashboardAfterAttendance();
+            void refreshAICenterIfActive();
         }
     } catch (err) {
         alert(err.message || err);
@@ -7401,12 +7412,14 @@ window.app_resumeSession = async function () {
         if (result && result.conflict) {
             window.app_showSyncToast(result.message || 'Status updated from another device.');
             await refreshDashboardAfterAttendance();
+            void refreshAICenterIfActive();
             return;
         }
         if (result && result.ok) {
             if (window.AppActivity && window.AppActivity.start) window.AppActivity.start();
             markLocalAttendanceMutation();
             await refreshDashboardAfterAttendance();
+            void refreshAICenterIfActive();
         }
     } catch (err) {
         alert(err.message || err);
@@ -7618,6 +7631,7 @@ window.app_submitCheckOut = async function (event) {
             app_resetCheckoutLocationSession();
             window.app_showSyncToast(checkOutResult.message || 'Status updated from another device.');
             await refreshDashboardAfterAttendance();
+            void refreshAICenterIfActive();
             return;
         }
         markLocalAttendanceMutation();

@@ -415,7 +415,30 @@ export class MetricsService {
             this.getMyAttendanceSummary(monthStart, today).catch(() => ({ total:0, present:0, absent:0, late:0, attendanceRate:'0' })),
             _db()?.getAll('policies').catch(() => []).then(rows => (rows || []).slice(0, 20)).catch(() => [])
         ]);
-        const myAttendance = todayLogs[0] || null;
+        let myAttendance = todayLogs[0] || null;
+        // Attendance logs are only written on checkout, so a user who is checked
+        // in but not yet checked out will have no log entry. Enrich with a
+        // fresh user-document fetch so myAttendance reflects live check-in state.
+        if (!myAttendance) {
+            try {
+                const fresh = await _db()?.get('users', user.id);
+                const st = String(fresh?.status || '').toLowerCase();
+                const ms = Number(fresh?.lastCheckIn) || 0;
+                if (st === 'in' && ms) {
+                    const d = new Date(ms);
+                    const lastDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                    if (lastDate === today) {
+                        myAttendance = {
+                            status: 'in',
+                            checkIn: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                            date: today,
+                            user_id: user.id,
+                            userId: user.id
+                        };
+                    }
+                }
+            } catch {}
+        }
         // Compact flat task list so the AI can name concrete tasks (overdue/postponed first)
         const myTasks = await this.getMyFlatTasks(today, 20).catch(() => []);
         return {

@@ -113,6 +113,16 @@ export class AttendanceService {
         if (!db) return [];
         return db.getAll('location_audits', opts).catch(() => []);
     }
+
+    /**
+     * Clear cached attendance logs so subsequent reads fetch fresh data.
+     * Called after check-in / check-out to invalidate stale cache.
+     */
+    invalidateCache() {
+        const db = _db();
+        if (!db || typeof db.invalidateCollectionCache !== 'function') return;
+        db.invalidateCollectionCache(COLLECTION);
+    }
 }
 
 export const AppAttendanceService = new AttendanceService();

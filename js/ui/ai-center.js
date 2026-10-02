@@ -120,6 +120,10 @@ export async function initAICenter() {
     renderChatThread();
     document.getElementById('ai-my-issues')?.querySelector('[data-pc-run]')
         ?.addEventListener('click', runPersonalCheck);
+    await refreshAICenter();
+}
+
+export async function refreshAICenter() {
     if (_pcRevealed) {
         await Promise.all([loadStats(), loadPersonal(), loadSnapshotCharts()]);
     } else {
@@ -716,7 +720,13 @@ function _generateLocalAnswer(question, ctx) {
     // ── Attendance / late ──
     if (q.includes('attendance') || q.includes('present') || q.includes('late')) {
         const att = ctx?.myAttendance;
-        if (att) return `### Fact\nYou checked in today — attendance is marked.\n### Observation\nDon't forget to check out before you leave.\n### Recommendation\nCheck out when your work is done.`;
+        // myAttendance is null when checked in but not yet checked out (logs are
+        // written on checkout). Fall back to myIssues / myAttendanceSummary which
+        // do a fresh user-doc fetch.
+        const isCheckedIn = att ||
+            (ctx?.myAttendanceSummary?.present > 0) ||
+            (ctx?.myIssues || []).some(i => i.id === 'att-checkedin-pending-checkout');
+        if (isCheckedIn) return `### Fact\nYou checked in today — attendance is marked.\n### Observation\nDon't forget to check out before you leave.\n### Recommendation\nCheck out when your work is done.`;
         return `### Fact\nNo attendance marked for ${today} yet.\n### Observation\nIt will be counted as absent if you don't check in.\n### Recommendation\nPlease check in now. If you are on leave, apply for leave instead.`;
     }
 
@@ -743,4 +753,5 @@ if (typeof window !== 'undefined') {
     window._aiCenterAskQuestion = askQuestion;
     window._aiCenterHandleIssueAction = (id) => _actionForIssue(id);
     window._aiCenterClearChat = clearChatUi;
+    window.app_refreshAICenter = refreshAICenter;
 }

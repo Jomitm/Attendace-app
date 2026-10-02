@@ -191,6 +191,9 @@ export class Attendance {
             return { ok: false, conflict: true, message: txResult.message || 'Status updated from another device.' };
         }
 
+        // Invalidate user doc cache so subsequent reads see the updated status
+        if (typeof AppDB.invalidateCollectionCache === 'function') AppDB.invalidateCollectionCache('users');
+
         // Handle stale session (yesterday's open session) — needs attendance log write outside tx
         let resolvedMissedCheckout = false;
         let noticeMessage = '';
@@ -595,6 +598,7 @@ export class Attendance {
         };
 
         await AppDB.add('attendance', log);
+        if (typeof AppDB.invalidateCollectionCache === 'function') AppDB.invalidateCollectionCache('attendance');
 
         if (window.AppActivity) window.AppActivity.stop();
 
