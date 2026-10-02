@@ -13,13 +13,11 @@ export async function renderStaffDirectoryPage() {
     const currentUser = window.AppAuth.getUser();
 
     // Fetch data (using cache where possible)
-    const allUsers = window.AppDB.getCached
-        ? await window.AppDB.getCached(window.AppDB.getCacheKey('staffUsers', 'users', {}), (AppConfig?.READ_CACHE_TTLS?.users || 60000), () => window.AppDB.getAll('users'))
-        : await window.AppDB.getAll('users');
+    const allUsers = await window.AppUserService.getAll();
 
     const messages = window.app_getMyMessages
         ? await window.app_getMyMessages()
-        : await window.AppDB.getAll('staff_messages');
+        : await window.AppSettingsService.getStaffMessages();
 
     const others = allUsers
         .filter(u => u.id !== currentUser.id && !AppConfig.isDemoUser(u))

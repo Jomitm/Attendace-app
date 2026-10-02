@@ -324,6 +324,245 @@ export class Calendar {
         return this.ensureCarryForwardForRange(targetDate, targetDate, options);
     }
 
+    getDateKeyMinusDays(dateKey, days) {
+        const base = new Date(`${String(dateKey || '').trim()}T00:00:00`);
+        if (Number.isNaN(base.getTime())) return '';
+        base.setDate(base.getDate() - Math.max(0, Number(days) || 0));
+        return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(base.getDate()).padStart(2, '0')}`;
+    }
+
+    isPostponedStatusValue(status) {
+        const key = String(status || '').trim().toLowerCase();
+        return key === 'postponed' || key === 'postpone';
+    }
+
+    isPostponeCopy(task) {
+        if (!task || typeof task !== 'object') return false;
+        return String(task.addedFrom || '').trim().toLowerCase() === 'postponed'
+            || !!String(task.postponedFromDate || '').trim();
+    }
+
+    /**
+     * Re-plan postponed work once its target date has arrived, and surface
+     * stranded 'postponed' tasks that never produced a successor copy.
+     *
+     * Two jobs in a single read/write pass over personal plans in
+     * [sinceDate..targetDate]:
+     *
+     * 1. Arrived postpone copies (addedFrom === 'postponed' / postponedFromDate
+     *    but still stored as status 'postponed') are reactivated in place:
+     *    past-dated copies become 'to-be-started' (derives to overdue at
+     *    display) and copies dated targetDate become 'in-process' when work
+     *    had started, else 'to-be-started'.
+     * 2. Stranded sources (no successor copy anywhere, source sits on an
+     *    earlier day) are moved onto targetDate — mirroring updateTaskDate —
+     *    so they reappear in the day plan instead of rotting as 'postponed'.
+     *
+     * Tasks whose postpone chain still continues (a copy declares this task as
+     * its source) or whose postponedToDate is still in the future are left
+     * untouched. Successor matching uses the exact lineage key
+     * (sourcePlanId::sourceTaskIndex) plus a plan+date fallback so index drift
+     * from later editor saves cannot create duplicate tasks.
+     *
+     * Like carry-forward, this only normalizes stored statuses: no AppRating
+     * calls (rating derives status from date+status when it scores).
+     *
+     * @param {string} date - Target date (YYYY-MM-DD)
+     * @param {object} [options]
+     * @param {string[]} [options.userIds] - Restrict to these plan owners (empty = all owners)
+     * @param {string} [options.sinceDate] - Lower date bound override (default: look-back window)
+     * @param {number} [options.lookbackDays] - Look-back window override in days
+     * @returns {Promise<{reactivated: number, moved: number, updatedPlans: string[]}>}
+     */
+    async replanPostponedForDate(date, options = {}) {
+        const targetDate = String(date || '').trim();
+        const empty = { reactivated: 0, moved: 0, updatedPlans: [] };
+        if (!targetDate || !this.db.queryMany) return empty;
+
+        const lookbackDays = Number(options.lookbackDays);
+        const effectiveLookback = Number.isFinite(lookbackDays) && lookbackDays >= 0
+            ? lookbackDays
+            : (Number(AppConfig?.POSTPONE_REPLAN?.LOOKBACK_DAYS) || 180);
+        const sinceDate = String(options.sinceDate || '').trim()
+            || this.getDateKeyMinusDays(targetDate, effectiveLookback);
+        if (!sinceDate || sinceDate > targetDate) return empty;
+
+        const userIds = (Array.isArray(options.userIds) ? options.userIds : [])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean);
+
+        const baseFilters = [
+            { field: 'date', operator: '>=', value: sinceDate },
+            { field: 'date', operator: '<=', value: targetDate }
+        ];
+        let loaded;
+        try {
+            if (userIds.length === 1) {
+                loaded = await this.db.queryMany('work_plans', [
+                    ...baseFilters,
+                    { field: 'userId', operator: '==', value: userIds[0] }
+                ]);
+            } else if (userIds.length > 1) {
+                const perUser = await Promise.all(userIds.map((uid) => this.db.queryMany('work_plans', [
+                    ...baseFilters,
+                    { field: 'userId', operator: '==', value: uid }
+                ])));
+                loaded = perUser.flat();
+            } else {
+                loaded = await this.db.queryMany('work_plans', baseFilters);
+            }
+        } catch (err) {
+            console.warn('replanPostponedForDate work_plans query failed:', err);
+            return empty;
+        }
+        if (!Array.isArray(loaded) || loaded.length === 0) return empty;
+
+        const plans = loaded.filter((plan) => {
+            if (!plan || !Array.isArray(plan.plans) || plan.plans.length === 0) return false;
+            const planDate = String(plan.date || '').trim();
+            if (!planDate || planDate < sinceDate || planDate > targetDate) return false;
+            if (this.normalizePlanScope(plan.planScope) !== 'personal') return false;
+            const ownerKey = String(plan.userId || '').trim();
+            if (!ownerKey || ownerKey === 'annual_shared') return false;
+            return true;
+        });
+        if (plans.length === 0) return empty;
+
+        // Pass 0: successor lineage declared by every live postpone copy.
+        const successorKeys = new Set();
+        const fuzzySuccessorKeys = new Set();
+        plans.forEach((plan) => {
+            plan.plans.forEach((task) => {
+                if (!task || task.isRemoved === true) return;
+                if (!this.isPostponeCopy(task)) return;
+                const sourcePlanId = String(task.sourcePlanId || '').trim();
+                if (!sourcePlanId) return;
+                const rawIdx = task.sourceTaskIndex;
+                const sourceIdx = (rawIdx === null || rawIdx === undefined || rawIdx === '') ? NaN : Number(rawIdx);
+                if (Number.isInteger(sourceIdx)) successorKeys.add(`${sourcePlanId}::${sourceIdx}`);
+                const fromDate = String(task.postponedFromDate || '').trim();
+                if (fromDate) fuzzySuccessorKeys.add(`${sourcePlanId}::${fromDate}`);
+            });
+        });
+
+        const workStarted = (task) => {
+            const ws = String(task?.postponeWorkStatus || '').trim();
+            return ws === 'work_started' || ws === 'in_progress';
+        };
+        const arrivedStatusFor = (task, arrivalDate) => (arrivalDate < targetDate || !workStarted(task))
+            ? 'to-be-started'
+            : 'in-process';
+
+        // Pass 1: decide every task against the original indices (no mutations).
+        const reactivations = [];
+        const moves = [];
+        plans.forEach((plan) => {
+            const planDate = String(plan.date || '').trim();
+            const planDateKey = `${String(plan.id || '').trim()}::${planDate}`;
+            plan.plans.forEach((task, idx) => {
+                if (!task || task.isRemoved === true) return;
+                if (!this.isPostponedStatusValue(task.status)) return;
+
+                const postponedTo = String(task.postponedToDate || '').trim();
+                if (postponedTo && postponedTo > targetDate) return;
+
+                const exactKey = `${String(plan.id || '').trim()}::${idx}`;
+                const hasSuccessor = successorKeys.has(exactKey)
+                    || (Boolean(postponedTo) && fuzzySuccessorKeys.has(planDateKey));
+                if (hasSuccessor) return;
+
+                if (this.isPostponeCopy(task)) {
+                    reactivations.push({ plan, idx, status: arrivedStatusFor(task, planDate) });
+                } else if (planDate < targetDate) {
+                    moves.push({ plan, idx, fromDate: planDate });
+                }
+            });
+        });
+
+        // Pass 2: apply reactivations first (status-only, no index changes),
+        // then moves in descending index order per plan so splices stay valid.
+        const dirtyPlans = new Map();
+        let reactivated = 0;
+        let moved = 0;
+
+        reactivations.forEach(({ plan, idx, status }) => {
+            const task = plan.plans[idx];
+            if (!task || !this.isPostponedStatusValue(task.status)) return;
+            task.status = status;
+            plan.updatedAt = new Date().toISOString();
+            dirtyPlans.set(String(plan.id), plan);
+            reactivated += 1;
+        });
+
+        if (moves.length > 0) {
+            const plansById = new Map(plans.map((plan) => [String(plan.id), plan]));
+            const createdPlans = new Map();
+            const getOrCreateTargetPlan = (sourcePlan) => {
+                const ownerKey = String(sourcePlan.userId || '').trim();
+                const planId = this.getWorkPlanId(targetDate, ownerKey, 'personal');
+                const existing = plansById.get(planId) || createdPlans.get(planId);
+                if (existing) return existing;
+                const fresh = {
+                    id: planId,
+                    userId: ownerKey,
+                    userName: String(sourcePlan.userName || ''),
+                    date: targetDate,
+                    plans: [],
+                    planScope: 'personal',
+                    updatedAt: new Date().toISOString()
+                };
+                createdPlans.set(planId, fresh);
+                return fresh;
+            };
+
+            const movesByPlan = new Map();
+            moves.forEach((move) => {
+                const list = movesByPlan.get(move.plan) || [];
+                list.push(move);
+                movesByPlan.set(move.plan, list);
+            });
+
+            for (const [plan, list] of movesByPlan.entries()) {
+                list.sort((a, b) => b.idx - a.idx);
+                const targetPlan = getOrCreateTargetPlan(plan);
+                for (const { idx, fromDate } of list) {
+                    const task = plan.plans[idx];
+                    if (!task || !this.isPostponedStatusValue(task.status)) continue;
+                    plan.plans.splice(idx, 1);
+                    const movedTask = {
+                        ...task,
+                        date: targetDate,
+                        status: arrivedStatusFor(task, targetDate),
+                        postponedFromDate: fromDate,
+                        postponedToDate: targetDate
+                    };
+                    if (String(movedTask.startDate || '') === fromDate) movedTask.startDate = targetDate;
+                    if (String(movedTask.endDate || '') === fromDate) movedTask.endDate = targetDate;
+                    targetPlan.plans.push(movedTask);
+                    moved += 1;
+                }
+                plan.updatedAt = new Date().toISOString();
+                dirtyPlans.set(String(plan.id), plan);
+                targetPlan.updatedAt = new Date().toISOString();
+                dirtyPlans.set(String(targetPlan.id), targetPlan);
+            }
+        }
+
+        const updatedPlans = [];
+        for (const plan of dirtyPlans.values()) {
+            if (!plan) continue;
+            if (Array.isArray(plan.plans) && plan.plans.length === 0) {
+                await this.db.delete('work_plans', String(plan.id));
+            } else {
+                await this.db.put('work_plans', plan);
+            }
+            updatedPlans.push(String(plan.id));
+        }
+        if (updatedPlans.length > 0) this.invalidateCarryForwardCache();
+
+        return { reactivated, moved, updatedPlans };
+    }
+
     getWorkPlanId(date, targetUserId = null, planScope = 'personal') {
         const scope = this.normalizePlanScope(planScope);
         if (scope === 'annual') return `plan_annual_${date}`;
@@ -564,7 +803,11 @@ export class Calendar {
             progressPercent: Number.isFinite(Number(meta.progressPercent)) ? Number(meta.progressPercent) : null,
             progressStatus: meta.progressStatus || null,
             progressNote: meta.progressNote || null,
-            completedDate: meta.completedDate || null
+            completedDate: meta.completedDate || null,
+            // Classification set by callers (e.g. AI agent) at creation time;
+            // scoring reads sizeCategory || aiSizeCategory (analytics.js).
+            aiSizeCategory: meta.aiSizeCategory || null,
+            aiPriorityLevel: meta.aiPriorityLevel || null
         });
 
         workPlan.updatedAt = new Date().toISOString();
@@ -748,7 +991,12 @@ export class Calendar {
             const originDate = this.resolveTaskOriginDate(task);
             let invalid = false;
 
-            if (originDate && originDate < previousDate) {
+            // Origin-date validation applies only to carry-forward lineage
+            // tasks. Postpone-derived and date-moved tasks legitimately carry
+            // older origins (sourcePlanId/startDate) while sitting in today's
+            // plan; treating those as stale carries would delete freshly
+            // reactivated postpone copies and re-planned work.
+            if (hasLineage && originDate && originDate < previousDate) {
                 invalid = true;
             } else if (hasLineage) {
                 if (!originDate || originDate !== previousDate) {

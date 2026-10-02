@@ -22,14 +22,20 @@ import {
 } from './ui/dashboard.js';
 
 import { renderStaffDirectoryPage } from './ui/staff-directory.js';
-import { renderAnnualPlan } from './ui/annual-plan.js';
-import { renderTimesheet } from './ui/timesheet.js';
 import { renderProfile } from './ui/profile.js';
-import { renderMasterSheet } from './ui/master-sheet.js';
-import { renderAdmin } from './ui/admin.js';
-import { renderBirthdayCalendar } from './ui/birthday-calendar.js';
-import { renderSalaryProcessing, renderPolicyTest } from './ui/payroll.js';
 import { renderMinutes } from './ui/minutes-ui.js';
+
+// Bundle shrink: these pages are routed lazily, so each becomes its own chunk
+// instead of inflating the main bundle. Every call site already awaits them,
+// which makes the returned promise transparent.
+const lazyPage = (load, key) => (...args) => load().then(mod => mod[key](...args));
+const renderAnnualPlan = lazyPage(() => import('./ui/annual-plan.js'), 'renderAnnualPlan');
+const renderTimesheet = lazyPage(() => import('./ui/timesheet.js'), 'renderTimesheet');
+const renderMasterSheet = lazyPage(() => import('./ui/master-sheet.js'), 'renderMasterSheet');
+const renderAdmin = lazyPage(() => import('./ui/admin.js'), 'renderAdmin');
+const renderBirthdayCalendar = lazyPage(() => import('./ui/birthday-calendar.js'), 'renderBirthdayCalendar');
+const renderSalaryProcessing = lazyPage(() => import('./ui/payroll.js'), 'renderSalaryProcessing');
+const renderPolicyTest = lazyPage(() => import('./ui/payroll.js'), 'renderPolicyTest');
 import { renderCheckInModal, renderCheckoutModal } from './ui/attendance-modals.js';
 import { renderLogin, renderOwnerLogin, renderOwnerPasswordSetup } from './ui/auth-pages.js';
 import { renderModals } from './ui/global-modals.js';
@@ -41,6 +47,7 @@ import { renderJourneyReflectionCard } from './ui/journey-reflection.js';
 import { initDashboardLayout, toggleEditMode, applyDashboardLayout, isEditModeActive } from './ui/dashboard-layout.js';
 import { renderKanbanBoard, initKanbanBoard, startKanbanRealtimeListener, stopKanbanRealtimeListener } from './ui/kanban-board.js';
 import { renderViewToggle, initViewToggle, ensureViewToggleCSS } from './ui/view-toggle.js';
+import { renderAICenter, initAICenter } from './ui/ai-center.js';
 
 // Re-export for ESM usage
 export {
@@ -90,7 +97,9 @@ export {
     stopKanbanRealtimeListener,
     renderViewToggle,
     initViewToggle,
-    ensureViewToggleCSS
+    ensureViewToggleCSS,
+    renderAICenter,
+    initAICenter
 };
 
 export const AppUI = {
@@ -140,7 +149,9 @@ export const AppUI = {
     stopKanbanRealtimeListener,
     renderViewToggle,
     initViewToggle,
-    ensureViewToggleCSS
+    ensureViewToggleCSS,
+    renderAICenter,
+    initAICenter
 };
 
 

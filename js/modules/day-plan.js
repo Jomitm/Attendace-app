@@ -226,7 +226,8 @@ function getDayPlanPrefetchKey(date, targetUserId = null, forcedScope = null, op
         forcedScope: forcedScope === 'annual' ? 'annual' : 'personal',
         hideAutoForwardedTasks: options?.hideAutoForwardedTasks === true,
         skipCarryForwardSync: options?.skipCarryForwardSync === true,
-        skipCarryForwardCleanup: options?.skipCarryForwardCleanup === true
+        skipCarryForwardCleanup: options?.skipCarryForwardCleanup === true,
+        skipPostponedReplan: options?.skipPostponedReplan === true
     });
 }
 
@@ -251,7 +252,8 @@ function getDayPlanPrefetchRecord(date, targetUserId = null, forcedScope = null,
         options: {
             hideAutoForwardedTasks: options?.hideAutoForwardedTasks === true,
             skipCarryForwardSync: options?.skipCarryForwardSync === true,
-            skipCarryForwardCleanup: options?.skipCarryForwardCleanup === true
+            skipCarryForwardCleanup: options?.skipCarryForwardCleanup === true,
+            skipPostponedReplan: options?.skipPostponedReplan === true
         },
         expiresAt: now + DAY_PLAN_PREFETCH_TTL_MS,
         dataPromise: null,
@@ -1730,7 +1732,8 @@ function scheduleDayPlanMaintenance({ date, targetId, _forcedScope, options, mod
     const todayKey = AppCalendar?.getTodayKey ? AppCalendar.getTodayKey() : '';
     const needsCarryForward = !options?.skipCarryForwardSync && AppCalendar?.ensureCarryForwardForDate && date <= todayKey;
     const needsCleanup = !options?.skipCarryForwardCleanup && AppCalendar?.cleanupInvalidTodayCarryForward && date === todayKey;
-    if (!needsCarryForward && !needsCleanup) return;
+    const needsPostponedReplan = !options?.skipPostponedReplan && AppCalendar?.replanPostponedForDate && date <= todayKey;
+    if (!needsCarryForward && !needsCleanup && !needsPostponedReplan) return;
 
     // Skip maintenance if already done for this (date, targetId) in this session.
     // Cleared automatically when a work_plans write event fires (see app:db-write listener above).
@@ -1751,6 +1754,15 @@ function scheduleDayPlanMaintenance({ date, targetId, _forcedScope, options, mod
                 changed = changed || Number(cleanupResult?.removed || 0) > 0;
                 if ((cleanupResult?.removed || 0) > 0) {
                     console.log(`Day plan cleanup removed ${cleanupResult.removed} invalid carry-forward task(s) for ${targetId} on ${date}.`);
+                }
+            }
+
+            if (needsPostponedReplan) {
+                try {
+                    const replan = await AppCalendar.replanPostponedForDate(date, { userIds: [targetId] });
+                    changed = changed || Number(replan?.reactivated || 0) > 0 || Number(replan?.moved || 0) > 0;
+                } catch (err) {
+                    console.warn('Postponed task re-plan failed:', err);
                 }
             }
 

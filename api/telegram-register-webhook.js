@@ -1,4 +1,3 @@
-const crypto = require('crypto');
 const { getDb } = require('./_firebase-admin');
 
 module.exports = async (req, res) => {
@@ -57,7 +56,7 @@ module.exports = async (req, res) => {
             res.end(JSON.stringify({ ok: false, error: 'Only admin can register webhook' }));
             return;
         }
-    } catch (e) {
+    } catch {
         res.statusCode = 500;
         res.end(JSON.stringify({ ok: false, error: 'Failed to verify admin' }));
         return;

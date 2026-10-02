@@ -2060,7 +2060,7 @@ function initMinutesHandlers() {
             return;
         }
 
-        const freshUsers = window.AppDB?.getAll ? await window.AppDB.getAll('users') : _state.allUsers;
+        const freshUsers = window.AppUserService ? await window.AppUserService.getAll() : _state.allUsers;
         _state.allUsers = freshUsers;
 
         let container = document.getElementById('modal-container');
@@ -2118,7 +2118,7 @@ export async function renderMinutes() {
     injectMinutesStyles();
 
     const minutes    = await window.AppMinutes.getMinutes();
-    const allUsers   = window.AppDB?.getAll ? await window.AppDB.getAll('users') : [];
+    const allUsers   = window.AppUserService ? await window.AppUserService.getAll() : [];
     const currentUser = window.AppAuth.getUser();
     const calendarPlans = window.AppCalendar
         ? await window.AppCalendar.getPlans()

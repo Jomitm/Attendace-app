@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Date formatting helpers used across the app.
  */

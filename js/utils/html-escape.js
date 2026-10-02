@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * HTML / attribute escaping helpers used across the app.
  */

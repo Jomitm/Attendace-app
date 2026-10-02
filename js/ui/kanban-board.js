@@ -727,7 +727,7 @@ export function startKanbanRealtimeListener() {
 
     // Prime the signature on first load
     setTimeout(() => {
-        window.AppDB.getAll('work_plans').then(rows => {
+        window.AppAnalyticsService.getWorkPlans().then(rows => {
             kanbanLastSnapshotSig = String((rows || []).length);
         }).catch(() => {});
     }, 1500);

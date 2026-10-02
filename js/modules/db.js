@@ -742,7 +742,8 @@ export class Database {
             let ref = this.db.collection(collectionName);
             ref = this.applyFilters(ref, filters);
             ref = this.applyOptions(ref, options);
-            const snapshot = await ref.get();
+            const source = options?.source === 'server' ? { source: 'server' } : undefined;
+            const snapshot = await ref.get(source);
             const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
             this.track('queryMany', collectionName, data.length);
             return data;

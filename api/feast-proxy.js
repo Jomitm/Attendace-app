@@ -26,7 +26,7 @@ module.exports = async (req, res) => {
         res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.end(text);
-    } catch (err) {
+    } catch {
         res.statusCode = 500;
         res.setHeader('Content-Type', 'text/plain');
         res.end('Internal server error');

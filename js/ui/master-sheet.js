@@ -9,7 +9,7 @@ import { AppConfig } from '../config.js';
 export async function renderMasterSheet(month = null, year = null) {
     const currentUser = window.AppAuth.getUser();
     const canAdminAttendance = window.app_hasPerm('attendance', 'admin', currentUser);
-    const users = (await window.AppDB.getAll('users')).filter(u => !AppConfig.isDemoUser(u));
+    const users = (await window.AppUserService.getAll()).filter(u => !AppConfig.isDemoUser(u));
 
     const now = new Date();
     const currentMonth = month !== null ? parseInt(month) : now.getMonth();
@@ -38,7 +38,7 @@ export async function renderMasterSheet(month = null, year = null) {
         filteredLogs = logs.filter(l => l.date <= endDateStr);
     } catch (e) {
         console.warn("MasterSheet: query failed, fetching all attendance logs", e);
-        const allLogs = await window.AppDB.getAll('attendance');
+        const allLogs = await window.AppAttendanceService.getAll({ force: true });
         filteredLogs = allLogs.filter(l => l.date >= startDateStr && l.date <= endDateStr);
     }
 
@@ -50,7 +50,7 @@ export async function renderMasterSheet(month = null, year = null) {
                 { field: 'date', operator: '<=', value: endDateStr }
             ]);
         } else {
-            const allEvents = await window.AppDB.getAll('events');
+            const allEvents = await window.AppAnalyticsService.getEvents({ force: true });
             monthEvents = (allEvents || []).filter((event) => {
                 const date = String(event?.date || '').trim();
                 return date >= startDateStr && date <= endDateStr;

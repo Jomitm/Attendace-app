@@ -27,6 +27,15 @@ import './modules/day-plan.js';
 import { recordClassification } from './modules/task-classification-learning.js';
 import './modules/widget.js';
 import './ui/site-announcement.js';
+// Service layer — wraps AppDB with caching for UI components
+import './services/user-service.js';
+import './services/attendance-service.js';
+import './services/leave-service.js';
+import './services/analytics-service.js';
+import './services/settings-service.js';
+import './services/minutes-service.js';
+import './services/event-service.js';
+import './services/metrics-service.js';
 // Local aliases so legacy bare references inside this file keep working.
 const app_normalizeBudgetHeadId = window.app_normalizeBudgetHeadId;
 
@@ -3575,6 +3584,9 @@ async function router() {
             if (typeof AppUI.startKanbanRealtimeListener === 'function') {
                 AppUI.startKanbanRealtimeListener();
             }
+        } else if (hash === 'ai-center') {
+            contentArea.innerHTML = await AppUI.renderAICenter();
+            await AppUI.initAICenter();
         }
         await window.app_syncBirthdayReminders?.();
         if (window.app_updateStaffNavIndicator) {
@@ -7043,7 +7055,8 @@ async function handleAttendance() {
                 await window.AppDayPlan.openDayPlan(getLocalISO(), null, null, {
                     hideAutoForwardedTasks: true,
                     skipCarryForwardSync: true,
-                    skipCarryForwardCleanup: true
+                    skipCarryForwardCleanup: true,
+                    skipPostponedReplan: true
                 });
             }
         } else {
@@ -12140,6 +12153,9 @@ window.app_forceRefresh = async () => {
     clearReleaseUpdateState(true);
     window.location.reload();
 };
+
+// Floating AI Assistant (global, all hashes)
+import('./ui/ai-float.js').then(m => m.mountAiFloating?.()).catch(e => console.warn('[AIFloat] mount failed', e));
 
 // Initialization
 init();

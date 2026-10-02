@@ -318,7 +318,6 @@ async function handleBalance(db, user) {
 
     const today = new Date();
     const year = today.getFullYear();
-    const month = today.getMonth();
 
     const leavesSnap = await db.collection('leaves')
         .where('userId', '==', user.id)

@@ -4,7 +4,6 @@
  */
 
 import { safeHtml } from './helpers.js';
-import { AppDB } from '../modules/db.js';
 import { onAction } from '../utils/action-router.js';
 
 const SETTINGS_COLLECTION = 'settings';
@@ -15,7 +14,7 @@ let cachedRecipients = null;
 async function loadRecipients() {
     if (cachedRecipients) return cachedRecipients;
     try {
-        const doc = await AppDB.get(SETTINGS_COLLECTION, SETTINGS_DOC_ID);
+        const doc = await window.AppDB.get(SETTINGS_COLLECTION, SETTINGS_DOC_ID);
         cachedRecipients = Array.isArray(doc?.recipients) ? doc.recipients : [];
     } catch {
         cachedRecipients = [];
@@ -28,7 +27,7 @@ async function saveRecipients(recipients) {
         .map((r) => String(r || '').trim().toLowerCase())
         .filter(Boolean);
     const unique = [...new Set(cleaned)];
-    await AppDB.put(SETTINGS_COLLECTION, {
+    await window.AppDB.put(SETTINGS_COLLECTION, {
         id: SETTINGS_DOC_ID,
         recipients: unique,
         updatedAt: Date.now()
@@ -52,7 +51,7 @@ async function removeRecipient(username) {
 
 async function fetchAllUsernames() {
     try {
-        const users = await AppDB.getAll('users');
+        const users = await window.AppUserService.getAll();
         return users
             .map((u) => String(u.username || '').trim().toLowerCase())
             .filter(Boolean)

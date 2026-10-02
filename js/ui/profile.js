@@ -12,7 +12,7 @@ export async function renderProfile() {
         if (!user) return '<div class="card">User state lost. Please <a href="#" onclick="window.AppAuth.logout()">Login Again</a></div>';
 
         const isAdmin = user.role === 'Administrator' || user.isAdmin;
-        const allUsers = isAdmin ? await window.AppDB.getAll('users') : [];
+        const allUsers = isAdmin ? await window.AppUserService.getAll() : [];
         const targetProfileId = (isAdmin && window.app_profileTargetUserId) ? window.app_profileTargetUserId : user.id;
         const profileUser = (isAdmin ? (allUsers.find(u => u.id === targetProfileId) || user) : user);
 

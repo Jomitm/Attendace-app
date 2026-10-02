@@ -87,16 +87,11 @@ export async function renderAnnualPlan() {
     const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
     const year = window.app_annualYear || today.getFullYear();
     const plans = await window.AppCalendar.getPlans();
-    const users = await window.AppDB.getAll('users').catch(() => []);
+    const users = await window.AppUserService.getAll().catch(() => []);
     const yearStart = `${year}-01-01`;
     const yearEnd = `${year}-12-31`;
     const attendanceLogs = await (
-        window.AppDB.queryMany
-            ? window.AppDB.queryMany('attendance', [
-                { field: 'date', operator: '>=', value: yearStart },
-                { field: 'date', operator: '<=', value: yearEnd }
-            ]).catch(() => window.AppDB.getAll('attendance'))
-            : window.AppDB.getAll('attendance')
+        window.AppAttendanceService.getByDateRange(yearStart, yearEnd, { force: true })
     ).catch(() => []);
     window._currentPlans = plans;
     const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];

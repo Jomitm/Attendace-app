@@ -214,7 +214,7 @@ const loadMigratedProfiles = async () => {
     const user = getUser();
     if (!window.AppDB?.getAll) return [];
     try {
-        const rows = await window.AppDB.getAll('letter_pad_profiles', { silentPermissionDenied: true });
+        const rows = await window.AppSettingsService.getLetterPadProfiles();
         if (!Array.isArray(rows) || !rows.length) return [];
         const filtered = rows.filter((row) => {
             const owner = String(row?.ownerId || row?.userId || row?.createdById || '').trim();

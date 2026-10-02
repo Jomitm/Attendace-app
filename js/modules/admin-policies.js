@@ -129,7 +129,7 @@ export const AdminPolicies = {
             null,
             [
                 renderNumberField({ label: 'Scoring Period (days)', name: 'hero_windowDays', value: heroPolicy.WINDOW_DAYS ?? heroDefaults.WINDOW_DAYS ?? 7, step: '1', min: '1' }),
-                renderNumberField({ label: 'Expected Hours/Day', name: 'hero_attendanceConsistencyImpact', value: heroAttendance.consistencyImpact ?? 8, step: '0.5', min: '1', max: '16' }),
+                renderNumberField({ label: 'Expected Hours/Day', name: 'hero_attendanceConsistencyImpact', value: heroAttendance.expectedHoursPerDay ?? heroAttendance.consistencyImpact ?? 8, step: '0.5', min: '1', max: '16' }),
                 renderNumberField({ label: 'Max Hours Bonus (pts)', name: 'hero_attendanceMaxBonus', value: heroAttendance.maxBonus ?? 10, step: '1', min: '0', max: '25', help: 'Bonus for working long hours. 0 = off.' }),
                 renderNumberField({ label: 'Max Pauses/Day', name: 'hero_maxPausesPerDay', value: (heroPolicy.PAUSE_DISCIPLINE || heroDefaults.PAUSE_DISCIPLINE || {}).maxPausesPerDay ?? 3, step: '1', min: '0', max: '10', help: 'More pauses than this = punctuality penalty.' }),
                 renderNumberField({ label: 'Max Pause Mins/Day', name: 'hero_maxPauseMinsPerDay', value: (heroPolicy.PAUSE_DISCIPLINE || heroDefaults.PAUSE_DISCIPLINE || {}).maxPauseMinsPerDay ?? 45, step: '5', min: '0', max: '120', help: 'Longer pauses than this = punctuality penalty.' }),
@@ -306,6 +306,9 @@ export const AdminPolicies = {
             const rawConsistencyImpact = Number(getNumber('hero_attendanceConsistencyImpact', nextHeroPolicy.ATTENDANCE_MODIFIER.consistencyImpact));
             const migratedConsistencyImpact = (rawConsistencyImpact >= 0 && rawConsistencyImpact < 2) ? 8 : rawConsistencyImpact;
             nextHeroPolicy.ATTENDANCE_MODIFIER.consistencyImpact = Math.max(1, Number.isFinite(migratedConsistencyImpact) ? migratedConsistencyImpact : 8);
+            // Same value under the canonical key so saved policies never carry
+            // diverging copies of expectedHoursPerDay vs consistencyImpact.
+            nextHeroPolicy.ATTENDANCE_MODIFIER.expectedHoursPerDay = nextHeroPolicy.ATTENDANCE_MODIFIER.consistencyImpact;
 
             const rawMaxBonus = Number(getNumber('hero_attendanceMaxBonus', nextHeroPolicy.ATTENDANCE_MODIFIER.maxBonus));
             const migratedMaxBonus = (rawMaxBonus >= 0 && rawMaxBonus < 1 && rawMaxBonus !== 0) ? 10 : rawMaxBonus;

@@ -23,6 +23,14 @@ export class Leaves {
     mergeHeroPolicy(overrides = {}) {
         const base = AppConfig?.HERO_POLICY || {};
         const stored = overrides && typeof overrides === 'object' ? overrides : {};
+        const storedAttendance = { ...(stored.ATTENDANCE_MODIFIER || {}) };
+        // Historic stored overrides only carry `consistencyImpact` (the legacy
+        // name for expected hours/day). Promote it to the canonical key here,
+        // where base-vs-stored provenance is known — otherwise the base default
+        // would shadow stored tuning once readers prefer expectedHoursPerDay.
+        if (storedAttendance.expectedHoursPerDay === undefined && Number.isFinite(Number(storedAttendance.consistencyImpact))) {
+            storedAttendance.expectedHoursPerDay = Number(storedAttendance.consistencyImpact);
+        }
         return {
             ...base,
             ...stored,
@@ -52,7 +60,7 @@ export class Leaves {
             },
             ATTENDANCE_MODIFIER: {
                 ...(base.ATTENDANCE_MODIFIER || {}),
-                ...(stored.ATTENDANCE_MODIFIER || {})
+                ...storedAttendance
             },
             PAUSE_DISCIPLINE: {
                 ...(base.PAUSE_DISCIPLINE || {}),
