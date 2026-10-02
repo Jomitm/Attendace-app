@@ -10,7 +10,7 @@ Firebase-backed attendance management system for CRWI staff. Vanilla JS (no fram
 
 - **Build**: Vite 7, vanilla JS ES modules
 - **Database**: Firebase Firestore (compat SDK v9.23 loaded via `<script>` in `index.html`)
-- **Auth**: Client-side session in localStorage (`crwi_session_user`)
+- **Auth**: Password login verified server-side (`api/auth-login.js`) issues a Firebase custom token (`signInWithCustomToken`); session cached in localStorage (`crwi_session_user`, device token `crwi_session_token`)
 - **Hosting**: Vercel (`vercel.json` configures SPA rewrites + cron jobs)
 - **PWA**: Service worker (`sw.js` generated at build), manifest.json
 
@@ -22,13 +22,14 @@ Firebase-backed attendance management system for CRWI staff. Vanilla JS (no fram
 npm install              # install deps
 npm run dev              # Vite dev server on :3000 (opens browser)
 npm run build            # Vite build → dist/
-npm run lint             # ESLint flat config
+npm run lint             # ESLint flat config (js/, tests/, api/)
+npm run typecheck        # tsc via jsconfig.json — // @ts-check files, strict minus noImplicitAny
 npm run test:unit        # Node.js native test runner (tests/unit/*.test.mjs)
-npm run test:smoke       # Playwright smoke tests (tests/smoke/)
-npm test                 # lint + unit + smoke
+npm run test:smoke       # Playwright — currently unavailable (tests/smoke/ absent, see Testing)
+npm test                 # lint + unit + smoke (fails at smoke until tests/smoke/ is restored)
 ```
 
-**Smoke tests require a build first** — the test server (`test_server.ps1`) serves from `dist/`, not source. Run `npm run build` before `npm run test:smoke` if `dist/` is stale.
+**Smoke tests are currently unavailable** — `playwright.config.js` still points at `tests/smoke/`, which does not exist in the working tree (spec recoverable from git history, e.g. commit `779d53c`). When restored: run `npm run build` first — the test server (`test_server.ps1`) serves from `dist/`, not source.
 
 ### Quick Start
 
@@ -45,8 +46,8 @@ npx vite
 
 ## Testing
 
-- **Unit tests**: `tests/unit/*.test.mjs` — Node.js native `--test` runner, no framework
-- **Smoke tests**: `tests/smoke/*.spec.js` — Playwright, Chromium only
+- **Unit tests**: `tests/unit/*.test.mjs` — Node.js native `--test` runner, no framework (scoring formula, perf windows, render-level UI, API validators)
+- **Smoke tests**: NOT AVAILABLE — `tests/smoke/` is absent; `playwright.config.js` declares `testDir: ./tests/smoke`, chromium only
 - **Test server**: `test_server.ps1` binds port 8080 (fallback 3004), serves `dist/`
 - **Override target**: `$env:BASE_URL="http://localhost:3004"; npm run test:smoke`
 
@@ -60,7 +61,7 @@ js/app.js           ← main orchestrator (~12k lines), imports all modules, han
 js/config.js        ← AppConfig: timings, policies, feature flags, hero policy
 js/modules/         ← domain modules (auth, db, attendance, leaves, analytics, etc.)
 js/ui.js            ← UI rendering dispatcher
-js/ui/              ← page-specific UI components (30 files)
+js/ui/              ← page-specific UI components (33 files)
 js/utils/           ← date-helpers, html-escape, action-router, telegram, ical
 css/                ← stylesheets (main.css, kanban.css, dashboard-modern.css, etc.)
 api/                ← Vercel serverless functions
@@ -80,6 +81,7 @@ scripts/            ← build helpers (build-meta.cjs, generate-build-assets.cjs
 | `permissions.js` | Role-based access (admin, hr, staff) |
 | `day-plan.js` | Daily work plan with carry-forward |
 | `admin-policies.js` | Admin UI for tuning policies |
+| `ai-performance-coach.js` | Daily AI performance narrative + task classification backfill |
 
 ### Key UI Components
 
@@ -95,16 +97,27 @@ scripts/            ← build helpers (build-meta.cjs, generate-build-assets.cjs
 
 | Endpoint | Purpose |
 |----------|---------|
-
+| `api/auth-login.js` | Password login → Firebase custom token |
+| `api/auth-set-password.js` | Set/change account password |
+| `api/ai-insights.js` | AI chat/insights (classify, performance, tool plans) |
+| `api/hero-select.js` | AI Hero-of-the-Week pick (stored per period in `hero_selections`; falls back to normal ranking) |
+| `api/ai-briefing.js` | Cron: Telegram morning briefing for opted-in users |
 | `api/calendar-feed.js` | iCal feed for Outlook/Google Calendar |
 | `api/calendar-token.js` | Generate secure calendar tokens |
+| `api/feast-proxy.js` | Feast proxy (also wired into Vite dev) |
 | `api/telegram-webhook.js` | Telegram bot webhook handler |
 | `api/telegram-send.js` | Send Telegram messages |
-| `api/telegram-scheduler.js` | Cron-triggered notifications (absentee, standup, leaderboard) |
+| `api/telegram-scheduler.js` | Cron: notifications (absentee, standup, leaderboard) |
+| `api/telegram-register-webhook.js` | Admin: register bot webhook |
+| `api/telegram-generate-link.js` | Telegram deep-link generation |
+
+Shared helpers (not endpoints): `_ai-provider.js` (model chain; `.cjs` mirror required by `vite.config.js`), `_firebase-admin.js`, `_perf-snapshot.js` (pure snapshot validator, unit-tested).
 
 ### Firestore Collections
 
-`users`, `attendance`, `leaves`, `minutes`, `staff_messages`, `location_audits`, `work_plans`, `meetings`, `salaries`, `system_commands`, `settings`, `events`, `daily_summaries`, `daily_summaries_meta`, `summary_locks`, `journey_reflections`, `app_meta`, `policies`, `admin_policies`, `annual_plan`, `day_plan`, `budget_heads`, `task_activity_events`
+`users`, `attendance`, `leaves`, `minutes`, `staff_messages`, `location_audits`, `work_plans`, `meetings`, `salaries`, `system_commands`, `settings`, `events`, `daily_standups`, `daily_summaries`, `daily_summaries_meta`, `summary_locks`, `journey_reflections`, `app_meta`, `policies`, `budget_heads`, `task_activity_events`, `telegram_link_tokens`, `ai_usage` (per-user daily chat-question counter, UTC day keys — `api/_ai-quota.js`), `hero_selections` (AI hero pick per ranking period — server-only, `api/hero-select.js`)
+
+(Not collections: `admin_policies`, `annual_plan`, `day_plan` — admin policy writes go through `AppLeaves.updatePolicy` → `policies`; annual/day plans live in `work_plans` with `planScope`.)
 
 ## Gotchas
 
@@ -118,14 +131,19 @@ scripts/            ← build helpers (build-meta.cjs, generate-build-assets.cjs
 - **Check-in flow**: When status is "out", `handleAttendance()` renders a goal-setting modal (`renderCheckInModal`) instead of checking in directly. The modal calls `window.app_submitCheckIn()` which handles location, conflict detection, and day-plan creation.
 - **Cross-device conflict detection**: `app_submitCheckIn` checks `checkInResult.conflict` and shows `app_showSyncToast()` if another device already checked in.
 - **Vite config**: `vite.config.js` has `open: true` — browser auto-launches on `npx vite`. Custom plugin serves feast proxy (`/api/feast-proxy`) in dev mode.
+- **Lazy AppUI pages**: `js/ui.js` lazy-loads admin, master-sheet, annual-plan, payroll, timesheet, birthday-calendar via `import()` — every `AppUI.render*` call site must `await` them (all current call sites do).
+- **`_ai-provider.cjs` mirror**: required by `vite.config.js` (dev AI proxy) — NOT an orphan. Keep it in sync with `api/_ai-provider.js`.
 
 ## Environment
 
-Copy `.env.example` to `.env`:
+Copy `.env.example` to `.env`. `OPENROUTER_API_KEY` is **required for the CRWI Assistant** — without it `/api/ai-insights` silently returns fixed rule-based answers (the chat UI now surfaces an "Offline — AI provider unavailable" note when that happens):
 ```
+OPENROUTER_API_KEY=sk-or-...
 OPENROUTER_HTTP_REFERER=http://localhost:3004
 OPENROUTER_APP_TITLE=CRWI Attendance App
 ```
+
+`AI_DAILY_QUESTION_LIMIT` (default `5`) caps chat questions per user per UTC day (`api/_ai-quota.js`, counter in `ai_usage`; 429 → both chat surfaces show a limit notice). Tool-plan pre-check/classify/coach/insights are exempt.
 
 Firebase config is hardcoded in `index.html` (public client keys, not secret).
 

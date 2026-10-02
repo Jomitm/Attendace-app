@@ -83,3 +83,25 @@ js/agentation-*.js
 
 # Deprecated / misc
 nemotron.js
+
+# ── Secrets — never commit ──
+*service-account*.json
+*firebase-adminsdk*.json
+*.pem
+*.p12
+
+# ── Env catch-all (keep the tracked examples) ──
+.env.*
+!.env.example
+!.env.local.example
+
+# ── JS tooling caches ──
+.eslintcache
+*.tsbuildinfo
+blob-report/
+
+# ── Windows / Office junk ──
+Desktop.ini
+ehthumbs.db
+~$*
+*.code-workspace

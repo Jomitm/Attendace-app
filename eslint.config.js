@@ -35,6 +35,25 @@ module.exports = [
     }
   },
   {
+    files: ["api/**/*.js"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      globals: {
+        ...globals.node,
+        ...globals.es2021
+      }
+    },
+    rules: {
+      ...js.configs.recommended.rules,
+      "no-undef": "error",
+      "no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+      "eqeqeq": ["error", "always", { "null": "ignore" }],
+      "no-redeclare": "error",
+      "no-empty": ["error", { "allowEmptyCatch": true }]
+    }
+  },
+  {
     files: ["tests/**/*.js"],
     languageOptions: {
       ecmaVersion: "latest",
