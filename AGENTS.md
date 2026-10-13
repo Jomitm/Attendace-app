@@ -57,8 +57,14 @@ Single-page app with hash-based routing (`#dashboard`, `#staff-directory`, `#kan
 
 ```
 index.html          ← entry point, loads Firebase SDK + app.js
-js/app.js           ← main orchestrator (~12k lines), imports all modules, handles routing
+js/app.js           ← main orchestrator (~9k lines), imports feature modules, handles routing
 js/config.js        ← AppConfig: timings, policies, feature flags, hero policy
+js/features/        ← feature modules (extracted from app.js)
+  ├── birthdays.js          ← birthday editor, calendar, reminders, sync
+  ├── hover-help.js         ← hover tooltip system, page usage notes
+  ├── app-setup.js          ← nav, theme, hidden sheets, SW registration
+  ├── notifications.js      ← bell, history drawer, helpers
+  ├── modals-carryforward.js ← modal helpers, carry-forward logic
 js/modules/         ← domain modules (auth, db, attendance, leaves, analytics, etc.)
 js/ui.js            ← UI rendering dispatcher
 js/ui/              ← page-specific UI components (33 files)
@@ -82,6 +88,16 @@ scripts/            ← build helpers (build-meta.cjs, generate-build-assets.cjs
 | `day-plan.js` | Daily work plan with carry-forward |
 | `admin-policies.js` | Admin UI for tuning policies |
 | `ai-performance-coach.js` | Daily AI performance narrative + task classification backfill |
+
+### Feature Modules (js/features/)
+
+| Module | Purpose | Lines |
+|--------|---------|-------|
+| `birthdays.js` | Birthday editor, calendar, reminders, sync | 793 |
+| `hover-help.js` | Hover tooltip system, page usage notes | 410 |
+| `app-setup.js` | Nav, theme, hidden sheets, SW registration | 364 |
+| `notifications.js` | Bell, history drawer, helpers | 445 |
+| `modals-carryforward.js` | Modal helpers, carry-forward logic | 229 |
 
 ### Key UI Components
 
