@@ -6,13 +6,18 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const appPath = join(root, 'js', 'app.js');
 
 const allLines = readFileSync(appPath, 'utf8').split('\n');
-const part1Start = 404;
+const part1Start = 409;
 const part1End = 646;
 const part2Start = 650;
-const part2End = 777;
+const part2End = 776;
 
 const part1 = allLines.slice(part1Start, part1End).join('\n');
 const part2 = allLines.slice(part2Start, part2End).join('\n');
+
+console.log('part1Start:', part1Start, 'part1End:', part1End);
+console.log('part1 length:', part1.length);
+console.log('part1 first 200 chars:', part1.substring(0, 200));
+console.log('part1 has target:', part1.includes('window.app_getNavSectionCollapsed'));
 
 if (!part1.includes('window.app_getNavSectionCollapsed')) throw new Error('part1 start mismatch');
 if (!part2.includes('appServiceWorkerRegistration = await navigator.serviceWorker.register')) throw new Error('part2 end mismatch');
@@ -28,19 +33,31 @@ for (const part of [part1, part2]) {
     }
 }
 
-const extraExports = [
-    // 'initAppSetup',  // handled by function declaration
+const functionNames = [
+    'app_showModal', 'app_openModal', 'app_renderCarryForwardIssues',
+    'app_removeCarryForwardIssues', 'app_findCarryForwardIssues',
+    'app_applyShowHiddenSheetsToggle', 'app_initTheme', 'app_toggleTheme',
+    'app_getShowHiddenSheets', 'app_setShowHiddenSheets', 'app_toggleShowHiddenSheets',
+    'app_applyShowHiddenSheetsToggle', 'app_startAutoCollapseTimer', 'app_resetAutoCollapseTimer',
+    'app_autoCollapseSections', 'app_updateNavigationSections',
+    'app_getNavSectionCollapsed', 'app_setNavSectionCollapsed', 'app_toggleNavSection',
+    'registerSW'
 ];
-extraExports.forEach(e => exports.add(e));
 
-// Function declarations in the extracted block that need re-export
-const functionExports = ['registerSW', 'updateThemeIcons'];
-functionExports.forEach(e => exports.add(e));
-
-const exportBlock = '\n// Exports for init(), generated HTML, and other modules\n' +
-    Array.from(exports).sort().filter(name => !['registerSW', 'initAppSetup', 'updateThemeIcons'].includes(name)).map(name => `export const ${name} = ${name};`).join('\n') + '\n' +
-    '\n// Function declarations (re-export)\n' +
-    ['registerSW', 'updateThemeIcons'].map(name => `export { ${name} };`).join('\n') + '\n';
+for (const name of functionNames) {
+    moduleBlock = moduleBlock.replace(
+        new RegExp(`window\\.${name}\\s*=\\s*async\\s*\\(`, 'g'),
+        `const ${name} = async (`
+    );
+    moduleBlock = moduleBlock.replace(
+        new RegExp(`window\\.${name}\\s*=\\s*function\\s*\\(`, 'g'),
+        `const ${name} = function (`
+    );
+    moduleBlock = moduleBlock.replace(
+        new RegExp(`window\\.${name}\\s*=\\s*\\(([^)]*)\\)\\s*=>`, 'g'),
+        `const ${name} = ($1) =>`
+    );
+}
 
 const moduleContent = `// App setup: navigation, theme, hidden sheets, service worker.
 // Extracted verbatim from js/app.js during the decomposition refactor.
@@ -75,11 +92,11 @@ export const initAppSetup = () => {
 
 ` + '\n// Exports for init(), generated HTML, and other modules\n' +
     Array.from(new Set([
-        'registerSW', 'app_initTheme', 'app_initSectionToggle', 'app_updateNavigationSections',
+        'app_initTheme', 'app_initSectionToggle', 'app_updateNavigationSections',
         'app_getNavSectionCollapsed', 'app_setNavSectionCollapsed', 'app_toggleNavSection',
         'app_getShowHiddenSheets', 'app_setShowHiddenSheets', 'app_toggleShowHiddenSheets',
         'app_applyShowHiddenSheetsToggle', 'app_startAutoCollapseTimer', 'app_resetAutoCollapseTimer',
-        'app_autoCollapseSections', 'updateThemeIcons'
+        'app_autoCollapseSections'
     ])).sort().filter(name => !['registerSW', 'initAppSetup', 'updateThemeIcons'].includes(name)).map(name => `export const ${name} = ${name};`).join('\n') + '\n' +
     '\n// Function declarations (re-export)\n' +
     ['registerSW', 'updateThemeIcons'].map(name => `export { ${name} };`).join('\n') + '\n';
@@ -88,9 +105,9 @@ mkdirSync('js/features', { recursive: true });
 writeFileSync('js/features/app-setup.js', moduleContent);
 console.log('wrote js/features/app-setup.js');
 
-const before = allLines.slice(0, 404);
+const before = allLines.slice(0, 409);
 const middle = allLines.slice(646, 650);
-const after = allLines.slice(777);
+const after = allLines.slice(776);
 
 const importLine = "import { registerSW, app_initTheme, app_initSectionToggle, app_updateNavigationSections, app_getNavSectionCollapsed, app_setNavSectionCollapsed, app_toggleNavSection, app_getShowHiddenSheets, app_setShowHiddenSheets, app_toggleShowHiddenSheets, app_applyShowHiddenSheetsToggle, app_startAutoCollapseTimer, app_resetAutoCollapseTimer, app_autoCollapseSections, initAppSetup } from './features/app-setup.js';";
 

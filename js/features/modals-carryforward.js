@@ -235,10 +235,12 @@ export const initModalsAndCarryForward = () => {
     // No load-time init needed for modals/carry-forward currently
 };
 
-
 // Exports for init(), generated HTML, and other modules
-export const app_showModal = app_showModal;
-export const app_openModal = app_openModal;
-export const app_renderCarryForwardIssues = app_renderCarryForwardIssues;
-export const app_removeCarryForwardIssues = app_removeCarryForwardIssues;
-export const app_findCarryForwardIssues = app_findCarryForwardIssues;
+
+const app_showModal = window.app_showModal;
+const app_openModal = window.app_openModal;
+const app_renderCarryForwardIssues = window.app_renderCarryForwardIssues;
+const app_removeCarryForwardIssues = window.app_removeCarryForwardIssues;
+const app_findCarryForwardIssues = window.app_findCarryForwardIssues;
+
+export { app_showModal, app_openModal, app_renderCarryForwardIssues, app_removeCarryForwardIssues, app_findCarryForwardIssues };

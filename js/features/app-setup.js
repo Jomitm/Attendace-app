@@ -15,7 +15,7 @@ let autoCollapseTimer = null;
 /**
  * Get collapse state from localStorage
  */
-window.app_getNavSectionCollapsed = (sectionName) => {
+const app_getNavSectionCollapsed = (sectionName) => {
     try {
         const stored = localStorage.getItem(`nav_section_${sectionName}_collapsed`);
         if (stored === null) return false; // Default to expanded on first load
@@ -25,22 +25,24 @@ window.app_getNavSectionCollapsed = (sectionName) => {
         return false;
     }
 };
+window.app_getNavSectionCollapsed = app_getNavSectionCollapsed;
 
 /**
  * Set collapse state in localStorage
  */
-window.app_setNavSectionCollapsed = (sectionName, isCollapsed) => {
+const app_setNavSectionCollapsed = (sectionName, isCollapsed) => {
     try {
         localStorage.setItem(`nav_section_${sectionName}_collapsed`, isCollapsed ? 'true' : 'false');
     } catch (err) {
         console.warn('Failed to set nav section collapsed state:', err);
     }
 };
+window.app_setNavSectionCollapsed = app_setNavSectionCollapsed;
 
 /**
  * Toggle a navigation section's collapse state
  */
-window.app_toggleNavSection = (sectionName) => {
+const app_toggleNavSection = (sectionName) => {
     const section = document.querySelector(`.nav-section[data-section="${sectionName}"]`);
     if (!section) return;
 
@@ -56,11 +58,15 @@ window.app_toggleNavSection = (sectionName) => {
     // Reset auto-collapse timer on user interaction
     window.app_resetAutoCollapseTimer();
 };
+window.app_toggleNavSection = app_toggleNavSection;
 
 /**
  * Initialize section toggle handlers and restore collapse states
  */
-window.app_initSectionToggle = () => {
+/**
+ * Initialize section toggle handlers and restore collapse states
+ */
+const app_initSectionToggle = () => {
     const headers = document.querySelectorAll('.nav-section-header');
     headers.forEach(header => {
         const section = header.closest('.nav-section');
@@ -87,6 +93,7 @@ window.app_initSectionToggle = () => {
     // Start auto-collapse timer on initialization
     window.app_startAutoCollapseTimer();
 };
+window.app_initSectionToggle = app_initSectionToggle;
 
 // Auto-collapse timer variable
 
@@ -94,14 +101,15 @@ window.app_initSectionToggle = () => {
 /**
  * Start auto-collapse timer (5 minutes)
  */
-window.app_startAutoCollapseTimer = () => {
+const app_startAutoCollapseTimer = () => {
     window.app_resetAutoCollapseTimer();
 };
+window.app_startAutoCollapseTimer = app_startAutoCollapseTimer;
 
 /**
  * Reset auto-collapse timer
  */
-window.app_resetAutoCollapseTimer = () => {
+const app_resetAutoCollapseTimer = () => {
     if (autoCollapseTimer) {
         clearTimeout(autoCollapseTimer);
     }
@@ -110,11 +118,12 @@ window.app_resetAutoCollapseTimer = () => {
         window.app_autoCollapseSections();
     }, 5 * 60 * 1000); // 5 minutes
 };
+window.app_resetAutoCollapseTimer = app_resetAutoCollapseTimer;
 
 /**
  * Auto-collapse all sections except CORE
  */
-window.app_autoCollapseSections = () => {
+const app_autoCollapseSections = () => {
     const sections = document.querySelectorAll('.nav-section');
     sections.forEach(section => {
         const sectionName = section.dataset.section;
@@ -131,10 +140,12 @@ window.app_autoCollapseSections = () => {
     });
 };
 
+window.app_autoCollapseSections = app_autoCollapseSections;
+
 /**
  * Update navigation sections visibility and item visibility based on user permissions
  */
-window.app_updateNavigationSections = (user = window.AppAuth?.getUser()) => {
+const app_updateNavigationSections = (user = window.AppAuth?.getUser()) => {
     // allow this function to run even when `user` is not yet available
     if (!user) {
         user = window.AppAuth?.getUser();
@@ -230,9 +241,10 @@ window.app_updateNavigationSections = (user = window.AppAuth?.getUser()) => {
         }
     });
 };
+window.app_updateNavigationSections = app_updateNavigationSections;
 
 // --- Read Optimization: Filtered Mailbox ---
-window.app_getMyMessages = async () => {
+const app_getMyMessages = async () => {
     const user = window.AppAuth.getUser();
     if (!user) return [];
     try {
@@ -250,23 +262,26 @@ window.app_getMyMessages = async () => {
         return window.AppDB.getAll('staff_messages');
     }
 };
+window.app_getMyMessages = app_getMyMessages;
 
 // DOM Elements - queried dynamically or once if available
 
 // --- Theme Management ---
-window.app_initTheme = () => {
+const app_initTheme = () => {
     const savedTheme = localStorage.getItem('theme') || 'light';
     document.documentElement.setAttribute('data-theme', savedTheme);
     updateThemeIcons(savedTheme);
 };
+window.app_initTheme = app_initTheme;
 
-window.app_toggleTheme = () => {
+const app_toggleTheme = () => {
     const currentTheme = document.documentElement.getAttribute('data-theme');
     const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', newTheme);
     localStorage.setItem('theme', newTheme);
     updateThemeIcons(newTheme);
 };
+window.app_toggleTheme = app_toggleTheme;
 
 function updateThemeIcons(theme) {
     document.querySelectorAll('.theme-toggle i').forEach(icon => {
@@ -281,31 +296,34 @@ function updateThemeIcons(theme) {
 }
 
 // --- Show Hidden Sheets Toggle (Settings override)
-window.app_getShowHiddenSheets = () => {
+const app_getShowHiddenSheets = () => {
     try {
         return localStorage.getItem('show_hidden_sheets') === 'true';
     } catch {
         return false;
     }
 };
+window.app_getShowHiddenSheets = app_getShowHiddenSheets;
 
-window.app_setShowHiddenSheets = (value) => {
+const app_setShowHiddenSheets = (value) => {
     try {
         localStorage.setItem('show_hidden_sheets', value ? 'true' : 'false');
     } catch {
         // ignore
     }
 };
+window.app_setShowHiddenSheets = app_setShowHiddenSheets;
 
-window.app_toggleShowHiddenSheets = () => {
+const app_toggleShowHiddenSheets = () => {
     const next = !window.app_getShowHiddenSheets();
     window.app_setShowHiddenSheets(next);
     window.app_applyShowHiddenSheetsToggle();
     // Re-evaluate navigation visibility
     try { window.app_updateNavigationSections(); } catch (err) { void err; }
 };
+window.app_toggleShowHiddenSheets = app_toggleShowHiddenSheets;
 
-window.app_applyShowHiddenSheetsToggle = () => {
+const app_applyShowHiddenSheetsToggle = () => {
     const btn = document.getElementById('show-sheets-toggle');
     if (!btn) return;
     const icon = btn.querySelector('i');
@@ -317,6 +335,8 @@ window.app_applyShowHiddenSheetsToggle = () => {
         if (icon) { icon.classList.remove('fa-eye'); icon.classList.add('fa-eye-slash'); }
     }
 };
+
+window.app_applyShowHiddenSheetsToggle = app_applyShowHiddenSheetsToggle;
 
 // Show last notification error if any (persisted across refresh)
 window.addEventListener('load', () => {
@@ -399,19 +419,20 @@ export const initAppSetup = () => {
 
 
 // Exports for init(), generated HTML, and other modules
-export const app_applyShowHiddenSheetsToggle = app_applyShowHiddenSheetsToggle;
-export const app_autoCollapseSections = app_autoCollapseSections;
-export const app_getNavSectionCollapsed = app_getNavSectionCollapsed;
-export const app_getShowHiddenSheets = app_getShowHiddenSheets;
-export const app_initSectionToggle = app_initSectionToggle;
-export const app_initTheme = app_initTheme;
-export const app_resetAutoCollapseTimer = app_resetAutoCollapseTimer;
-export const app_setNavSectionCollapsed = app_setNavSectionCollapsed;
-export const app_setShowHiddenSheets = app_setShowHiddenSheets;
-export const app_startAutoCollapseTimer = app_startAutoCollapseTimer;
-export const app_toggleNavSection = app_toggleNavSection;
-export const app_toggleShowHiddenSheets = app_toggleShowHiddenSheets;
-export const app_updateNavigationSections = app_updateNavigationSections;
+
+export { app_autoCollapseSections };
+export { app_getNavSectionCollapsed };
+export { app_applyShowHiddenSheetsToggle };
+export { app_getShowHiddenSheets };
+export { app_initSectionToggle };
+export { app_initTheme };
+export { app_resetAutoCollapseTimer };
+export { app_setNavSectionCollapsed };
+export { app_setShowHiddenSheets };
+export { app_startAutoCollapseTimer };
+export { app_toggleNavSection };
+export { app_toggleShowHiddenSheets };
+export { app_updateNavigationSections };
 
 // Function declarations (re-export)
 export { registerSW };
