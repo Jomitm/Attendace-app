@@ -8,7 +8,7 @@ import './modules/budget-heads.js';
 import './modules/system-dialog.js';
 import { escapeHtml as app_escapeHtml, escapeJsSingleQuote as app_escapeJsSingleQuote, escapeDialogHtml } from './utils/html-escape.js';
 import { getLocalISO } from './utils/date-helpers.js';
-import { computeDayLoad, SPAN_HOURS_PER_DAY, diffDaysStr, addDaysStr } from './utils/span-planning.js';
+import { computeDayLoad, SPAN_HOURS_PER_DAY, diffDaysStr, addDaysStr, parseDurationPhrase } from './utils/span-planning.js';
 import AppUI from './ui.js';
 import { telegramNotifyLeaveUpdate, telegramNotifyTaskTagged } from './utils/telegram.js';
 import './modules/calendar.js';
@@ -2036,9 +2036,14 @@ const app_monthIndexMap = {
     july: 6, august: 7, september: 8, october: 9, november: 10, december: 11
 };
 
-const app_inferRangeFromText = (text = '') => {
+const app_inferRangeFromText = (text = '', refDate = '') => {
     const raw = String(text || '').trim();
     if (!raw) return null;
+    // Duration phrases ("3-day task", "takes 4 days") anchor on refDate.
+    try {
+        const dur = parseDurationPhrase(raw, refDate);
+        if (dur) return dur;
+    } catch { /* fall through to date-range patterns */ }
     const m = raw.match(/(\d{1,2})\s*-\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})/);
     if (!m) return null;
     const d1 = Number(m[1]);
@@ -2061,7 +2066,7 @@ const app_getTaskRangeBounds = (task, planDate, plansCtx = null) => {
     const rawStart = task?.startDate;
     const rawEnd = task?.endDate;
     const inferred = (!app_isIsoDate(rawStart) && !app_isIsoDate(rawEnd))
-        ? app_inferRangeFromText(task?.task || '')
+        ? app_inferRangeFromText(task?.task || '', safePlanDate || '')
         : null;
     let startDate = app_isIsoDate(rawStart) ? String(rawStart) : (inferred?.startDate || safePlanDate);
     let endDate = app_isIsoDate(rawEnd) ? String(rawEnd) : (inferred?.endDate || startDate || safePlanDate);

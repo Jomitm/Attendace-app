@@ -5,7 +5,7 @@ import { AppConfig } from '../config.js';
 import { isTaskVisibleToViewer } from '../utils/task-visibility.js';
 import { serializeTaskProvenance, deserializeTaskProvenance, formatPostponeChip } from '../utils/task-provenance.js';
 import { suggestClassification } from './task-classification-learning.js';
-import { asIsoDate, countSpanWorkingDays, suggestEndDate, collectSpanningTasks, SPAN_LOOKBACK_DAYS, addDaysStr, computeDayLoad, SPAN_HOURS_PER_DAY } from '../utils/span-planning.js';
+import { asIsoDate, countSpanWorkingDays, suggestEndDate, collectSpanningTasks, SPAN_LOOKBACK_DAYS, addDaysStr, computeDayLoad, SPAN_HOURS_PER_DAY, EFFORT_HOURS } from '../utils/span-planning.js';
 
 const DAY_PLAN_OVERLAY_BASE_Z_INDEX = 10060;
 const DAY_PLAN_OVERLAY_STEP = 20;
@@ -908,6 +908,12 @@ export async function openPlanEditor(args) {
     });
     grid.appendChild(rangeHint);
 
+    const sizeNudge = createElement('div', {
+        className: 'plan-editor-size-nudge',
+        attributes: { style: 'display:none;' }
+    });
+    grid.appendChild(sizeNudge);
+
     const refreshRangeHint = () => {
         const start = asIsoDate(rangeStartInput.value || editorSafeDate);
         const end = asIsoDate(rangeEndInput.value || start);
@@ -926,8 +932,12 @@ export async function openPlanEditor(args) {
             rangeEndInput.value = rangeStartInput.value;
         }
         refreshRangeHint();
+        try { if (typeof updateSizeNudge === 'function') updateSizeNudge(); } catch { /* setup order */ }
     });
-    rangeEndInput.addEventListener('change', refreshRangeHint);
+    rangeEndInput.addEventListener('change', () => {
+        refreshRangeHint();
+        try { if (typeof updateSizeNudge === 'function') updateSizeNudge(); } catch { /* setup order */ }
+    });
     refreshRangeHint();
 
     const privacyField = createElement('div', { className: 'plan-editor-field' });
@@ -1014,7 +1024,44 @@ export async function openPlanEditor(args) {
                 refreshRangeHint();
             }
         } catch { /* suggest is best-effort */ }
+        updateSizeNudge();
     });
+
+    const SIZE_NUDGE_LABELS = {
+        'single-action': 'Quick Action',
+        'quick-task': 'Quick Task',
+        'small-task': 'Small Task',
+        'medium-task': 'Medium Task',
+        'large-task': 'Large Task',
+        'major-project': 'Major Project'
+    };
+    const updateSizeNudge = () => {
+        // Reverse check of the span suggest: when the chosen span holds far
+        // more effort than the size implies, nudge — never auto-change.
+        try {
+            const start = asIsoDate(rangeStartInput.value || editorSafeDate);
+            const end = asIsoDate(rangeEndInput.value || start);
+            const size = String(sizeSelect.value || '').trim();
+            if (!start || !end || end <= start || !size) {
+                sizeNudge.style.display = 'none';
+                return;
+            }
+            const working = countSpanWorkingDays(start, end);
+            const sizeHours = EFFORT_HOURS[size] || 0;
+            if (!(sizeHours > 0) || working * SPAN_HOURS_PER_DAY < sizeHours * 2) {
+                sizeNudge.style.display = 'none';
+                return;
+            }
+            const order = ['single-action', 'quick-task', 'small-task', 'medium-task', 'large-task', 'major-project'];
+            const need = working * SPAN_HOURS_PER_DAY;
+            const fit = order.find((s) => (EFFORT_HOURS[s] || 0) >= need) || 'major-project';
+            sizeNudge.textContent = `Heads up: ${working} working days but size is "${SIZE_NUDGE_LABELS[size] || size}". Consider "${SIZE_NUDGE_LABELS[fit]}" instead — your call.`;
+            sizeNudge.style.display = '';
+        } catch {
+            sizeNudge.style.display = 'none';
+        }
+    };
+    updateSizeNudge();
 
 
     const purposeField = createElement('div', { className: 'plan-editor-field' });
