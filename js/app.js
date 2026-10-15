@@ -8,6 +8,7 @@ import './modules/budget-heads.js';
 import './modules/system-dialog.js';
 import { escapeHtml as app_escapeHtml, escapeJsSingleQuote as app_escapeJsSingleQuote, escapeDialogHtml } from './utils/html-escape.js';
 import { getLocalISO } from './utils/date-helpers.js';
+import { computeDayLoad, SPAN_HOURS_PER_DAY, diffDaysStr, addDaysStr } from './utils/span-planning.js';
 import AppUI from './ui.js';
 import { telegramNotifyLeaveUpdate, telegramNotifyTaskTagged } from './utils/telegram.js';
 import './modules/calendar.js';
@@ -3136,8 +3137,9 @@ window.app_applyCheckoutTaskUpdates = async (updates = [], options = {}) => {
         }
         if (mutation.postponedTask) {
             const postponedTask = mutation.postponedTask;
-            // Postponed copies go to the assignee's plan; the source task stays in
-            // place marked 'postponed' (same rule as app_postponeTask).
+            // Postponed copies go to the assignee's plan; the source task is
+            // hidden on the old date via isRemoved (same rule as
+            // app_postponeTask and the AI-agent move).
             const assigneeId = String(postponedTask.meta.assignedTo || postponedTask.userId || '').trim() || currentUser?.id || updaterId;
             await window.AppCalendar.addWorkPlanTask(postponedTask.date, assigneeId, postponedTask.taskDescription, postponedTask.subPlans || [], {
                 ...postponedTask.meta,
@@ -3328,6 +3330,8 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
     const newlyPostponed = [];
 
     planBlocks.forEach(block => {
+        // Spanned virtual blocks belong to another date's doc — read-only.
+        if (block?.dataset?.spannedVirtual === '1') return;
         const task = block.querySelector('.plan-task').value.trim();
         const subPlanInputs = block.querySelectorAll('.sub-plan-input');
         const subPlans = Array.from(subPlanInputs).map(input => input.value.trim()).filter(v => v !== '');
@@ -3407,6 +3411,10 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
             // day, and tag the source with its target date.
             if (taskScope === 'personal' && isPostponedStatus(planPayload.status) && !isPostponedStatus(provenance._originalStatus)) {
                 planPayload.postponedToDate = postponeTargetDate;
+                // Move, don't copy: hide the editor-marked source too, matching
+                // the postpone-button, checkout and AI-agent flows. The copy
+                // created below carries the history forward.
+                planPayload.isRemoved = true;
                 newlyPostponed.push({ payload: planPayload, blockIndex });
             }
             plans.push(planPayload);
@@ -3452,6 +3460,27 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
         alert(validationError);
         restore();
         return;
+    }
+
+    // Capacity guard: warn when the saved day holds more planned work than
+    // fits in a productive day. Weekends are overtime by choice — no warning.
+    // Virtual spanning blocks are already excluded above (never serialized).
+    {
+        const dow = new Date(`${date}T00:00:00`).getDay();
+        if (dow !== 0 && dow !== 6) {
+            const load = computeDayLoad(plans, date, { dailyCapacity: SPAN_HOURS_PER_DAY });
+            if (load.over) {
+                const ok = window.confirm(
+                    `This day now holds ~${load.hours}h of planned work (a productive day fits ~${SPAN_HOURS_PER_DAY}h). ` +
+                    `Consider extending a task's end date or moving something. Save anyway?`
+                );
+                if (!ok) {
+                    if (form) form.dataset.dayPlanSaving = '0';
+                    restore();
+                    return;
+                }
+            }
+        }
     }
 
     // Map of assigneeId → set of source task indices saved to them in this save.
@@ -3999,6 +4028,12 @@ window.app_postponeTask = async (planId, taskIndex, targetDate, postponeWorkStat
         if (sourcePatch && sourcePatch.plans?.[taskIndex]) {
             sourcePatch.plans[taskIndex].postponedToDate = targetDate;
             sourcePatch.plans[taskIndex].postponeWorkStatus = ws;
+            // Move, don't copy: hide the source on the old date (same rule as
+            // the checkout and AI-agent postpone flows). The copy created below
+            // carries postponedFromDate, so the history is kept. This runs only
+            // after target-date validation passed, so a failed postpone never
+            // hides the original.
+            sourcePatch.plans[taskIndex].isRemoved = true;
             sourcePatch.updatedAt = new Date().toISOString();
             await window.AppDB.put('work_plans', sourcePatch).catch(() => null);
         }
@@ -4007,11 +4042,18 @@ window.app_postponeTask = async (planId, taskIndex, targetDate, postponeWorkStat
         const assigneeId = String(freshTask.assignedTo || ownerUserId || '').trim() || ownerUserId;
         const cleanedText = text.replace(/\s*\(Postponed from [^)]+\)\s*$/i, '');
         const postponedText = `${cleanedText} (Postponed from ${fromDate})`;
+        // Preserve multi-day spans: shift the whole range so its length
+        // survives the move (single-day tasks are unaffected: delta 0).
+        const srcStart = /^\d{4}-\d{2}-\d{2}$/.test(String(freshTask.startDate || '')) ? freshTask.startDate : fromDate;
+        const srcEnd = /^\d{4}-\d{2}-\d{2}$/.test(String(freshTask.endDate || '')) ? freshTask.endDate : srcStart;
+        const shiftedEnd = addDaysStr(targetDate, Math.max(0, diffDaysStr(srcStart, srcEnd)));
         await window.AppCalendar.addWorkPlanTask(targetDate, assigneeId, postponedText, [], {
             addedFrom: 'postponed',
             sourcePlanId: planId,
             sourceTaskIndex: taskIndex,
             postponedFromDate: fromDate,
+            startDate: targetDate,
+            endDate: shiftedEnd,
             status: 'postponed',
             postponeWorkStatus: ws,
             assignedTo: assigneeId,
@@ -9221,6 +9263,82 @@ const app_downloadCsvFile = (content, fileName) => {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+};
+
+window.app_cleanupPostponedShells = async (options = {}) => {
+    // Dry run UNLESS explicitly { dryRun: false } — listing is always safe,
+    // writes need an explicit opt-in. Hiding is a soft-delete (isRemoved) and
+    // therefore reversible; stranded sources (no live copy) are never touched
+    // — the existing replan flow owns those.
+    const dryRun = options.dryRun !== false;
+    const user = window.AppAuth?.getUser?.();
+    if (!app_canManageStaffData(user)) {
+        alert('Only admin users can clean up postponed shells.');
+        return { success: false, reason: 'not_authorized' };
+    }
+    try {
+        const { findPostponedShells } = await import('./modules/calendar.js');
+        let plans = [];
+        try {
+            plans = await window.AppAnalyticsService.getWorkPlans();
+        } catch { /* fall through to direct read */ }
+        if (!plans || !plans.length) {
+            try { plans = await window.AppDB.getAll('work_plans'); } catch { plans = []; }
+        }
+        const shells = findPostponedShells(plans || []);
+        const byPlan = new Map();
+        shells.forEach((s) => {
+            if (!byPlan.has(s.planId)) byPlan.set(s.planId, []);
+            byPlan.get(s.planId).push(s);
+        });
+        const report = {
+            success: true,
+            dryRun,
+            scannedPlans: (plans || []).length,
+            shellsFound: shells.length,
+            plansAffected: byPlan.size,
+            hidden: 0,
+            shells: shells.map((s) => ({ task: s.task, date: s.date, via: s.via }))
+        };
+        if (!shells.length) {
+            alert('No old postponed shells found — nothing to clean.');
+            return report;
+        }
+        if (dryRun) {
+            try {
+                console.table(report.shells);
+            } catch { /* console unavailable */ }
+            alert(`DRY RUN — found ${shells.length} old postponed shell(s) with live successors across ${byPlan.size} plan(s). Re-run with { dryRun: false } to hide them. Nothing was changed.`);
+            return report;
+        }
+        let hidden = 0;
+        for (const [planId, list] of byPlan) {
+            const doc = await window.AppDB.get('work_plans', planId).catch(() => null);
+            if (!doc || !Array.isArray(doc.plans)) continue;
+            let changed = false;
+            list.forEach((s) => {
+                const t = doc.plans[s.taskIndex];
+                if (t && !t.isRemoved && String(t.status || '').trim().toLowerCase() === 'postponed') {
+                    t.isRemoved = true;
+                    changed = true;
+                    hidden += 1;
+                }
+            });
+            if (changed) {
+                doc.updatedAt = new Date().toISOString();
+                await window.AppDB.put('work_plans', doc);
+            }
+        }
+        try { if (window.AppCalendar.invalidateCarryForwardCache) window.AppCalendar.invalidateCarryForwardCache(); } catch {}
+        try { window.AppDB?.invalidateCache?.('svc_analytics_workPlans'); } catch {}
+        report.hidden = hidden;
+        alert(`Cleaned ${hidden} old postponed shell(s) across ${byPlan.size} plan(s). They are soft-hidden (reversible) — the live copies are untouched.`);
+        return report;
+    } catch (err) {
+        console.error('Cleanup postponed shells failed:', err);
+        alert(`Cleanup failed: ${err.message}`);
+        return { success: false, reason: 'error', message: err.message };
+    }
 };
 
 window.app_backupStaffData = async (options = {}) => {

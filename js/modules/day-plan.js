@@ -5,6 +5,7 @@ import { AppConfig } from '../config.js';
 import { isTaskVisibleToViewer } from '../utils/task-visibility.js';
 import { serializeTaskProvenance, deserializeTaskProvenance, formatPostponeChip } from '../utils/task-provenance.js';
 import { suggestClassification } from './task-classification-learning.js';
+import { asIsoDate, countSpanWorkingDays, suggestEndDate, collectSpanningTasks, SPAN_LOOKBACK_DAYS, addDaysStr, computeDayLoad, SPAN_HOURS_PER_DAY } from '../utils/span-planning.js';
 
 const DAY_PLAN_OVERLAY_BASE_Z_INDEX = 10060;
 const DAY_PLAN_OVERLAY_STEP = 20;
@@ -183,6 +184,36 @@ async function loadDayPlanData(date, targetId) {
         expiresAt: Date.now() + DAY_PLAN_LOAD_TTL_MS
     });
     return value;
+}
+
+/**
+ * Virtual spanning entries for a date: multi-day tasks stored on earlier
+ * plan docs whose range covers dateKey. Cached like loadDayPlanData and
+ * cleared with it on work_plans writes. Personal scope only (v1).
+ */
+async function getSpanningEntries(dateKey, targetId) {
+    const day = asIsoDate(dateKey);
+    const uid = String(targetId || '').trim();
+    if (!day || !uid) return [];
+    const key = JSON.stringify({ spanning: day, targetId: uid });
+    const cached = dayPlanLoadCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) {
+        return cached.value;
+    }
+    let docs = [];
+    try {
+        const ids = [];
+        for (let n = 1; n <= SPAN_LOOKBACK_DAYS; n++) {
+            ids.push(`plan_${uid}_${addDaysStr(day, -n)}`);
+        }
+        docs = await AppDB.getManyByIds('work_plans', ids);
+    } catch (err) {
+        console.warn('[DayPlan] Spanning lookup failed:', err);
+        docs = [];
+    }
+    const entries = collectSpanningTasks(docs, day, uid);
+    dayPlanLoadCache.set(key, { value: entries, expiresAt: Date.now() + DAY_PLAN_LOAD_TTL_MS });
+    return entries;
 }
 
 function buildBudgetHeadLookup() {
@@ -846,6 +877,59 @@ export async function openPlanEditor(args) {
     statusField.appendChild(statusSelect);
     grid.appendChild(statusField);
 
+    const editorSafeDate = String(date || '').trim();
+    const rangeStartField = createElement('div', { className: 'plan-editor-field' });
+    rangeStartField.innerHTML = '<label>Start date</label>';
+    const rangeStartInput = createElement('input', {
+        className: 'plan-editor-select',
+        attributes: {
+            type: 'date',
+            value: planData.startDate || editorSafeDate
+        }
+    });
+    rangeStartField.appendChild(rangeStartInput);
+    grid.appendChild(rangeStartField);
+
+    const rangeEndField = createElement('div', { className: 'plan-editor-field' });
+    rangeEndField.innerHTML = '<label>End date (for multi-day work)</label>';
+    const rangeEndInput = createElement('input', {
+        className: 'plan-editor-select',
+        attributes: {
+            type: 'date',
+            value: planData.endDate || planData.startDate || editorSafeDate
+        }
+    });
+    rangeEndField.appendChild(rangeEndInput);
+    grid.appendChild(rangeEndField);
+
+    const rangeHint = createElement('div', {
+        className: 'plan-editor-span-hint',
+        attributes: { style: 'display:none;' }
+    });
+    grid.appendChild(rangeHint);
+
+    const refreshRangeHint = () => {
+        const start = asIsoDate(rangeStartInput.value || editorSafeDate);
+        const end = asIsoDate(rangeEndInput.value || start);
+        if (!start || !end || end < start) {
+            rangeHint.style.display = 'none';
+            return;
+        }
+        const working = countSpanWorkingDays(start, end);
+        rangeHint.textContent = end === start
+            ? 'Single day'
+            : `${working} working day${working === 1 ? '' : 's'} (${start} → ${end})`;
+        rangeHint.style.display = '';
+    };
+    rangeStartInput.addEventListener('change', () => {
+        if (!rangeEndInput.value || rangeEndInput.value < rangeStartInput.value) {
+            rangeEndInput.value = rangeStartInput.value;
+        }
+        refreshRangeHint();
+    });
+    rangeEndInput.addEventListener('change', refreshRangeHint);
+    refreshRangeHint();
+
     const privacyField = createElement('div', { className: 'plan-editor-field' });
     privacyField.innerHTML = '<label>Privacy</label>';
     const privateCheckbox = createElement('input', {
@@ -918,6 +1002,20 @@ export async function openPlanEditor(args) {
     `;
     sizeField.appendChild(sizeSelect);
     grid.appendChild(sizeField);
+    sizeSelect.addEventListener('change', () => {
+        // Suggest a span for multi-day sizes — but never override a range
+        // the user already picked by hand.
+        try {
+            const start = asIsoDate(rangeStartInput.value || editorSafeDate);
+            if (!start || (rangeEndInput.value && rangeEndInput.value !== rangeStartInput.value)) return;
+            const suggested = suggestEndDate(start, sizeSelect.value || '');
+            if (suggested && suggested !== start) {
+                rangeEndInput.value = suggested;
+                refreshRangeHint();
+            }
+        } catch { /* suggest is best-effort */ }
+    });
+
 
     const purposeField = createElement('div', { className: 'plan-editor-field' });
     purposeField.innerHTML = '<label>Task Purpose</label>';
@@ -1078,9 +1176,23 @@ export async function openPlanEditor(args) {
             const taskText = textarea.value.trim();
             if (!taskText) return alert('Please enter a task description');
 
+            const spanStart = asIsoDate(rangeStartInput.value || editorSafeDate);
+            const spanEnd = asIsoDate(rangeEndInput.value || spanStart);
+            if (!spanStart) {
+                alert('Please choose a valid start date');
+                rangeStartInput.focus();
+                return;
+            }
+            if (spanEnd && spanEnd < spanStart) {
+                alert('End date cannot be earlier than the start date');
+                rangeEndInput.focus();
+                return;
+            }
             const updatedPlan = {
                 ...planData,
                 task: taskText,
+                startDate: spanStart,
+                endDate: spanEnd || spanStart,
                 status: statusSelect.value,
                 budgetHeadId: String(budgetSelect.value || 'UNALLOCATED'),
                 assignedTo: assignSelect ? assignSelect.value : (planData.assignedTo || targetId),
@@ -1184,7 +1296,7 @@ export async function quickAddPersonalPlan(date = null, targetUserId = null) {
     const grid = createElement('div', { className: 'plan-editor-grid' });
 
     const dateField = createElement('div', { className: 'plan-editor-field' });
-    dateField.innerHTML = '<label>Date</label>';
+    dateField.innerHTML = '<label>Start date</label>';
     const dateInput = createElement('input', {
         className: 'plan-editor-select',
         attributes: {
@@ -1194,6 +1306,47 @@ export async function quickAddPersonalPlan(date = null, targetUserId = null) {
     });
     dateField.appendChild(dateInput);
     grid.appendChild(dateField);
+
+    const endDateField = createElement('div', { className: 'plan-editor-field' });
+    endDateField.innerHTML = '<label>End date (for multi-day work)</label>';
+    const endDateInput = createElement('input', {
+        className: 'plan-editor-select',
+        attributes: {
+            type: 'date',
+            value: safeDate
+        }
+    });
+    endDateField.appendChild(endDateInput);
+    grid.appendChild(endDateField);
+
+    const spanHint = createElement('div', {
+        className: 'plan-editor-span-hint',
+        attributes: { style: 'display:none;' }
+    });
+    grid.appendChild(spanHint);
+
+    const refreshSpanHint = () => {
+        const start = asIsoDate(dateInput.value || safeDate);
+        const end = asIsoDate(endDateInput.value || start);
+        if (!start || !end || end < start) {
+            spanHint.style.display = 'none';
+            return;
+        }
+        const working = countSpanWorkingDays(start, end);
+        const days = end === start
+            ? 'Single day'
+            : `${working} working day${working === 1 ? '' : 's'} (${start} → ${end})`;
+        spanHint.textContent = days;
+        spanHint.style.display = '';
+    };
+    dateInput.addEventListener('change', () => {
+        if (!endDateInput.value || endDateInput.value < dateInput.value) {
+            endDateInput.value = dateInput.value;
+        }
+        refreshSpanHint();
+    });
+    endDateInput.addEventListener('change', refreshSpanHint);
+    refreshSpanHint();
 
     const statusField = createElement('div', { className: 'plan-editor-field' });
     statusField.innerHTML = '<label>Status</label>';
@@ -1249,6 +1402,18 @@ export async function quickAddPersonalPlan(date = null, targetUserId = null) {
     `;
     sizeField.appendChild(sizeSelect);
     grid.appendChild(sizeField);
+    sizeSelect.addEventListener('change', () => {
+        try {
+            const start = asIsoDate(dateInput.value || safeDate);
+            if (!start || (endDateInput.value && endDateInput.value !== dateInput.value)) return;
+            const suggested = suggestEndDate(start, sizeSelect.value || '');
+            if (suggested && suggested !== start) {
+                endDateInput.value = suggested;
+                refreshSpanHint();
+            }
+        } catch { /* suggest is best-effort */ }
+    });
+
 
     const purposeField = createElement('div', { className: 'plan-editor-field' });
     purposeField.innerHTML = '<label>Task Purpose</label>';
@@ -1385,6 +1550,12 @@ export async function quickAddPersonalPlan(date = null, targetUserId = null) {
                 dateInput.focus();
                 return;
             }
+            const selectedEndDate = asIsoDate(endDateInput.value || selectedDate) || selectedDate;
+            if (selectedEndDate < selectedDate) {
+                alert('End date cannot be earlier than the start date');
+                endDateInput.focus();
+                return;
+            }
 
             const stepItems = Array.from(subPlanList.querySelectorAll('.plan-editor-subplan-input'))
                 .map((input) => String(input.value || '').trim())
@@ -1409,7 +1580,7 @@ export async function quickAddPersonalPlan(date = null, targetUserId = null) {
                     assignedToName: assigneeName,
                     budgetHeadId: currentUser.currentBudgetHeadId || 'UNALLOCATED',
                     startDate: selectedDate,
-                    endDate: selectedDate,
+                    endDate: selectedEndDate,
                     planScope: 'personal',
                     carryForwardRootId: '',
                     isRemoved: false,
@@ -1488,9 +1659,17 @@ export function dayPlanRenderBlockV3(args) {
 
     const isAssignedToOther = assignedTo && assignedTo !== targetId;
 
+    const isSpannedVirtual = plan._spannedVirtual === true;
+    const spanHomeDate = String(plan._homeDate || '');
+    const spanLabel = String(plan._spanLabel || '');
+
     const planBlock = createElement('div', {
-        className: (isReference ? 'plan-block-ref' : 'plan-block') + blockStatusClass + (isReference ? ' is-reference-only' : '') + (plan.isPrivate === true ? ' plan-block-private' : '') + (isAssignedToOther ? ' plan-block-assigned' : ''),
-        attributes: { 'data-index': idx, 'data-status': planStatus || 'none' }
+        className: (isReference ? 'plan-block-ref' : 'plan-block') + blockStatusClass + (isReference ? ' is-reference-only' : '') + (plan.isPrivate === true ? ' plan-block-private' : '') + (isAssignedToOther ? ' plan-block-assigned' : '') + (isSpannedVirtual ? ' plan-block-spanned' : ''),
+        attributes: {
+            'data-index': idx,
+            'data-status': planStatus || 'none',
+            ...(isSpannedVirtual ? { 'data-spanned-virtual': '1', 'data-home-date': spanHomeDate } : {})
+        }
     });
 
     const hiddenInputs = createElement('div', { className: 'dp-hidden-data', attributes: { style: 'display:none;' } });
@@ -1601,8 +1780,24 @@ export function dayPlanRenderBlockV3(args) {
 
     const headerActions = createElement('div', { className: 'plan-block-actions' });
     headerActions.appendChild(createElement('span', { className: 'day-plan-scope-pill', textContent: displayScope }));
+    if (isSpannedVirtual && spanLabel) {
+        headerActions.appendChild(createElement('span', {
+            className: 'day-plan-span-pill',
+            textContent: `${spanLabel} · from ${spanHomeDate}`,
+            attributes: { title: `Continues from ${spanHomeDate} — edit it there` }
+        }));
+    }
 
-    if (!isReference) {
+    if (isSpannedVirtual) {
+        headerActions.appendChild(createButton({
+            className: 'day-plan-goto-home-btn',
+            attributes: { title: `Open ${spanHomeDate} to edit` },
+            innerHTML: '<i class="fa-solid fa-arrow-up-right-from-square"></i>',
+            onClick: () => window.app_openDayPlan?.(spanHomeDate, targetId)
+        }));
+    }
+
+    if (!isReference && !isSpannedVirtual) {
         headerActions.appendChild(createButton({
             className: 'day-plan-private-toggle' + (plan.isPrivate === true ? ' is-private' : ''),
             attributes: { title: plan.isPrivate === true ? 'Private — only you can see this task' : 'Make private — only you can see this task' },
@@ -1952,10 +2147,23 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
                 othersBlocks.push(...normalizeScopedPlans(p, p.planScope, p.userName));
             });
 
+            // Virtual spanning entries: multi-day tasks stored on earlier docs
+            // whose range covers this date. Read-only (edited on the home
+            // date); excluded from save by their data-spanned-virtual flag.
+            let spanningBlocks = [];
+            try {
+                const spanning = await getSpanningEntries(dateKey, targetId);
+                spanningBlocks = (spanning || [])
+                    .filter((p) => isTaskVisibleToViewer(p, targetId, String(currentUser?.id || '')));
+            } catch (err) {
+                console.warn('[DayPlan] Spanning entries failed:', err);
+            }
+
             const initialBlocks = [
                 ...normalizeScopedPlans(personalWorkPlan, 'personal'),
                 ...normalizeScopedPlans(annualWorkPlan, 'annual'),
-                ...othersBlocks
+                ...othersBlocks,
+                ...spanningBlocks
             ];
             if (initialBlocks.length === 0) {
                 initialBlocks.push({
@@ -1985,6 +2193,19 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
             }
             const kicker = modalContent.querySelector('.day-plan-kicker');
             if (kicker) kicker.textContent = 'Today';
+            // Overload banner: planned load vs a productive day.
+            try {
+                const dayLoad = computeDayLoad(initialBlocks, dateKey, { dailyCapacity: SPAN_HOURS_PER_DAY });
+                if (dayLoad.over) {
+                    const banner = createElement('div', {
+                        className: 'day-plan-overload-banner',
+                        attributes: { role: 'status' },
+                        innerHTML: `<i class="fa-solid fa-triangle-exclamation"></i><span>About ${dayLoad.hours}h planned — over a ~${SPAN_HOURS_PER_DAY}h day. Consider extending a task or moving one.</span>`
+                    });
+                    const anchor = modalContent.querySelector('.day-plan-subline');
+                    if (anchor && anchor.parentElement) anchor.parentElement.appendChild(banner);
+                }
+            } catch { /* banner is best-effort */ }
             if (window.performance?.mark) window.performance.mark('day-plan-hydrate-end');
             if (window.performance?.measure) {
                 try {
@@ -2032,7 +2253,15 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
 
                     const personalBlocks = freshNormalize(personalWP, 'personal');
                     const annualBlocks = freshNormalize(annualWP, 'annual');
-                    const initialBlocks = [...personalBlocks, ...annualBlocks];
+                    let refreshSpanning = [];
+                    try {
+                        const spanning = await getSpanningEntries(dateKey, targetId);
+                        refreshSpanning = (spanning || [])
+                            .filter((p) => isTaskVisibleToViewer(p, targetId, String(currentUser?.id || '')));
+                    } catch (err) {
+                        console.warn('[DayPlan] Live refresh spanning failed:', err);
+                    }
+                    const initialBlocks = [...personalBlocks, ...annualBlocks, ...refreshSpanning];
                     headerWrap.replaceChildren(createDayPlanHeader(dateKey, isEditingOther, headerName, !!(personalWP || annualWP), targetId));
                     bodyWrap.replaceChildren(createDayPlanForm(dateKey, targetId, personalWP, annualWP, initialBlocks, freshUsers, defaultScope, selectableCollaborators, isAdmin, currentUser, options));
                 } catch (refreshErr) {

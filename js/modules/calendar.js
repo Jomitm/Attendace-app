@@ -194,6 +194,15 @@ export class Calendar {
         if (!task || task.isRemoved === true) return false;
         if (!this.isImmediateNextDay(fromDate, toDate)) return false;
         if (this.isTaskClosed(task, fromDate)) return false;
+        // Multi-day spans already cover the target date virtually (day-page
+        // spanning) — carrying them would show the task twice. Single-day
+        // tasks are unaffected: their span can never cover a later date.
+        try {
+            const spanStart = String(task.startDate || '').trim();
+            const spanEnd = String(task.endDate || '').trim();
+            if (/^\d{4}-\d{2}-\d{2}$/.test(spanStart) && /^\d{4}-\d{2}-\d{2}$/.test(spanEnd)
+                && spanStart < spanEnd && spanStart <= toDate && toDate <= spanEnd) return false;
+        } catch { /* fall through to normal carry rules */ }
         return this.isCarryForwardExceptionDay(userId, fromDate);
     }
 
@@ -1589,3 +1598,115 @@ export class Calendar {
 
 export const AppCalendar = new Calendar();
 if (typeof window !== 'undefined') window.AppCalendar = AppCalendar;
+
+/**
+ * Find old postponed shells that have a live successor copy.
+ *
+ * A postponed task is a "shell" when another task continues its lineage:
+ * an exact pointer (sourcePlanId + integer sourceTaskIndex) or, for older
+ * data, a postponedFromDate + matching task text (with any "(Postponed from
+ * …)" suffix stripped). Qualification is transitive: A → removed B → live C
+ * still qualifies A, because the work demonstrably moved on.
+ *
+ * Conservative by design — a source is listed ONLY when a non-removed
+ * successor is reachable. Stranded sources (no copy), completed/cancelled
+ * tasks and already-removed shells are never listed; the existing
+ * replanPostponedForDate flow owns stranded sources.
+ *
+ * Pure function over work-plan docs (no DB) — unit-tested.
+ *
+ * @param {Array} plans work-plan docs ({id, date, plans:[...]})
+ * @returns {Array<{planId:string, taskIndex:number, task:string, date:string, via:string}>}
+ */
+export function findPostponedShells(plans = []) {
+    const normText = (s) => String(s || '')
+        .replace(/\s*\(Postponed from [^)]+\)\s*$/i, '')
+        .trim()
+        .toLowerCase();
+    const nodeId = (planId, idx) => `${String(planId || '')}::${Number(idx)}`;
+
+    // Index every task node.
+    const nodes = new Map(); // nodeId -> { planId, taskIndex, task, date, live }
+    (plans || []).forEach((wp) => {
+        if (!wp || !Array.isArray(wp.plans)) return;
+        const planId = String(wp.id || '');
+        const date = String(wp.date || '');
+        wp.plans.forEach((t, taskIndex) => {
+            if (!t || !String(t.task || '').trim()) return;
+            nodes.set(nodeId(planId, taskIndex), {
+                planId,
+                taskIndex,
+                task: t,
+                date,
+                live: t.isRemoved !== true
+            });
+        });
+    });
+
+    // Build successor edges: source node -> copy node.
+    const edges = new Map(); // nodeId -> Set<nodeId>
+    const link = (from, to) => {
+        if (!nodes.has(from) || !nodes.has(to) || from === to) return;
+        if (!edges.has(from)) edges.set(from, new Set());
+        edges.get(from).add(to);
+    };
+    for (const [id, node] of nodes) {
+        const t = node.task;
+        const addedFrom = String(t.addedFrom || '').trim().toLowerCase();
+        const isCopy = addedFrom === 'postponed' || !!String(t.postponedFromDate || '').trim();
+        if (!isCopy) continue;
+        const sourcePlanId = String(t.sourcePlanId || '').trim();
+        const sourceTaskIndex = Number(t.sourceTaskIndex);
+        if (sourcePlanId && Number.isInteger(sourceTaskIndex)) {
+            link(nodeId(sourcePlanId, sourceTaskIndex), id);
+            continue;
+        }
+        // Fallback for older copies: match by origin date + task text.
+        const fromDate = String(t.postponedFromDate || '').trim();
+        if (!fromDate) continue;
+        const text = normText(t.task);
+        if (!text) continue;
+        for (const [candId, cand] of nodes) {
+            if (cand.date !== fromDate) continue;
+            if (normText(cand.task.task) === text) link(candId, id);
+        }
+    }
+
+    // A candidate is a visible postponed task with a reachable live successor.
+    const out = [];
+    for (const [id, node] of nodes) {
+        const status = String(node.task.status || '').trim().toLowerCase();
+        if (status !== 'postponed') continue;
+        if (!node.live) continue;
+        const seen = new Set([id]);
+        const stack = [...(edges.get(id) || [])];
+        let hasLiveSuccessor = false;
+        let via = 'exact';
+        while (stack.length > 0) {
+            const cur = stack.pop();
+            if (seen.has(cur)) continue;
+            seen.add(cur);
+            const target = nodes.get(cur);
+            if (!target) continue;
+            const edgeIsTextFallback = !String(target.task.sourcePlanId || '').trim();
+            if (target.live) {
+                hasLiveSuccessor = true;
+                via = edgeIsTextFallback ? 'text' : 'exact';
+                break;
+            }
+            for (const next of (edges.get(cur) || [])) {
+                if (!seen.has(next)) stack.push(next);
+            }
+        }
+        if (hasLiveSuccessor) {
+            out.push({
+                planId: node.planId,
+                taskIndex: node.taskIndex,
+                task: String(node.task.task || '').slice(0, 80),
+                date: node.date,
+                via
+            });
+        }
+    }
+    return out;
+}

@@ -556,6 +556,65 @@
     white-space: nowrap;
 }
 
+/* ===== SPANNED (MULTI-DAY) BLOCKS ===== */
+.plan-block-spanned {
+    border-left: 3px solid #8b5cf6;
+}
+.day-plan-span-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.2rem 0.42rem;
+    border-radius: 999px;
+    border: 1px solid rgba(196, 181, 253, 0.95);
+    background: #f5f3ff;
+    color: #6d28d9;
+    font-size: 0.55rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+.day-plan-goto-home-btn {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    border: 1px solid rgba(196, 181, 253, 0.95);
+    background: #f5f3ff;
+    color: #6d28d9;
+    font-size: 0.65rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+.plan-editor-span-hint {
+    font-size: 0.75rem;
+    color: #6d28d9;
+    background: #f5f3ff;
+    border: 1px solid rgba(196, 181, 253, 0.95);
+    border-radius: 8px;
+    padding: 0.4rem 0.6rem;
+    margin-top: 0.25rem;
+}
+
+/* ===== OVERLOAD BANNER ===== */
+.day-plan-overload-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #92400e;
+    background: #fef3c7;
+    border: 1px solid #fcd34d;
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    margin-top: 0.5rem;
+}
+
 /* ===== EDIT / REMOVE — TOUCH FRIENDLY ===== */
 .day-plan-edit-btn,
 .day-plan-remove-btn {
