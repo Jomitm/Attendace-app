@@ -3,6 +3,7 @@ import { AppConfig } from '../config.js';
 import { isTaskVisibleToViewer, getCurrentViewerId } from '../utils/task-visibility.js';
 import { buildPerformanceWindows } from '../utils/perf-windows.js';
 import { isRequiredWorkingDay, countRequiredWorkingDays } from '../utils/working-days.js';
+import { buildHeroEvidenceDigest } from '../utils/hero-digest.js';
 
 // Truncating by recency alone can exclude all completed tasks (recent entries
 // are usually still in-progress), leaving the dashboard's Team Activity
@@ -1085,6 +1086,7 @@ export class Analytics {
             productivity: 0,
             planning: 0,
             compliance: 0,
+            digest: '',
             finalScore: 0
         };
     }
@@ -1739,6 +1741,8 @@ export class Analytics {
                 productivity,
                 planning,
                 compliance,
+                // Qualitative evidence line for the AI hero jury (never scored).
+                digest: buildHeroEvidenceDigest(effectiveTasks, dedupedLogs),
                 finalScore: Number(Math.max(0, finalScore).toFixed(2))
             };
         }).sort((a, b) => {
@@ -1865,7 +1869,8 @@ export class Analytics {
                             inProgress: Number(s.taskInProgress) || 0,
                             postponed: Number(s.taskPostponed) || 0,
                             missed: Number(s.taskMissed) || 0,
-                            punctuality: Number(s.punctuality) || 0
+                            punctuality: Number(s.punctuality) || 0,
+                            digest: String(s.digest || '')
                         };
                     })
                 }),

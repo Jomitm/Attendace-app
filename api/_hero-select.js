@@ -29,7 +29,9 @@ const ALLOWED_ORIGINS = new Set(
         ...String(process.env.APP_ORIGIN || '').split(',')
     ].map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean)
 );
-const MAX_BODY_BYTES = 64 * 1024;
+// 128 KB — candidates now carry a per-person evidence digest
+// (js/utils/hero-digest.js, ≤520 chars each); 100 candidates still fit.
+const MAX_BODY_BYTES = 128 * 1024;
 const PERIOD_RE = /^\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}$/;
 
 function providersAvailable() {

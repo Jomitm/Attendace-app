@@ -11,6 +11,9 @@
 
 const MAX_CANDIDATES = 100;
 const MAX_RATIONALE_CHARS = 200;
+// Evidence digest (qualitative work summary built client-side by
+// js/utils/hero-digest.js). Client caps at 520; this is the hard server cap.
+const MAX_DIGEST_CHARS = 600;
 
 // Firestore doc id for a hero selection period: "<startDate>_<endDate>".
 export function heroSelectionDocId(periodKey) {
@@ -18,8 +21,9 @@ export function heroSelectionDocId(periodKey) {
 }
 
 // Defensive re-shape of client-supplied candidates: ids as strings, numeric
-// stats coerced, unknown fields dropped (what actually reaches the prompt).
-// Shared by api/_hero-select.js and the Vite dev middleware.
+// stats coerced, evidence digest capped as a plain string, unknown fields
+// dropped (exactly what reaches the prompt). Shared by api/_hero-select.js
+// and the Vite dev middleware.
 export function sanitizeCandidates(input) {
     if (!Array.isArray(input)) return [];
     return input.slice(0, MAX_CANDIDATES).map((c) => ({
@@ -34,7 +38,8 @@ export function sanitizeCandidates(input) {
         inProgress: Number(c?.inProgress) || 0,
         postponed: Number(c?.postponed) || 0,
         missed: Number(c?.missed) || 0,
-        punctuality: Number(c?.punctuality) || 0
+        punctuality: Number(c?.punctuality) || 0,
+        digest: String(c?.digest || '').trim().slice(0, MAX_DIGEST_CHARS)
     })).filter((c) => c.id);
 }
 
@@ -68,7 +73,8 @@ export function buildHeroCandidates(rows = []) {
                 inProgress: Number(s.taskInProgress) || 0,
                 postponed: Number(s.taskPostponed) || 0,
                 missed: Number(s.taskMissed) || 0,
-                punctuality: Number(s.punctuality) || 0
+                punctuality: Number(s.punctuality) || 0,
+                digest: String(s.digest || '').trim().slice(0, MAX_DIGEST_CHARS)
             };
         })
         .filter((c) => c.id);

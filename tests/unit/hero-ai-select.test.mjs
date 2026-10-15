@@ -90,6 +90,30 @@ test('sanitizeCandidates coerces types and drops unknown/empty ids', () => {
     assert.deepEqual(sanitizeCandidates('x'), [], 'string input');
 });
 
+test('sanitizeCandidates keeps the evidence digest as a capped string', () => {
+    const [out] = sanitizeCandidates([
+        { id: 'a', digest: '  Done: "Ship report" (large) | Notes: 900 chars  ' },
+        { id: 'b' },
+        { id: 'c', digest: 12345 }
+    ]);
+    assert.equal(out.digest, 'Done: "Ship report" (large) | Notes: 900 chars', 'trimmed, unknown-safe');
+    const missing = sanitizeCandidates([{ id: 'b' }])[0];
+    assert.equal(missing.digest, '', 'absent digest becomes empty string');
+    const nonString = sanitizeCandidates([{ id: 'c', digest: 12345 }])[0];
+    assert.equal(nonString.digest, '12345', 'non-strings coerced');
+    const long = sanitizeCandidates([{ id: 'd', digest: 'x'.repeat(5000) }])[0];
+    assert.equal(long.digest.length, 600, 'capped at MAX_DIGEST_CHARS');
+});
+
+test('buildHeroCandidates carries the stats digest through', () => {
+    const [c] = buildHeroCandidates([
+        row('a', { stats: { ...row('a').stats, digest: 'Done: "Big thing" (large)' } })
+    ]);
+    assert.equal(c.digest, 'Done: "Big thing" (large)');
+    const [plain] = buildHeroCandidates([row('b')]);
+    assert.equal(plain.digest, '', 'missing stats digest defaults to empty');
+});
+
 // ── model answer validation (the fallback gate) ──
 
 const ALLOWED = ['u1', 'u2'];
@@ -145,7 +169,19 @@ test('HERO_PROMPT + mode hero exist in both provider mirrors', () => {
         assert.match(src, /mode === 'hero'/, `${file} branches on mode hero`);
         assert.match(src, /systemPrompt = HERO_PROMPT/, `${file} swaps in HERO_PROMPT`);
         assert.match(src, /Eligible hero candidates \(JSON\)/, `${file} builds the candidates prompt`);
+        assert.match(src, /"digest"/, `${file} prompt teaches the evidence digest`);
     }
     const cjs = read('../../api/_ai-provider.cjs');
     assert.match(cjs, /HERO_PROMPT \}/, '.cjs exports HERO_PROMPT');
+});
+
+test('HERO_PROMPT bodies are identical across the two mirrors', () => {
+    const body = (file) => {
+        const m = read(file).match(/const HERO_PROMPT = `([\s\S]*?)`;/);
+        return m ? m[1].replace(/\r\n/g, '\n') : null;
+    };
+    const jsBody = body('../../api/_ai-provider.js');
+    const cjsBody = body('../../api/_ai-provider.cjs');
+    assert.ok(jsBody, 'extracted .js prompt');
+    assert.equal(jsBody, cjsBody, 'mirrors must not drift');
 });
