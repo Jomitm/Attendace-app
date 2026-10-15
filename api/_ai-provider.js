@@ -25,6 +25,7 @@ Rules:
 - Always reply in SIMPLE layman language — short sentences, everyday words, no jargon. Explain like to a new staff member.
 - Be personal: talk directly to "you", use the user's name/role if given.
 - Be proactive: point out missed check-in/out, overdue tasks, pending leaves without being asked.
+- Be task-personal: when the user asks about work, name 1-2 concrete tasks from myTasks (never invent task names). Follow todayPlan as the recommended order: overdue first (oldest first), then urgent items due today, then the rest. Describe sizes in plain words (single-action/quick-task = "a quick 15-minute job", small-task = "an hour or two", medium-task = "about half a day", large-task/major-project = "multi-day work"). Use the workload counts for the big picture and yesterday for trajectory ("you finished X of Y yesterday"). If overdue plus today add up to more than 5 open items, say so plainly and suggest which ONE to postpone first.
 - Be evidence-based: separate Fact (what data says) / Observation (what it means) / Prediction (what may happen) / Recommendation (what to do next).
 - Be actionable: give exactly one next step with button label if possible (e.g. "Tap Check Out").
 - Be role-aware: show only data the user is allowed to see.
@@ -32,18 +33,21 @@ Rules:
 - Format labels exactly as "### Fact", "### Observation", "### Prediction", "### Recommendation" on their own lines.
 - Use the conversation history for context: resolve follow-ups ("what about yesterday?", "and my tasks?") against earlier turns. If the latest question is a follow-up, answer it in that context.`;
 
-// Fallback chain: primary + backups. Overridable via AI_MODEL_CHAIN env var.
-// Slugs probed live 2026-10-02 (OpenRouter free tiers churn — re-verify when
-// every model fails). laguna-xs and north-mini-code return properly formatted
-// narratives; the gemmas are the most capable but hit transient 429s. Dropped:
-// ling/nemotron-super (no-status), inkling (403), ultra (38s queue), lightning
-// (leaks chain-of-thought as content), qwen/lfm/dots/apodex (unformatted).
+// Fallback chain: fastest reliable model first, capable ones as fallback.
+// Overridable via AI_MODEL_CHAIN env var. Slugs probed live 2026-10-02,
+// re-verified 2026-10-14 (OpenRouter free tiers churn — re-verify when every
+// model fails). laguna-xs answers fastest with properly formatted narratives;
+// the gemmas are the most capable but hit transient 429s (the 1.5s backoff
+// below gives them room to clear). Dropped: ling/nemotron-super (no-status),
+// inkling (403), ultra (38s queue), lightning (leaks chain-of-thought as
+// content), lfm/dots/apodex (unformatted), qwen3.8-27b (slug retired — 404
+// since ~2026-10-14).
 const DEFAULT_MODEL_CHAIN = [
-    'google/gemma-4-31b-it:free',
     'poolside/laguna-xs-2.1:free',
+    'google/gemma-4-31b-it:free',
     'google/gemma-4-26b-a4b-it:free',
     'cohere/north-mini-code:free',
-    'qwen/qwen3.8-27b:free'
+    'poolside/laguna-s-2.1:free'
 ];
 
 const MAX_TOKENS = 600;
@@ -54,18 +58,38 @@ const TIMEOUT_MS = 15000;
 // it; the client still caps the coach at 30s and the hero at 8s.
 const CHAIN_TIMEOUT_MS = 9000;
 
+// Backoff between model attempts: free-tier 429s are usually transient, so a
+// short pause lets limits clear instead of burning the whole chain in one
+// burst. Only waits after retryable failures (429/5xx/network); permanent
+// errors (401 bad key, 403, 404 unknown model) fail fast with no added wait.
+const RETRY_DELAY_MS = 1500;
+const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+export function isTransientFailure(err) {
+    if (!err) return false;
+    if (err.name === 'AbortError') return true;
+    const m = String((err && err.message) || '').match(/HTTP\s+(\d{3})/);
+    const status = typeof err.status === 'number' ? err.status : (m ? Number(m[1]) : null);
+    if (status === null) return true; // network/DNS failure — brief wait
+    return RETRYABLE_STATUS.has(status);
+}
+
 // Keep only fields the prompt actually needs; cap long arrays.
 export function trimMetrics(metrics) {
     if (!metrics || typeof metrics !== 'object') return {};
     const keep = {};
     const allowed = ['user', 'myIssues', 'myTasks', 'myAttendance', 'myAttendanceSummary',
-        'myLeave', 'taskMetrics', 'pendingLeaves', 'today', 'todayDate', 'trend', 'quota'];
+        'myLeave', 'taskMetrics', 'pendingLeaves', 'today', 'todayDate', 'trend', 'quota',
+        'workload', 'yesterday', 'todayPlan'];
     for (const key of allowed) {
         if (metrics[key] !== undefined) keep[key] = metrics[key];
     }
     if (Array.isArray(keep.myIssues)) keep.myIssues = keep.myIssues.slice(0, 8);
     if (Array.isArray(keep.myTasks)) keep.myTasks = keep.myTasks.slice(0, 20);
     if (Array.isArray(keep.trend)) keep.trend = keep.trend.slice(-7);
+    if (Array.isArray(keep.todayPlan)) keep.todayPlan = keep.todayPlan.slice(0, 3);
     return keep;
 }
 
@@ -180,12 +204,16 @@ Rules:
 
 // ── Hero of the Week jury (picks ONE from eligible candidates) ─
 const HERO_PROMPT = `You are picking the "Hero of the Week" for the CRWI attendance app — a fair, layman-language jury.
-You receive a JSON array of ELIGIBLE staff candidates for the period, each with a deterministic rank/score and weekly stats (days attended, hours, planned/completed/in-progress/postponed/missed tasks, punctuality).
+You receive a JSON array of ELIGIBLE staff candidates. Each has:
+- deterministic stats: rank, score (fixed 0-100 formula), days, hours, task counts, punctuality
+- "digest": one line of evidence about their actual work this period — Done: biggest completed tasks with size, OnTime: completed by due date, Missed: tasks not done, Postponed: work still moving, Sizes/Priority/Purposes: the work mix, SubPlans: planning depth, Notes: volume of daily work logs.
 
 Rules:
-- Pick exactly ONE candidate as the hero. Weigh the whole picture like a fair manager: task delivery, consistency, hours, punctuality. "rank" is the score order, but you may justify choosing another eligible candidate when the story is clearly stronger.
+- Pick exactly ONE candidate as the hero. Weigh the whole picture like a fair manager.
+- Judge the evidence in "digest" first: what was actually delivered, how big and how important it was, what was missed or still pending, how thoroughly it was documented — then use days/hours/punctuality to judge consistency.
+- "rank" is the deterministic score order and a sensible default, but prefer another eligible candidate whenever their digest shows clearly stronger or more impactful delivery than the top-ranked one.
 - NEVER pick someone who is not in the candidates array. Never invent names or ids.
-- The rationale must be ONE plain-language sentence (max 25 words) a non-technical coworker would understand.
+- The rationale must be ONE plain-language sentence (max 25 words) a non-technical coworker would understand, grounded in the digest — describe the work, not the numbers.
 - Reply ONLY with JSON: {"userId":"<candidate id>","rationale":"<one sentence>"} — no other text.`;
 
 const VALID_SIZES = ['single-action', 'quick-task', 'small-task', 'medium-task', 'large-task', 'major-project'];
@@ -297,8 +325,12 @@ export async function classifyTaskBatch(tasks) {
 
     const providers = buildProviders();
     if (providers.length > 0) {
+        const totalAttempts = providers.reduce((n, p) => n + ((p && p.models && p.models.length) || 0), 0);
+        let attempt = 0;
         for (const provider of providers) {
             for (const model of provider.models) {
+                attempt++;
+                const moreToTry = attempt < totalAttempts;
                 try {
                     const controller = new AbortController();
                     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -344,6 +376,7 @@ export async function classifyTaskBatch(tasks) {
                     return results;
                 } catch (err) {
                     console.warn(`[ai-provider] classify ${provider.name}/${model} failed:`, err.message);
+                    if (moreToTry && isTransientFailure(err)) await sleep(RETRY_DELAY_MS);
                 }
             }
         }
@@ -368,8 +401,12 @@ export async function* callAIStream({ metrics, question, history }) {
         : `Analyze this personal data:\n\n${JSON.stringify(trimmed, null, 2)}`;
     const priorMessages = sanitizeHistory(history);
 
+    const totalAttempts = providers.reduce((n, p) => n + ((p && p.models && p.models.length) || 0), 0);
+    let attempt = 0;
     for (const provider of providers) {
         for (const model of provider.models) {
+            attempt++;
+            const moreToTry = attempt < totalAttempts;
             let res;
             try {
                 const controller = new AbortController();
@@ -418,6 +455,7 @@ export async function* callAIStream({ metrics, question, history }) {
                 throw new Error('Stream ended with no content');
             } catch (err) {
                 console.warn(`[ai-provider] stream ${provider.name}/${model} failed:`, err.message);
+                if (moreToTry && isTransientFailure(err)) await sleep(RETRY_DELAY_MS);
                 if (res && res.ok) return;
                 continue;
             }
@@ -443,8 +481,12 @@ Rules:
 export async function planToolAction({ text, today }) {
     const providers = buildProviders();
     if (providers.length === 0) return null;
+    const totalAttempts = providers.reduce((n, p) => n + ((p && p.models && p.models.length) || 0), 0);
+    let attempt = 0;
     for (const provider of providers) {
         for (const model of provider.models) {
+            attempt++;
+            const moreToTry = attempt < totalAttempts;
             try {
                 const controller = new AbortController();
                 const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -479,6 +521,7 @@ export async function planToolAction({ text, today }) {
                 return plan;
             } catch (err) {
                 console.warn(`[ai-provider] plan ${provider.name}/${model} failed:`, err.message);
+                if (moreToTry && isTransientFailure(err)) await sleep(RETRY_DELAY_MS);
             }
         }
     }
@@ -510,8 +553,12 @@ export async function callAI({ metrics, question, history, mode }) {
     // One attempt per model: rotating to the next model IS the retry (an
     // immediate 429 re-hit would fail again, and 2 attempts × 4 models blew
     // every client budget).
+    const totalAttempts = providers.reduce((n, p) => n + ((p && p.models && p.models.length) || 0), 0);
+    let attempt = 0;
     for (const provider of providers) {
         for (const model of provider.models) {
+            attempt++;
+            const moreToTry = attempt < totalAttempts;
             try {
                 const result = await callOnce(provider.url, provider.headers, provider.key, model, userPrompt, priorMessages, systemPrompt, CHAIN_TIMEOUT_MS);
                 // Reject unstructured output (reasoning models sometimes leak
@@ -545,6 +592,7 @@ export async function callAI({ metrics, question, history, mode }) {
                     : err.status ? `HTTP ${err.status}`
                     : String(err.message || err).slice(0, 80);
                 console.warn(`[ai-provider] ${provider.name}/${model} failed (${name})`);
+                if (moreToTry && isTransientFailure(err)) await sleep(RETRY_DELAY_MS);
             }
         }
     }

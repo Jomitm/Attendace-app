@@ -6,9 +6,17 @@
 import { _heuristicClassify } from './ai-performance-coach.js';
 
 /**
+ * Action verbs that justify an LLM tool-plan round-trip. Plain questions
+ * ("what should I do first today?") skip the pre-check entirely and go
+ * straight to answering — one model chain instead of two.
+ */
+export const ACTION_VERBS = /\b(add|create|complete|completed|done|finish|mark|move|postpone|push|shift|reschedule|delete|remove|cancel|schedule)\b/i;
+
+/**
  * Ask the server LLM for an action plan. Returns plan or null (offline/no key).
  */
 export async function fetchToolPlan(text) {
+  if (!ACTION_VERBS.test(String(text || ''))) return null;
   try {
     const token = await window.AppFirebaseAuth?.currentUser?.getIdToken?.() || '';
     const res = await fetch('/api/ai-insights', {
