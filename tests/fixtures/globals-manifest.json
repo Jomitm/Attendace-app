@@ -146,6 +146,7 @@
     "app_checkoutTomorrowBudgetHeadDraft",
     "app_checkoutTomorrowGoalDraft",
     "app_checkoutUserMap",
+    "app_cleanupPostponedShells",
     "app_clearCheckoutTaskError",
     "app_closeAdminCardFullscreen",
     "app_closeAdminCardMaximize",

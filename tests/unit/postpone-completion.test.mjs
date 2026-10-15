@@ -66,6 +66,42 @@ describe('checkout task mutation - postpone work status', () => {
     });
 });
 
+describe('checkout postpone - move semantics', () => {
+    it('hides the source on the old date and keeps history on the copy', () => {
+        const task = { task: 'Write report', status: 'in-process' };
+        const update = {
+            action: 'postpone',
+            planId: 'p1',
+            taskIndex: 2,
+            actionMeta: { postponeDate: '2026-01-05' }
+        };
+        const mutation = buildCheckoutTaskMutation(task, update, { planDate: '2026-01-01', currentUserId: 'u1' });
+        assert.equal(mutation.nextTask.isRemoved, true, 'source hidden on old date');
+        assert.equal(mutation.nextTask.status, 'postponed', 'status kept for lineage');
+        assert.equal(mutation.nextTask.postponedToDate, '2026-01-05');
+        assert.ok(mutation.postponedTask, 'copy created on target date');
+        assert.equal(mutation.postponedTask.date, '2026-01-05');
+        assert.equal(mutation.postponedTask.meta.postponedFromDate, '2026-01-01');
+        assert.equal(mutation.postponedTask.meta.sourcePlanId, 'p1');
+        assert.equal(mutation.postponedTask.meta.sourceTaskIndex, 2);
+    });
+
+    it('never hides the source when the postpone date is invalid', () => {
+        const task = { task: 'Write report', status: 'in-process' };
+        const update = {
+            action: 'postpone',
+            planId: 'p1',
+            taskIndex: 0,
+            actionMeta: { postponeDate: '2026-01-01' }
+        };
+        const mutation = buildCheckoutTaskMutation(task, update, { planDate: '2026-01-01', currentUserId: 'u1' });
+        assert.ok(mutation.postponeError, 'invalid date rejected');
+        assert.equal(mutation.postponedTask, null, 'no copy created');
+        assert.ok(!mutation.nextTask.isRemoved, 'failed postpone must not hide the original');
+        assert.equal(mutation.nextTask.status, 'in-process', 'status reverted');
+    });
+});
+
 describe('postpone points by work status', () => {
     const rs = new RatingSystem();
     const compute = (ws) => rs.calculateTaskPoints({ status: 'postponed', postponeWorkStatus: ws }, '2026-01-01');

@@ -45,6 +45,10 @@ export function buildCheckoutTaskMutation(task = {}, update = {}, options = {}) 
         // Record the target date on the source so the widget/checkout can label
         // the task as moved (and the widget can stop showing it as a today task).
         if (canCreatePostponedCopy) nextTask.postponedToDate = postponeDate;
+        // Move, don't copy: hide the source on the old date. The postponed
+        // copy below carries postponedFromDate/postponedToDate, so the move
+        // history is kept on the new date instead of a shell on the old one.
+        if (canCreatePostponedCopy) nextTask.isRemoved = true;
     }
 
     if (update.action === 'postpone' && !canCreatePostponedCopy) {
