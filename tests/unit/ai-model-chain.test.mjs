@@ -28,7 +28,9 @@ test('chain contains no known-dead OpenRouter slugs (404 regression)', async () 
         'inclusionai/ling-3.0-flash-sante:free',
         'nvidia/nemotron-3-super-120b-a12b:free',
         'thinkingmachines/inkling:free',
-        'nvidia/nemotron-3-ultra-550b-a55b:free'
+        'nvidia/nemotron-3-ultra-550b-a55b:free',
+        // Retired 2026-10-14: slug 404s on the live models endpoint.
+        'qwen/qwen3.8-27b:free'
     ];
     for (const d of dead) {
         assert.ok(!models.includes(d), `dead slug must not be in chain: ${d}`);
