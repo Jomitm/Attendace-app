@@ -59,11 +59,26 @@ export default async function handler(req, res) {
                         if (!t || t.isRemoved) continue;
                         const st = String(t.status || '').toLowerCase();
                         if (st === 'completed' || t.completed === true) continue;
-                        openTasks.push({ task: String(t.task || '').slice(0, 60), date: wp.date, postponed: st === 'postponed' });
+                        openTasks.push({
+                            task: String(t.task || '').slice(0, 60),
+                            date: wp.date,
+                            postponed: st === 'postponed',
+                            size: t.sizeCategory || t.aiSizeCategory || '',
+                            pri: t.priorityLevel || t.aiPriorityLevel || '',
+                            cf: !!(t.carryForwardRootId || t.carriedForwardFromDate || t.carriedForwardFromPlanId)
+                        });
                     }
                 });
-                const overdue = openTasks.filter(t => t.date < today);
+                const overdue = openTasks.filter(t => t.date < today)
+                    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
                 const todayTasks = openTasks.filter(t => t.date === today);
+                const isUrgent = (t) => t.pri === 'urgent' || t.pri === 'important';
+                const urgentToday = todayTasks.filter(isUrgent).slice(0, 3).map(t => t.task);
+                // Deterministic top-3: oldest overdue first, then urgent today, then rest of today
+                const todayTop3 = overdue.concat(
+                    todayTasks.filter(isUrgent),
+                    todayTasks.filter(t => !isUrgent(t))
+                ).slice(0, 3).map(t => t.task);
                 const snapshot = {
                     name: user.name || user.username,
                     today,
@@ -71,7 +86,9 @@ export default async function handler(req, res) {
                     overdueCount: overdue.length,
                     overdueSample: overdue.slice(0, 3).map(t => t.task),
                     todayCount: todayTasks.length,
-                    todaySample: todayTasks.slice(0, 3).map(t => t.task)
+                    todaySample: todayTasks.slice(0, 3).map(t => t.task),
+                    urgentToday,
+                    todayTop3
                 };
 
                 // AI briefing (shared provider), rule-based fallback
@@ -81,15 +98,18 @@ export default async function handler(req, res) {
                 if (ai?.insight) {
                     text = ai.insight.replace(/AI Score:.*$/m, '').trim();
                 } else {
+                    const urgentLead = snapshot.urgentToday.length > 0
+                        ? ` Start with "${snapshot.urgentToday[0]}" — it is marked urgent.`
+                        : '';
                     text = snapshot.overdueCount > 0
-                        ? `Good morning ${snapshot.name} — you have ${snapshot.overdueCount} overdue task(s): ${snapshot.overdueSample.join(', ')}. Clear the oldest one first, then start today's ${snapshot.todayCount} task(s).`
+                        ? `Good morning ${snapshot.name} — you have ${snapshot.overdueCount} overdue task(s): ${snapshot.overdueSample.join(', ')}. Clear the oldest one first, then start today's ${snapshot.todayCount} task(s).${urgentLead}`
                         : snapshot.todayCount > 0
-                            ? `Good morning ${snapshot.name} — ${snapshot.todayCount} task(s) planned today: ${snapshot.todaySample.join(', ')}. ${snapshot.checkedIn ? 'You are checked in — have a productive day.' : 'Remember to check in before 09:15.'}`
+                            ? `Good morning ${snapshot.name} — ${snapshot.todayCount} task(s) planned today: ${snapshot.todaySample.join(', ')}.${urgentLead} ${snapshot.checkedIn ? 'You are checked in — have a productive day.' : 'Remember to check in before 09:15.'}`
                             : `Good morning ${snapshot.name} — no tasks planned for today. Add 3-5 tasks to stay on track.`;
                 }
 
                 // Send via existing Telegram integration (server-side import)
-                const sendMod = await import('./telegram-send.js');
+                const sendMod = await import('./_telegram-send.js');
                 // telegram-send is an express-style handler; call it internally
                 const fakeRes = { statusCode: 200, setHeader() {}, end() {} };
                 await sendMod.default({ method: 'POST', headers: {}, body: { chatId: user.telegramChatId, text: `🌅 ${text}` } }, fakeRes);

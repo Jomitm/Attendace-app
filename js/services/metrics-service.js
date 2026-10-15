@@ -38,6 +38,88 @@ function _yearStart() {
     return `${d.getFullYear()}-01-01`;
 }
 
+// ── Task-context vocabulary (mirrors api/_ai-provider.js VALID sets) ──
+const TASK_SIZES = ['single-action', 'quick-task', 'small-task', 'medium-task', 'large-task', 'major-project'];
+const TASK_PRIORITIES = ['urgent', 'important', 'standard', 'flexible'];
+const TASK_SIZE_RANK = { 'major-project': 0, 'large-task': 1, 'medium-task': 2, 'small-task': 3, 'quick-task': 4, 'single-action': 5, '': 6 };
+
+function isCarryForwardTask(t) {
+    return !!(t && (t.carryForwardRootId || t.carriedForwardFromDate || t.carriedForwardFromPlanId));
+}
+
+function isOpenTask(t) {
+    return !!t && t.status !== 'completed';
+}
+
+function isUrgentTask(t) {
+    return isOpenTask(t) && (t.pri === 'urgent' || t.pri === 'important');
+}
+
+/**
+ * Workload shape from a flat task list (pure — unit-tested).
+ * Counts cover open tasks only; pointers name concrete items.
+ */
+export function summarizeTaskWorkload(tasks) {
+    const list = Array.isArray(tasks) ? tasks : [];
+    const open = list.filter(isOpenTask);
+    const inBucket = (b) => open.filter((t) => t.bucket === b);
+    const overdue = inBucket('overdue-or-postponed').slice()
+        .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    const todayOpen = inBucket('today');
+    const rank = (s) => TASK_SIZE_RANK[s] ?? 6;
+    const biggest = todayOpen.slice().sort((a, b) => rank(a.size) - rank(b.size))[0] || null;
+    return {
+        overdue: inBucket('overdue-or-postponed').length,
+        today: todayOpen.length,
+        upcoming: inBucket('upcoming').length,
+        urgent: open.filter(isUrgentTask).length,
+        postponed: open.filter((t) => t.status === 'postponed').length,
+        carryForward: open.filter((t) => t.cf).length,
+        oldestOverdue: overdue[0] ? { task: overdue[0].task, date: overdue[0].date } : null,
+        biggestToday: biggest ? { task: biggest.task, size: biggest.size || 'unsized' } : null
+    };
+}
+
+/**
+ * Yesterday's plan vs done (pure — unit-tested).
+ */
+export function recapTaskYesterday(tasks, yesterdayDate) {
+    const day = (Array.isArray(tasks) ? tasks : []).filter((t) => String(t.date) === String(yesterdayDate));
+    return {
+        date: String(yesterdayDate),
+        planned: day.length,
+        completed: day.filter((t) => t.status === 'completed').length
+    };
+}
+
+/**
+ * Deterministic top-3 work order (pure — unit-tested): overdue oldest
+ * first, then urgent items due today, then the rest of today by size.
+ */
+export function buildTaskTodayPlan(tasks) {
+    const list = Array.isArray(tasks) ? tasks : [];
+    const rank = (s) => TASK_SIZE_RANK[s] ?? 6;
+    const byDate = (a, b) => String(a.date).localeCompare(String(b.date));
+    const bySize = (a, b) => rank(a.size) - rank(b.size);
+    const overdue = list.filter((t) => isOpenTask(t) && t.bucket === 'overdue-or-postponed').sort(byDate);
+    const urgentToday = list.filter((t) => isOpenTask(t) && t.bucket === 'today' && isUrgentTask(t)).sort(bySize);
+    const restToday = list.filter((t) => isOpenTask(t) && t.bucket === 'today' && !isUrgentTask(t)).sort(bySize);
+    const plan = [];
+    for (const t of overdue) {
+        if (plan.length >= 3) break;
+        plan.push({ task: t.task, date: t.date, why: 'overdue since ' + t.date });
+    }
+    for (const t of urgentToday) {
+        if (plan.length >= 3) break;
+        plan.push({ task: t.task, date: t.date, why: 'urgent, due today' });
+    }
+    for (const t of restToday) {
+        if (plan.length >= 3) break;
+        plan.push({ task: t.task, date: t.date, why: 'due today' });
+    }
+    return plan;
+}
+
 export class MetricsService {
     // ── Attendance Metrics ────────────────────────────────────
 
@@ -407,13 +489,16 @@ export class MetricsService {
         const today = _today();
         const monthStart = _monthStart();
         const isPriv = this._isPrivileged(user);
-        const [todayLogs, myIssues, myLeave, myTaskMetrics, myAttendanceSummary, policies] = await Promise.all([
+        const [todayLogs, myIssues, myLeave, myTaskMetrics, myAttendanceSummary, policies, workload, yesterday, todayPlan] = await Promise.all([
             _attendanceService()?.getByDateRange(today, today, { force: false }).then(rows => (rows || []).filter(r => String(r.user_id) === String(user.id) || String(r.userId) === String(user.id))).catch(() => []),
             this.getMyIssues().catch(() => []),
             this.getUserLeaveSummary(user.id).catch(() => ({ total: 0, byType: {} })),
             this.getMyTaskMetrics(monthStart, today).catch(() => ({ total: 0, completed: 0, completionRate: '0', inProgress: 0 })),
             this.getMyAttendanceSummary(monthStart, today).catch(() => ({ total:0, present:0, absent:0, late:0, attendanceRate:'0' })),
-            _db()?.getAll('policies').catch(() => []).then(rows => (rows || []).slice(0, 20)).catch(() => [])
+            _db()?.getAll('policies').catch(() => []).then(rows => (rows || []).slice(0, 20)).catch(() => []),
+            this.getMyWorkload(today).catch(() => null),
+            this.getMyYesterday(today).catch(() => null),
+            this.getMyTodayPlan(today).catch(() => [])
         ]);
         let myAttendance = todayLogs[0] || null;
         // Attendance logs are only written on checkout, so a user who is checked
@@ -452,6 +537,9 @@ export class MetricsService {
             myLeave,
             taskMetrics: myTaskMetrics,
             myAttendanceSummary,
+            workload,
+            yesterday,
+            todayPlan,
             // Keep team taskMetrics for admin view if needed (fetch on demand)
             computedAt: Date.now(),
             policies: policies.map(p => ({ id: p.id, title: p.title || p.name, summary: String(p.summary || p.description || '').slice(0, 300) })),
@@ -480,18 +568,59 @@ export class MetricsService {
                 const status = (n === 'completed' || t.completed === true) ? 'completed'
                     : n === 'postponed' ? 'postponed' : n || 'pending';
                 const date = String(wp.date || '');
+                const size = TASK_SIZES.includes(t.sizeCategory) ? t.sizeCategory
+                    : TASK_SIZES.includes(t.aiSizeCategory) ? t.aiSizeCategory : '';
+                const pri = TASK_PRIORITIES.includes(t.priorityLevel) ? t.priorityLevel
+                    : TASK_PRIORITIES.includes(t.aiPriorityLevel) ? t.aiPriorityLevel : '';
+                const spanStart = String(t.startDate || '').trim() || date;
+                const spanEnd = String(t.endDate || '').trim() || spanStart;
+                // Range-aware bucket: a spanning task counts as today on every
+                // date its span covers (not just its home doc date).
+                const coversToday = status !== 'completed'
+                    && spanStart <= today && today <= (spanEnd >= spanStart ? spanEnd : spanStart);
                 out.push({
                     task: String(t.task).slice(0, 60),
                     date,
                     status,
-                    bucket: date < today && status !== 'completed' ? 'overdue-or-postponed'
-                        : date === today ? 'today' : 'upcoming'
+                    bucket: coversToday ? 'today'
+                        : date < today && status !== 'completed' ? 'overdue-or-postponed'
+                            : date === today ? 'today' : 'upcoming',
+                    startDate: spanStart,
+                    endDate: spanEnd >= spanStart ? spanEnd : spanStart,
+                    size,
+                    pri,
+                    cf: isCarryForwardTask(t)
                 });
             }
         }
         const prio = { 'overdue-or-postponed': 0, 'today': 1, 'upcoming': 2 };
         out.sort((a, b) => (prio[a.bucket] - prio[b.bucket]) || a.date.localeCompare(b.date));
         return out.slice(0, limit);
+    }
+
+    /**
+     * Workload shape for AI context — open-task counts plus pointers to
+     * concrete items (oldest overdue, biggest due today).
+     */
+    async getMyWorkload(today) {
+        const tasks = await this.getMyFlatTasks(today, 200).catch(() => []);
+        return summarizeTaskWorkload(tasks);
+    }
+
+    /**
+     * Yesterday's plan vs done for AI context (trajectory signal).
+     */
+    async getMyYesterday(today) {
+        const tasks = await this.getMyFlatTasks(today, 200).catch(() => []);
+        return recapTaskYesterday(tasks, _daysAgo(1));
+    }
+
+    /**
+     * Deterministic top-3 work order for AI context.
+     */
+    async getMyTodayPlan(today) {
+        const tasks = await this.getMyFlatTasks(today, 200).catch(() => []);
+        return buildTaskTodayPlan(tasks);
     }
 
     async getMyIssues() {
