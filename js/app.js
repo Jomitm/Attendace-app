@@ -3146,8 +3146,11 @@ window.app_applyCheckoutTaskUpdates = async (updates = [], options = {}) => {
             // hidden on the old date via isRemoved (same rule as
             // app_postponeTask and the AI-agent move).
             const assigneeId = String(postponedTask.meta.assignedTo || postponedTask.userId || '').trim() || currentUser?.id || updaterId;
-            await window.AppCalendar.addWorkPlanTask(postponedTask.date, assigneeId, postponedTask.taskDescription, postponedTask.subPlans || [], {
+            // subPlans travel inside meta (what addWorkPlanTask stores as
+            // subPlans); the tags slot stays empty like every other caller.
+            await window.AppCalendar.addWorkPlanTask(postponedTask.date, assigneeId, postponedTask.taskDescription, [], {
                 ...postponedTask.meta,
+                subPlans: postponedTask.subPlans || [],
                 assignedTo: assigneeId
             });
         }
