@@ -159,8 +159,8 @@ function detailChipsHtml(details, stats) {
     if (details.taskCompleted) chips.push(`<span class="perf-chip perf-chip-green"><i class="fa-solid fa-check"></i> ${details.taskCompleted} completed</span>`);
     if (details.taskInProgress) chips.push(`<span class="perf-chip perf-chip-blue"><i class="fa-solid fa-spinner"></i> ${details.taskInProgress} in progress</span>`);
     if (details.taskMissed) chips.push(`<span class="perf-chip perf-chip-red"><i class="fa-solid fa-xmark"></i> ${details.taskMissed} missed</span>`);
-    if (extraHours > 0) chips.push(`<span class="perf-chip perf-chip-purple"><i class="fa-solid fa-clock"></i> ${extraHours}h extra</span>`);
-    if (details.avgActivity) chips.push(`<span class="perf-chip"><i class="fa-solid fa-bolt"></i> ${details.avgActivity}% activity</span>`);
+    if (extraHours > 0) chips.push(`<span class="perf-chip perf-chip-purple" title="Informational only; extra hours do not affect the Performance score."><i class="fa-solid fa-clock"></i> ${extraHours}h extra</span>`);
+    if (details.avgActivity) chips.push(`<span class="perf-chip" title="Informational only; app activity does not affect the Performance score."><i class="fa-solid fa-bolt"></i> ${details.avgActivity}% app activity</span>`);
     if (details.classifiedCount > 0) chips.push(`<span class="perf-chip perf-chip-green"><i class="fa-solid fa-star"></i> ${details.classifiedCount} priority set</span>`);
     if (details.classificationBonus > 0) chips.push(`<span class="perf-chip perf-chip-green"><i class="fa-solid fa-star"></i> +${details.classificationBonus} bonus</span>`);
 
@@ -250,14 +250,14 @@ export function renderStaffPerformance(perfData, options = {}) {
     if (perfData.error) {
         return `
         <div class="card dashboard-perf-card">
-            <div class="perf-team-tabs" style="margin-bottom:0.5rem;">
-                ${personalPerfTabsHtml(periodKey)}
-            </div>
-            <div class="dashboard-perf-head">
-                <div>
-                    <h4 class="dashboard-perf-title">Your Performance</h4>
-                    <span class="dashboard-perf-subtitle">${safeHtml(period.label)}</span>
+            <div class="perf-header-row">
+                <div class="dashboard-perf-head">
+                    <div>
+                        <h4 class="dashboard-perf-title">Your Performance</h4>
+                        <span class="dashboard-perf-subtitle">${safeHtml(period.label)}</span>
+                    </div>
                 </div>
+                <div class="perf-team-tabs">${personalPerfTabsHtml(periodKey)}</div>
             </div>
             <div class="perf-perf-error" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:180px;gap:0.75rem;color:#94a3b8;">
                 <i class="fa-solid fa-triangle-exclamation" style="font-size:1.4rem;color:#f59e0b;"></i>
@@ -272,14 +272,14 @@ export function renderStaffPerformance(perfData, options = {}) {
 
     return `
         <div class="card dashboard-perf-card">
-            <div class="perf-team-tabs" style="margin-bottom:0.5rem;">
-                ${personalPerfTabsHtml(periodKey)}
-            </div>
-            <div class="dashboard-perf-head">
-                <div>
-                    <h4 class="dashboard-perf-title">Your Performance</h4>
-                    <span class="dashboard-perf-subtitle">${safeHtml(period.calendarMonth ? (perfData.trend?.[perfData.trend.length - 1]?.week || period.label) : `${period.label} · ${options.windowDays || period.windowDays}-day window`)}</span>
+            <div class="perf-header-row">
+                <div class="dashboard-perf-head">
+                    <div>
+                        <h4 class="dashboard-perf-title">Your Performance</h4>
+                        <span class="dashboard-perf-subtitle">${safeHtml(period.calendarMonth ? (perfData.trend?.[perfData.trend.length - 1]?.week || period.label) : `${period.label} · ${options.windowDays || period.windowDays}-day window`)}</span>
+                    </div>
                 </div>
+                <div class="perf-team-tabs">${personalPerfTabsHtml(periodKey)}</div>
             </div>
 
             <div class="perf-main-layout">
@@ -302,8 +302,10 @@ export function renderStaffPerformance(perfData, options = {}) {
                 </div>
             </div>
 
-            ${trendHtml(trend)}
-            ${insightsHtml(insights)}
+            <div class="perf-secondary-layout">
+                ${trendHtml(trend)}
+                ${insightsHtml(insights)}
+            </div>
             ${dataCheckHtml(perfData)}
             ${aiCoachPlaceholderHtml(periodKey, composite)}
         </div>`;

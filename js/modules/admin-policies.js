@@ -120,7 +120,7 @@ export const AdminPolicies = {
                 <i class="fa-solid fa-ranking-star" style="margin-right: 8px;"></i> Hero of the Week Control Panel
             </h3>
             <p style="margin: 0 0 1rem 0; color: #64748b; font-size: 0.85rem;">
-                Configure how the weekly hero is scored. Saving bumps the schema version and refreshes rankings.
+                Configure the shared Performance and Hero scoring rules. Dimension weights are normalized to 100%; saving refreshes rankings.
             </p>
             <form onsubmit="window.app_saveHeroPolicyChanges(event)">
                 <div style="display:grid; gap:0.85rem;">
@@ -128,15 +128,15 @@ export const AdminPolicies = {
             'Basic Settings',
             null,
             [
-                renderNumberField({ label: 'Scoring Period (days)', name: 'hero_windowDays', value: heroPolicy.WINDOW_DAYS ?? heroDefaults.WINDOW_DAYS ?? 7, step: '1', min: '1' }),
-                renderNumberField({ label: 'Expected Hours/Day', name: 'hero_attendanceConsistencyImpact', value: heroAttendance.expectedHoursPerDay ?? heroAttendance.consistencyImpact ?? 8, step: '0.5', min: '1', max: '16' }),
+                renderNumberField({ label: 'Hero Scoring Period (days)', name: 'hero_windowDays', value: heroPolicy.WINDOW_DAYS ?? heroDefaults.WINDOW_DAYS ?? 7, step: '1', min: '1' }),
+                renderNumberField({ label: 'Expected Hours/Day', name: 'hero_attendanceConsistencyImpact', value: heroAttendance.expectedHoursPerDay ?? heroAttendance.consistencyImpact ?? 8, step: '0.5', min: '1', max: '16', help: 'Sets the hours target per required weekday; hours worked on weekends or holidays also count.' }),
                 renderNumberField({ label: 'Max Hours Bonus (pts)', name: 'hero_attendanceMaxBonus', value: heroAttendance.maxBonus ?? 10, step: '1', min: '0', max: '25', help: 'Bonus for working long hours. 0 = off.' }),
                 renderNumberField({ label: 'Max Pauses/Day', name: 'hero_maxPausesPerDay', value: (heroPolicy.PAUSE_DISCIPLINE || heroDefaults.PAUSE_DISCIPLINE || {}).maxPausesPerDay ?? 3, step: '1', min: '0', max: '10', help: 'More pauses than this = punctuality penalty.' }),
                 renderNumberField({ label: 'Max Pause Mins/Day', name: 'hero_maxPauseMinsPerDay', value: (heroPolicy.PAUSE_DISCIPLINE || heroDefaults.PAUSE_DISCIPLINE || {}).maxPauseMinsPerDay ?? 45, step: '5', min: '0', max: '120', help: 'Longer pauses than this = punctuality penalty.' }),
                 renderNumberField({ label: 'Consistency Bonus (pts)', name: 'hero_consistencyBonus', value: heroAttendance.consistencyBonus ?? 10, step: '1', min: '0', max: '20', help: 'Reward for stable check-in times.' }),
-                renderNumberField({ label: 'Min Days to Qualify', name: 'hero_minDays', value: heroEvidence.minDays ?? 3, step: '1', min: '1' }),
-                renderNumberField({ label: 'Min Hours to Qualify', name: 'hero_minDurationHours', value: Math.max(0, Number(heroEvidence.minDurationMs ?? 14400000) / 3600000), step: '0.5', min: '0' }),
-                renderNumberField({ label: 'Min Tasks to Qualify', name: 'hero_minPlannedTasks', value: heroEvidence.minPlannedTasks ?? 3, step: '1', min: '0' })
+                renderNumberField({ label: 'Hero Qualification: Min Days', name: 'hero_minDays', value: heroEvidence.minDays ?? 3, step: '1', min: '1' }),
+                renderNumberField({ label: 'Hero Qualification: Min Hours', name: 'hero_minDurationHours', value: Math.max(0, Number(heroEvidence.minDurationMs ?? 14400000) / 3600000), step: '0.5', min: '0' }),
+                renderNumberField({ label: 'Hero Qualification: Min Tasks', name: 'hero_minPlannedTasks', value: heroEvidence.minPlannedTasks ?? 3, step: '1', min: '0' })
             ].join(''),
             3
         )}
@@ -147,15 +147,14 @@ export const AdminPolicies = {
                         <div style="display:grid; gap:0.75rem; margin-top:0.75rem;">
                             ${renderSection(
                 'Scoring Parameters',
-                null,
+                'The full-week task target scales to each Performance period and also informs Hero confidence.',
                 [
                     renderNumberField({ label: 'Fallback Lookback (days)', name: 'hero_fallbackLookbackDays', value: heroPolicy.FALLBACK_LOOKBACK_DAYS ?? heroDefaults.FALLBACK_LOOKBACK_DAYS ?? 90, step: '1', min: '1', help: 'Wider window if nobody qualifies in primary period.' }),
-                    renderNumberField({ label: 'Expected Weekly Tasks', name: 'hero_expectedWeeklyTasks', value: heroPolicy.EXPECTED_WEEKLY_TASKS ?? heroDefaults.EXPECTED_WEEKLY_TASKS ?? 5, step: '1', min: '1' }),
-                    renderNumberField({ label: 'Default Activity Score', name: 'hero_defaultActivityScore', value: heroPolicy.DEFAULT_ACTIVITY_SCORE ?? heroDefaults.DEFAULT_ACTIVITY_SCORE ?? 50, step: '1', min: '0', max: '100', help: 'Baseline for users with no check-in data.' }),
+                    renderNumberField({ label: 'Expected Weekly Tasks', name: 'hero_expectedWeeklyTasks', value: heroPolicy.EXPECTED_WEEKLY_TASKS ?? heroDefaults.EXPECTED_WEEKLY_TASKS ?? 5, step: '1', min: '1', help: 'Target count used by the Planning dimension; scaled for the selected period.' }),
                     renderNumberField({ label: 'Hours Cap (confidence)', name: 'hero_capsHours', value: heroCaps.hours ?? 40, step: '1', min: '1', help: 'Caps confidence display, not the score.' }),
                     renderNumberField({ label: 'Punctuality Weight', name: 'hero_weightPunctuality', value: heroWeights.punctuality ?? 0.15, step: '0.05', min: '0', max: '1' }),
                     renderNumberField({ label: 'Attendance Weight', name: 'hero_weightAttendance', value: heroWeights.attendance ?? 0.20, step: '0.05', min: '0', max: '1' }),
-                    renderNumberField({ label: 'Task Weight', name: 'hero_weightTaskExecution', value: heroWeights.taskExecution ?? 0.25, step: '0.05', min: '0', max: '1' }),
+                    renderNumberField({ label: 'Task Execution Weight', name: 'hero_weightTaskExecution', value: heroWeights.taskExecution ?? 0.25, step: '0.05', min: '0', max: '1' }),
                     renderNumberField({ label: 'Productivity Weight', name: 'hero_weightProductivity', value: heroWeights.productivity ?? 0.15, step: '0.05', min: '0', max: '1' }),
                     renderNumberField({ label: 'Planning Weight', name: 'hero_weightPlanning', value: heroWeights.planning ?? 0.15, step: '0.05', min: '0', max: '1' }),
                     renderNumberField({ label: 'Compliance Weight', name: 'hero_weightCompliance', value: heroWeights.compliance ?? 0.10, step: '0.05', min: '0', max: '1' })
@@ -179,12 +178,12 @@ export const AdminPolicies = {
             )}
                             ${renderSection(
                 'Detailed Rule Controls',
-                'All values below are used directly by Hero scoring. Weight groups are normalized where applicable.',
+                'These controls feed both Performance and Hero scoring. Task execution coefficients apply as entered; size and priority values weight each task.',
                 [
                     ...['single-action', 'quick-task', 'small-task', 'medium-task', 'large-task', 'major-project'].map((key) => renderNumberField({ label: `Size: ${key}`, name: `hero_ruleSize_${key}`, value: sizeWeights[key] ?? ({ 'single-action': 1, 'quick-task': 2, 'small-task': 3, 'medium-task': 5, 'large-task': 8, 'major-project': 12 }[key]), step: '0.1', min: '0' })),
-                    renderNumberField({ label: 'Completion Weight', name: 'hero_ruleExecutionCompletion', value: executionWeights.completion ?? 0.5, step: '0.05', min: '0' }),
-                    renderNumberField({ label: 'On-time Weight', name: 'hero_ruleExecutionOnTime', value: executionWeights.onTime ?? 0.2, step: '0.05', min: '0' }),
-                    renderNumberField({ label: 'Miss Penalty Weight', name: 'hero_ruleExecutionMissed', value: executionWeights.missed ?? 0.3, step: '0.05', min: '0' }),
+                    renderNumberField({ label: 'Completion Weight', name: 'hero_ruleExecutionCompletion', value: executionWeights.completion ?? 0.5, step: '0.05', min: '0', max: '1', help: 'Direct coefficient; task execution weights are not auto-normalized.' }),
+                    renderNumberField({ label: 'On-time Weight', name: 'hero_ruleExecutionOnTime', value: executionWeights.onTime ?? 0.2, step: '0.05', min: '0', max: '1' }),
+                    renderNumberField({ label: 'Miss Penalty Weight', name: 'hero_ruleExecutionMissed', value: executionWeights.missed ?? 0.3, step: '0.05', min: '0', max: '1' }),
                     renderNumberField({ label: 'Subtask Points', name: 'hero_ruleSubPlanPoints', value: planningWeights.subPlanPoints ?? 20, step: '1', min: '0' }),
                     renderNumberField({ label: 'Pause Count Penalty', name: 'hero_rulePauseCountPoints', value: pausePenaltyRule.pauseCountPoints ?? 10, step: '1', min: '0' }),
                     renderNumberField({ label: 'Pause Minutes Block', name: 'hero_rulePauseMinutesBlock', value: pausePenaltyRule.pauseMinutesBlock ?? 10, step: '1', min: '1' }),
@@ -299,8 +298,6 @@ export const AdminPolicies = {
             nextHeroPolicy.WINDOW_DAYS = Math.max(1, Math.round(getNumber('hero_windowDays', nextHeroPolicy.WINDOW_DAYS ?? AppConfig?.HERO_POLICY?.WINDOW_DAYS ?? 7)));
             nextHeroPolicy.FALLBACK_LOOKBACK_DAYS = Math.max(1, Math.round(getNumber('hero_fallbackLookbackDays', nextHeroPolicy.FALLBACK_LOOKBACK_DAYS ?? AppConfig?.HERO_POLICY?.FALLBACK_LOOKBACK_DAYS ?? 90)));
             nextHeroPolicy.EXPECTED_WEEKLY_TASKS = Math.max(1, Math.round(getNumber('hero_expectedWeeklyTasks', nextHeroPolicy.EXPECTED_WEEKLY_TASKS ?? AppConfig?.HERO_POLICY?.EXPECTED_WEEKLY_TASKS ?? 5)));
-            nextHeroPolicy.DEFAULT_ACTIVITY_SCORE = Math.max(0, Math.round(getNumber('hero_defaultActivityScore', nextHeroPolicy.DEFAULT_ACTIVITY_SCORE ?? AppConfig?.HERO_POLICY?.DEFAULT_ACTIVITY_SCORE ?? 50)));
-
             const rawConsistencyImpact = Number(getNumber('hero_attendanceConsistencyImpact', nextHeroPolicy.ATTENDANCE_MODIFIER.consistencyImpact));
             const migratedConsistencyImpact = (rawConsistencyImpact >= 0 && rawConsistencyImpact < 2) ? 8 : rawConsistencyImpact;
             nextHeroPolicy.ATTENDANCE_MODIFIER.consistencyImpact = Math.max(1, Number.isFinite(migratedConsistencyImpact) ? migratedConsistencyImpact : 8);
@@ -339,9 +336,9 @@ export const AdminPolicies = {
             ['single-action', 'quick-task', 'small-task', 'medium-task', 'large-task', 'major-project'].forEach((key) => {
                 rules.SIZE_WEIGHTS[key] = Math.max(0, getNumber(`hero_ruleSize_${key}`, rules.SIZE_WEIGHTS[key] ?? 1));
             });
-            rules.TASK_EXECUTION_WEIGHTS.completion = Math.max(0, getNumber('hero_ruleExecutionCompletion', rules.TASK_EXECUTION_WEIGHTS.completion ?? 0.5));
-            rules.TASK_EXECUTION_WEIGHTS.onTime = Math.max(0, getNumber('hero_ruleExecutionOnTime', rules.TASK_EXECUTION_WEIGHTS.onTime ?? 0.2));
-            rules.TASK_EXECUTION_WEIGHTS.missed = Math.max(0, getNumber('hero_ruleExecutionMissed', rules.TASK_EXECUTION_WEIGHTS.missed ?? 0.3));
+            rules.TASK_EXECUTION_WEIGHTS.completion = Math.min(1, Math.max(0, getNumber('hero_ruleExecutionCompletion', rules.TASK_EXECUTION_WEIGHTS.completion ?? 0.5)));
+            rules.TASK_EXECUTION_WEIGHTS.onTime = Math.min(1, Math.max(0, getNumber('hero_ruleExecutionOnTime', rules.TASK_EXECUTION_WEIGHTS.onTime ?? 0.2)));
+            rules.TASK_EXECUTION_WEIGHTS.missed = Math.min(1, Math.max(0, getNumber('hero_ruleExecutionMissed', rules.TASK_EXECUTION_WEIGHTS.missed ?? 0.3)));
             rules.PLANNING_WEIGHTS.subPlanPoints = Math.max(0, getNumber('hero_ruleSubPlanPoints', rules.PLANNING_WEIGHTS.subPlanPoints ?? 20));
             rules.PAUSE_PENALTY.pauseCountPoints = Math.max(0, getNumber('hero_rulePauseCountPoints', rules.PAUSE_PENALTY.pauseCountPoints ?? 10));
             rules.PAUSE_PENALTY.pauseMinutesBlock = Math.max(1, getNumber('hero_rulePauseMinutesBlock', rules.PAUSE_PENALTY.pauseMinutesBlock ?? 10));

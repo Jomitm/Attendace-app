@@ -412,12 +412,48 @@ function createStatusIndicator(status) {
 
 // --- UI Components ---
 
-function createDayPlanHeader(date, isEditingOther, headerName, hasAnyExistingPlan, targetId) {
+function createDayPlanHeader(date, isEditingOther, headerName, hasAnyExistingPlan, targetId, forcedScope = null, options = {}) {
     const title = createElement('h3', { textContent: 'Plan Your Day' });
     const dateLabel = formatFriendlyDate(date) || date;
+    const isToday = date === AppCalendar?.getTodayKey?.();
     const subtitle = createElement('p', {
         className: 'day-plan-subline',
         textContent: isEditingOther ? `${dateLabel} · Editing for ${headerName}` : dateLabel
+    });
+    const datePicker = createElement('input', {
+        className: 'day-plan-date-picker',
+        attributes: {
+            type: 'date',
+            value: date,
+            'aria-label': 'Select a day to view its plan',
+            title: 'Select a day to view its plan'
+        }
+    });
+    datePicker.addEventListener('change', () => {
+        const selectedDate = String(datePicker.value || '').trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(selectedDate) && selectedDate !== date) {
+            openDayPlan(selectedDate, targetId, forcedScope, options);
+        }
+    });
+    const dayNavButton = (offset, label, icon) => createButton({
+        className: 'day-plan-date-nav-btn',
+        attributes: { 'aria-label': label, title: label },
+        innerHTML: `<i class="fa-solid ${icon}" aria-hidden="true"></i>`,
+        onClick: () => openDayPlan(addDaysStr(date, offset), targetId, forcedScope, options)
+    });
+    const todayButton = !isToday ? createButton({
+        className: 'day-plan-today-btn',
+        textContent: 'Today',
+        onClick: () => openDayPlan(AppCalendar?.getTodayKey?.() || new Date().toISOString().slice(0, 10), targetId, forcedScope, options)
+    }) : null;
+    const dateControl = createElement('div', {
+        className: 'day-plan-date-control',
+        children: [
+            dayNavButton(-1, 'Previous day', 'fa-chevron-left'),
+            datePicker,
+            dayNavButton(1, 'Next day', 'fa-chevron-right'),
+            todayButton
+        ].filter(Boolean)
     });
 
     const deleteBtn = hasAnyExistingPlan ?
@@ -436,6 +472,17 @@ function createDayPlanHeader(date, isEditingOther, headerName, hasAnyExistingPla
         onClick: (e) => removeOverlay(e.currentTarget.closest('.day-plan-modal-overlay'))
     });
 
+    const teamActivityBtn = options?.personalOnly === true ? createButton({
+        className: 'day-plan-team-activity-btn',
+        attributes: { title: 'Open Team Activity', 'aria-label': 'Open Team Activity' },
+        innerHTML: '<i class="fa-solid fa-chart-line" aria-hidden="true"></i><span>Activity</span>',
+        onClick: () => {
+            removeOverlay(document.getElementById('day-plan-modal'));
+            window.app_openTeamActivitiesForStaff?.(targetId, date, 'time-desc');
+        }
+    }) : null;
+    if (teamActivityBtn) dateControl.appendChild(teamActivityBtn);
+
     const headerActions = createElement('div', {
         className: 'day-plan-header-actions',
         children: [deleteBtn, closeBtn].filter(Boolean)
@@ -447,11 +494,11 @@ function createDayPlanHeader(date, isEditingOther, headerName, hasAnyExistingPla
             createElement('div', {
                 className: 'day-plan-headline',
                 children: [
-                    createElement('span', { className: 'day-plan-kicker', textContent: 'Today' }),
                     title,
                     subtitle
                 ]
             }),
+            dateControl,
             headerActions
         ]
     });
@@ -566,47 +613,26 @@ function createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, ini
     const annualCount = scopeBuckets.annual.length;
     const contextCount = scopeBuckets.context;
 
-    const toolbar = createElement('div', {
-        className: 'day-plan-toolbar',
-        children: [
-            createElement('div', {
-                className: 'day-plan-toolbar-copy',
-                children: [
-                    createElement('span', { className: 'day-plan-toolbar-kicker', textContent: 'Planner' }),
-                    createElement('h4', { className: 'day-plan-toolbar-title', textContent: 'My Daily Plan' }),
-                    createElement('p', {
-                        className: 'day-plan-toolbar-subtitle',
-                        textContent: 'Focus on the work that matters most today.'
-                    })
-                ]
-            }),
-            createButton({
-                className: 'day-plan-new-task-btn',
-                innerHTML: '<i class="fa-solid fa-plus"></i><span>New Task</span>',
-                onClick: () => openPlanEditor({ date, targetId, scope: 'personal', allUsers, selectableCollaborators, isAdmin, container: personalNewContainer })
-            }),
-            ...(personalOnly ? [createButton({
-                className: 'day-plan-context-link',
-                attributes: { title: 'Open Team Activity' },
-                innerHTML: '<i class="fa-solid fa-chart-line"></i><span>Team Activity</span>',
-                onClick: () => {
-                    removeOverlay(document.getElementById('day-plan-modal'));
-                    window.app_openTeamActivitiesForStaff?.(targetId, date, 'time-desc');
-                }
-            })] : [])
-        ]
-    });
+    const focusButton = !personalOnly ? createButton({
+        className: 'day-plan-focus-btn',
+        attributes: { type: 'button', title: 'Expand your task list', 'aria-pressed': 'false' },
+        innerHTML: '<i class="fa-solid fa-expand" aria-hidden="true"></i><span>Focus</span>',
+        onClick: (event) => {
+            const button = event.currentTarget;
+            const form = button.closest('.day-plan-form');
+            if (!form) return;
+            const focused = form.classList.toggle('day-plan-focus-mode');
+            button.setAttribute('aria-pressed', String(focused));
+            button.title = focused ? 'Show all plan sections' : 'Expand your task list';
+            button.innerHTML = focused
+                ? '<i class="fa-solid fa-compress" aria-hidden="true"></i><span>Show all</span>'
+                : '<i class="fa-solid fa-expand" aria-hidden="true"></i><span>Focus</span>';
+        }
+    }) : null;
 
     const contextCard = createElement('div', {
         className: 'day-plan-context-card',
         children: [
-            createElement('div', {
-                className: 'day-plan-context-card-head',
-                children: [
-                    createElement('span', { className: 'day-plan-context-kicker', textContent: 'Context' }),
-                    createElement('strong', { className: 'day-plan-context-title', textContent: 'Around You' })
-                ]
-            }),
             createElement('div', {
                 className: 'day-plan-context-grid',
                 children: [
@@ -636,7 +662,7 @@ function createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, ini
             createButton({
                 className: 'day-plan-context-link',
                 attributes: { title: 'Open Team Schedule' },
-                innerHTML: '<i class="fa-solid fa-calendar-days"></i><span>Schedule</span>',
+                innerHTML: '<i class="fa-solid fa-calendar-days"></i><span>Team schedule</span>',
                 onClick: () => {
                     removeOverlay(document.getElementById('day-plan-modal'));
                     if (typeof window.app_openDashboardSection === 'function') {
@@ -657,9 +683,8 @@ function createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, ini
                 children: [
                     createElement('h4', {
                         className: 'day-plan-column-title',
-                        innerHTML: 'Shared Plans <span class="team-plan-special-badge"><i class="fa-solid fa-star"></i> TEAM</span>'
-                    }),
-                    createElement('p', { className: 'day-plan-column-subtitle', textContent: 'Annual and referenced work for this day' })
+                        textContent: 'Shared plans'
+                    })
                 ]
             })
         ]
@@ -680,18 +705,18 @@ function createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, ini
                                     createElement('span', { className: 'day-plan-column-icon', innerHTML: '<i class="fa-regular fa-calendar"></i>' }),
                                     createElement('div', {
                                         children: [
-                                            createElement('h4', { className: 'day-plan-column-title', textContent: 'My Daily Plan' }),
-                                            createElement('p', { className: 'day-plan-column-subtitle', textContent: 'Focus blocks and private tasks' })
+                                            createElement('h4', { className: 'day-plan-column-title', textContent: 'My Tasks' })
                                         ]
                                     })
                                 ]
                             }),
+                            focusButton,
                             createButton({
                                 className: 'day-plan-column-btn',
                                 innerHTML: '<i class="fa-solid fa-plus"></i><span>Add task</span>',
                                 onClick: () => openPlanEditor({ date, targetId, scope: 'personal', allUsers, selectableCollaborators, isAdmin, container: personalContainer })
                             })
-                        ]
+                        ].filter(Boolean)
                     }),
                     personalContainer
                 ]
@@ -760,7 +785,7 @@ function createDayPlanForm(date, targetId, personalWorkPlan, annualWorkPlan, ini
             'data-removed-tasks': '[]',
             'data-next-plan-index': String(initialBlocks.length)
         },
-        children: [toolbar, columns, footer]
+        children: [columns, footer]
     });
     form.addEventListener('submit', (e) => window.app_saveDayPlan(e, date, targetId));
     form.addEventListener('input', () => {
@@ -1690,11 +1715,11 @@ export function dayPlanRenderBlockV3(args) {
     const task = String(plan.task || '');
     const assignedTo = plan.assignedTo ?? '';
     const assignedToName = String(plan.assignedToName || (assignedTo ? allUsers.find(u => u.id === assignedTo)?.name : '') || '');
+    const ownerName = String(isReference ? plan.userName || '' : '').trim();
     const startDate = plan.startDate || '';
     const endDate = plan.endDate || '';
     const scope = String(plan.planScope || plan._planScope || defaultScope) === 'annual' ? 'annual' : 'personal';
     const budgetHeadId = String(plan.budgetHeadId || AppAuth.getUser()?.currentBudgetHeadId || 'UNALLOCATED');
-    const displayScope = isReference ? (plan.userName ? `${plan.userName}'s Plan` : 'Others Plan') : (scope === 'annual' ? 'Annual Plan' : 'Personal Plan');
     const summary = task.trim() || 'New task';
     const durationLabel = startDate && endDate && startDate !== endDate ? `${startDate} → ${endDate}` : (startDate || 'Due today');
     const planStatus = String(plan.status || '').trim().toLowerCase();
@@ -1712,7 +1737,7 @@ export function dayPlanRenderBlockV3(args) {
     const spanLabel = String(plan._spanLabel || '');
 
     const planBlock = createElement('div', {
-        className: (isReference ? 'plan-block-ref' : 'plan-block') + blockStatusClass + (isReference ? ' is-reference-only' : '') + (plan.isPrivate === true ? ' plan-block-private' : '') + (isAssignedToOther ? ' plan-block-assigned' : '') + (isSpannedVirtual ? ' plan-block-spanned' : ''),
+        className: (isReference ? 'plan-block-ref' : 'plan-block') + blockStatusClass + (planStatus ? ' plan-block-has-status' : '') + (isReference ? ' is-reference-only' : '') + (plan.isPrivate === true ? ' plan-block-private' : '') + (isAssignedToOther ? ' plan-block-assigned' : '') + (isSpannedVirtual ? ' plan-block-spanned' : ''),
         attributes: {
             'data-index': idx,
             'data-status': planStatus || 'none',
@@ -1766,13 +1791,13 @@ export function dayPlanRenderBlockV3(args) {
     const header = createElement('div', { className: 'plan-block-header' });
 
     /* ============================================================
-       TITLE GROUP — now includes STATUS INDICATOR before the badge
+       TITLE GROUP — status indicator appears only for explicit statuses
        ============================================================ */
     const titleGroup = createElement('div', { className: 'plan-block-title-group' });
 
-    /* Status indicator circle (replaces plain index badge when status exists) */
+    /* Keep the empty Auto-Track placeholder out of the compact task row. */
     const statusIndicator = createStatusIndicator(planStatus);
-    titleGroup.appendChild(statusIndicator);
+    if (planStatus) titleGroup.appendChild(statusIndicator);
 
     titleGroup.appendChild(createElement('span', { className: 'day-plan-index-badge', textContent: idx + 1 }));
     titleGroup.appendChild(createElement('div', {
@@ -1782,18 +1807,6 @@ export function dayPlanRenderBlockV3(args) {
             createElement('span', { className: 'plan-block-meta', textContent: durationLabel })
         ]
     }));
-
-    const assignmentAttribution = isAssignedToOther ? `
-        <div class="plan-block-assignment-attribution">
-            <div class="plan-block-assigned-to-badge">
-                <span class="badge-assigned-to">Assigned to ${esc(assignedToName)}</span>
-                ${plan.assignedByName ? `<span class="badge-assigned-by">by ${esc(plan.assignedByName)}</span>` : ''}
-            </div>
-        </div>` : '';
-
-    if (assignmentAttribution) {
-        titleGroup.insertAdjacentHTML('beforeend', assignmentAttribution);
-    }
 
     const classificationBadges = createElement('div', { className: 'plan-block-classification-badges' });
     const sizeMap = {
@@ -1827,7 +1840,6 @@ export function dayPlanRenderBlockV3(args) {
     if (classificationBadges.children.length > 0) titleGroup.appendChild(classificationBadges);
 
     const headerActions = createElement('div', { className: 'plan-block-actions' });
-    headerActions.appendChild(createElement('span', { className: 'day-plan-scope-pill', textContent: displayScope }));
     if (isSpannedVirtual && spanLabel) {
         headerActions.appendChild(createElement('span', {
             className: 'day-plan-span-pill',
@@ -1878,6 +1890,41 @@ export function dayPlanRenderBlockV3(args) {
     header.appendChild(titleGroup);
     header.appendChild(headerActions);
     planBlock.appendChild(header);
+
+    const normalizeStaffName = (name) => String(name || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+    const showAssignee = Boolean((isAssignedToOther || isReference) && assignedTo && assignedToName);
+    const sameOwnerAndAssignee = ownerName && assignedTo && assignedToName
+        && normalizeStaffName(ownerName) === normalizeStaffName(assignedToName);
+    const attributionLabels = [];
+    if (sameOwnerAndAssignee) {
+        attributionLabels.push(`${ownerName} · plan owner and assignee`);
+    } else {
+        if (ownerName) attributionLabels.push(`From ${ownerName}'s plan`);
+        else if (isReference) attributionLabels.push('Shared plan');
+        if (showAssignee) attributionLabels.push(`Assigned to ${assignedToName}`);
+        const assignedByName = String(plan.assignedByName || '').trim();
+        if (showAssignee && assignedByName && normalizeStaffName(assignedByName) !== normalizeStaffName(ownerName)) {
+            attributionLabels.push(`Assigned by ${assignedByName}`);
+        }
+    }
+    if (scope === 'annual' && !isReference) attributionLabels.push('Annual plan');
+    if (attributionLabels.length) {
+        planBlock.appendChild(createElement('div', {
+            className: 'plan-block-assignment-attribution',
+            children: attributionLabels.map((label) => createElement('span', { textContent: label }))
+        }));
+    }
+
+    const completionNote = String(plan.completionComment || '').trim();
+    if (planStatus === 'completed' && completionNote) {
+        planBlock.appendChild(createElement('div', {
+            className: 'plan-block-completion-note',
+            children: [
+                createElement('strong', { textContent: 'Completion note' }),
+                createElement('span', { textContent: completionNote })
+            ]
+        }));
+    }
 
     if ((plan.tags && plan.tags.length > 0) || (Array.isArray(plan.subPlans) && plan.subPlans.length > 0)) {
         const body = createElement('div', { className: 'plan-block-body' });
@@ -2094,7 +2141,7 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
     });
 
     const headerWrap = createElement('div', { className: 'day-plan-header-wrap' });
-    headerWrap.appendChild(createDayPlanHeader(dateKey, isEditingOther, 'Staff', false, targetId));
+    headerWrap.appendChild(createDayPlanHeader(dateKey, isEditingOther, 'Staff', false, targetId, forcedScope, options));
 
     const bodyWrap = createElement('div', { className: 'day-plan-body-wrap' });
     bodyWrap.appendChild(createDayPlanLoadingState());
@@ -2227,7 +2274,7 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
                 });
             }
 
-            headerWrap.replaceChildren(createDayPlanHeader(dateKey, isEditingOther, headerName, hasAnyExistingPlan, targetId));
+            headerWrap.replaceChildren(createDayPlanHeader(dateKey, isEditingOther, headerName, hasAnyExistingPlan, targetId, forcedScope, options));
             bodyWrap.replaceChildren(createDayPlanForm(dateKey, targetId, personalWorkPlan, annualWorkPlan, initialBlocks, allUsers, defaultScope, selectableCollaborators, isAdmin, currentUser, options));
             if (options?.personalOnly === true) {
                 const workspace = modalContent.querySelector('.day-plan-workspace');
@@ -2239,8 +2286,6 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
             if (subtitle) {
                 subtitle.textContent = isEditingOther ? `${formatFriendlyDate(dateKey) || dateKey} · Editing for ${headerName}` : (formatFriendlyDate(dateKey) || dateKey);
             }
-            const kicker = modalContent.querySelector('.day-plan-kicker');
-            if (kicker) kicker.textContent = 'Today';
             // Overload banner: planned load vs a productive day.
             try {
                 const dayLoad = computeDayLoad(initialBlocks, dateKey, {
@@ -2313,7 +2358,7 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
                         console.warn('[DayPlan] Live refresh spanning failed:', err);
                     }
                     const initialBlocks = [...personalBlocks, ...annualBlocks, ...refreshSpanning];
-                    headerWrap.replaceChildren(createDayPlanHeader(dateKey, isEditingOther, headerName, !!(personalWP || annualWP), targetId));
+                    headerWrap.replaceChildren(createDayPlanHeader(dateKey, isEditingOther, headerName, !!(personalWP || annualWP), targetId, forcedScope, options));
                     bodyWrap.replaceChildren(createDayPlanForm(dateKey, targetId, personalWP, annualWP, initialBlocks, freshUsers, defaultScope, selectableCollaborators, isAdmin, currentUser, options));
                 } catch (refreshErr) {
                     console.warn('[DayPlan] Live refresh failed:', refreshErr);

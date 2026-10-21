@@ -1,6 +1,25 @@
 import { AppDB } from './db.js';
 import { AppConfig } from '../config.js';
 
+async function readLoginResponse(response, label) {
+    const raw = await response.text();
+    if (!raw.trim()) {
+        console.error(`${label} returned an empty response body`, { status: response.status });
+        return { invalidResponse: true, error: `Login service returned an empty response (HTTP ${response.status}).` };
+    }
+
+    try {
+        return JSON.parse(raw);
+    } catch {
+        console.error(`${label} returned a non-JSON response`, {
+            status: response.status,
+            contentType: response.headers.get('content-type') || '',
+            bodyPreview: raw.slice(0, 200)
+        });
+        return { invalidResponse: true, error: `Login service returned an invalid response (HTTP ${response.status}).` };
+    }
+}
+
 export class Auth {
     constructor() {
         this.currentUser = null;
@@ -60,14 +79,20 @@ export class Auth {
     // Main login — calls server endpoint, gets custom token, signs in with Firebase Auth
     // Falls back to client-side login when server endpoint is unavailable (local dev)
     async login(username, password) {
+        let serverResponded = false;
         try {
             const response = await fetch('/api/auth-login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ identifier: username, password })
             });
+            serverResponded = true;
 
-            const data = await response.json();
+            const data = await readLoginResponse(response, 'Login service');
+
+            if (data.invalidResponse) {
+                return { serverError: data.error };
+            }
 
             if (!response.ok || !data.customToken) {
                 console.warn('Login failed:', data.error || 'Unknown error');
@@ -81,9 +106,10 @@ export class Auth {
 
             // Sign in with Firebase Auth using the custom token
             const auth = this._getFirebaseAuth();
-            if (auth) {
-                await auth.signInWithCustomToken(data.customToken);
+            if (!auth) {
+                return { serverError: 'Firebase Authentication is unavailable.' };
             }
+            await auth.signInWithCustomToken(data.customToken);
 
             // Use the user data returned from the server
             const user = data.user;
@@ -104,6 +130,10 @@ export class Auth {
             }
             return this._establishSession(user, isOwner);
         } catch (err) {
+            if (serverResponded) {
+                console.error('Firebase sign-in failed after the login service responded:', err);
+                return { serverError: 'Firebase sign-in failed. Please contact your administrator.' };
+            }
             // Server endpoint unavailable — fall back to client-side login (local dev)
             console.warn('Server login unavailable, falling back to client-side login:', err.message);
             return this._loginLocal(username, password);
@@ -165,14 +195,20 @@ export class Auth {
     // Owner-only login — server validates owner status
     // Falls back to client-side login when server endpoint is unavailable (local dev)
     async loginOwner(username, password) {
+        let serverResponded = false;
         try {
             const response = await fetch('/api/auth-login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ identifier: username, password })
             });
+            serverResponded = true;
 
-            const data = await response.json();
+            const data = await readLoginResponse(response, 'Owner login service');
+
+            if (data.invalidResponse) {
+                return { serverError: data.error };
+            }
 
             if (!response.ok || !data.customToken) {
                 console.warn('Owner login failed:', data.error || 'Unknown error');
@@ -193,9 +229,10 @@ export class Auth {
 
             // Sign in with Firebase Auth
             const auth = this._getFirebaseAuth();
-            if (auth) {
-                await auth.signInWithCustomToken(data.customToken);
+            if (!auth) {
+                return { serverError: 'Firebase Authentication is unavailable.' };
             }
+            await auth.signInWithCustomToken(data.customToken);
 
             if (user.passwordSetupRequired) {
                 return { needsPasswordSetup: true, userId: user.id, username: user.username };
@@ -203,6 +240,10 @@ export class Auth {
 
             return this._establishSession(user, true);
         } catch (err) {
+            if (serverResponded) {
+                console.error('Firebase owner sign-in failed after the login service responded:', err);
+                return { serverError: 'Firebase sign-in failed. Please contact your administrator.' };
+            }
             // Server endpoint unavailable — fall back to client-side owner login (local dev)
             console.warn('Server owner login unavailable, falling back to client-side:', err.message);
             return this._loginOwnerLocal(username, password);

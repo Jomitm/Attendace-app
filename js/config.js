@@ -138,7 +138,6 @@ export const AppConfig = {
         CAPS: {
             hours: 40
         },
-        DEFAULT_ACTIVITY_SCORE: 50,
         MIN_EVIDENCE: {
             minDays: 3,
             minDurationMs: 14400000,

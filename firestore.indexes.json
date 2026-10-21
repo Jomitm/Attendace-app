@@ -9,13 +9,6 @@
       ]
     },
     {
-      "collectionGroup": "attendance",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "date", "order": "DESCENDING" }
-      ]
-    },
-    {
       "collectionGroup": "leaves",
       "queryScope": "COLLECTION",
       "fields": [
@@ -41,20 +34,6 @@
       ]
     },
     {
-      "collectionGroup": "location_audits",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "timestamp", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "work_plans",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "date", "order": "ASCENDING" }
-      ]
-    },
-    {
       "collectionGroup": "work_plans",
       "queryScope": "COLLECTION",
       "fields": [
@@ -71,13 +50,6 @@
       ]
     },
 
-    {
-      "collectionGroup": "minutes",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "date", "order": "DESCENDING" }
-      ]
-    },
     {
       "collectionGroup": "minutes",
       "queryScope": "COLLECTION",

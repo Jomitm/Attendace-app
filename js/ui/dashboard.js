@@ -1610,7 +1610,7 @@ export function renderBreakdown(breakdown) {
         if (count === 0 && !['Present', 'Late', 'Absent', 'Early Departure'].includes(key)) return '';
 
         return `
-            <div class="dashboard-breakdown-item" data-breakdown-key="${safeHtml(key)}">
+            <div class="dashboard-breakdown-item" data-breakdown-key="${safeHtml(key)}" style="--breakdown-color:${style.color};--breakdown-bg:${style.bg};">
                 <span class="dashboard-breakdown-count">${count}</span>
                 <span class="dashboard-breakdown-label">${style.label}</span>
             </div>
@@ -2064,24 +2064,21 @@ export async function renderDashboard() {
     const yesterdayStr = dateKeys.yesterdayKey;
     const targetStaffId = (isAdmin && window.app_selectedSummaryStaffId) ? window.app_selectedSummaryStaffId : user.id;
 
-    const customizationSettings = await window.app_dashboardCustomization?.loadSettings?.() || null;
-
-    const shouldApplyCustomization = customizationSettings && window.app_canCustomizeDashboard?.(user) && (!user.isAdmin || customizationSettings.globalAdminMirror);
-    const wv = shouldApplyCustomization ? (customizationSettings.widgetVisibility || {}) : {};
-    const wvIf = (key, html) => wv[key] !== false ? html : '';
-    const densityClass = shouldApplyCustomization && customizationSettings.layoutDensity === 'compact' ? ' dashboard-density-compact' : '';
-
-    const dashFetchStart = performance.now();
-    console.time('DashboardFetch');
-    markPerf('dashboard:fetch:start');
-
-    // Show skeleton loading state immediately while data fetches
+    // Put the loading UI on screen before waiting for remote customization
+    // settings. The settings request can be slow on a cold Firestore session.
     const { renderDashboardSkeletons } = await import('./dashboard-skeletons.js');
     const skeletonTarget = document.getElementById('page-content');
     if (skeletonTarget && !skeletonTarget.dataset.hasSkeletons) {
         skeletonTarget.dataset.hasSkeletons = '1';
         skeletonTarget.innerHTML = renderDashboardSkeletons();
     }
+
+    // Start this read now, but let it run alongside the dashboard data reads.
+    const customizationSettingsPromise = window.app_dashboardCustomization?.loadSettings?.() || Promise.resolve(null);
+
+    const dashFetchStart = performance.now();
+    console.time('DashboardFetch');
+    markPerf('dashboard:fetch:start');
 
     const sharedSummaryTask = window.AppDB.getOrCreateDailySummary
         ? window.AppDB.getOrCreateDailySummary({
@@ -2095,9 +2092,6 @@ export async function renderDashboard() {
             return null;
         })
         : null;
-
-    // Use the full summary promise directly (skeleton loading handles the wait UX)
-    const dailySummaryPromise = sharedSummaryTask || Promise.resolve(null);
 
     // Refresh at midnight
     if (!window._dashboardRefreshScheduled) {
@@ -2157,9 +2151,9 @@ export async function renderDashboard() {
 
     // Staged loading feedback: every fetch below reports completion so the
     // skeleton status banner can tell the user what is happening while they
-    // wait ("Loading your calendar… 4 of 15"). All updates are best-effort
+    // wait ("Loading your calendar… 4 of 14"). All updates are best-effort
     // DOM writes — safe if the skeleton was already replaced.
-    const loadStagesTotal = 15;
+    const loadStagesTotal = 14;
     let loadStagesDone = 0;
     let loadSlowTimer = null;
     const updateDashboardLoadProgress = (label) => {
@@ -2189,7 +2183,7 @@ export async function renderDashboard() {
     } catch { /* ignore */ }
 
     // Parallel Fetch
-    const [status, logs, monthlyStats, yearlyStats, calendarPlans, pendingLeaves, allUsers, collaborations, allLeaves, dailySummary, minutesData, attendanceLogs, weeklyAttendanceLogs, currentWeekWorkPlans, journeyReflectionState] = await Promise.all([
+    const [status, logs, monthlyStats, yearlyStats, calendarPlans, pendingLeaves, allUsers, collaborations, allLeaves, minutesData, attendanceLogs, weeklyAttendanceLogs, currentWeekWorkPlans, journeyReflectionState] = await Promise.all([
         trackStage(window.AppAttendance.getStatus(), 'Checking whether you are checked in…'),
         trackStage(window.AppAttendance.getLogs(targetStaffId, { limit: 200 }), 'Loading your recent time logs…'),
         trackStage(window.AppAnalytics.getUserMonthlyStats(targetStaffId), 'Totalling this month…'),
@@ -2208,7 +2202,6 @@ export async function renderDashboard() {
                 });
             })
             : Promise.resolve([]), 'Loading leave history…'),
-        trackStage(dailySummaryPromise, 'Building today’s summary…'),
         trackStage(window.AppMinutes ? window.AppMinutes.getMinutes() : Promise.resolve([]), 'Loading meeting notes…'),
         trackStage((isAdmin && pendingMissedCheckoutLogIds.length)
             ? Promise.all(pendingMissedCheckoutLogIds.map((id) => window.AppAttendanceService.get(id))).then((rows) => rows.filter(Boolean))
@@ -2227,6 +2220,15 @@ export async function renderDashboard() {
             dateKey: todayStr
         }) : Promise.resolve(null), 'Loading your daily reflection…')
     ]);
+    // The summary is useful for Hero and team activity, but neither should
+    // hold the first dashboard render. Existing deferred handlers below patch
+    // those cards as soon as the summary is ready.
+    const dailySummary = null;
+    const customizationSettings = await customizationSettingsPromise;
+    const shouldApplyCustomization = customizationSettings && window.app_canCustomizeDashboard?.(user) && (!user.isAdmin || customizationSettings.globalAdminMirror);
+    const wv = shouldApplyCustomization ? (customizationSettings.widgetVisibility || {}) : {};
+    const wvIf = (key, html) => wv[key] !== false ? html : '';
+    const densityClass = shouldApplyCustomization && customizationSettings.layoutDensity === 'compact' ? ' dashboard-density-compact' : '';
     if (loadSlowTimer) clearTimeout(loadSlowTimer);
     markPerf('dashboard:fetch:end');
     measurePerf('dashboard:fetch', 'dashboard:fetch:start', 'dashboard:fetch:end');
@@ -2277,33 +2279,39 @@ export async function renderDashboard() {
     // If heroData is null (summary still generating), wait for it and patch when ready
     if (heroData == null && sharedSummaryTask) {
         sharedSummaryTask.then((ds) => {
-            const latestHero = ds?.hero || null;
-            const latestLeaderboard = ds?.heroLeaderboard || null;
-            const updatedMeta = {
-                ...heroMeta,
-                generatedAt: ds?.generatedAt || heroMeta.generatedAt,
-                source: ds?._source || heroMeta.source,
-                heroRefreshCount: Number(ds?.heroRefreshCount || 0)
-            };
-            const bundle = setDashboardHeroBundle(latestHero, latestLeaderboard, updatedMeta);
-            const slot = document.querySelector('.hero-slot');
-            if (slot) {
-                slot.outerHTML = renderHeroCard(bundle.heroData, updatedMeta);
-                setTimeout(() => { initDashboardCardControls(); attachHeroCardHandlers(); }, 0);
-            }
-            if (heroPayloadMissingAiSelection(bundle.heroData)) {
-                setTimeout(patchHeroSlotFromLiveAudit, 1000);
-            }
+            // A cached summary can resolve before the dashboard HTML is mounted.
+            // Defer the DOM patch one tick so the hero slot is available.
+            setTimeout(() => {
+                const latestHero = ds?.hero || null;
+                const latestLeaderboard = ds?.heroLeaderboard || null;
+                const updatedMeta = {
+                    ...heroMeta,
+                    generatedAt: ds?.generatedAt || heroMeta.generatedAt,
+                    source: ds?._source || heroMeta.source,
+                    heroRefreshCount: Number(ds?.heroRefreshCount || 0)
+                };
+                const bundle = setDashboardHeroBundle(latestHero, latestLeaderboard, updatedMeta);
+                const slot = document.querySelector('.hero-slot');
+                if (slot) {
+                    slot.outerHTML = renderHeroCard(bundle.heroData, updatedMeta);
+                    setTimeout(() => { initDashboardCardControls(); attachHeroCardHandlers(); }, 0);
+                }
+                if (heroPayloadMissingAiSelection(bundle.heroData)) {
+                    setTimeout(patchHeroSlotFromLiveAudit, 1000);
+                }
+            }, 0);
         }).catch((err) => {
             console.warn('Hero shared summary deferred load failed:', err);
-            const slot = document.querySelector('.hero-slot');
-            if (slot) {
-                slot.outerHTML = renderHeroCard({
-                    state: 'fetch_error',
-                    reason: 'Hero stats are temporarily unavailable.',
-                    source: 'shared_error'
-                }, heroMeta);
-            }
+            setTimeout(() => {
+                const slot = document.querySelector('.hero-slot');
+                if (slot) {
+                    slot.outerHTML = renderHeroCard({
+                        state: 'fetch_error',
+                        reason: 'Hero stats are temporarily unavailable.',
+                        source: 'shared_error'
+                    }, heroMeta);
+                }
+            }, 0);
         });
     }
 
@@ -2764,6 +2772,7 @@ export async function renderDashboard() {
                             </div>
                             <div class="location-text dashboard-checkin-location" id="location-text" ${isCheckedIn && displayUser.currentLocation ? `data-lat="${displayUser.currentLocation.lat}" data-lng="${displayUser.currentLocation.lng}"` : ''}><i class="fa-solid fa-location-dot"></i><span>${isCheckedIn && displayUser.currentLocation ? `Lat: ${Number(displayUser.currentLocation.lat).toFixed(4)}, Lng: ${Number(displayUser.currentLocation.lng).toFixed(4)}` : 'Waiting for location...'}</span></div>
                         </div>
+                            <div class="dashboard-primary-col">${renderYearlyPlanHTML}</div>
                         <div class="dashboard-primary-col ${!isViewingSelf ? 'dashboard-primary-col-highlight' : ''}">${renderWorkLog(currentWeekWorkPlans, collaborations, targetStaff, minutesData, {
                             title: "Today's Planned Tasks",
                             subtitle: `For ${todayStr}`,
@@ -2771,7 +2780,6 @@ export async function renderDashboard() {
                             to: todayStr,
                             emptyMessage: 'No planned tasks for today.'
                         })}</div>
-                            <div class="dashboard-primary-col">${renderYearlyPlanHTML}</div>
                         </div>
 
                         ${perfSectionHTML}

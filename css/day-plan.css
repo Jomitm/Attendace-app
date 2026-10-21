@@ -124,6 +124,70 @@
     flex-shrink: 0;
 }
 
+.day-plan-date-control {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.28rem;
+    color: var(--day-plan-muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.day-plan-date-picker {
+    min-height: 34px;
+    max-width: 138px;
+    padding: 0.25rem 0.38rem;
+    border: 1px solid var(--day-plan-border);
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.92);
+    color: var(--day-plan-text);
+    font: inherit;
+    font-size: 0.72rem;
+}
+
+.day-plan-date-nav-btn,
+.day-plan-today-btn,
+.day-plan-team-activity-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 30px;
+    height: 30px;
+    padding: 0 0.38rem;
+    border: 1px solid var(--day-plan-border);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--day-plan-primary);
+    font-size: 0.68rem;
+    font-weight: 750;
+    cursor: pointer;
+    white-space: nowrap;
+    touch-action: manipulation;
+}
+
+.day-plan-team-activity-btn {
+    gap: 0.3rem;
+}
+
+.day-plan-date-nav-btn:hover,
+.day-plan-today-btn:hover,
+.day-plan-team-activity-btn:hover {
+    background: var(--day-plan-highlight);
+    border-color: #93c5fd;
+}
+
+.day-plan-date-nav-btn:focus-visible,
+.day-plan-today-btn:focus-visible,
+.day-plan-team-activity-btn:focus-visible {
+    outline: 2px solid var(--day-plan-primary-2);
+    outline-offset: 2px;
+}
+
+.day-plan-date-picker:focus-visible {
+    outline: 2px solid var(--day-plan-primary-2);
+    outline-offset: 2px;
+}
+
 /* ===== SHARED BUTTON BASE ===== */
 .day-plan-delete-btn,
 .day-plan-close-btn,
@@ -263,7 +327,7 @@
     flex-direction: column;
     min-height: 0;
     min-width: 0;
-    padding: 0.5rem;
+    padding: 0.42rem;
     border: 1px solid var(--day-plan-border-soft);
     border-radius: 12px;
     background: rgba(255, 255, 255, 0.82);
@@ -284,8 +348,8 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 0.45rem;
-    margin-bottom: 0.35rem;
+    gap: 0.38rem;
+    margin-bottom: 0.25rem;
     flex-shrink: 0;
     flex-wrap: wrap;
 }
@@ -329,7 +393,7 @@
 .day-plan-column-title {
     margin: 0;
     color: var(--day-plan-text);
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     font-weight: 800;
     line-height: 1.15;
 }
@@ -360,6 +424,37 @@
     background: rgba(37, 99, 235, 0.12);
     color: var(--day-plan-primary);
     box-shadow: none;
+}
+
+.day-plan-focus-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.28rem;
+    min-height: 30px;
+    padding: 0.28rem 0.5rem;
+    border: 1px solid rgba(148, 163, 184, 0.32);
+    border-radius: 8px;
+    background: #fff;
+    color: #475569;
+    font-size: 0.62rem;
+    font-weight: 750;
+    cursor: pointer;
+}
+
+.day-plan-focus-btn:hover,
+.day-plan-focus-btn[aria-pressed="true"] {
+    border-color: rgba(37, 99, 235, 0.28);
+    background: #eff6ff;
+    color: var(--day-plan-primary);
+}
+
+.day-plan-focus-mode .day-plan-workspace {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.day-plan-focus-mode .day-plan-context-column {
+    display: none;
 }
 
 /* ==========================================================
@@ -407,7 +502,7 @@
     max-height: none;
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
+    gap: 0.28rem;
 }
 
 .personal-plans-container::before {
@@ -436,7 +531,7 @@
     border: 1px solid rgba(226, 234, 245, 0.95);
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 251, 255, 0.95) 100%);
     box-shadow: 0 3px 8px rgba(15, 23, 42, 0.04);
-    padding: 0.65rem 0.72rem;
+    padding: 0.38rem 0.48rem;
     transition:
         transform 160ms cubic-bezier(0.2, 0.9, 0.2, 1),
         box-shadow 160ms cubic-bezier(0.2, 0.9, 0.2, 1),
@@ -473,15 +568,46 @@
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    gap: 0.45rem;
+    gap: 0.28rem;
     flex-wrap: wrap;
+}
+
+.plan-block-completion-note {
+    display: grid;
+    gap: 0.18rem;
+    margin: 0.55rem 0 0 1.85rem;
+    padding: 0.55rem 0.7rem;
+    border-left: 3px solid #16a34a;
+    border-radius: 0 9px 9px 0;
+    background: #f0fdf4;
+    color: #334155;
+    font-size: 0.72rem;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+
+.plan-block-completion-note strong {
+    color: #166534;
+    font-size: 0.65rem;
+    letter-spacing: 0.035em;
+    text-transform: uppercase;
+}
+
+[data-theme="dark"] .plan-block-completion-note {
+    background: #102c1c;
+    border-left-color: #4ade80;
+    color: #d1fae5;
+}
+
+[data-theme="dark"] .plan-block-completion-note strong {
+    color: #86efac;
 }
 
 .plan-block-title-group {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-start;
-    gap: 0.42rem;
+    gap: 0.3rem;
     min-width: 0;
     flex: 1;
 }
@@ -505,7 +631,7 @@
 .plan-block-copy {
     display: flex;
     flex-direction: column;
-    gap: 0.2rem;
+    gap: 0.08rem;
     min-width: 0;
     flex: 1;
 }
@@ -513,9 +639,9 @@
 /* SUMMARY — full text wraps */
 .plan-block-summary {
     color: var(--day-plan-text);
-    font-size: 0.78rem;
+    font-size: 0.72rem;
     font-weight: 700;
-    line-height: 1.55;
+    line-height: 1.35;
     white-space: normal;
     word-break: break-word;
     overflow-wrap: break-word;
@@ -523,17 +649,37 @@
 
 .plan-block-meta {
     color: var(--day-plan-muted);
-    font-size: 0.62rem;
+    font-size: 0.58rem;
     font-weight: 600;
     white-space: nowrap;
     flex-shrink: 0;
     margin-top: 0.08rem;
 }
 
+.plan-block-assignment-attribution {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.12rem 0.55rem;
+    margin: 0.12rem 0 0 1.65rem;
+    color: var(--day-plan-muted);
+    font-size: 0.56rem;
+    font-weight: 650;
+    line-height: 1.25;
+}
+
+.plan-block-has-status .plan-block-assignment-attribution {
+    margin-left: 3.2rem;
+}
+
+.plan-block-assignment-attribution > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
 .plan-block-actions {
     display: flex;
     align-items: center;
-    gap: 0.3rem;
+    gap: 0.2rem;
     flex-shrink: 0;
     margin-top: 0.06rem;
     flex-wrap: wrap;
@@ -1429,6 +1575,18 @@
     .day-plan-header {
         padding: 0.55rem 0.65rem;
         flex-wrap: wrap;
+        gap: 0.35rem;
+    }
+
+    .day-plan-date-nav-btn,
+    .day-plan-today-btn,
+    .day-plan-team-activity-btn {
+        min-width: 40px;
+        height: 40px;
+    }
+
+    .day-plan-date-control {
+        flex-wrap: wrap;
     }
 
     .day-plan-headline {
@@ -1500,7 +1658,8 @@
     /* Buttons full width on mobile */
     .day-plan-new-task-btn,
     .day-plan-context-link,
-    .day-plan-column-btn {
+    .day-plan-column-btn,
+    .day-plan-focus-btn {
         width: 100%;
         justify-content: center;
         min-height: var(--touch-min);
@@ -1732,8 +1891,8 @@
    STATUS INDICATOR — Round circle with icon
    ========================================================== */
 .plan-status-indicator {
-    width: 24px;
-    height: 24px;
+    width: 20px;
+    height: 20px;
     border-radius: 50%;
     display: inline-flex;
     align-items: center;

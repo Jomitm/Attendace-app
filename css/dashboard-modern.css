@@ -57,13 +57,40 @@
   --md-radius-md: 12px;
   --md-radius-lg: 16px;
   --md-radius-xl: 20px;
+
+  background-image:
+    radial-gradient(ellipse at 12% 8%, rgba(59, 130, 246, 0.075), transparent 42%),
+    radial-gradient(ellipse at 88% 92%, rgba(16, 185, 129, 0.055), transparent 40%),
+    linear-gradient(180deg, #eef3f8 0%, #f7f9fc 38%, #eef3f8 100%);
+  background-size: 160% 160%, 160% 160%, 100% 100%;
+  background-position: 0% 0%, 100% 100%, 0% 0%;
+  background-repeat: no-repeat;
 }
 
 /* ── CRITICAL: Override the global .dashboard-grid to prevent auto-fit stacking ── */
 .modern-dashboard.dashboard-grid {
   display: block;
-  animation: none;
+  animation: dashboardAmbientDrift 58s ease-in-out infinite alternate;
   gap: 0;
+}
+
+@keyframes dashboardAmbientDrift {
+  0% {
+    background-position: 0% 0%, 100% 100%, 0% 0%;
+  }
+  50% {
+    background-position: 36% 18%, 68% 76%, 0% 0%;
+  }
+  100% {
+    background-position: 100% 100%, 0% 0%, 0% 0%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modern-dashboard.dashboard-grid {
+    animation: none;
+    background-position: 0% 0%, 100% 100%, 0% 0%;
+  }
 }
 
 /* ── Welcome Header ──────────────────────────────────────── */
@@ -233,11 +260,10 @@
   min-width: 0;
 }
 
-/* Small laptops (1024–1199px): the main column narrows to ~480px, so stack
-   the radar/bars vertically instead of squeezing them side by side. */
+/* Keep the chart and score dimensions side by side at laptop widths. */
 @media (min-width: 1024px) and (max-width: 1199px) {
   .modern-dashboard .dashboard-perf-section .perf-main-layout {
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
   }
 }
@@ -905,20 +931,21 @@
 
 /* ── Worklog / Planned Tasks Card ────────────────────────── */
 .modern-dashboard .dashboard-worklog-card {
-  background: #faf5ff;
-  border: 1px solid rgba(192, 132, 252, 0.15);
+  background: linear-gradient(145deg, #f5f0ff 0%, #ffffff 44%);
+  border: 1px solid rgba(124, 58, 237, 0.2);
+  border-top: 4px solid #7c3aed;
 }
 
 .modern-dashboard .dashboard-worklog-head {
   margin-bottom: 0.25rem;
   padding-bottom: 0.25rem;
-  border-bottom: 1px solid rgba(226, 232, 240, 0.4);
+  border-bottom: 1px solid rgba(124, 58, 237, 0.18);
 }
 
 .modern-dashboard .dashboard-worklog-head h4 {
   font-size: 0.8rem;
   font-weight: 700;
-  color: var(--md-primary);
+  color: #4c1d95;
 }
 
 .modern-dashboard .dashboard-worklog-staff {
@@ -938,6 +965,42 @@
 .modern-dashboard .dashboard-planned-task-item:hover {
   border-color: var(--md-outline-variant);
   background: var(--md-surface-white);
+}
+
+.modern-dashboard .dashboard-planned-task-item.in-process,
+.modern-dashboard .dashboard-planned-task-item.in-process:hover {
+  border-left: 4px solid #3b82f6;
+  background: #eff6ff;
+}
+
+.modern-dashboard .dashboard-planned-task-item.overdue,
+.modern-dashboard .dashboard-planned-task-item.overdue:hover {
+  border-left: 4px solid #f59e0b;
+  background: #fff7ed;
+}
+
+.modern-dashboard .dashboard-planned-task-item.to-be-started,
+.modern-dashboard .dashboard-planned-task-item.to-be-started:hover {
+  border-left: 4px solid #14b8a6;
+  background: #f0fdfa;
+}
+
+.modern-dashboard .dashboard-planned-task-item.postponed,
+.modern-dashboard .dashboard-planned-task-item.postponed:hover {
+  border-left: 4px solid #8b5cf6;
+  background: #f5f3ff;
+}
+
+.modern-dashboard .dashboard-planned-task-item.completed,
+.modern-dashboard .dashboard-planned-task-item.completed:hover {
+  border-left: 4px solid #22c55e;
+  background: #f0fdf4;
+}
+
+.modern-dashboard .dashboard-planned-task-item.not-completed,
+.modern-dashboard .dashboard-planned-task-item.not-completed:hover {
+  border-left: 4px solid #ef4444;
+  background: #fff1f2;
 }
 
 .modern-dashboard .dashboard-planned-task-title {
@@ -1016,7 +1079,9 @@
 
 /* ── Team Schedule / Yearly Plan Card ────────────────────── */
 .modern-dashboard .dashboard-team-schedule-card {
-  border: 1px solid rgba(226, 232, 240, 0.6);
+  border: 1px solid rgba(20, 184, 166, 0.22);
+  border-top: 4px solid #0f9f8a;
+  background: linear-gradient(145deg, #effcf9 0%, #ffffff 46%);
 }
 
 .modern-dashboard .dashboard-schedule-summary {
@@ -1073,8 +1138,9 @@
 
 /* Yearly summary card - soft green tint */
 .modern-dashboard .dashboard-stats-row .dashboard-stats-card:nth-child(2) {
-  background: #f0fdf4;
-  border-color: rgba(74, 222, 128, 0.2);
+  background: linear-gradient(145deg, #e9fbf0 0%, #f5fff8 100%);
+  border-color: rgba(16, 185, 129, 0.28);
+  border-left: 4px solid #10b981;
 }
 
 .modern-dashboard .dashboard-stats-row .dashboard-stats-card:nth-child(2) .dashboard-stats-card-title {
@@ -1091,7 +1157,9 @@
 
 /* Monthly stats side card - light blue variant */
 .modern-dashboard .dashboard-stats-row .dashboard-stats-card:first-child {
-  background: #dbeafe;
+  background: linear-gradient(145deg, #dcecff 0%, #f1f7ff 100%);
+  border-color: rgba(59, 130, 246, 0.28);
+  border-left: 4px solid #3b82f6;
   color: #1e293b;
 }
 
@@ -1126,12 +1194,14 @@
   gap: 0.4rem;
   padding: 0.3rem 0.5rem;
   border-radius: var(--md-radius-sm);
-  background: #f3f4f6;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: linear-gradient(135deg, var(--breakdown-bg, #f3f4f6), #ffffff);
+  box-shadow: inset 3px 0 0 var(--breakdown-color, #64748b);
 }
 
 .modern-dashboard .dashboard-breakdown-item .dashboard-breakdown-count,
 .modern-dashboard .dashboard-breakdown-item .dashboard-breakdown-label {
-  color: #374151;
+  color: var(--breakdown-color, #374151);
 }
 
 .modern-dashboard .dashboard-breakdown-item .dashboard-breakdown-count {
@@ -1721,7 +1791,9 @@
 
 /* ── Yearly Plan / Schedule Card ──────────────────────────── */
 .modern-dashboard .dashboard-team-schedule-card {
-  border: 1px solid rgba(226, 232, 240, 0.6);
+  border: 1px solid rgba(20, 184, 166, 0.22);
+  border-top: 4px solid #0f9f8a;
+  background: linear-gradient(145deg, #effcf9 0%, #ffffff 46%);
   padding: 1.25rem;
   overflow: hidden;
 }
@@ -1889,19 +1961,19 @@
 
 .ts-card-head {
   margin-bottom: 0.75rem;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid rgba(15, 159, 138, 0.22);
   padding-bottom: 0.4rem;
 }
 
 .ts-card-head h4 {
   margin: 0;
-  color: #1f2937;
+  color: #115e59;
   font-size: 1rem;
 }
 
 .ts-card-head span {
   font-size: 0.7rem;
-  color: #6b7280;
+  color: #0f766e;
 }
 
 /* ── Team Schedule — Calendar Grid ───────────────────────── */
@@ -1915,7 +1987,7 @@
 
 .ts-weekday {
   font-weight: 700;
-  color: #9ca3af;
+  color: #0f766e;
   padding: 2px 0;
 }
 
@@ -1971,6 +2043,7 @@
   position: relative;
   transition: all 0.2s;
   border: 1px solid transparent;
+  background: #f1f5f9;
   cursor: pointer;
 }
 
@@ -2357,6 +2430,65 @@ textarea.gm-input {
   background: rgba(30, 41, 59, 0.6);
 }
 
+[data-theme="dark"] .modern-dashboard .dashboard-planned-task-item.in-process,
+[data-theme="dark"] .modern-dashboard .dashboard-planned-task-item.in-process:hover {
+  border-left-color: #60a5fa;
+  background: #172554;
+}
+
+[data-theme="dark"] .modern-dashboard .dashboard-planned-task-item.overdue,
+[data-theme="dark"] .modern-dashboard .dashboard-planned-task-item.overdue:hover {
+  border-left-color: #fbbf24;
+  background: #422006;
+}
+
+[data-theme="dark"] .modern-dashboard .dashboard-planned-task-item.to-be-started,
+[data-theme="dark"] .modern-dashboard .dashboard-planned-task-item.to-be-started:hover {
+  border-left-color: #2dd4bf;
+  background: #0f2d2a;
+}
+
+[data-theme="dark"] .modern-dashboard .dashboard-planned-task-item.postponed,
+[data-theme="dark"] .modern-dashboard .dashboard-planned-task-item.postponed:hover {
+  border-left-color: #a78bfa;
+  background: #2e1065;
+}
+
+[data-theme="dark"] .modern-dashboard .dashboard-planned-task-item.completed,
+[data-theme="dark"] .modern-dashboard .dashboard-planned-task-item.completed:hover {
+  border-left-color: #4ade80;
+  background: #052e16;
+}
+
+[data-theme="dark"] .modern-dashboard .dashboard-planned-task-item.not-completed,
+[data-theme="dark"] .modern-dashboard .dashboard-planned-task-item.not-completed:hover {
+  border-left-color: #fb7185;
+  background: #450a0a;
+}
+
+[data-theme="dark"] .modern-dashboard .dashboard-worklog-head h4,
+[data-theme="dark"] .modern-dashboard .dashboard-planned-task-title {
+  color: #f1f5f9;
+}
+
+[data-theme="dark"] .modern-dashboard .dashboard-team-schedule-card {
+  background: linear-gradient(145deg, #102c2a 0%, #1e293b 48%);
+  border-color: rgba(45, 212, 191, 0.2);
+  border-top-color: #2dd4bf;
+}
+
+[data-theme="dark"] .modern-dashboard .ts-card-head h4,
+[data-theme="dark"] .modern-dashboard .ts-card-head span,
+[data-theme="dark"] .modern-dashboard .dashboard-team-schedule-card .ts-month-nav h4,
+[data-theme="dark"] .modern-dashboard .ts-weekday {
+  color: #99f6e4;
+}
+
+[data-theme="dark"] .modern-dashboard .cal-day:not(.today):not([data-has-leave="true"]):not([data-has-event="true"]):not([data-day-type="Holiday"]):not([data-day-type="Half Day"]) {
+  background: #263449;
+  color: #e2e8f0;
+}
+
 [data-theme="dark"] .modern-dashboard .dashboard-hero-stats-card {
   background: linear-gradient(180deg, #1e293b 0%, #1a1a2e 100%);
 }
@@ -2518,6 +2650,35 @@ textarea.gm-input {
      fit; inner content wraps/clips via the rules below. */
   .modern-dashboard .dashboard-primary-row {
     grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.2fr) minmax(0, 1fr);
+  }
+}
+
+/* On laptop-sized viewports, let each primary card end with its content.
+   The shared 240px tile floor and equal-height grid stretching leave large
+   blank areas in shorter cards such as check-in and yearly plan. */
+@media (min-width: 1024px) and (max-width: 1599px) {
+  .modern-dashboard .dashboard-primary-row {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .modern-dashboard .dashboard-primary-row > .dashboard-checkin-card,
+  .modern-dashboard .dashboard-primary-row > .dashboard-primary-col {
+    align-self: start;
+  }
+
+  .modern-dashboard .dashboard-primary-row > .dashboard-checkin-card {
+    grid-column: 1;
+  }
+
+  .modern-dashboard .dashboard-primary-row > .dashboard-checkin-card.dashboard-card-mode-tile,
+  .modern-dashboard .dashboard-primary-row > .dashboard-primary-col > .card.dashboard-card-mode-tile {
+    min-height: 0;
+  }
+
+  .dashboard-staff-view.modern-dashboard .dashboard-primary-row .dashboard-primary-col > .card,
+  .dashboard-admin-view.modern-dashboard .dashboard-primary-row .dashboard-primary-col > .card {
+    flex: 0 0 auto;
   }
 }
 
@@ -2724,11 +2885,11 @@ textarea.gm-input {
   }
 
   .modern-dashboard .dashboard-primary-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .modern-dashboard .dashboard-primary-row > .dashboard-checkin-card {
-    grid-column: span 2;
+    grid-column: 1;
   }
 }
 
@@ -3060,20 +3221,130 @@ textarea.gm-input {
   display: none;
 }/* ─── Staff Performance Monitor — Personal View ─────────── */
 .dashboard-perf-card {
-  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.55rem 0.7rem;
   border-radius: 10px;
-  overflow: hidden;
+  min-width: 0;
+}
+.dashboard-perf-card .perf-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.dashboard-perf-card .perf-header-row > .dashboard-perf-head {
+  flex: 1 1 auto;
+  min-width: 180px;
+  margin: 0;
+}
+.dashboard-perf-card .perf-header-row > .perf-team-tabs {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  margin: 0 !important;
+}
+.dashboard-perf-card .dashboard-perf-title {
+  font-size: 0.85rem;
+  line-height: 1.2;
+}
+.dashboard-perf-card .dashboard-perf-subtitle {
+  display: block;
+  margin-top: 0.1rem;
+  white-space: nowrap;
 }
 .dashboard-perf-card .perf-main-layout {
-  max-height: 180px;
-  overflow: hidden;
+  width: 100%;
+  gap: 0.6rem;
+  align-items: center;
+}
+.dashboard-perf-card .perf-secondary-layout {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.dashboard-perf-card .perf-secondary-layout > .perf-trend-section,
+.dashboard-perf-card .perf-secondary-layout > .perf-insights-section {
+  min-width: 0;
+  margin-top: 0;
+  padding-top: 0.35rem;
+}
+.dashboard-perf-card .perf-datacheck,
+.dashboard-perf-card .perf-ai-coach {
+  min-width: 0;
 }
 .dashboard-perf-card .perf-trend-chart {
-  max-height: 56px;
+  height: 40px;
+  gap: 0.3rem;
 }
-.dashboard-perf-card .perf-insights-section {
-  max-height: 60px;
-  overflow: hidden;
+.dashboard-perf-card .perf-trend-col {
+  gap: 0;
+}
+.dashboard-perf-card .perf-trend-label {
+  font-size: 0.45rem;
+}
+.dashboard-perf-card .perf-trend-val {
+  font-size: 0.55rem;
+}
+.dashboard-perf-card .perf-insight {
+  padding: 0.1rem 0.28rem;
+  margin-bottom: 0.08rem;
+  font-size: 0.58rem;
+  line-height: 1.25;
+}
+.dashboard-perf-card .perf-left {
+  gap: 0.2rem;
+}
+.dashboard-perf-card .perf-score-row,
+.dashboard-perf-card .perf-radar-wrap {
+  width: 164px;
+}
+.dashboard-perf-card .perf-radar-wrap {
+  height: 164px;
+}
+.dashboard-perf-card .perf-score-row {
+  gap: 8px;
+}
+.dashboard-perf-card .perf-score-ring,
+.dashboard-perf-card .perf-score-ring svg {
+  width: 44px;
+  height: 44px;
+}
+.dashboard-perf-card .perf-score-ring-value {
+  font-size: 0.95rem;
+}
+.dashboard-perf-card .perf-dims {
+  gap: 0.2rem;
+}
+.dashboard-perf-card .perf-dim-row {
+  gap: 0.28rem;
+}
+.dashboard-perf-card .perf-dim-label {
+  width: 70px;
+  font-size: 0.64rem;
+}
+.dashboard-perf-card .perf-dim-bar-wrap {
+  height: 5px;
+}
+.dashboard-perf-card .perf-dim-score {
+  font-size: 0.64rem;
+}
+.dashboard-perf-card .perf-detail-chips {
+  gap: 0.18rem;
+  margin-top: 0.25rem;
+}
+.dashboard-perf-card .perf-chip {
+  padding: 0.12rem 0.32rem;
+  font-size: 0.56rem;
+}
+.dashboard-perf-card .perf-team-tab {
+  padding: 0.22rem 0.45rem;
+  font-size: 0.63rem;
 }
 .dashboard-perf-head {
   display: flex;
@@ -3309,14 +3580,34 @@ textarea.gm-input {
 @media (max-width: 640px) {
   .perf-main-layout {
     flex-direction: column;
-    align-items: center;
+    align-items: stretch;
   }
   .perf-left {
+    width: 100%;
     flex-direction: row;
-    gap: 0.75rem;
+    justify-content: center;
+    align-items: center;
+    gap: 0.45rem;
   }
-  .perf-dim-label { width: 65px; font-size: 0.65rem; }
-  .perf-trend-chart { height: 40px; }
+  .dashboard-perf-card .perf-header-row {
+    flex-wrap: wrap;
+  }
+  .dashboard-perf-card .perf-header-row > .dashboard-perf-head {
+    flex-basis: 100%;
+    min-width: 0;
+  }
+  .dashboard-perf-card .perf-header-row > .perf-team-tabs {
+    justify-content: flex-start;
+  }
+  .dashboard-perf-card .perf-radar-wrap {
+    width: 136px;
+    height: 136px;
+  }
+  .dashboard-perf-card .perf-score-row {
+    width: 100px;
+  }
+  .dashboard-perf-card .perf-dim-label { width: 65px; font-size: 0.62rem; }
+  .dashboard-perf-card .perf-trend-chart { height: 32px; }
 }
 
 /* ─── Team Performance (Expanded Overlay) ────────────────── */

@@ -5880,7 +5880,7 @@ document.addEventListener('submit', (e) => {
             try {
                 const result = await window.AppAuth.loginOwner(fd.get('username'), fd.get('password'));
                 if (result && result.serverError) {
-                    alert('Login service error — please try again in a moment.');
+                    alert(result.serverError || 'Login service error — please try again in a moment.');
                     return;
                 }
                 if (result && result.denied === 'not-owner') {
@@ -5946,7 +5946,7 @@ document.addEventListener('submit', (e) => {
             try {
                 const result = await window.AppAuth.login(fd.get('username'), fd.get('password'));
                 if (result && result.serverError) {
-                    alert('Login service error — please try again in a moment.');
+                    alert(result.serverError || 'Login service error — please try again in a moment.');
                     return;
                 }
                 if (result && result.needsConflictConfirmation) {

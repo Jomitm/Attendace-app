@@ -11,6 +11,7 @@ import { parseHeroAiResponse, sanitizeCandidates } from './api/_hero-select-core
 
 const require = createRequire(import.meta.url);
 const { readBuildMeta } = require('./scripts/build-meta.cjs');
+const authLoginHandler = require('./api/_auth-login.js');
 const buildMeta = readBuildMeta(process.cwd());
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -71,6 +72,41 @@ function sendJson(res, statusCode, payload) {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     res.end(JSON.stringify(payload));
+}
+
+function createAuthLoginDevPlugin() {
+    return {
+        name: 'auth-login-dev',
+        configureServer(server) {
+            server.middlewares.use('/api/auth-login', async (req, res) => {
+                if (req.method !== 'POST') {
+                    return sendJson(res, 405, { error: 'Method not allowed' });
+                }
+
+                try {
+                    const body = await readBody(req);
+                    const apiResponse = {
+                        statusCode: 200,
+                        status(code) {
+                            this.statusCode = code;
+                            return this;
+                        },
+                        json(payload) {
+                            sendJson(res, this.statusCode, payload);
+                            return this;
+                        }
+                    };
+                    await authLoginHandler(Object.assign(req, { body }), apiResponse);
+                } catch (err) {
+                    if (err instanceof SyntaxError) {
+                        return sendJson(res, 400, { error: 'Invalid JSON body' });
+                    }
+                    console.error('[auth-login-dev] error:', err);
+                    return sendJson(res, 500, { error: 'Internal server error' });
+                }
+            });
+        }
+    };
 }
 
 function createFeastDevPlugin() {
@@ -329,7 +365,7 @@ export default defineConfig({
             }
         } catch { /* no .env file, that's fine */ }
 
-        return [createFeastDevPlugin(), createAiInsightsDevPlugin(), createHeroSelectDevPlugin()];
+        return [createAuthLoginDevPlugin(), createFeastDevPlugin(), createAiInsightsDevPlugin(), createHeroSelectDevPlugin()];
     })(),
     define: {
         __APP_BUILD_META__: JSON.stringify(buildMeta)

@@ -31,17 +31,18 @@ beforeEach(() => {
 });
 
 function mockFetch(user) {
+    const response = (body, status = 200) => ({
+        ok: status >= 200 && status < 300,
+        status,
+        headers: { get: () => 'application/json' },
+        text: async () => JSON.stringify(body)
+    });
+
     globalThis.fetch = async (url, _opts) => {
         if (url === '/api/auth-login') {
-            return {
-                ok: true,
-                json: async () => ({
-                    customToken: 'mock-custom-token',
-                    user
-                })
-            };
+            return response({ customToken: 'mock-custom-token', user });
         }
-        return { ok: false, json: async () => ({ error: 'Not found' }) };
+        return response({ error: 'Not found' }, 404);
     };
 }
 
