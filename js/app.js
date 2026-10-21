@@ -1269,6 +1269,16 @@ async function router() {
         }
     });
 
+    const activeMobileNavItem = document.querySelector('.mobile-nav-item.active');
+    if (activeMobileNavItem && window.matchMedia('(max-width: 768px)').matches) {
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        activeMobileNavItem.scrollIntoView({
+            behavior: reduceMotion ? 'auto' : 'smooth',
+            block: 'nearest',
+            inline: 'center'
+        });
+    }
+
     // Content Rendering
     try {
         // Render Modals into the central container if not already present

@@ -132,7 +132,7 @@ export function renderModals() {
                     </label>
                     <div class="gm-flex-gap">
                         <button type="button" data-ts-action="hide-modal" data-target="leave-modal" class="gm-card-flex">Cancel</button>
-                        <button type="submit" class="action-btn" style="flex: 1; padding: 0.75rem; border-radius: 0.5rem; background: #be123c;">Submit Request</button>
+                        <button type="submit" class="action-btn" style="flex: 1; padding: 0.75rem;">Submit Request</button>
                     </div>
                 </form>
             </div>
