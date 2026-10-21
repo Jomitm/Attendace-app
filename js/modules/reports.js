@@ -1,5 +1,5 @@
 import { AppDB } from './db.js';
-import { isTaskVisibleToViewer, getCurrentViewerId } from '../utils/task-visibility.js';
+import { isTaskVisibleToViewer, getCurrentViewerId, getWorkPlanOwnerId } from '../utils/task-visibility.js';
 
 export class Reports {
     constructor() {
@@ -289,7 +289,7 @@ export class Reports {
                 plans.workPlans.forEach(p => {
                     if (p.date === dateStr) {
                         const tasks = Array.isArray(p.plans)
-                            ? p.plans.filter((task) => task && isTaskVisibleToViewer(task, String(p.userId || ''), getCurrentViewerId()))
+                            ? p.plans.filter((task) => task && isTaskVisibleToViewer(task, getWorkPlanOwnerId(p), getCurrentViewerId()))
                             : [];
                         const taskDetails = tasks.length > 0
                             ? tasks.map((task, idx) => {

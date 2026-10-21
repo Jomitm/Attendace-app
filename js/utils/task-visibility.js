@@ -15,6 +15,11 @@ export const isPrivateTask = (task) => {
     return !!task && typeof task === 'object' && task.isPrivate === true;
 };
 
+export const getWorkPlanOwnerId = (planOrId) => {
+    if (!planOrId || typeof planOrId !== 'object') return String(planOrId || '').trim();
+    return String(planOrId.userId === 'annual_shared' ? planOrId.createdById : planOrId.userId || '').trim();
+};
+
 /**
  * True when `viewer` may see `task` given the plan document that contains it.
  * Public tasks are always visible; private tasks are visible only to the plan
@@ -22,7 +27,7 @@ export const isPrivateTask = (task) => {
  */
 export const isTaskVisibleToViewer = (task, planOwnerId, viewerId) => {
     if (!isPrivateTask(task)) return true;
-    const owner = String(planOwnerId || '').trim();
+    const owner = getWorkPlanOwnerId(planOwnerId);
     const viewer = String(viewerId || '').trim();
     if (!viewer) return false;
     if (viewer === owner) return true;
@@ -44,7 +49,7 @@ export const stripPrivateTasksForViewer = (plans = [], viewerId) => {
         return {
             ...plan,
             plans: plan.plans.filter((task) =>
-                isTaskVisibleToViewer(task, String(plan.userId || ''), safeViewer)
+                isTaskVisibleToViewer(task, getWorkPlanOwnerId(plan), safeViewer)
             )
         };
     });

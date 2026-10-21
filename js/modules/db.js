@@ -1,5 +1,6 @@
 import { AppConfig } from '../config.js';
 import { AppFirestore } from './firebase-config.js';
+import { PRIVATE_WORK_PLAN_COLLECTION, hydrateWorkPlanFromStorage, splitWorkPlanForStorage } from '../utils/private-work-plans.js';
 
 export class Database {
     constructor() {
@@ -458,6 +459,50 @@ export class Database {
             || message.includes('missing or insufficient permissions');
     }
 
+    async hydrateWorkPlans(plans) {
+        const rows = Array.isArray(plans) ? plans : [];
+        const viewerId = String(window.AppFirebaseAuth?.currentUser?.uid || window.AppAuth?.getUser?.()?.id || '').trim();
+        if (!viewerId || !rows.some((plan) => Array.isArray(plan?.plans) && plan.plans.some((task) => task?.isPrivate === true))) return rows;
+        return Promise.all(rows.map((plan) => hydrateWorkPlanFromStorage(plan, viewerId, async (id) => {
+            const snapshot = await this.db.collection(PRIVATE_WORK_PLAN_COLLECTION).doc(id).get();
+            return snapshot.exists ? { ...snapshot.data(), id: snapshot.id } : null;
+        })));
+    }
+
+    async putWorkPlan(item) {
+        const docId = String(item.id);
+        const ref = this.db.collection('work_plans').doc(docId);
+        const oldSnapshot = await ref.get();
+        const oldPlan = oldSnapshot.exists ? oldSnapshot.data() || {} : {};
+        const safeInput = { ...item, plans: [...(Array.isArray(item.plans) ? item.plans : [])] };
+        for (let index = 0; index < safeInput.plans.length; index += 1) {
+            const task = safeInput.plans[index];
+            if (task?.isPrivate !== true || !task.privateTaskId) continue;
+            const prior = await this.db.collection(PRIVATE_WORK_PLAN_COLLECTION).doc(String(task.privateTaskId)).get();
+            if (prior.exists && String(prior.data()?.planId || '') !== docId) {
+                safeInput.plans[index] = { ...task, privateTaskId: '' };
+            }
+        }
+        const writerId = String(window.AppFirebaseAuth?.currentUser?.uid || window.AppAuth?.getUser?.()?.id || '').trim();
+        const { publicPlan, privateTasks } = splitWorkPlanForStorage(safeInput, undefined, writerId);
+        const nextIds = new Set(privateTasks.map((task) => task.id));
+        const oldIds = (Array.isArray(oldPlan.plans) ? oldPlan.plans : [])
+            .filter((task) => task?.isPrivate === true && task.privateTaskId)
+            .map((task) => String(task.privateTaskId));
+        const staleCount = oldIds.filter((id) => !nextIds.has(id)).length;
+        if (privateTasks.length + staleCount + 1 > 500) {
+            throw new Error('This work plan has too many private-task changes for one atomic save.');
+        }
+        const batch = this.db.batch();
+        for (const task of privateTasks) batch.set(this.db.collection(PRIVATE_WORK_PLAN_COLLECTION).doc(task.id), task, { merge: true });
+        for (const oldId of oldIds) {
+            if (!nextIds.has(oldId)) batch.delete(this.db.collection(PRIVATE_WORK_PLAN_COLLECTION).doc(oldId));
+        }
+        batch.set(ref, publicPlan, { merge: true });
+        await batch.commit();
+        return docId;
+    }
+
     async getAll(collectionName, options = {}) {
         try {
             const source = String(options?.source || '').trim().toLowerCase();
@@ -485,7 +530,7 @@ export class Database {
                 const ttlMs = isUsers
                     ? (ttlByCollection.users || 60000)
                     : (ttlByCollection.workPlansAllReadMs || 60000);
-                return this.getCached(cacheKey, ttlMs, async () => {
+                const cached = await this.getCached(cacheKey, ttlMs, async () => {
                     const snapshot = canUseSource
                         ? await this.db.collection(collectionName).get({ source })
                         : await this.db.collection(collectionName).get();
@@ -493,6 +538,7 @@ export class Database {
                     this.track('getAll', collectionName, data.length);
                     return data;
                 });
+                return isWorkPlans ? this.hydrateWorkPlans(cached) : cached;
             }
 
             const snapshot = canUseSource
@@ -500,7 +546,7 @@ export class Database {
                 : await this.db.collection(collectionName).get();
             const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
             this.track('getAll', collectionName, data.length);
-            return data;
+            return isWorkPlans ? this.hydrateWorkPlans(data) : data;
         } catch (error) {
             if (options?.silentPermissionDenied && this.isPermissionDenied(error)) {
                 return [];
@@ -540,7 +586,7 @@ export class Database {
                 }
 
                 const ttlMs = ttlByCollection.workPlanReadMs || 60000;
-                return this.getCached(cacheKey, ttlMs, async () => {
+                const cached = await this.getCached(cacheKey, ttlMs, async () => {
                     const doc = canUseSource ? await docRef.get({ source }) : await docRef.get();
                     if (doc.exists) {
                         this.track('get', collectionName, 1);
@@ -550,12 +596,14 @@ export class Database {
                         return null;
                     }
                 });
+                return cached ? (await this.hydrateWorkPlans([cached]))[0] : null;
             }
 
             const doc = canUseSource ? await docRef.get({ source }) : await docRef.get();
             if (doc.exists) {
                 this.track('get', collectionName, 1);
-                return { ...doc.data(), id: doc.id };
+                const result = { ...doc.data(), id: doc.id };
+                return isWorkPlans ? (await this.hydrateWorkPlans([result]))[0] : result;
             } else {
                 this.track('get', collectionName, 0);
                 return null;
@@ -572,6 +620,10 @@ export class Database {
     async add(collectionName, item, options = {}) {
         if (item.id) {
             return this.put(collectionName, item);
+        }
+        if (String(collectionName) === 'work_plans') {
+            const id = this.db.collection('work_plans').doc().id;
+            return this.put(collectionName, { ...item, id }, options);
         }
         try {
             const docRef = await this.db.collection(collectionName).add(item);
@@ -600,7 +652,8 @@ export class Database {
         if (!item.id) throw new Error("Item must have an ID for 'put' operation.");
         try {
             const docId = String(item.id);
-            await this.db.collection(collectionName).doc(docId).set(item, { merge: true });
+            if (String(collectionName) === 'work_plans') await this.putWorkPlan(item);
+            else await this.db.collection(collectionName).doc(docId).set(item, { merge: true });
             this.telemetry.writes += 1;
             this.invalidateCollectionCache(collectionName);
             if (window.dispatchEvent) window.dispatchEvent(new CustomEvent('app:db-write', {
@@ -746,7 +799,7 @@ export class Database {
             const snapshot = await ref.get(source);
             const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
             this.track('queryMany', collectionName, data.length);
-            return data;
+            return String(collectionName) === 'work_plans' ? this.hydrateWorkPlans(data) : data;
         } catch (error) {
             console.warn(`queryMany failed for ${collectionName}, falling back to getAll`, error);
             return this.getAll(collectionName, { ...options, silentPermissionDenied: true });
@@ -777,7 +830,8 @@ export class Database {
             return this.db.collection(collectionName).doc(docId).onSnapshot((doc) => {
                 const data = doc.exists ? { ...doc.data(), id: doc.id } : null;
                 this.track('listen', collectionName, 1);
-                callback(data, doc);
+                if (String(collectionName) === 'work_plans') this.hydrateWorkPlans(data ? [data] : []).then((rows) => callback(rows[0] || null, doc));
+                else callback(data, doc);
             }, (error) => {
                 console.error(`Realtime listener error in ${collectionName}/${docId}:`, error);
             });
@@ -796,7 +850,8 @@ export class Database {
             return ref.onSnapshot((snapshot) => {
                 const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
                 this.track('listenQuery', collectionName, data.length);
-                callback(data, snapshot);
+                if (String(collectionName) === 'work_plans') this.hydrateWorkPlans(data).then((rows) => callback(rows, snapshot));
+                else callback(data, snapshot);
             }, (error) => {
                 if (options.silentPermissionDenied && this.isPermissionDenied(error)) {
                     return;
@@ -814,7 +869,8 @@ export class Database {
         return this.db.collection(collectionName).onSnapshot((snapshot) => {
             const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
             this.track('listen', collectionName, data.length);
-            callback(data, snapshot);
+            if (String(collectionName) === 'work_plans') this.hydrateWorkPlans(data).then((rows) => callback(rows, snapshot));
+            else callback(data, snapshot);
         }, (error) => {
             console.error(`Realtime listener error in ${collectionName}:`, error);
         });

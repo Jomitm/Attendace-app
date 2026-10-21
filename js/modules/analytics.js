@@ -1,6 +1,6 @@
 import { AppDB } from './db.js';
 import { AppConfig } from '../config.js';
-import { isTaskVisibleToViewer, getCurrentViewerId } from '../utils/task-visibility.js';
+import { isTaskVisibleToViewer, getCurrentViewerId, getWorkPlanOwnerId } from '../utils/task-visibility.js';
 import { buildPerformanceWindows } from '../utils/perf-windows.js';
 import { isRequiredWorkingDay, countRequiredWorkingDays } from '../utils/working-days.js';
 import { buildHeroEvidenceDigest } from '../utils/hero-digest.js';
@@ -2408,7 +2408,7 @@ export class Analytics {
                     wp.plans.forEach((plan, idx) => {
                         if (plan?.isRemoved === true) return;
                         // Private tasks are visible only to the plan owner or the assignee.
-                        if (plan?.isPrivate === true && !isTaskVisibleToViewer(plan, String(wp.userId || ''), staffActViewerId)) return;
+                        if (plan?.isPrivate === true && !isTaskVisibleToViewer(plan, getWorkPlanOwnerId(wp), staffActViewerId)) return;
                         const isOldCarryForwardTask = (() => {
                             const normalizedStatus = String(plan?.status || '').trim().toLowerCase();
                             const isClosed = normalizedStatus === 'completed'

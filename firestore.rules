@@ -115,6 +115,36 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Private task bodies are kept outside shared work-plan documents. The
+    // owner controls the record; the assignee may read and update the task,
+    // but cannot change its owner, plan, or assignment.
+    match /private_work_plan_tasks/{taskId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.ownerId == request.auth.uid || resource.data.assignedTo == request.auth.uid);
+      allow create: if isAuthenticated() &&
+        (request.resource.data.ownerId == request.auth.uid || request.resource.data.createdById == request.auth.uid) &&
+        request.resource.data.id == taskId &&
+        request.resource.data.keys().hasOnly(['id', 'ownerId', 'createdById', 'assignedTo', 'planId', 'taskIndex', 'task']) &&
+        request.resource.data.task is map &&
+        request.resource.data.planId is string &&
+        request.resource.data.taskIndex is int &&
+        request.resource.data.createdById is string &&
+        request.resource.data.assignedTo is string;
+      allow update: if isAuthenticated() &&
+        request.resource.data.keys().hasOnly(['id', 'ownerId', 'createdById', 'assignedTo', 'planId', 'taskIndex', 'task']) &&
+        request.resource.data.id == taskId &&
+        request.resource.data.createdById is string &&
+        request.resource.data.assignedTo is string &&
+        request.resource.data.taskIndex is int &&
+        request.resource.data.task is map &&
+        request.resource.data.ownerId == resource.data.ownerId &&
+        request.resource.data.planId == resource.data.planId &&
+        (request.auth.uid == resource.data.ownerId ||
+          (request.auth.uid == resource.data.assignedTo &&
+            request.resource.data.assignedTo == resource.data.assignedTo));
+      allow delete: if isAuthenticated() && request.auth.uid == resource.data.ownerId;
+    }
+
     // ── Day Plan ──────────────────────────────────────────────
     match /day_plan/{docId} {
       allow read: if isAuthenticated();

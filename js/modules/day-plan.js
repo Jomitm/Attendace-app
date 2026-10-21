@@ -2,7 +2,7 @@ import { AppAuth } from './auth.js';
 import { AppDB } from './db.js';
 import { AppCalendar } from './calendar.js';
 import { AppConfig } from '../config.js';
-import { isTaskVisibleToViewer } from '../utils/task-visibility.js';
+import { isTaskVisibleToViewer, getWorkPlanOwnerId } from '../utils/task-visibility.js';
 import { serializeTaskProvenance, deserializeTaskProvenance, formatPostponeChip } from '../utils/task-provenance.js';
 import { suggestClassification } from './task-classification-learning.js';
 import { asIsoDate, countSpanWorkingDays, suggestEndDate, collectSpanningTasks, SPAN_LOOKBACK_DAYS, addDaysStr, computeDayLoad, SPAN_HOURS_PER_DAY, EFFORT_HOURS } from '../utils/span-planning.js';
@@ -1847,7 +1847,7 @@ export function dayPlanRenderBlockV3(args) {
     if (!isReference && !isSpannedVirtual) {
         headerActions.appendChild(createButton({
             className: 'day-plan-private-toggle' + (plan.isPrivate === true ? ' is-private' : ''),
-            attributes: { title: plan.isPrivate === true ? 'Private — only you can see this task' : 'Make private — only you can see this task' },
+            attributes: { title: plan.isPrivate === true ? 'Private — only you and the assignee can see this task' : 'Make private — only you and the assignee can see this task' },
             innerHTML: plan.isPrivate === true ? '<i class="fa-solid fa-lock"></i>' : '<i class="fa-solid fa-lock-open"></i>',
             onClick: () => togglePlanBlockPrivate(planBlock)
         }));
@@ -2179,7 +2179,7 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
                         userName: userName || workPlan.userName,
                         isReference: !!userName
                     })).filter(p => p.isRemoved !== true && (!hideAutoForwardedTasks || !isAutoForwardedTask(p)))
-                        .filter(p => isTaskVisibleToViewer(p, String(workPlan.userId || ''), String(currentUser?.id || '')));
+                        .filter(p => isTaskVisibleToViewer(p, getWorkPlanOwnerId(workPlan), String(currentUser?.id || '')));
                 }
                 return [];
             };
@@ -2293,7 +2293,7 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
                                 userName: userName || workPlan.userName,
                                 isReference: !!userName
                             })).filter(p => p.isRemoved !== true && (!hideAutoForwardedTasks || !isAutoForwardedTask(p)))
-                                .filter(p => isTaskVisibleToViewer(p, String(workPlan.userId || ''), String(currentUser?.id || '')));
+                                .filter(p => isTaskVisibleToViewer(p, getWorkPlanOwnerId(workPlan), String(currentUser?.id || '')));
                         }
                         return [];
                     };
