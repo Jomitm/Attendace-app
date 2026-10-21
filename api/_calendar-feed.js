@@ -149,7 +149,7 @@ module.exports = async (req, res) => {
                 .get()
                 .catch(() => ({ docs: [] })),
             db.collection('leaves')
-                .where('status', '==', 'approved')
+                .where('status', 'in', ['Approved', 'approved'])
                 .get()
                 .catch(() => ({ docs: [] })),
             db.collection('events')
@@ -163,16 +163,24 @@ module.exports = async (req, res) => {
 
         const userName = (usersSnap.data ? usersSnap.data() : {}).name || 'Staff';
         const events = [];
-        let uidCounter = 0;
+        const makeUID = (kind, id, index = '') => `crwi-${userId}-${kind}-${id}${index === '' ? '' : `-${index}`}@crwi-attendance`;
 
-        const makeUID = () => `crwi-${userId}-${Date.now()}-${uidCounter++}@crwi-attendance`;
-
-        workPlansSnap.docs.forEach(doc => {
+        for (const doc of workPlansSnap.docs) {
             const plan = doc.data();
-            if (plan.userId !== userId || !plan.plans || !plan.plans.length) return;
+            if (!plan.plans || !plan.plans.length) continue;
+            const planOwnerId = String(plan.userId === 'annual_shared' ? plan.createdById || '' : plan.userId || '');
 
-            plan.plans.forEach(task => {
-                if (!task.task) return;
+            for (let taskIndex = 0; taskIndex < plan.plans.length; taskIndex += 1) {
+                let task = plan.plans[taskIndex];
+                if (planOwnerId !== userId && !(task?.isPrivate === true && String(task.assignedTo || '') === userId)) continue;
+                if (task?.isPrivate === true && task.privateTaskId) {
+                    const privateSnap = await db.collection('private_work_plan_tasks').doc(String(task.privateTaskId)).get().catch(() => null);
+                    const privateTask = privateSnap?.exists ? privateSnap.data() : null;
+                    if (!privateTask || String(privateTask.ownerId || '') !== planOwnerId || String(privateTask.planId || '') !== String(doc.id)) continue;
+                    if (planOwnerId !== userId && String(privateTask.assignedTo || '') !== userId) continue;
+                    task = { ...(privateTask.task || {}), ...task };
+                }
+                if (!task.task) continue;
                 const taskTags = (task.tags || []).map(t => t.name).filter(Boolean);
                 const subPlans = (task.subPlans || []).filter(Boolean);
                 let desc = '';
@@ -189,15 +197,15 @@ module.exports = async (req, res) => {
                 })();
 
                 events.push({
-                    uid: makeUID(),
+                    uid: makeUID('task', doc.id, task.id || task.privateTaskId || taskIndex),
                     summary: task.task,
                     description: desc.trim() || undefined,
                     dtstart,
                     dtend,
                     allDay: true
                 });
-            });
-        });
+            }
+        }
 
         leavesSnap.docs.forEach(doc => {
             const leave = doc.data();
@@ -214,7 +222,7 @@ module.exports = async (req, res) => {
 
             if (dtstart && dtend) {
                 events.push({
-                    uid: makeUID(),
+                    uid: makeUID('leave', doc.id),
                     summary: `${userName} (${leaveType})`,
                     description: `Approved ${leaveType}. ${leave.reason || ''}`.trim(),
                     dtstart,
@@ -238,7 +246,7 @@ module.exports = async (req, res) => {
                 })();
                 if (dtstart && dtend) {
                     events.push({
-                        uid: makeUID(),
+                        uid: makeUID('event', doc.id),
                         summary: ev.title || 'Company Event',
                         description: ev.description || ev.details || undefined,
                         dtstart,
@@ -251,7 +259,7 @@ module.exports = async (req, res) => {
                 const endTime = ev.endTime || '10:00';
                 const dateClean = ev.date.replace(/-/g, '');
                 events.push({
-                    uid: makeUID(),
+                    uid: makeUID('event', doc.id),
                     summary: ev.title || 'Company Event',
                     description: ev.description || ev.details || undefined,
                     dtstart: `${dateClean}T${startTime.replace(':', '')}00`,

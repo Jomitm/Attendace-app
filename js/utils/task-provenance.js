@@ -4,6 +4,7 @@
 // (postponedFromDate, addedFrom, source ids, progress) must survive edits,
 // otherwise analytics/hero postponed-tracking and auto-forward detection break.
 const TASK_PROVENANCE_FIELDS = [
+    'id', 'privateTaskId',
     'postponedFromDate', 'postponedToDate', 'addedFrom', 'sourcePlanId', 'sourceTaskIndex',
     'postponedFromPlanId', 'carriedForwardFromDate', 'carriedForwardFromPlanId',
     'isAutoForwarded', 'carryForwardPolicy', 'autoForwardedAt', 'carryForwardReason',

@@ -341,7 +341,9 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                     const from = new Date();
                     from.setDate(from.getDate() - 60);
                     const fromIso = from.toISOString().split('T')[0];
-                    return window.AppDB.queryMany('attendance', [{ field: 'date', operator: '>=', value: fromIso }]).catch(() => window.AppDB.getAll('attendance'));
+                    return window.AppDB.queryMany('attendance', [{ field: 'date', operator: '>=', value: fromIso }]).catch(async () =>
+                        (await window.AppDB.getAll('attendance')).filter((row) => String(row.date || '') >= fromIso)
+                    );
                 })()
                 : window.AppDB.getAll('attendance'),
             window.AppAnalytics?.getAllStaffActivities

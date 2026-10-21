@@ -580,7 +580,7 @@ export class Analytics {
         const breakdown = {
             'Present': 0, 'Late': 0, 'Early Departure': 0, 'Work - Home': 0, 'Training': 0,
             'Sick Leave': 0, 'Casual Leave': 0, 'Earned Leave': 0,
-            'Paid Leave': 0, 'Maternity Leave': 0, 'Retreat Leave': 0, 'Staff Development Leave': 0, 'Absent': 0,
+            'Paid Leave': 0, 'Maternity Leave': 0, 'Retreat Leave': 0, 'Staff Development Leave': 0, 'Absent': 0, 'Other Leave': 0, 'Half Day Present': 0,
             'Holiday': 0, 'National Holiday': 0, 'Regional Holidays': 0
         };
 
@@ -688,6 +688,11 @@ export class Analytics {
                 else if (type === 'Retreat Leave') breakdown['Retreat Leave']++;
                 else if (type === 'Staff Development Leave') breakdown['Staff Development Leave']++;
                 else if (type === 'Absent') { breakdown['Absent']++; stats.unpaidLeaves++; }
+                else if (type === 'Half Day' || type === 'Half Day Leave') {
+                    breakdown['Other Leave'] += Number(log.dayCredit ?? 0.5);
+                    breakdown['Half Day Present'] += Number(log.dayCredit ?? 0.5);
+                }
+                else if (String(type).toLowerCase().includes('leave')) breakdown['Other Leave']++;
                 else if (type === 'National Holiday') breakdown['National Holiday']++;
                 else if (type === 'Regional Holidays') breakdown['Regional Holidays']++;
                 else if (String(type).includes('Holiday')) breakdown['Holiday']++;
@@ -696,8 +701,8 @@ export class Analytics {
                 }
         });
 
-        stats.present = breakdown['Present'] + breakdown['Work - Home'] + breakdown['Training'];
-        stats.leaves = breakdown['Sick Leave'] + breakdown['Casual Leave'] + breakdown['Earned Leave'] + breakdown['Paid Leave'] + breakdown['Maternity Leave'] + breakdown['Retreat Leave'] + breakdown['Staff Development Leave'] + breakdown['Absent'];
+        stats.present = breakdown['Present'] + breakdown['Work - Home'] + breakdown['Training'] + breakdown['Half Day Present'];
+        stats.leaves = breakdown['Sick Leave'] + breakdown['Casual Leave'] + breakdown['Earned Leave'] + breakdown['Paid Leave'] + breakdown['Maternity Leave'] + breakdown['Retreat Leave'] + breakdown['Staff Development Leave'] + breakdown['Absent'] + breakdown['Other Leave'];
 
         // Penalty inherited from Daily Check (> 15 mins late = 0.5)
         // Penalty Rule 1: > 3 Lates (within grace) = 0.5 Leave penalty? 
@@ -740,7 +745,7 @@ export class Analytics {
         const breakdown = {
             'Present': 0, 'Late': 0, 'Early Departure': 0, 'Work - Home': 0, 'Training': 0,
             'Sick Leave': 0, 'Casual Leave': 0, 'Earned Leave': 0,
-            'Paid Leave': 0, 'Maternity Leave': 0, 'Retreat Leave': 0, 'Staff Development Leave': 0, 'Absent': 0,
+            'Paid Leave': 0, 'Maternity Leave': 0, 'Retreat Leave': 0, 'Staff Development Leave': 0, 'Absent': 0, 'Other Leave': 0, 'Half Day Present': 0,
             'Holiday': 0, 'National Holiday': 0, 'Regional Holidays': 0
         };
 
@@ -842,6 +847,11 @@ export class Analytics {
                 else if (type === 'Retreat Leave') breakdown['Retreat Leave']++;
                 else if (type === 'Staff Development Leave') breakdown['Staff Development Leave']++;
                 else if (type === 'Absent') breakdown['Absent']++;
+                else if (type === 'Half Day' || type === 'Half Day Leave') {
+                    breakdown['Other Leave'] += Number(log.dayCredit ?? 0.5);
+                    breakdown['Half Day Present'] += Number(log.dayCredit ?? 0.5);
+                }
+                else if (String(type).toLowerCase().includes('leave')) breakdown['Other Leave']++;
                 else if (type === 'National Holiday') breakdown['National Holiday']++;
                 else if (type === 'Regional Holidays') breakdown['Regional Holidays']++;
                 else if (String(type).includes('Holiday')) breakdown['Holiday']++;
@@ -850,8 +860,8 @@ export class Analytics {
                 }
         });
 
-        stats.present = breakdown['Present'] + breakdown['Work - Home'] + breakdown['Training'];
-        stats.leaves = breakdown['Sick Leave'] + breakdown['Casual Leave'] + breakdown['Earned Leave'] + breakdown['Paid Leave'] + breakdown['Maternity Leave'] + breakdown['Retreat Leave'] + breakdown['Staff Development Leave'] + breakdown['Absent'];
+        stats.present = breakdown['Present'] + breakdown['Work - Home'] + breakdown['Training'] + breakdown['Half Day Present'];
+        stats.leaves = breakdown['Sick Leave'] + breakdown['Casual Leave'] + breakdown['Earned Leave'] + breakdown['Paid Leave'] + breakdown['Maternity Leave'] + breakdown['Retreat Leave'] + breakdown['Staff Development Leave'] + breakdown['Absent'] + breakdown['Other Leave'];
         stats.late = breakdown['Late'];
         stats.extraWorkedHours = Number((totalExtraMinutes / 60).toFixed(2));
         stats.totalLateDuration = this.formatDuration(totalLateMinutes);

@@ -380,10 +380,8 @@ export class Auth {
         const updated = { ...existing, ...safeUserData };
         privateFields.forEach((field) => delete updated[field]);
 
-        if (userData.isAdmin === true || userData.isAdmin === 'true') {
-            updated.isAdmin = true;
-        } else {
-            updated.isAdmin = false;
+        if (Object.prototype.hasOwnProperty.call(userData, 'isAdmin')) {
+            updated.isAdmin = userData.isAdmin === true || userData.isAdmin === 'true';
         }
         updated.role = userData.role || existing.role || 'Employee';
 
@@ -398,15 +396,12 @@ export class Auth {
         if (this.currentUser?.isAdmin === true) {
             await AppDB.put('user_access', {
                 id: userData.id,
-                permissions: {
-                    ...(updated.permissions || {}),
-                    ...(updated.isAdmin === true ? { reports: 'admin' } : {})
-                }
+                permissions: updated.permissions || {}
             });
         }
 
         const actor = this.currentUser;
-        const canManagePayroll = actor && (actor.isAdmin === true || actor.permissions?.reports === 'admin');
+        const canManagePayroll = actor?.permissions?.reports === 'admin';
         if (canManagePayroll && Object.keys(privateUpdate).length > 0) {
             const existingPrivate = await AppDB.get('user_private', userData.id).catch(() => null);
             await AppDB.put('user_private', { ...(existingPrivate || {}), ...privateUpdate, id: userData.id });

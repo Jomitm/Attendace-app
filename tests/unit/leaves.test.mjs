@@ -4,6 +4,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { Leaves } from '../../js/modules/leaves.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────
 const expect = (v) => ({
@@ -141,6 +142,32 @@ describe('Leaves.dedupeLeaves', () => {
         const result = dedupeLeaves(leaves);
         expect(result).toHaveLength(1);
         expect(result[0].status).toBe('approved');
+    });
+});
+
+describe('leave request accounting', () => {
+    it('stores short leave hours separately from whole-day leave counts', async () => {
+        const leaves = new Leaves();
+        let saved;
+        leaves.getFinancialYear = async () => ({ label: '2026-27' });
+        leaves.getLeaveUsage = async () => 0;
+        leaves.getPolicy = async () => ({ 'Short Leave': {} });
+        leaves.getMonthlyShortLeaveUsage = async () => 0;
+        leaves.db = { add: async (_collection, item) => { saved = item; } };
+        const result = await leaves.requestLeave({ userId: 'u', type: 'Short Leave', durationHours: 2, startDate: '2026-10-21', endDate: '2026-10-21' });
+        assert.equal(result.daysCount, 0);
+        assert.equal(result.durationHours, 2);
+        assert.equal(saved.durationHours, 2);
+    });
+
+    it('creates a half-day attendance record with half-day credit', async () => {
+        const leaves = new Leaves();
+        let saved;
+        leaves.db = { put: async (_collection, item) => { saved = item; } };
+        await leaves.generateApprovedLeaveAttendance({ id: 'l1', userId: 'u', type: 'Half Day', startDate: '2026-10-21', endDate: '2026-10-21' });
+        assert.equal(saved.dayCredit, 0.5);
+        assert.equal(saved.duration, '4h 0m');
+        assert.equal(saved.type, 'Half Day');
     });
 });
 

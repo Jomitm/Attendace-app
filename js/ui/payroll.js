@@ -7,7 +7,7 @@ import { safeHtml } from './helpers.js';
 
 export async function renderSalaryProcessing() {
     const currentUser = window.AppAuth.getUser();
-    const isFullAdmin = window.app_hasPerm('reports', 'admin', currentUser);
+    const isFullAdmin = currentUser?.permissions?.reports === 'admin';
     if (!isFullAdmin) return '<div class="card full-width"><h3>Access denied</h3><p>You need Reports admin permission to view payroll.</p></div>';
 
     const summary = await window.AppAnalytics.getSystemMonthlySummary();
@@ -74,7 +74,15 @@ export async function renderSalaryProcessing() {
         const deductionDays = unpaid + lateDeductionDays;
 
         const attendanceDeduction = Math.round((base / 22) * deductionDays);
-        const net = Math.round(Math.max(0, base - attendanceDeduction));
+        const otherAllowances = Number(user.otherAllowances || 0);
+        const providentFund = Number(user.providentFund || 0);
+        const professionalTax = Number(user.professionalTax || 0);
+        const loanAdvance = Number(user.loanAdvance || 0);
+        const hasSavedTds = user.tdsPercent !== undefined && user.tdsPercent !== null && user.tdsPercent !== '';
+        const savedTdsPercent = hasSavedTds ? Number(user.tdsPercent) || 0 : 0;
+        const adjusted = Math.round(Math.max(0, base + otherAllowances - attendanceDeduction));
+        const tdsAmount = Math.round(adjusted * (savedTdsPercent / 100));
+        const net = Math.round(Math.max(0, adjusted - tdsAmount - providentFund - professionalTax - loanAdvance));
 
         const employeeId = user.employeeId || '';
         const designation = user.designation || user.role || '';
@@ -84,10 +92,6 @@ export async function renderSalaryProcessing() {
         const bankAccount = user.bankAccount || user.accountNumber || '';
         const pan = user.pan || user.PAN || '';
         const uan = user.uan || user.UAN || '';
-        const otherAllowances = Number(user.otherAllowances || 0);
-        const providentFund = Number(user.providentFund || 0);
-        const professionalTax = Number(user.professionalTax || 0);
-        const loanAdvance = Number(user.loanAdvance || 0);
 
         return `
                                 <tr data-user-id="${user.id}">
@@ -108,10 +112,10 @@ export async function renderSalaryProcessing() {
                                     <td><span class="deduction-days">${deductionDays.toFixed(1)}</span></td>
                                     <td class="attendance-deduction-amount" style="color:#ef4444;">-Rs ${attendanceDeduction.toLocaleString()}</td>
                                     <td class="deduction-amount" style="display:none;">-Rs ${attendanceDeduction.toLocaleString()}</td>
-                                    <td><input type="number" class="salary-input" value="${net}" style="width: 90px;"></td>
-                                    <td><input type="number" class="tds-input" value="" placeholder="Global" style="width: 60px;" onchange="window.app_recalculateRow(this.closest('tr'))"></td>
+                                    <td><input type="number" class="salary-input" value="${adjusted}" style="width: 90px;" oninput="this.dataset.manual='1'; window.app_recalculateRow(this.closest('tr'))"></td>
+                                    <td><input type="number" class="tds-input" value="${hasSavedTds ? savedTdsPercent : ''}" ${hasSavedTds ? 'data-manual="1"' : ''} placeholder="Global" style="width: 60px;" oninput="this.dataset.manual='1'; window.app_recalculateRow(this.closest('tr'))"></td>
                                     <td class="final-net-salary" data-value="${net}" style="font-weight:700; color:#1e40af;">Rs ${net.toLocaleString()}</td>
-                                    <td class="tds-amount" data-value="0" style="display:none;">Rs 0</td>
+                                    <td class="tds-amount" data-value="${tdsAmount}" style="display:none;">Rs ${tdsAmount.toLocaleString()}</td>
 
                                     <td style="display:none;"><input class="employee-id-input" type="text" value="${safeHtml(employeeId)}"></td>
                                     <td style="display:none;"><input class="designation-input" type="text" value="${safeHtml(designation)}"></td>

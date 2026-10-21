@@ -5,6 +5,7 @@ import {
     splitWorkPlanForStorage
 } from '../../js/utils/private-work-plans.js';
 import { isTaskVisibleToViewer } from '../../js/utils/task-visibility.js';
+import { serializeTaskProvenance, deserializeTaskProvenance } from '../../js/utils/task-provenance.js';
 import { Database } from '../../js/modules/db.js';
 import { createFirestoreMock } from '../helpers/firestore-mock.mjs';
 
@@ -34,6 +35,13 @@ describe('private work-plan storage boundary', () => {
             taskIndex: 1,
             task: { id: 'task-2', task: 'Payroll follow-up', notes: 'sensitive detail', isPrivate: true, assignedTo: 'assignee' }
         }]);
+    });
+
+    it('preserves pointer-only tasks without overwriting the protected task body', () => {
+        const pointer = { id: 't', privateTaskId: 'private-id', isPrivate: true, assignedTo: 'assignee' };
+        const result = splitWorkPlanForStorage({ id: 'p', userId: 'owner', plans: [pointer] });
+        assert.deepEqual(result.publicPlan.plans, [pointer]);
+        assert.deepEqual(result.privateTasks, []);
     });
 
     it('hydrates private task bodies only for the owner or assigned user', async () => {
@@ -80,6 +88,19 @@ describe('private work-plan storage boundary', () => {
         assert.deepEqual(hydrated.plans, [{ id: 'legacy', task: 'Legacy task', isPrivate: true }]);
     });
 
+    it('fails a plan read on transient private-record errors instead of returning a lossy plan', async () => {
+        const plan = { id: 'p', userId: 'owner', plans: [{ privateTaskId: 'secret', isPrivate: true }] };
+        await assert.rejects(
+            hydrateWorkPlanFromStorage(plan, 'owner', async () => { throw new Error('temporary read failure'); }),
+            (error) => error.cause?.message === 'temporary read failure'
+        );
+    });
+
+    it('round-trips private task identity through the editor provenance payload', () => {
+        const task = { id: 'stable-task', privateTaskId: 'private-doc', isPrivate: true };
+        assert.deepEqual(deserializeTaskProvenance(serializeTaskProvenance(task)), { id: task.id, privateTaskId: task.privateTaskId });
+    });
+
     it('routes database writes through separate private documents and hydrates by viewer', async () => {
         global.window = { AppAuth: { getUser: () => ({ id: 'owner' }) } };
         const firestore = createFirestoreMock();
@@ -102,5 +123,46 @@ describe('private work-plan storage boundary', () => {
         db.cache.clear();
         const unauthorizedRead = await db.get('work_plans', 'plan-owner-day');
         assert.deepEqual(unauthorizedRead.plans, []);
+    });
+
+    it('lets a collaborator update public tasks without deleting or replacing private task data', async () => {
+        global.window = { AppAuth: { getUser: () => ({ id: 'owner' }) } };
+        const firestore = createFirestoreMock();
+        const db = new Database();
+        db.db = firestore;
+        await db.put('work_plans', {
+            id: 'plan-owner-day', userId: 'owner',
+            plans: [
+                { task: 'Public task' },
+                { id: 'secret', task: 'Protected task', isPrivate: true, assignedTo: 'assignee' }
+            ]
+        });
+        const before = JSON.stringify(firestore._data.private_work_plan_tasks);
+        const placeholder = firestore._data.work_plans['plan-owner-day'].plans[1];
+        global.window.AppAuth.getUser = () => ({ id: 'collaborator' });
+        await db.put('work_plans', {
+            id: 'plan-owner-day', userId: 'owner',
+            plans: [{ task: 'Public task updated' }]
+        });
+        assert.equal(JSON.stringify(firestore._data.private_work_plan_tasks), before);
+        assert.deepEqual(firestore._data.work_plans['plan-owner-day'].plans[1], placeholder);
+    });
+
+    it('hydrates date-indexed plan reads with private task bodies', async () => {
+        global.window = { AppAuth: { getUser: () => ({ id: 'owner' }) } };
+        const firestore = createFirestoreMock({
+            work_plans: { p: { id: 'p', userId: 'owner', date: '2026-10-21', plans: [{ id: 't', privateTaskId: 's', isPrivate: true }] } },
+            private_work_plan_tasks: { s: { id: 's', ownerId: 'owner', assignedTo: '', planId: 'p', task: { id: 't', task: 'private body' } } }
+        });
+        const db = new Database();
+        db.db = firestore;
+        const rows = await db.getDayPlansByDate('2026-10-21');
+        assert.equal(rows[0].plans[0].task, 'private body');
+    });
+
+    it('applies filters in the read-optimization fallback path', () => {
+        const db = new Database();
+        const rows = [{ id: 'a', userId: 'u1' }, { id: 'b', userId: 'u2' }];
+        assert.deepEqual(db.filterRows(rows, [{ field: 'userId', operator: '==', value: 'u1' }]), [rows[0]]);
     });
 });

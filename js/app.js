@@ -6808,7 +6808,7 @@ window.app_editUser = async (userId) => {
     console.log("User Data Found:", user);
     if (!user) return;
     const actor = window.AppAuth.getUser();
-    const canViewPayroll = window.app_hasPerm('reports', 'admin', actor);
+    const canViewPayroll = actor?.permissions?.reports === 'admin';
     const privateUser = canViewPayroll
         ? await window.AppDB.get('user_private', userId).catch(() => null)
         : null;
@@ -8326,14 +8326,18 @@ window.app_recalculateRow = (row) => {
     if (attendanceDeductionEl) attendanceDeductionEl.innerText = '-Rs ' + attendanceDeduction.toLocaleString();
     row.querySelector('.deduction-amount').innerText = '-Rs ' + attendanceDeduction.toLocaleString();
 
+    const allowance = parseFloat(row.querySelector('.other-allowances-input')?.value || '0') || 0;
+    const pf = parseFloat(row.querySelector('.pf-input')?.value || '0') || 0;
+    const professionalTax = parseFloat(row.querySelector('.professional-tax-input')?.value || '0') || 0;
+    const loanAdvance = parseFloat(row.querySelector('.loan-advance-input')?.value || '0') || 0;
     const adjInput = row.querySelector('.salary-input');
     if (!adjInput.dataset.manual) {
-        adjInput.value = Math.max(0, base - attendanceDeduction);
+        adjInput.value = Math.max(0, base + allowance - attendanceDeduction);
     }
 
     const adjusted = parseFloat(adjInput.value) || 0;
     const tdsAmount = Math.round(adjusted * (tdsPercent / 100));
-    const finalNet = Math.max(0, adjusted - tdsAmount);
+    const finalNet = Math.max(0, adjusted - tdsAmount - pf - professionalTax - loanAdvance);
 
     row.querySelector('.tds-amount').innerText = 'Rs ' + tdsAmount.toLocaleString();
     row.querySelector('.tds-amount').dataset.value = tdsAmount;
@@ -8423,6 +8427,8 @@ window.app_getSalaryPayPeriodInfo = function () {
 };
 
 window.app_saveAllSalaries = async () => {
+    const actor = window.AppAuth?.getUser?.();
+    if (actor?.permissions?.reports !== 'admin') throw new Error('Reports admin permission is required to save payroll.');
     const rows = document.querySelectorAll('tr[data-user-id]');
     const salaryRecords = [];
     const userUpdates = [];
@@ -8531,27 +8537,14 @@ window.app_saveAllSalaries = async () => {
     }
 
     try {
-        // Persist monthly records
-        for (const record of salaryRecords) {
-            await window.AppDB.put('salaries', record);
-        }
-
-        // Sync user base salaries
+        // Persist monthly records and employee settings in one Firestore batch
+        // so a partial failure cannot leave payroll documents out of sync.
+        const batchWrites = salaryRecords.map((item) => ({ collection: 'salaries', item }));
         for (const update of userUpdates) {
-            const existingUser = await window.AppDB.get('users', update.id);
-            if (existingUser) {
-                const { baseSalary, tdsPercent, bankName, bankAccount, pan, uan, otherAllowances, providentFund, professionalTax, loanAdvance, ...profileUpdate } = update;
-                Object.assign(existingUser, profileUpdate);
-                await window.AppDB.put('users', existingUser);
-                const existingPrivate = await window.AppDB.get('user_private', update.id).catch(() => null);
-                await window.AppDB.put('user_private', {
-                    ...(existingPrivate || {}),
-                    id: update.id,
-                    baseSalary, tdsPercent, bankName, bankAccount, pan, uan,
-                    otherAllowances, providentFund, professionalTax, loanAdvance
-                });
-            }
+            const existingPrivate = await window.AppDB.get('user_private', update.id).catch(() => null);
+            batchWrites.push({ collection: 'user_private', item: { ...(existingPrivate || {}), ...update, id: update.id } });
         }
+        await window.AppDB.putBatch(batchWrites);
 
         alert('All records and TDS details saved successfully!');
         // Refresh view to ensure calculations sync with any base salary changes

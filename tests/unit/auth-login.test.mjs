@@ -150,11 +150,13 @@ describe('auth-login credential outcomes', () => {
     });
 
     test('200 with a custom token for case-insensitive identifier + right password', async () => {
-        userDocs = [jamie];
+        userDocs = [{ ...jamie, activeSessionToken: 'device-2', activeSessionStartedAt: 12345 }];
         const res = await post({ identifier: 'JOMITM', password: 'pw123' });
         assert.equal(res.statusCode, 200);
         assert.equal(res.body.customToken, 'tok_u1');
         assert.equal(res.body.user.username, 'JomitM');
+        assert.equal(res.body.user.activeSessionToken, 'device-2');
+        assert.equal(res.body.user.activeSessionStartedAt, 12345);
         assert.deepEqual(claimsCalls[0], { uid: 'u1', claims: { role: 'Staff', isAdmin: false, reportsAdmin: false } });
     });
 

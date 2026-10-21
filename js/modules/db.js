@@ -475,28 +475,45 @@ export class Database {
         const oldSnapshot = await ref.get();
         const oldPlan = oldSnapshot.exists ? oldSnapshot.data() || {} : {};
         const safeInput = { ...item, plans: [...(Array.isArray(item.plans) ? item.plans : [])] };
+        const writerId = String(window.AppFirebaseAuth?.currentUser?.uid || window.AppAuth?.getUser?.()?.id || '').trim();
+        const ownerId = String(oldPlan.userId === 'annual_shared' ? oldPlan.createdById : oldPlan.userId || item.userId || '').trim();
+        const writerOwnsPlan = Boolean(writerId && writerId === ownerId);
+        // A collaborator cannot see an owner's private task bodies. Preserve
+        // those references when they save edits to the public tasks in a plan.
+        if (oldSnapshot.exists && !writerOwnsPlan) {
+            const retainedIds = new Set(safeInput.plans.filter((task) => task?.privateTaskId).map((task) => String(task.privateTaskId)));
+            (Array.isArray(oldPlan.plans) ? oldPlan.plans : []).forEach((task, index) => {
+                if (task?.isPrivate === true && task.privateTaskId && !retainedIds.has(String(task.privateTaskId))) {
+                    safeInput.plans.splice(Math.min(index, safeInput.plans.length), 0, task);
+                }
+            });
+        }
         for (let index = 0; index < safeInput.plans.length; index += 1) {
             const task = safeInput.plans[index];
             if (task?.isPrivate !== true || !task.privateTaskId) continue;
+            if (writerOwnsPlan && !Object.prototype.hasOwnProperty.call(task, 'task')) {
+                throw new Error('Cannot save this plan because a private task body was not loaded. Reload the plan and try again.');
+            }
+            if (!Object.prototype.hasOwnProperty.call(task, 'task')) continue;
             const prior = await this.db.collection(PRIVATE_WORK_PLAN_COLLECTION).doc(String(task.privateTaskId)).get();
             if (prior.exists && String(prior.data()?.planId || '') !== docId) {
                 safeInput.plans[index] = { ...task, privateTaskId: '' };
             }
         }
-        const writerId = String(window.AppFirebaseAuth?.currentUser?.uid || window.AppAuth?.getUser?.()?.id || '').trim();
         const { publicPlan, privateTasks } = splitWorkPlanForStorage(safeInput, undefined, writerId);
         const nextIds = new Set(privateTasks.map((task) => task.id));
         const oldIds = (Array.isArray(oldPlan.plans) ? oldPlan.plans : [])
             .filter((task) => task?.isPrivate === true && task.privateTaskId)
             .map((task) => String(task.privateTaskId));
-        const staleCount = oldIds.filter((id) => !nextIds.has(id)).length;
+        const staleCount = writerOwnsPlan ? oldIds.filter((id) => !nextIds.has(id)).length : 0;
         if (privateTasks.length + staleCount + 1 > 500) {
             throw new Error('This work plan has too many private-task changes for one atomic save.');
         }
         const batch = this.db.batch();
         for (const task of privateTasks) batch.set(this.db.collection(PRIVATE_WORK_PLAN_COLLECTION).doc(task.id), task, { merge: true });
         for (const oldId of oldIds) {
-            if (!nextIds.has(oldId)) batch.delete(this.db.collection(PRIVATE_WORK_PLAN_COLLECTION).doc(oldId));
+            // Only the owner is allowed to delete these records by rules.
+            if (writerOwnsPlan && !nextIds.has(oldId)) batch.delete(this.db.collection(PRIVATE_WORK_PLAN_COLLECTION).doc(oldId));
         }
         batch.set(ref, publicPlan, { merge: true });
         await batch.commit();
@@ -674,6 +691,26 @@ export class Database {
         }
     }
 
+    async putBatch(operations = []) {
+        if (!this.db || !this.db.batch) throw new Error('Firestore batch writes are not available.');
+        const rows = Array.isArray(operations) ? operations : [];
+        if (rows.length > 500) throw new Error('A batch can contain at most 500 writes.');
+        const batch = this.db.batch();
+        const collections = new Set();
+        rows.forEach(({ collection, item }) => {
+            if (!collection || !item?.id) throw new Error('Every batch write needs a collection and document id.');
+            if (String(collection) === 'work_plans') throw new Error('Work plans must be saved through putWorkPlan.');
+            batch.set(this.db.collection(collection).doc(String(item.id)), item, { merge: true });
+            collections.add(String(collection));
+        });
+        await batch.commit();
+        collections.forEach((collection) => {
+            this.telemetry.writes += rows.filter((row) => String(row.collection) === collection).length;
+            this.invalidateCollectionCache(collection);
+        });
+        return rows.length;
+    }
+
     async delete(collectionName, id) {
         if (!id) return;
         try {
@@ -765,7 +802,8 @@ export class Database {
         const plans = await this.queryManyStrict('work_plans', [
             { field: 'date', operator: '==', value: safeDate }
         ]);
-        return plans.filter((plan) => String(plan?.date || '').trim() === safeDate);
+        const matching = plans.filter((plan) => String(plan?.date || '').trim() === safeDate);
+        return this.hydrateWorkPlans(matching);
     }
 
     /**
@@ -790,7 +828,10 @@ export class Database {
     }
     async queryMany(collectionName, filters = [], options = {}) {
         const flags = this.getFlags();
-        if (!flags.FF_READ_OPT_DB_QUERIES) return this.getAll(collectionName, { ...options, silentPermissionDenied: true });
+        if (!flags.FF_READ_OPT_DB_QUERIES) {
+            const rows = await this.getAll(collectionName, { ...options, silentPermissionDenied: true });
+            return this.filterRows(rows, filters, options);
+        }
         try {
             let ref = this.db.collection(collectionName);
             ref = this.applyFilters(ref, filters);
@@ -801,9 +842,42 @@ export class Database {
             this.track('queryMany', collectionName, data.length);
             return String(collectionName) === 'work_plans' ? this.hydrateWorkPlans(data) : data;
         } catch (error) {
-            console.warn(`queryMany failed for ${collectionName}, falling back to getAll`, error);
-            return this.getAll(collectionName, { ...options, silentPermissionDenied: true });
+            console.warn(`queryMany failed for ${collectionName}`, error);
+            throw error;
         }
+    }
+
+    filterRows(rows, filters = [], options = {}) {
+        let result = (Array.isArray(rows) ? rows : []).filter((row) => (filters || []).every((f) => {
+            if (!f?.field || !f.operator) return true;
+            const actual = f.field.split('.').reduce((value, key) => value?.[key], row);
+            switch (f.operator) {
+                case '==': return actual === f.value;
+                case '!=': return actual !== f.value;
+                case '>': return actual > f.value;
+                case '>=': return actual >= f.value;
+                case '<': return actual < f.value;
+                case '<=': return actual <= f.value;
+                case 'in': return Array.isArray(f.value) && f.value.includes(actual);
+                case 'array-contains': return Array.isArray(actual) && actual.includes(f.value);
+                default: return false;
+            }
+        }));
+        const ordering = Array.isArray(options.orderBy) ? options.orderBy : (options.orderBy ? [options.orderBy] : []);
+        if (ordering.length) result = result.slice().sort((a, b) => {
+            for (const entry of ordering) {
+                const field = typeof entry === 'string' ? entry : entry?.field;
+                if (!field) continue;
+                const direction = typeof entry === 'object' && entry.direction === 'desc' ? -1 : 1;
+                const av = field.split('.').reduce((value, key) => value?.[key], a);
+                const bv = field.split('.').reduce((value, key) => value?.[key], b);
+                if (av < bv) return -direction;
+                if (av > bv) return direction;
+            }
+            return 0;
+        });
+        if (Number.isFinite(options.limit) && options.limit > 0) result = result.slice(0, options.limit);
+        return result;
     }
 
     async getManyByIds(collectionName, ids = []) {
@@ -814,7 +888,7 @@ export class Database {
         const reads = await Promise.all(chunks.map(async (chunk) => {
             try {
                 const scoped = await this.queryMany(collectionName, [{ field: 'id', operator: 'in', value: chunk }]);
-                if (scoped && scoped.length) return scoped;
+                if (scoped && scoped.length) return scoped.filter((row) => chunk.includes(String(row?.id || '')));
                 return Promise.all(chunk.map(id => this.get(collectionName, id)));
             } catch {
                 return Promise.all(chunk.map(id => this.get(collectionName, id)));

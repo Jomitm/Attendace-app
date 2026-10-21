@@ -242,7 +242,7 @@ export class Leaves {
             );
         }
 
-        return monthlyShortLeaves.reduce((sum, l) => sum + (parseFloat(l.daysCount || l.durationHours) || 0), 0);
+        return monthlyShortLeaves.reduce((sum, l) => sum + (parseFloat(l.durationHours ?? l.daysCount) || 0), 0);
     }
 
     async getPendingLeaves() {
@@ -366,7 +366,10 @@ export class Leaves {
             status: 'Pending',
             appliedOn: new Date().toISOString(),
             financialYear: fy.label,
-            daysCount: daysRequested,
+            ...(normalizedType === 'Short Leave' ? { durationHours: Number(durationHours) || 0 } : {}),
+            daysCount: normalizedType === 'Short Leave'
+                ? 0
+                : (normalizedType === 'Half Day' ? 0.5 : daysRequested),
             policyWarnings: warnings
         };
         await this.db.add('leaves', leave);
@@ -444,11 +447,12 @@ export class Leaves {
                 user_id: leave.userId,
                 date: dateStr,
                 checkIn: '09:00',
-                checkOut: '17:00',
-                duration: '8h 0m',
+                checkOut: normalizedType === 'Half Day' ? '13:00' : '17:00',
+                duration: normalizedType === 'Half Day' ? '4h 0m' : '8h 0m',
                 location: isWorkFromHome ? 'Work - Home' : 'On Leave',
                 type: isWorkFromHome ? 'Work - Home' : normalizedType,
-                status: 'in',
+                status: normalizedType === 'Half Day' ? 'Half Day' : 'in',
+                dayCredit: normalizedType === 'Half Day' ? 0.5 : 1,
                 synced: false,
                 leaveRequestId: leave.id,
                 leaveGenerated: true

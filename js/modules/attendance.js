@@ -4,7 +4,10 @@ import { AppConfig } from '../config.js';
 import { telegramNotifyCheckIn, telegramNotifyLateCheckIn, telegramNotifyCheckOut } from '../utils/telegram.js';
 import { getLocalISO, toDateKeyFromValue, coerceEpochMs } from '../utils/date-helpers.js';
 
-const hasValidCoordinatePair = (lat, lng) => Number.isFinite(Number(lat)) && Number.isFinite(Number(lng));
+const hasValidCoordinatePair = (lat, lng) => lat !== null && lat !== '' && lng !== null && lng !== ''
+    && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))
+    && Number(lat) >= -90 && Number(lat) <= 90
+    && Number(lng) >= -180 && Number(lng) <= 180;
 // Local-calendar-day key (UTC-safe). Delegates to the shared date helper so
 // Date objects are keyed by their LOCAL calendar day, never by UTC.
 const normalizeDateKey = (value) => toDateKeyFromValue(value);
@@ -449,6 +452,7 @@ export class Attendance {
         if (!user) throw new Error("User not authenticated");
 
         // --- Transactional conflict detection + user write ---
+        let checkoutAt = 0;
         const txResult = await AppDB.transactionalUserUpdate(user.id, async (txUser) => {
             const cu = txUser || user;
             if (cu.status !== 'in') {
@@ -463,11 +467,16 @@ export class Attendance {
                 pauseEvents: Array.isArray(cu.pauseEvents) ? cu.pauseEvents : [],
                 currentLocation: cu.currentLocation || null,
                 currentBudgetHeadId: cu.currentBudgetHeadId || 'UNALLOCATED',
-                currentBudgetHeadUnallocatedReason: cu.currentBudgetHeadUnallocatedReason || ''
+                currentBudgetHeadUnallocatedReason: cu.currentBudgetHeadUnallocatedReason || '',
+                previousLastCheckOut: cu.lastCheckOut ?? null,
+                previousLastLocation: cu.lastLocation ?? null,
+                previousLastCheckOutLocation: cu.lastCheckOutLocation ?? null,
+                previousLocationMismatched: cu.locationMismatched ?? false
             };
+            checkoutAt = Date.now();
             const updated = { ...cu };
             updated.status = 'out';
-            updated.lastCheckOut = Date.now();
+            updated.lastCheckOut = checkoutAt;
             updated.lastLocation = cu.currentLocation;
             updated.lastCheckOutLocation = { lat, lng, address };
             updated.locationMismatched = locationMismatched;
@@ -548,7 +557,7 @@ export class Attendance {
         } catch { /* best-effort dedup */ }
 
         const log = {
-            id: this._nextId(),
+            id: `att_${user.id}_${checkInMs}`,
             user_id: user.id,
             date: getLocalISO(checkOutTime),
             checkInAt: checkInMs,
@@ -597,7 +606,35 @@ export class Attendance {
             synced: false
         };
 
-        await AppDB.add('attendance', log);
+        try {
+            await AppDB.put('attendance', log);
+        } catch (error) {
+            // The session update and log write are separate because the log is
+            // built from the transaction snapshot. Restore the session when
+            // the second write fails, provided nobody has since checked in.
+            await AppDB.transactionalUserUpdate(user.id, async (current) => {
+                if (!current || current.status !== 'out' || Number(current.lastCheckOut) !== checkoutAt) {
+                    return { ok: false, conflict: true, message: 'Checkout failed and the session changed; contact an administrator.' };
+                }
+                return { ok: true, user: {
+                    ...current,
+                    status: 'in',
+                    lastCheckIn: snap.lastCheckIn,
+                    totalPausedMs: snap.totalPausedMs,
+                    pauseStartedAt: snap.pauseStartedAt || null,
+                    isPaused: snap.isPaused,
+                    pauseEvents: snap.pauseEvents,
+                    currentLocation: snap.currentLocation,
+                    currentBudgetHeadId: snap.currentBudgetHeadId,
+                    currentBudgetHeadUnallocatedReason: snap.currentBudgetHeadUnallocatedReason,
+                    lastCheckOut: snap.previousLastCheckOut,
+                    lastLocation: snap.previousLastLocation,
+                    lastCheckOutLocation: snap.previousLastCheckOutLocation,
+                    locationMismatched: snap.previousLocationMismatched
+                } };
+            }).catch(() => null);
+            throw error;
+        }
         if (typeof AppDB.invalidateCollectionCache === 'function') AppDB.invalidateCollectionCache('attendance');
 
         if (window.AppActivity) window.AppActivity.stop();

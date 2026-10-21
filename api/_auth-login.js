@@ -11,7 +11,7 @@ const { getAdmin, getDb } = require('./_firebase-admin.js');
 const FIREBASE_WEB_API_KEY =
     process.env.FIREBASE_WEB_API_KEY || 'AIzaSyC7a8AxukI0-egXimYTedwCa2RFnMTBu84';
 
-const USER_FIELDS = ['username', 'email', 'password', 'name', 'role', 'isAdmin', 'avatar', 'permissions'];
+const USER_FIELDS = ['username', 'email', 'password', 'name', 'role', 'isAdmin', 'avatar', 'permissions', 'activeSessionToken', 'activeSessionStartedAt'];
 
 // Case-insensitive username/email match. Firestore `==` is case-sensitive
 // while identifiers arrive lowercased, so a plain query misses stored
@@ -133,7 +133,7 @@ async function handler(req, res) {
         const claims = {
             role: userData.role || 'Employee',
             isAdmin: userData.isAdmin === true,
-            reportsAdmin: userData.isAdmin === true || userData.permissions?.reports === 'admin'
+            reportsAdmin: userData.permissions?.reports === 'admin'
         };
         await admin.auth().setCustomUserClaims(uid, claims);
 
@@ -150,7 +150,9 @@ async function handler(req, res) {
                 role: userData.role,
                 isAdmin: userData.isAdmin,
                 avatar: userData.avatar,
-                permissions: userData.permissions
+                permissions: userData.permissions,
+                activeSessionToken: userData.activeSessionToken,
+                activeSessionStartedAt: userData.activeSessionStartedAt
             }
         });
     } catch (error) {

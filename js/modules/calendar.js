@@ -1342,17 +1342,6 @@ export class Calendar {
                 return plan;
             }
 
-            // Remove task from old plan
-            plan.plans.splice(taskIndex, 1);
-            plan.updatedAt = new Date().toISOString();
-
-            // If old plan is now empty, delete it; otherwise save
-            if (plan.plans.length === 0) {
-                await this.db.delete('work_plans', planId);
-            } else {
-                await this.db.put('work_plans', plan);
-            }
-
             // Add task to new date's plan
             const newTask = {
                 ...task,
@@ -1379,9 +1368,16 @@ export class Calendar {
             }
 
             if (!newPlan.plans) newPlan.plans = [];
-            newPlan.plans.push(newTask);
+            const alreadyMoved = newTask.id && newPlan.plans.some((entry) => String(entry?.id || '') === String(newTask.id));
+            if (!alreadyMoved) newPlan.plans.push(newTask);
             newPlan.updatedAt = new Date().toISOString();
             await this.db.put('work_plans', newPlan);
+
+            // Persist the destination first so a failed write never loses the task.
+            plan.plans.splice(taskIndex, 1);
+            plan.updatedAt = new Date().toISOString();
+            if (plan.plans.length === 0) await this.db.delete('work_plans', planId);
+            else await this.db.put('work_plans', plan);
 
             this.invalidateCarryForwardCache();
 

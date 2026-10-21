@@ -19,6 +19,9 @@ export function splitWorkPlanForStorage(workPlan, makeId = () => globalThis.cryp
             delete publicTask.privateTaskId;
             return publicTask;
         }
+        // Pointer-only placeholders are kept as routing metadata. They must
+        // never be written over the protected document as if they were a body.
+        if (task.privateTaskId && !Object.prototype.hasOwnProperty.call(task, 'task')) return task;
         const privateTaskId = String(task.privateTaskId || '').trim() || String(makeId() || '').trim();
         if (!privateTaskId || privateTaskId.includes('/')) {
             throw new Error('Could not create a valid private task id.');
@@ -65,9 +68,10 @@ export async function hydrateWorkPlanFromStorage(workPlan, viewerId, readPrivate
             const stored = await readPrivateTask(privateTaskId);
             if (!stored || String(stored.ownerId || '') !== owner || String(stored.planId || '') !== String(workPlan.id || '') || String(stored.assignedTo || '') !== assignedTo) return null;
             return { ...(stored.task || {}), id: task.id || stored.task?.id || privateTaskId, privateTaskId, isPrivate: true };
-        } catch {
-            // A private document that cannot be read must not reveal a partial task.
-            return null;
+        } catch (error) {
+            // Fail the whole plan read. Returning a filtered plan lets a later
+            // save mistake a transient read failure for an intentional delete.
+            throw new Error(`Unable to read private task ${privateTaskId}; aborting plan read.`, { cause: error });
         }
     }));
     return { ...workPlan, plans: tasks.filter(Boolean) };
