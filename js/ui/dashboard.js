@@ -149,8 +149,11 @@ const getPlannedTaskRows = (workPlans, userId, fromKey, toKey, viewerId = '') =>
             if (isArrivedPostponedCopy) {
                 status = planDate === getDashboardTodayIso() ? 'in-process' : 'overdue';
             }
-            // A task postponed to a future day belongs to that day — not today's widget.
-            if (isPostponedAlias && task.postponedToDate && String(task.postponedToDate).trim() > getDashboardTodayIso()) {
+            // A postponed source shell is hidden whenever its copy has taken
+            // over: postponed to a future day, or the copy already arrived
+            // today. Otherwise a range view would show the task on BOTH its
+            // source date and the postponed date.
+            if (isPostponedAlias && task.postponedToDate && String(task.postponedToDate).trim() >= getDashboardTodayIso()) {
                 return;
             }
             if (!isActionablePlannedTaskStatus(status)) return;

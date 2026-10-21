@@ -555,7 +555,10 @@ export class MetricsService {
         if (!user) return [];
         const workPlans = await _analyticsService()?.getWorkPlans() || [];
         const norm = s => String(s || '').trim().toLowerCase();
-        const out = [];
+        // Collect FULL instances first so _dedupeTaskInstances can collapse the
+        // postpone lineage (source shell + its postponed copy) into one entry —
+        // otherwise a postponed task shows up on BOTH dates in the AI lists.
+        const instances = [];
         for (const wp of workPlans) {
             if (!wp || !Array.isArray(wp.plans)) continue;
             for (const t of wp.plans) {
@@ -564,35 +567,39 @@ export class MetricsService {
                 const assigned = String(t.assignedTo || wp.userId || wp.user_id || '').trim();
                 if (assigned && String(assigned) !== String(user.id) && String(wp.userId || wp.user_id) !== String(user.id)) continue;
                 if (!assigned && String(wp.userId || wp.user_id) !== String(user.id)) continue;
-                const n = norm(t.status);
-                const status = (n === 'completed' || t.completed === true) ? 'completed'
-                    : n === 'postponed' ? 'postponed' : n || 'pending';
-                const date = String(wp.date || '');
-                const size = TASK_SIZES.includes(t.sizeCategory) ? t.sizeCategory
-                    : TASK_SIZES.includes(t.aiSizeCategory) ? t.aiSizeCategory : '';
-                const pri = TASK_PRIORITIES.includes(t.priorityLevel) ? t.priorityLevel
-                    : TASK_PRIORITIES.includes(t.aiPriorityLevel) ? t.aiPriorityLevel : '';
-                const spanStart = String(t.startDate || '').trim() || date;
-                const spanEnd = String(t.endDate || '').trim() || spanStart;
-                // Range-aware bucket: a spanning task counts as today on every
-                // date its span covers (not just its home doc date).
-                const coversToday = status !== 'completed'
-                    && spanStart <= today && today <= (spanEnd >= spanStart ? spanEnd : spanStart);
-                out.push({
-                    task: String(t.task).slice(0, 60),
-                    date,
-                    status,
-                    bucket: coversToday ? 'today'
-                        : date < today && status !== 'completed' ? 'overdue-or-postponed'
-                            : date === today ? 'today' : 'upcoming',
-                    startDate: spanStart,
-                    endDate: spanEnd >= spanStart ? spanEnd : spanStart,
-                    size,
-                    pri,
-                    cf: isCarryForwardTask(t)
-                });
+                instances.push({ ...t, _wpDate: String(wp.date || ''), _ownerId: user.id });
             }
         }
+        const live = this._dedupeTaskInstances(instances);
+        const out = live.map((t) => {
+            const n = norm(t.status);
+            const status = (n === 'completed' || t.completed === true) ? 'completed'
+                : n === 'postponed' ? 'postponed' : n || 'pending';
+            const date = String(t._wpDate || '');
+            const size = TASK_SIZES.includes(t.sizeCategory) ? t.sizeCategory
+                : TASK_SIZES.includes(t.aiSizeCategory) ? t.aiSizeCategory : '';
+            const pri = TASK_PRIORITIES.includes(t.priorityLevel) ? t.priorityLevel
+                : TASK_PRIORITIES.includes(t.aiPriorityLevel) ? t.aiPriorityLevel : '';
+            const spanStart = String(t.startDate || '').trim() || date;
+            const spanEnd = String(t.endDate || '').trim() || spanStart;
+            // Range-aware bucket: a spanning task counts as today on every
+            // date its span covers (not just its home doc date).
+            const coversToday = status !== 'completed'
+                && spanStart <= today && today <= (spanEnd >= spanStart ? spanEnd : spanStart);
+            return {
+                task: String(t.task).slice(0, 60),
+                date,
+                status,
+                bucket: coversToday ? 'today'
+                    : date < today && status !== 'completed' ? 'overdue-or-postponed'
+                        : date === today ? 'today' : 'upcoming',
+                startDate: spanStart,
+                endDate: spanEnd >= spanStart ? spanEnd : spanStart,
+                size,
+                pri,
+                cf: isCarryForwardTask(t)
+            };
+        });
         const prio = { 'overdue-or-postponed': 0, 'today': 1, 'upcoming': 2 };
         out.sort((a, b) => (prio[a.bucket] - prio[b.bucket]) || a.date.localeCompare(b.date));
         return out.slice(0, limit);
