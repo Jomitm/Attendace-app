@@ -2,6 +2,7 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { fetchToolPlan, executeToolPlan } from '../../js/modules/ai-actions.js';
 import { Calendar } from '../../js/modules/calendar.js';
+import { AppRating } from '../../js/modules/rating.js';
 
 // Integration: tool-plan gate -> action dispatch -> Calendar storage.
 // Pins the contract across the seam unit tests cover only one side of:
@@ -26,6 +27,9 @@ function makeFakeDb(seedUsers = {}) {
             const key = `${collection}/${doc.id}`;
             store.set(key, JSON.parse(JSON.stringify(doc)));
             return doc;
+        },
+        async delete(collection, id) {
+            store.delete(`${collection}/${id}`);
         },
         async getAll(collection) {
             const out = [];
@@ -79,37 +83,66 @@ describe('ai wiring - tool-plan gate', () => {
 
 describe('ai wiring - postpone plan executes the move end to end', () => {
     it('matching task hides on the old day and lands on the target', async () => {
-        const appDb = makeFakeDb();
+        const appDb = makeFakeDb({ u1: { id: 'u1', name: 'Test User' } });
         await appDb.put('work_plans', {
             id: 'plan_u1_2026-03-01',
             userId: 'u1',
             userName: 'Test User',
             date: '2026-03-01',
-            plans: [{ task: 'Write report', status: 'in-process', assignedTo: 'u1' }],
+            plans: [{
+                id: 'task-report',
+                task: 'Write report',
+                status: 'in-process',
+                assignedTo: 'u1',
+                aiSizeCategory: 'large-task',
+                aiPriorityLevel: 'urgent',
+                tags: ['finance'],
+                subPlans: ['Collect figures', 'Review draft'],
+                progressPercent: 40,
+                progressNote: 'Figures collected'
+            }],
             updatedAt: '2026-03-01T00:00:00.000Z'
         });
         const cal = new Calendar();
-        cal.db = makeFakeDb({ u1: { id: 'u1', name: 'Test User' } });
+        cal.db = appDb;
         global.window.AppAuth = { getUser: () => ({ id: 'u1' }) };
         global.window.AppDB = appDb;
         global.window.AppCalendar = cal;
         global.window.AppAnalyticsService = undefined;
 
-        const result = await executeToolPlan({ action: 'postpone_task', query: 'report', date: '2026-03-05' });
+        const originalRatingUpdate = AppRating.updateUserRating;
+        const originalWarn = console.warn;
+        let ratingWarning = '';
+        AppRating.updateUserRating = async () => { throw new Error('rating service unavailable'); };
+        console.warn = (...args) => { ratingWarning = args.join(' '); };
+        let result;
+        try {
+            result = await executeToolPlan({ action: 'postpone_task', query: 'report', date: '2026-03-05' });
+        } finally {
+            AppRating.updateUserRating = originalRatingUpdate;
+            console.warn = originalWarn;
+        }
+        assert.match(ratingWarning, /Task moved, but rating refresh failed/);
         assert.equal(result.ok, true);
         assert.deepEqual(result.moved, [{ task: 'Write report', from: '2026-03-01', to: '2026-03-05' }]);
 
         const source = await appDb.get('work_plans', 'plan_u1_2026-03-01');
-        assert.equal(source.plans[0].isRemoved, true, 'source hidden on the old day');
+        assert.equal(source, null, 'source plan is removed after the destination has been saved');
 
         const target = await cal.db.get('work_plans', 'plan_u1_2026-03-05');
         assert.ok(target, 'target plan created');
         assert.equal(target.plans.length, 1);
         assert.equal(target.plans[0].task, 'Write report');
         assert.equal(target.plans[0].addedFrom, 'ai_agent');
+        assert.equal(target.plans[0].aiSizeCategory, 'large-task');
+        assert.equal(target.plans[0].aiPriorityLevel, 'urgent');
+        assert.deepEqual(target.plans[0].tags, ['finance']);
+        assert.deepEqual(target.plans[0].subPlans, ['Collect figures', 'Review draft']);
+        assert.equal(target.plans[0].progressPercent, 40);
+        assert.equal(target.plans[0].progressNote, 'Figures collected');
+        assert.equal(target.plans[0].postponedFromDate, '2026-03-01');
 
-        const visible = cal.sanitizePlanTasks(source.plans);
-        assert.deepEqual(visible, [], 'hidden source never resurfaces through the storage filter');
+        assert.deepEqual(cal.sanitizePlanTasks(target.plans), target.plans);
     });
 
     it('unknown tasks and unknown actions fail loudly, not silently', async () => {
@@ -135,5 +168,26 @@ describe('ai wiring - postpone plan executes the move end to end', () => {
             /task name is required/
         );
         await assert.rejects(executeToolPlan({ action: 'add_task', task: '  ' }), /task name is required/);
+    });
+
+    it('refuses ambiguous matches and dates earlier than the source task', async () => {
+        const db = makeFakeDb();
+        await db.put('work_plans', {
+            id: 'plan_u1_2026-03-01', userId: 'u1', date: '2026-03-01',
+            plans: [{ task: 'Write weekly report' }, { task: 'Review weekly report' }]
+        });
+        global.window.AppAuth = { getUser: () => ({ id: 'u1' }) };
+        global.window.AppDB = db;
+        global.window.AppCalendar = new Calendar();
+        global.window.AppCalendar.db = db;
+        global.window.AppAnalyticsService = undefined;
+        await assert.rejects(
+            executeToolPlan({ action: 'postpone_task', query: 'weekly report', date: '2026-03-05' }),
+            /please be more specific/
+        );
+        await assert.rejects(
+            executeToolPlan({ action: 'postpone_task', query: 'Write weekly report', date: '2026-02-28' }),
+            /later date/
+        );
     });
 });

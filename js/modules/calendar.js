@@ -1326,7 +1326,7 @@ export class Calendar {
         }
     }
 
-    async updateTaskDate(planId, taskIndex, newDate) {
+    async updateTaskDate(planId, taskIndex, newDate, taskOverrides = {}) {
         try {
             const plan = await this.db.get('work_plans', planId);
             if (!plan || !plan.plans || !plan.plans[taskIndex]) {
@@ -1345,6 +1345,7 @@ export class Calendar {
             // Add task to new date's plan
             const newTask = {
                 ...task,
+                ...(taskOverrides && typeof taskOverrides === 'object' ? taskOverrides : {}),
                 date: newDate,
                 status: 'to-be-started',
                 postponedFromDate: oldDate,
@@ -1383,7 +1384,13 @@ export class Calendar {
 
             // Trigger rating recalculation
             if (AppRating) {
-                await AppRating.updateUserRating(userId);
+                try {
+                    await AppRating.updateUserRating(userId);
+                } catch (ratingError) {
+                    // The move has already been persisted; a rating refresh
+                    // failure must not make the caller think the task move failed.
+                    console.warn('Task moved, but rating refresh failed:', ratingError);
+                }
             }
 
             return newPlan;

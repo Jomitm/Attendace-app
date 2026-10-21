@@ -76,27 +76,24 @@ export async function executePostponeTask({ query, date }) {
   for (const wp of rows) {
     if (!wp || !Array.isArray(wp.plans)) continue;
     if (String(wp.userId || wp.user_id || '') !== String(user.id)) continue;
-    wp.plans.forEach(t => {
+    wp.plans.forEach((t, taskIndex) => {
       if (!t || t.isRemoved) return;
       const n = String(t.status || '').trim().toLowerCase();
       if (n === 'completed' || t.completed === true) return;
       const name = String(t.task || '').trim().toLowerCase();
       if (!name) return;
-      if (name.includes(qLower) || qLower.includes(name)) candidates.push({ wp, t, name });
+      if (name.includes(qLower) || qLower.includes(name)) candidates.push({ wp, t, name, taskIndex });
     });
   }
   if (candidates.length === 0) throw new Error(`No open task found matching "${query}".`);
-  if (candidates.length > 3) throw new Error(`Found ${candidates.length} matches — please be more specific.`);
+  if (candidates.length > 1) throw new Error(`Found ${candidates.length} matches — please be more specific.`);
   const moved = [];
   for (const c of candidates) {
     if (String(c.wp.date) === String(target)) continue; // already there
-    c.t.isRemoved = true; // hide on old day
-    c.wp.updatedAt = new Date().toISOString();
-    await window.AppDB.put('work_plans', c.wp);
-    // Add to target date's plan
-    await window.AppCalendar.addWorkPlanTask(target, user.id, c.t.task, [], {
-      status: 'to-be-started', addedFrom: 'ai_agent', assignedTo: user.id
-    });
+    if (String(target) <= String(c.wp.date)) throw new Error('A postponed task must move to a later date.');
+    // Calendar writes the destination before removing the source and preserves
+    // the task's size, priority, notes, and other metadata during the move.
+    await window.AppCalendar.updateTaskDate(c.wp.id, c.taskIndex, target, { addedFrom: 'ai_agent' });
     moved.push({ task: c.t.task, from: c.wp.date, to: target });
   }
   try { if (window.AppCalendar.invalidateCarryForwardCache) window.AppCalendar.invalidateCarryForwardCache(); } catch {}
