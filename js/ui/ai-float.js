@@ -32,17 +32,28 @@ function _monthStart() {
 }
 
 function _closePanel() {
+  const wasOpen = _panelEl?.classList.contains('is-open');
   _panelEl?.classList.remove('is-open');
+  if (_panelEl) {
+    _panelEl.setAttribute('aria-hidden', 'true');
+    _panelEl.inert = true;
+  }
   _overlayEl?.classList.remove('is-open');
   document.body.style.overflow = '';
+  _fabEl?.setAttribute('aria-expanded', 'false');
+  if (wasOpen && _fabEl && !_fabEl.classList.contains('ai-fab--hidden')) _fabEl.focus();
   _destroyCharts();
 }
 
 function _openPanel() {
   if (!_panelEl) return;
   _panelEl.classList.add('is-open');
+  _panelEl.setAttribute('aria-hidden', 'false');
+  _panelEl.inert = false;
   _overlayEl.classList.add('is-open');
+  _fabEl?.setAttribute('aria-expanded', 'true');
   document.body.style.overflow = 'hidden';
+  _panelEl.querySelector('.ai-panel__close')?.focus();
   // Opening the assistant "reads" the badge — acknowledge the count seen so
   // far and hide it immediately (it re-arms only when the count grows).
   _badgeSeen = Math.max(_badgeSeen, _lastIssueCount);
@@ -182,11 +193,11 @@ async function _renderPanelContent() {
           <button class="ai-chip" data-q="Show overdue tasks">Overdue tasks?</button>
           <button class="ai-chip" data-q="Am I on track this month?">Am I on track?</button>
         </div>
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+        <div class="ai-center__chat-toolbar" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
           <span style="font-size:11px; color:#94a3b8;"><i class="fa-solid fa-brain" style="color:#4f46e5;"></i> Memory on — follow-ups keep context</span>
           <button id="ai-float-clear-chat" title="Clear conversation memory" style="padding:4px 8px; border-radius:8px; border:1px solid #e2e8f0; background:#fff; font-size:11px; font-weight:700; color:#64748b; cursor:pointer;"><i class="fa-solid fa-broom"></i> Clear</button>
         </div>
-        <div id="ai-float-thread" class="ai-chat-thread ai-chat-thread--compact"></div>
+        <div id="ai-float-thread" class="ai-chat-thread ai-chat-thread--compact" role="log" aria-label="Assistant conversation" aria-live="polite" aria-relevant="additions text"></div>
         <div class="ai-ask" style="margin-top:8px;">
           <input id="ai-float-input" type="text" placeholder="e.g. Why was I marked late yesterday?" />
           <button id="ai-float-ask">Ask</button>
@@ -596,6 +607,8 @@ export function mountAiFloating() {
   const fab = document.createElement('button');
   fab.className = 'ai-fab ai-fab--hidden';
   fab.setAttribute('aria-label', 'Open CRWI Assistant');
+  fab.setAttribute('aria-haspopup', 'dialog');
+  fab.setAttribute('aria-expanded', 'false');
   fab.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i><span class="ai-fab__badge" aria-live="polite"></span>';
   fab.addEventListener('click', _openPanel);
 
@@ -608,6 +621,8 @@ export function mountAiFloating() {
   panel.setAttribute('role', 'dialog');
   panel.setAttribute('aria-modal', 'true');
   panel.setAttribute('aria-label', 'CRWI Assistant');
+  panel.setAttribute('aria-hidden', 'true');
+  panel.inert = true;
   panel.innerHTML = `
     <div class="ai-panel__header">
       <div class="ai-panel__title"><i class="fa-solid fa-wand-magic-sparkles"></i> CRWI Assistant</div>
@@ -635,7 +650,30 @@ export function mountAiFloating() {
   window.addEventListener('hashchange', syncVis);
   // Poll badge every 60s
   setInterval(() => { if (_user()) _updateFabBadge(); }, 60000);
-  document.addEventListener('keydown', (e) => { if (e.key==='Escape') _closePanel(); });
+  document.addEventListener('keydown', (e) => {
+    if (!_panelEl?.classList.contains('is-open')) return;
+    if (e.key === 'Escape') {
+      _closePanel();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    const focusable = [..._panelEl.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+      .filter((el) => !el.hasAttribute('hidden') && el.getAttribute('aria-hidden') !== 'true');
+    if (!focusable.length) {
+      e.preventDefault();
+      _panelEl.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey && (document.activeElement === first || !_panelEl.contains(document.activeElement))) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && (document.activeElement === last || !_panelEl.contains(document.activeElement))) {
+      e.preventDefault();
+      first.focus();
+    }
+  });
   // Keep #ai-center alias
   window.addEventListener('hashchange', () => { if (location.hash === '#ai-center') { _openPanel(); } });
   if (location.hash === '#ai-center') setTimeout(_openPanel, 300);

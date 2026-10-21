@@ -18,17 +18,17 @@ export async function renderAICenter() {
     if (!user) return '<div class="card">Please log in.</div>';
 
     return `
-        <div id="${AI_CENTER_ID}" class="card" style="max-width:960px;margin:0 auto;">
-            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:6px;">
+        <div id="${AI_CENTER_ID}" class="card ai-center" style="max-width:960px;margin:0 auto;">
+            <div class="ai-center__header" style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:6px;">
                 <h2 style="margin:0; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-wand-magic-sparkles" style="color:#4f46e5;"></i> CRWI Assistant</h2>
-                <span style="font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:#4f46e5; background:#eef2ff; border:1px solid #c7d2fe; padding:4px 8px; border-radius:999px;">Personal · ${safeHtml(user.role||'staff')}</span>
+                <span class="ai-center__role" style="font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:#4f46e5; background:#eef2ff; border:1px solid #c7d2fe; padding:4px 8px; border-radius:999px;">Personal · ${safeHtml(user.role||'staff')}</span>
             </div>
-            <p style="color:#64748b;margin:0 0 18px;font-size:13px; line-height:1.5;">
+            <p class="ai-center__intro" style="color:#64748b;margin:0 0 18px;font-size:13px; line-height:1.5;">
                 Your personal helper — finds what you missed, what’s overdue, and what to do next. Role-aware, evidence-tagged, actionable. Also available as floating <i class="fa-solid fa-wand-magic-sparkles"></i> button on any page.
             </p>
 
             <!-- What you missed today (personal, proactive) -->
-            <div style="margin-bottom:20px;">
+            <div class="ai-center__section" style="margin-bottom:20px;">
                 <h3 style="font-size:15px; font-weight:800; color:#0f172a; margin:0 0 10px; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-circle-exclamation" style="color:#ef4444;"></i> What you missed today</h3>
                 <div id="ai-my-issues" style="display:grid; gap:10px;">
                     ${_pcRevealed
@@ -38,7 +38,7 @@ export async function renderAICenter() {
             </div>
 
             <!-- Quick Stats -->
-            <div id="ai-stats-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px;">
+            <div id="ai-stats-grid" class="ai-center__stats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px;">
                 <div class="ai-stat-card" style="background:#f8fafc;border-radius:10px;padding:14px;text-align:center; border:1px solid #e2e8f0;">
                     <div style="font-size:26px;font-weight:800;color:#0f172a;" id="ai-stat-present">--</div>
                     <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.06em; font-weight:700;">Present Today</div>
@@ -58,15 +58,15 @@ export async function renderAICenter() {
             </div>
 
             <!-- Snapshot Charts (modern, multicolour) -->
-            <div style="margin-bottom:20px;">
+            <div class="ai-center__section" style="margin-bottom:20px;">
                 <h3 style="font-size:15px; font-weight:800; color:#0f172a; margin:0 0 10px; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-chart-pie" style="color:#06b6d4;"></i> Team snapshot</h3>
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-                    <div style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:12px;">
+                <div class="ai-charts">
+                    <div class="ai-chart-card">
                         <h4 style="font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:#64748b; margin:0 0 8px;">Today — Attendance</h4>
                         <canvas id="ai-center-att-chart" width="220" height="220" style="max-height:200px;"></canvas>
                         <div id="ai-center-att-legend" style="font-size:11px; color:#64748b; text-align:center; margin-top:6px;"></div>
                     </div>
-                    <div style="background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:12px;">
+                    <div class="ai-chart-card">
                         <h4 style="font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:#64748b; margin:0 0 8px;">Tasks — This Month</h4>
                         <canvas id="ai-center-task-chart" width="220" height="220" style="max-height:200px;"></canvas>
                         <div id="ai-center-task-legend" style="font-size:11px; color:#64748b; text-align:center; margin-top:6px;"></div>
@@ -76,7 +76,7 @@ export async function renderAICenter() {
             </div>
 
             <!-- AI Insights (evidence-labeled, actionable) -->
-            <div style="margin-bottom:20px;">
+            <div class="ai-center__section" style="margin-bottom:20px;">
                 <h3 style="font-size:15px; font-weight:800; color:#0f172a; margin:0 0 10px; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-lightbulb" style="color:#eab308;"></i> Insights for you</h3>
                 <button onclick="window._aiCenterGenerateInsights()" 
                     style="padding:8px 16px;background:#4f46e5;color:#fff;border:none;border-radius:10px;cursor:pointer;font-size:13px;font-weight:700; box-shadow:0 4px 12px rgba(79,70,229,.25);">
@@ -86,26 +86,26 @@ export async function renderAICenter() {
             </div>
 
             <!-- Ask a Question (personal Q&A with session memory) -->
-            <div>
+            <div class="ai-center__section ai-center__chat-section">
                 <h3 style="font-size:15px; font-weight:800; color:#0f172a; margin:0 0 10px; display:flex; align-items:center; gap:8px;"><i class="fa-solid fa-comments" style="color:#4f46e5;"></i> Ask your assistant</h3>
-                <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px;">
+                <div class="ai-center__chat-toolbar" style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px;">
                     <div style="font-size:11px; color:#94a3b8;"><i class="fa-solid fa-brain" style="color:#4f46e5;"></i> Chat memory on — the assistant remembers this conversation, so follow-ups like "what about yesterday?" work.</div>
                     <button id="ai-chat-clear" onclick="window._aiCenterClearChat()" title="Clear conversation memory"
                         style="flex-shrink:0; padding:5px 10px; border-radius:8px; border:1px solid #e2e8f0; background:#fff; font-size:11px; font-weight:700; color:#64748b; cursor:pointer;">
                         <i class="fa-solid fa-broom"></i> Clear chat
                     </button>
                 </div>
-                <div id="${AI_CHAT_THREAD_ID}" class="ai-chat-thread"></div>
-                <div style="display:flex; flex-wrap:wrap; gap:6px; margin:8px 0;">
-                    <button class="ai-chip" data-q="What did I miss today?" style="padding:6px 10px; border-radius:999px; border:1px solid #e2e8f0; background:#fff; font-size:11px; font-weight:600; color:#475569; cursor:pointer;" onclick="document.getElementById('${AI_QUESTION_ID}').value=this.getAttribute('data-q'); window._aiCenterAskQuestion();">What did I miss?</button>
-                    <button class="ai-chip" data-q="Show overdue tasks" style="padding:6px 10px; border-radius:999px; border:1px solid #e2e8f0; background:#fff; font-size:11px; font-weight:600; color:#475569; cursor:pointer;" onclick="document.getElementById('${AI_QUESTION_ID}').value=this.getAttribute('data-q'); window._aiCenterAskQuestion();">Overdue tasks?</button>
-                    <button class="ai-chip" data-q="Am I on track this month?" style="padding:6px 10px; border-radius:999px; border:1px solid #e2e8f0; background:#fff; font-size:11px; font-weight:600; color:#475569; cursor:pointer;" onclick="document.getElementById('${AI_QUESTION_ID}').value=this.getAttribute('data-q'); window._aiCenterAskQuestion();">Am I on track?</button>
+                <div id="${AI_CHAT_THREAD_ID}" class="ai-chat-thread" role="log" aria-label="Assistant conversation" aria-live="polite" aria-relevant="additions text"></div>
+                <div class="ai-chips ai-center__chips">
+                    <button class="ai-chip" data-q="What did I miss today?" onclick="document.getElementById('${AI_QUESTION_ID}').value=this.getAttribute('data-q'); window._aiCenterAskQuestion();">What did I miss?</button>
+                    <button class="ai-chip" data-q="Show overdue tasks" onclick="document.getElementById('${AI_QUESTION_ID}').value=this.getAttribute('data-q'); window._aiCenterAskQuestion();">Overdue tasks?</button>
+                    <button class="ai-chip" data-q="Am I on track this month?" onclick="document.getElementById('${AI_QUESTION_ID}').value=this.getAttribute('data-q'); window._aiCenterAskQuestion();">Am I on track?</button>
                 </div>
-                <div style="display:flex;gap:8px;">
+                <div class="ai-ask ai-center__ask">
                     <input id="${AI_QUESTION_ID}" type="text" placeholder="e.g. Why was I marked late yesterday? What should I do next?"
-                        style="flex:1;padding:10px 12px;border:1px solid #e2e8f0;border-radius:10px;font-size:13px;" />
+                        aria-label="Ask CRWI Assistant a question" />
                     <button onclick="window._aiCenterAskQuestion()"
-                        style="padding:10px 16px;background:#0f172a;color:#fff;border:none;border-radius:10px;cursor:pointer;font-size:13px;font-weight:700;">
+                        type="button">
                         Ask
                     </button>
                 </div>
