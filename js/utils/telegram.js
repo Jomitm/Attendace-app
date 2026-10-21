@@ -2,88 +2,55 @@ const TELEGRAM_ENDPOINT = '/api/telegram-send';
 let lastSentAt = 0;
 const THROTTLE_MS = 3000;
 
-export async function sendTelegramNotification(text) {
+async function sendTelegramEvent(payload) {
     try {
         const now = Date.now();
         if (now - lastSentAt < THROTTLE_MS) return;
         lastSentAt = now;
-
-        fetch(TELEGRAM_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text })
-        }).catch(() => {});
-    } catch {
-        // Silently fail — Telegram is best-effort
-    }
-}
-
-export function telegramNotifyCheckIn(name, time) {
-    sendTelegramNotification(`✅ <b>${name}</b> checked in at ${time}`);
-}
-
-export function telegramNotifyLateCheckIn(name, time) {
-    sendTelegramNotification(`⚠️ <b>${name}</b> checked in LATE at ${time}`);
-}
-
-export function telegramNotifyCheckOut(name, time) {
-    sendTelegramNotification(`🚪 <b>${name}</b> checked out at ${time}`);
-}
-
-export function telegramNotifyLeaveUpdate(name, status) {
-    const icon = status === 'approved' ? '✅' : '❌';
-    const label = status.charAt(0).toUpperCase() + status.slice(1);
-    sendTelegramNotification(`${icon} Leave ${label} for <b>${name}</b>`);
-}
-
-export function telegramNotifyTaskTagged(tagger, task) {
-    const shortTask = (task || '').length > 80 ? task.slice(0, 80) + '...' : (task || 'untitled');
-    sendTelegramNotification(`📋 <b>${tagger}</b> tagged you in: "${shortTask}"`);
-}
-
-export async function sendPersonalTelegram(chatId, text) {
-    try {
-        if (!chatId || !text) return;
+        const auth = window.AppFirebaseAuth;
+        const idToken = auth?.currentUser ? await auth.currentUser.getIdToken() : '';
+        if (!idToken) return;
         await fetch(TELEGRAM_ENDPOINT, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text, chatId: String(chatId) })
-        }).catch(() => {});
-    } catch {}
-}
-
-export async function notifyUserById(userId, text) {
-    try {
-        if (!userId || !text) return;
-        const user = await window.AppDB?.get?.('users', String(userId));
-        const chatId = user?.telegramChatId ? String(user.telegramChatId) : '';
-        if (!chatId) return;
-        await sendPersonalTelegram(chatId, text);
-    } catch {}
-}
-
-export function telegramNotifyTaskAssigned(assigner, task, assigneeChatId) {
-    const shortTask = (task || '').length > 80 ? task.slice(0, 80) + '...' : (task || 'untitled');
-    if (assigneeChatId) sendPersonalTelegram(assigneeChatId, `📌 <b>${assigner}</b> assigned you work: "${shortTask}"`);
-}
-
-export async function linkTelegramAccount(chatId) {
-    try {
-        const user = window.AppAuth?.getUser?.();
-        if (!user) return { ok: false, error: 'Not logged in' };
-
-        const fresh = await window.AppDB?.get?.('users', user.id);
-        if (!fresh) return { ok: false, error: 'User not found' };
-
-        fresh.telegramChatId = String(chatId);
-        await window.AppDB.put('users', fresh);
-        return { ok: true };
-    } catch (err) {
-        return { ok: false, error: err.message };
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+            body: JSON.stringify(payload)
+        });
+    } catch {
+        // Best-effort notification; the underlying attendance or leave action has already completed.
     }
+}
+
+export function telegramNotifyCheckIn(_name, _time) {
+    void sendTelegramEvent({ event: 'check-in' });
+}
+
+export function telegramNotifyLateCheckIn(_name, _time) {
+    void sendTelegramEvent({ event: 'check-in' });
+}
+
+export function telegramNotifyCheckOut(_name, _time) {
+    void sendTelegramEvent({ event: 'check-out' });
+}
+
+export function telegramNotifyLeaveUpdate(_name, _status, leaveId) {
+    if (leaveId) void sendTelegramEvent({ event: 'leave-update', leaveId: String(leaveId) });
+}
+
+export function telegramNotifyTaskTagged(_tagger, _task, details = {}) {
+    if (details.targetUserId && details.notificationId && details.planId && Number.isInteger(details.taskIndex)) {
+        void sendTelegramEvent({ event: 'task-tagged', ...details });
+    }
+}
+
+// Arbitrary chat IDs and free-form messages are intentionally not sent from the browser.
+export async function sendPersonalTelegram(_chatId, _text) { return false; }
+export async function notifyUserById(_userId, _text) { return false; }
+export function telegramNotifyTaskAssigned(_assigner, _task, _assigneeChatId) { return false; }
+
+export async function linkTelegramAccount(_chatId) {
+    return { ok: false, error: 'Use the secure Telegram link from your profile.' };
 }
 
 export function getTelegramLinkUrl() {
-    const botUsername = 'CRWIAttendancebot';
-    return `https://t.me/${botUsername}?start=link`;
+    return 'https://t.me/CRWIAttendancebot';
 }

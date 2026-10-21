@@ -14,18 +14,11 @@
 import { getAdmin, getDb } from './_firebase-admin.js';
 
 export default async function handler(req, res) {
-    // Cron secret check (Vercel sets Authorization header automatically when
-    // CRON_SECRET is configured; also allow GET from the dashboard).
+    // Vercel sets Authorization on scheduled invocations when CRON_SECRET is configured.
     const secret = process.env.CRON_SECRET;
-    if (secret) {
-        const auth = req.headers.authorization || '';
-        if (auth !== `Bearer ${secret}`) {
-            return res.status(401).json({ error: 'Unauthorized' });
-        }
-    } else if (req.method !== 'GET') {
-        // No secret configured — only allow GET (read-only trigger) to avoid abuse.
-        return res.status(405).json({ error: 'Set CRON_SECRET for scheduled runs' });
-    }
+    if (!secret) return res.status(503).json({ error: 'CRON_SECRET is not configured' });
+    const authHeader = String(req.headers?.authorization || '');
+    if (authHeader !== `Bearer ${secret}`) return res.status(401).json({ error: 'Unauthorized' });
 
     try {
         const admin = getAdmin();
@@ -108,11 +101,10 @@ export default async function handler(req, res) {
                             : `Good morning ${snapshot.name} — no tasks planned for today. Add 3-5 tasks to stay on track.`;
                 }
 
-                // Send via existing Telegram integration (server-side import)
+                // Send through the trusted server-only helper; the public
+                // endpoint intentionally accepts event descriptions, not arbitrary text.
                 const sendMod = await import('./_telegram-send.js');
-                // telegram-send is an express-style handler; call it internally
-                const fakeRes = { statusCode: 200, setHeader() {}, end() {} };
-                await sendMod.default({ method: 'POST', headers: {}, body: { chatId: user.telegramChatId, text: `🌅 ${text}` } }, fakeRes);
+                await sendMod.default.sendTelegramMessage({ chatId: user.telegramChatId, text: `🌅 ${text}` });
 
                 sent++;
                 results.push({ userId: doc.id, ok: true });

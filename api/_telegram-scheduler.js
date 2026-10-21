@@ -3,15 +3,10 @@ const { getDb } = require('./_firebase-admin');
 
 const TELEGRAM_API = 'https://api.telegram.org';
 
-// Vercel sends "Authorization: Bearer <CRON_SECRET>" on scheduled invocations
-// when CRON_SECRET is configured in project env. Enforced only when set, so
-// existing deployments keep working until the secret is added.
+// Vercel sends "Authorization: Bearer <CRON_SECRET>" on scheduled invocations.
 function cronSecretIsValid(req) {
     const expected = process.env.CRON_SECRET;
-    if (!expected) {
-        console.warn('CRON_SECRET is not set — scheduler endpoint accepts unauthenticated triggers.');
-        return true;
-    }
+    if (!expected) return false;
     const header = String(req.headers?.authorization || '');
     const match = /^Bearer\s+(.+)$/i.exec(header);
     if (!match) return false;
@@ -367,6 +362,11 @@ async function teamDigest(db, token, slot) {
 }
 
 module.exports = async (req, res) => {
+    if (!process.env.CRON_SECRET) {
+        res.statusCode = 503;
+        res.end(JSON.stringify({ ok: false, error: 'CRON_SECRET is not configured' }));
+        return;
+    }
     // Server-to-server endpoint (cron + operators) — no browser CORS needed.
     if (!cronSecretIsValid(req)) {
         res.statusCode = 401;

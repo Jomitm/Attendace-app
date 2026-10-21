@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { getDb } = require('./_firebase-admin');
+const { authenticateRequest } = require('./_api-auth');
 
 function getSecret() {
     return process.env.CALENDAR_FEED_SECRET
@@ -37,34 +38,14 @@ function generateToken(userId) {
     return Buffer.from(`${payload}.${sig}`).toString('base64url');
 }
 
-function getBaseUrl(req) {
-    const proto = req.headers['x-forwarded-proto'] || 'https';
-    const host = req.headers.host || req.headers['x-forwarded-host'] || 'crwi-attendance.vercel.app';
-    return `${proto}://${host}`;
-}
-
-function parseBody(req) {
-    return new Promise((resolve) => {
-        if (req.body && typeof req.body === 'object') {
-            resolve(req.body);
-            return;
-        }
-        let data = '';
-        req.on('data', (chunk) => { data += chunk; });
-        req.on('end', () => {
-            try {
-                resolve(data ? JSON.parse(data) : {});
-            } catch {
-                resolve({});
-            }
-        });
-    });
+function getBaseUrl() {
+    const configured = String(process.env.APP_ORIGIN || '').split(',').map((s) => s.trim()).find(Boolean);
+    return String(configured || 'https://staff.crwi.org.in').replace(/\/+$/, '');
 }
 
 module.exports = async (req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
     if (req.method === 'OPTIONS') {
         res.statusCode = 204;
@@ -80,6 +61,14 @@ module.exports = async (req, res) => {
     }
 
     try {
+        const auth = await authenticateRequest(req);
+        if (!auth.ok) {
+            res.statusCode = auth.status;
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.end(JSON.stringify({ ok: false, error: auth.error }));
+            return;
+        }
+
         if (!getSecret()) {
             res.statusCode = 503;
             res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -95,15 +84,7 @@ module.exports = async (req, res) => {
             return;
         }
 
-        const body = await parseBody(req);
-        const userId = body.userId;
-
-        if (!userId || typeof userId !== 'string') {
-            res.statusCode = 400;
-            res.setHeader('Content-Type', 'application/json; charset=utf-8');
-            res.end(JSON.stringify({ ok: false, error: 'Missing userId in request body' }));
-            return;
-        }
+        const userId = auth.user.uid;
 
         const db = getDb();
         if (db) {
@@ -117,7 +98,7 @@ module.exports = async (req, res) => {
         }
 
         const token = generateToken(userId);
-        const baseUrl = getBaseUrl(req);
+        const baseUrl = getBaseUrl();
         const feedUrl = `${baseUrl}/api/calendar-feed?token=${token}`;
         const expiryDate = new Date(Date.now() + EXPIRY_DAYS * 24 * 60 * 60 * 1000);
 

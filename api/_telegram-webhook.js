@@ -6,10 +6,7 @@ const LATE_CUTOFF_HOUR = 10;
 
 function webhookSecretIsValid(req) {
     const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
-    if (!expected) {
-        console.warn('TELEGRAM_WEBHOOK_SECRET is not set — webhook accepts unverified callers. Configure it and re-register the webhook with secret_token.');
-        return true;
-    }
+    if (!expected) return false;
     const received = req.headers['x-telegram-bot-api-secret-token'] || '';
     const a = Buffer.from(String(received));
     const b = Buffer.from(expected);
@@ -371,6 +368,12 @@ function handleHelp() {
 }
 
 module.exports = async (req, res) => {
+    if (!process.env.TELEGRAM_WEBHOOK_SECRET) {
+        res.statusCode = 503;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.end(JSON.stringify({ ok: false, error: 'TELEGRAM_WEBHOOK_SECRET is not configured' }));
+        return;
+    }
     // Server-to-server endpoint (Telegram only) — no browser CORS needed.
     if (!webhookSecretIsValid(req)) {
         res.statusCode = 401;

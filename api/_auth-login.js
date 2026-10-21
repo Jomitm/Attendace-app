@@ -132,7 +132,8 @@ async function handler(req, res) {
         // Set custom claims (role, isAdmin)
         const claims = {
             role: userData.role || 'Employee',
-            isAdmin: userData.isAdmin === true
+            isAdmin: userData.isAdmin === true,
+            reportsAdmin: userData.isAdmin === true || userData.permissions?.reports === 'admin'
         };
         await admin.auth().setCustomUserClaims(uid, claims);
 

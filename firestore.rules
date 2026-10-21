@@ -26,14 +26,36 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.token.role == 'Employee';
     }
 
+    function isReportsAdmin() {
+      return isAdmin() || (
+        isAuthenticated() &&
+        exists(/databases/$(database)/documents/user_access/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/user_access/$(request.auth.uid)).data.permissions.reports == 'admin'
+      );
+    }
+
     // ── Users ──────────────────────────────────────────────────
     match /users/{userId} {
       // Any authenticated user can read (needed for staff directory, team views)
       allow read: if isAuthenticated();
-      // Users can update their own profile; admins can update anyone
+      // Users can update their own non-privileged profile fields; admins can update anyone.
       allow create: if isAdmin();
-      allow update: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow update: if isAdmin() || (
+        isAuthenticated() && request.auth.uid == userId &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'role', 'isAdmin', 'permissions', 'canManageAttendanceSheet', 'canManageBirthdays',
+          'canCustomizeDashboard', 'password', 'passwordSetupRequired', 'authMigrated',
+          'baseSalary', 'otherAllowances', 'providentFund', 'professionalTax', 'loanAdvance',
+          'tdsPercent', 'bankName', 'bankAccount', 'bankIfsc', 'accountNumber', 'ifsc',
+          'pan', 'PAN', 'uan', 'UAN'
+        ])
+      );
       allow delete: if isAdmin();
+    }
+
+    // Authorization mirror used by Firestore rules for promptly revocable permissions.
+    match /user_access/{userId} {
+      allow read, write: if isAdmin();
     }
 
     // ── Attendance ─────────────────────────────────────────────
@@ -111,8 +133,12 @@ service cloud.firestore {
 
     // ── Salaries ──────────────────────────────────────────────
     match /salaries/{docId} {
-      allow read: if isAdmin() || isHR();
-      allow write: if isAdmin();
+      allow read, write: if isReportsAdmin();
+    }
+
+    // Payroll and bank identifiers are kept out of the broadly readable users collection.
+    match /user_private/{userId} {
+      allow read, write: if isReportsAdmin();
     }
 
     // ── System Commands ───────────────────────────────────────

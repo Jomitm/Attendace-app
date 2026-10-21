@@ -242,11 +242,12 @@ export class Auth {
         try {
             const auth = this._getFirebaseAuth();
             const idToken = auth && auth.currentUser ? await auth.currentUser.getIdToken() : null;
+            if (!idToken) return { error: 'Please sign in again before changing your password.' };
 
             const response = await fetch('/api/auth-set-password', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId, newPassword: cleanPass, idToken })
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+                body: JSON.stringify({ userId, newPassword: cleanPass })
             });
 
             const data = await response.json();
@@ -359,11 +360,25 @@ export class Auth {
         return this.currentUser;
     }
 
-    async updateUser(userData) {
+    async updateUser(userData, privateData = null) {
         const existing = await AppDB.get('users', userData.id);
         if (!existing) return false;
 
-        const updated = { ...existing, ...userData };
+        const privateFields = [
+            'baseSalary', 'otherAllowances', 'providentFund', 'professionalTax', 'loanAdvance',
+            'tdsPercent', 'bankName', 'bankAccount', 'bankIfsc', 'accountNumber', 'ifsc',
+            'pan', 'PAN', 'uan', 'UAN'
+        ];
+        const safeUserData = { ...userData };
+        const privateUpdate = { ...(privateData || {}) };
+        privateFields.forEach((field) => {
+            if (Object.prototype.hasOwnProperty.call(safeUserData, field)) {
+                privateUpdate[field] = safeUserData[field];
+                delete safeUserData[field];
+            }
+        });
+        const updated = { ...existing, ...safeUserData };
+        privateFields.forEach((field) => delete updated[field]);
 
         if (userData.isAdmin === true || userData.isAdmin === 'true') {
             updated.isAdmin = true;
@@ -379,6 +394,23 @@ export class Auth {
         }
 
         await AppDB.put('users', updated);
+
+        if (this.currentUser?.isAdmin === true) {
+            await AppDB.put('user_access', {
+                id: userData.id,
+                permissions: {
+                    ...(updated.permissions || {}),
+                    ...(updated.isAdmin === true ? { reports: 'admin' } : {})
+                }
+            });
+        }
+
+        const actor = this.currentUser;
+        const canManagePayroll = actor && (actor.isAdmin === true || actor.permissions?.reports === 'admin');
+        if (canManagePayroll && Object.keys(privateUpdate).length > 0) {
+            const existingPrivate = await AppDB.get('user_private', userData.id).catch(() => null);
+            await AppDB.put('user_private', { ...(existingPrivate || {}), ...privateUpdate, id: userData.id });
+        }
 
         if (this.currentUser && this.currentUser.id === updated.id) {
             this.currentUser = updated;

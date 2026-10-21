@@ -3709,6 +3709,7 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
 
                 if (distinctTaggedUsers.size > 0) {
                     const notificationPromises = [];
+                    const telegramTagEvents = [];
                     for (const uid of distinctTaggedUsers) {
                         if (uid === currentUser.id) continue;
                         const targetUser = await window.AppDB.get('users', uid).catch(() => null);
@@ -3725,8 +3726,9 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
                                         && Number(n.taskIndex) === Number(idx)
                                         && String(n.taggedById || '') === String(currentUser.id || '');
                                 })) {
+                                    const tagNotificationId = `tag_${Date.now()}_${uid}_${idx}`;
                                     targetUser.notifications.push({
-                                        id: `tag_${Date.now()}_${uid}_${idx}`,
+                                        id: tagNotificationId,
                                         type: 'tag',
                                         title: p.task || 'Tagged task',
                                         description: p.subPlans && p.subPlans.length > 0 ? p.subPlans.join(', ') : '',
@@ -3741,14 +3743,19 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
                                         date: new Date().toLocaleString(),
                                         read: false
                                     });
-                                    // Telegram notification (fire-and-forget)
-                                    telegramNotifyTaskTagged(currentUser.name, p.task);
+                                    telegramTagEvents.push({
+                                        targetUserId: String(uid),
+                                        notificationId: tagNotificationId,
+                                        planId: String(scopedPlanId || ''),
+                                        taskIndex: idx
+                                    });
                                 }
                             }
                         });
                         notificationPromises.push(window.AppDB.put('users', targetUser));
                     }
                     await Promise.all(notificationPromises);
+                    telegramTagEvents.forEach((details) => telegramNotifyTaskTagged(currentUser.name, '', details));
 
                     // 3. Create tagged work plan tasks
                     const tagTaskPromises = [];
@@ -5437,7 +5444,6 @@ async function handleAddUser(e) {
         id: 'u' + Date.now(),
         name: name,
         username: username,
-        password: password,
         passwordSetupRequired: !password,
         role: formData.get('role'),
         dept: formData.get('dept'),
@@ -5471,6 +5477,17 @@ async function handleAddUser(e) {
         }
 
         await window.AppDB.add('users', userData);
+        await window.AppDB.put('user_access', {
+            id: userData.id,
+            permissions: { ...(userData.permissions || {}), ...(userData.isAdmin ? { reports: 'admin' } : {}) }
+        });
+        if (password) {
+            const passwordResult = await window.AppAuth.setPassword(userData.id, password);
+            if (passwordResult !== true) {
+                await window.AppDB.delete('users', userData.id).catch(() => {});
+                throw new Error(passwordResult?.error || 'Could not set the account password');
+            }
+        }
         alert('Success! Account created.');
         document.getElementById('add-user-modal').style.display = 'none';
 
@@ -5564,11 +5581,24 @@ window.app_submitEditUser = async (e) => {
         ? (inputEmployeeId || app_deriveEmployeeId(joinDate, id))
         : 'NA';
 
+    const privateData = {
+        baseSalary: Number(formData.get('baseSalary') || 0),
+        otherAllowances: Number(formData.get('otherAllowances') || 0),
+        providentFund: Number(formData.get('providentFund') || 0),
+        professionalTax: Number(formData.get('professionalTax') || 0),
+        loanAdvance: Number(formData.get('loanAdvance') || 0),
+        tdsPercent: Number(formData.get('tdsPercent') || 0),
+        bankName: (formData.get('bankName') || '').trim(),
+        bankAccount: (formData.get('bankAccount') || '').trim(),
+        bankIfsc,
+        pan,
+        uan: (formData.get('uan') || '').trim()
+    };
+    const newPassword = String(formData.get('password') || '').trim();
     const userData = {
         id,
         name: (formData.get('name') || "").trim(),
         username: (formData.get('username') || "").trim(),
-        password: (formData.get('password') || "").trim(),
         role: formData.get('role'),
         dept: formData.get('dept'),
         email: (formData.get('email') || "").trim(),
@@ -5581,22 +5611,8 @@ window.app_submitEditUser = async (e) => {
         birthDay: birthdayFields.birthDay,
         birthMonth: birthdayFields.birthMonth,
         birthYear: birthdayFields.birthYear,
-        baseSalary: Number(formData.get('baseSalary') || 0),
-        otherAllowances: Number(formData.get('otherAllowances') || 0),
-        providentFund: Number(formData.get('providentFund') || 0),
-        professionalTax: Number(formData.get('professionalTax') || 0),
-        loanAdvance: Number(formData.get('loanAdvance') || 0),
-        tdsPercent: Number(formData.get('tdsPercent') || 0),
-        bankName: (formData.get('bankName') || '').trim(),
-        bankAccount: (formData.get('bankAccount') || '').trim(),
-        bankIfsc: bankIfsc,
-        pan: pan,
-        uan: (formData.get('uan') || '').trim(),
         permissions: window.app_getPermissionsFromUI('edit')
     };
-
-    // Leave the existing password unchanged when no replacement is entered.
-    if (!userData.password) delete userData.password;
 
     console.log("Executing Update for User:", userData);
     if (userData.isAdmin) {
@@ -5612,7 +5628,11 @@ window.app_submitEditUser = async (e) => {
     }
 
     try {
-        const success = await window.AppAuth.updateUser(userData);
+        if (newPassword) {
+            const passwordResult = await window.AppAuth.setPassword(id, newPassword);
+            if (passwordResult !== true) throw new Error(passwordResult?.error || 'Could not set the account password');
+        }
+        const success = await window.AppAuth.updateUser(userData, privateData);
 
         if (success) {
             console.log("Success: User updated in DB.");
@@ -6787,6 +6807,12 @@ window.app_editUser = async (userId) => {
     const user = await window.AppDB.get('users', userId);
     console.log("User Data Found:", user);
     if (!user) return;
+    const actor = window.AppAuth.getUser();
+    const canViewPayroll = window.app_hasPerm('reports', 'admin', actor);
+    const privateUser = canViewPayroll
+        ? await window.AppDB.get('user_private', userId).catch(() => null)
+        : null;
+    const editRecord = { ...user, ...(privateUser || {}) };
     const form = document.getElementById('edit-user-form');
     if (!form) return;
 
@@ -6818,17 +6844,17 @@ window.app_editUser = async (userId) => {
     setVal('#edit-user-employee-id', normalizedJoinDate
         ? (user.employeeId || app_deriveEmployeeId(normalizedJoinDate, user.id))
         : 'NA');
-    setVal('#edit-user-base-salary', Number(user.baseSalary || 0));
-    setVal('#edit-user-other-allowances', Number(user.otherAllowances || 0));
-    setVal('#edit-user-pf', Number(user.providentFund || 0));
-    setVal('#edit-user-professional-tax', Number(user.professionalTax || 0));
-    setVal('#edit-user-loan-advance', Number(user.loanAdvance || 0));
-    setVal('#edit-user-tds-percent', Number(user.tdsPercent || 0));
-    setVal('#edit-user-bank-name', user.bankName || '');
-    setVal('#edit-user-bank-account', user.bankAccount || user.accountNumber || '');
-    setVal('#edit-user-bank-ifsc', user.bankIfsc || user.ifsc || '');
-    setVal('#edit-user-pan', user.pan || user.PAN || '');
-    setVal('#edit-user-uan', user.uan || user.UAN || '');
+    setVal('#edit-user-base-salary', Number(editRecord.baseSalary || 0));
+    setVal('#edit-user-other-allowances', Number(editRecord.otherAllowances || 0));
+    setVal('#edit-user-pf', Number(editRecord.providentFund || 0));
+    setVal('#edit-user-professional-tax', Number(editRecord.professionalTax || 0));
+    setVal('#edit-user-loan-advance', Number(editRecord.loanAdvance || 0));
+    setVal('#edit-user-tds-percent', Number(editRecord.tdsPercent || 0));
+    setVal('#edit-user-bank-name', editRecord.bankName || '');
+    setVal('#edit-user-bank-account', editRecord.bankAccount || editRecord.accountNumber || '');
+    setVal('#edit-user-bank-ifsc', editRecord.bankIfsc || editRecord.ifsc || '');
+    setVal('#edit-user-pan', editRecord.pan || editRecord.PAN || '');
+    setVal('#edit-user-uan', editRecord.uan || editRecord.UAN || '');
 
     // Populate permissions
     const modules = ['dashboard', 'leaves', 'users', 'attendance', 'reports', 'minutes', 'policies', 'birthday', 'letterPad', 'customize'];
@@ -6918,10 +6944,13 @@ window.app_linkTelegram = async () => {
     `;
     window.app_showModal(loadingHtml, 'telegram-link-modal');
     try {
+        const firebaseUser = window.AppFirebaseAuth?.currentUser;
+        const idToken = firebaseUser ? await firebaseUser.getIdToken() : '';
+        if (!idToken) throw new Error('Please sign in again before connecting Telegram.');
         const resp = await fetch('/api/telegram-generate-link', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: user.id })
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+            body: JSON.stringify({})
         });
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok || !data.ok || !data.url) throw new Error(data.error || 'Failed to generate link');
@@ -6979,10 +7008,13 @@ window.app_registerTelegramWebhook = async () => {
     const htmlLoading = `<div style="text-align:center;padding:2rem;"><i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;color:#2563eb;margin-bottom:1rem;display:block;"></i><p style="color:#6b7280;">Registering webhook…</p></div>`;
     window.app_showModal(htmlLoading, 'telegram-register-modal');
     try {
+        const firebaseUser = window.AppFirebaseAuth?.currentUser;
+        const idToken = firebaseUser ? await firebaseUser.getIdToken() : '';
+        if (!idToken) throw new Error('Please sign in again before registering the webhook.');
         const resp = await fetch('/api/telegram-register-webhook', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId: user.id })
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+            body: JSON.stringify({})
         });
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok || !data.ok) throw new Error(data.error || 'Failed to register webhook');
@@ -7024,10 +7056,13 @@ window.app_connectOutlook = async () => {
     try {
         let data;
         try {
+            const firebaseUser = window.AppFirebaseAuth?.currentUser;
+            const idToken = firebaseUser ? await firebaseUser.getIdToken() : '';
+            if (!idToken) throw new Error('Please sign in again before connecting your calendar.');
             const resp = await fetch('/api/calendar-token', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: user.id })
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+                body: JSON.stringify({})
             });
             const text = await resp.text();
             try { data = JSON.parse(text); } catch { data = null; }
@@ -7379,7 +7414,7 @@ window.app_approveLeave = async (leaveId) => {
         await window.AppLeaves.updateLeaveStatus(leaveId, 'Approved', user.id);
         // Telegram notification (fire-and-forget)
         if (leave && leave.staffName) {
-            telegramNotifyLeaveUpdate(leave.staffName, 'approved');
+            telegramNotifyLeaveUpdate(leave.staffName, 'approved', leave.id);
         }
         alert("Leave Approved! Attendance logs have been automatically generated.");
         await app_refreshAfterLeaveAction();
@@ -7402,7 +7437,7 @@ window.app_rejectLeave = async (leaveId) => {
         await window.AppLeaves.updateLeaveStatus(leaveId, 'Rejected', user.id, reason);
         // Telegram notification (fire-and-forget)
         if (leave && leave.staffName) {
-            telegramNotifyLeaveUpdate(leave.staffName, 'rejected');
+            telegramNotifyLeaveUpdate(leave.staffName, 'rejected', leave.id);
         }
         alert("Leave Rejected.");
         await app_refreshAfterLeaveAction();
@@ -8505,8 +8540,16 @@ window.app_saveAllSalaries = async () => {
         for (const update of userUpdates) {
             const existingUser = await window.AppDB.get('users', update.id);
             if (existingUser) {
-                Object.assign(existingUser, update);
+                const { baseSalary, tdsPercent, bankName, bankAccount, pan, uan, otherAllowances, providentFund, professionalTax, loanAdvance, ...profileUpdate } = update;
+                Object.assign(existingUser, profileUpdate);
                 await window.AppDB.put('users', existingUser);
+                const existingPrivate = await window.AppDB.get('user_private', update.id).catch(() => null);
+                await window.AppDB.put('user_private', {
+                    ...(existingPrivate || {}),
+                    id: update.id,
+                    baseSalary, tdsPercent, bankName, bankAccount, pan, uan,
+                    otherAllowances, providentFund, professionalTax, loanAdvance
+                });
             }
         }
 

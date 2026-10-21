@@ -1,113 +1,85 @@
-// scripts/migrate-passwords.js
-// ONE-TIME migration: creates Firebase Auth users and removes plaintext passwords.
-//
-// Usage:
-//   1. Set FIREBASE_SERVICE_ACCOUNT env var (JSON string of service account)
-//   2. Run: node scripts/migrate-passwords.js
-//
-// This script is safe to run multiple times (idempotent).
+// Move legacy Firestore passwords into Firebase Auth.
+// Dry-run by default. Applying requires explicit staging project credentials.
+// Usage: set FIREBASE_SERVICE_ACCOUNT and STAGING_FIREBASE_PROJECT_ID, then
+//        node scripts/migrate-passwords.js --apply
 
 const admin = require('firebase-admin');
 
-// Initialize Firebase Admin
-if (!admin.apps.length) {
-    const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
-    if (!serviceAccount) {
-        console.error('FIREBASE_SERVICE_ACCOUNT environment variable is required.');
-        console.error('Set it to the JSON string of your Firebase service account.');
-        process.exit(1);
+function initializeStaging() {
+    const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+    const expectedProjectId = String(process.env.STAGING_FIREBASE_PROJECT_ID || '').trim();
+    if (!raw || !expectedProjectId) {
+        throw new Error('FIREBASE_SERVICE_ACCOUNT and STAGING_FIREBASE_PROJECT_ID are required.');
     }
-    const parsed = typeof serviceAccount === 'string' ? JSON.parse(serviceAccount) : serviceAccount;
-    admin.initializeApp({ credential: admin.credential.cert(parsed) });
+    const serviceAccount = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!serviceAccount.project_id || serviceAccount.project_id !== expectedProjectId) {
+        throw new Error('Service account project does not match STAGING_FIREBASE_PROJECT_ID.');
+    }
+    if (!admin.apps.length) admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+    return { db: admin.firestore(), auth: admin.auth() };
 }
 
-const db = admin.firestore();
-const auth = admin.auth();
-
 async function migrate() {
-    console.log('Starting password migration...\n');
-
+    const apply = process.argv.includes('--apply');
+    const { db, auth } = initializeStaging();
     const usersSnapshot = await db.collection('users').get();
     const users = usersSnapshot.docs;
-    console.log(`Found ${users.length} users in Firestore.\n`);
+    const eligible = users.filter((doc) => doc.data()?.password && doc.data()?.authMigrated !== true);
+
+    console.log(`Mode: ${apply ? 'APPLY (staging)' : 'DRY RUN'}`);
+    console.log(`Users scanned: ${users.length}; credentials to migrate: ${eligible.length}`);
+    if (!apply) {
+        console.log('No data changed. Add --apply only after reviewing this staging dry run.');
+        return;
+    }
 
     let migrated = 0;
     let skipped = 0;
     let errors = 0;
-
     for (const userDoc of users) {
         const uid = userDoc.id;
-        const data = userDoc.data();
-        const username = data.username || '(no username)';
-        const hasPassword = !!data.password;
-        const alreadyMigrated = data.authMigrated === true;
-
-        if (alreadyMigrated) {
-            console.log(`  SKIP  ${username} (${uid}) — already migrated`);
+        const data = userDoc.data() || {};
+        if (data.authMigrated === true || !data.password) {
             skipped++;
             continue;
         }
-
-        if (!hasPassword) {
-            console.log(`  SKIP  ${username} (${uid}) — no password to migrate`);
-            skipped++;
-            continue;
-        }
-
         try {
-            // Create or update Firebase Auth user
             try {
                 await auth.getUser(uid);
-                // User exists in Auth — update password
                 await auth.updateUser(uid, { password: data.password });
             } catch (err) {
-                if (err.code === 'auth/user-not-found') {
-                    // Create new Auth user
-                    await auth.createUser({
-                        uid: uid,
-                        email: data.email || `${uid}@crwi.placeholder`,
-                        displayName: data.name || data.username,
-                        password: data.password,
-                        emailVerified: true
-                    });
-                } else {
-                    throw err;
-                }
+                if (err.code !== 'auth/user-not-found') throw err;
+                await auth.createUser({
+                    uid,
+                    email: data.email || `${uid}@crwi.placeholder`,
+                    displayName: data.name || data.username,
+                    password: data.password,
+                    emailVerified: true
+                });
             }
 
-            // Set custom claims
             await auth.setCustomUserClaims(uid, {
                 role: data.role || 'Employee',
-                isAdmin: data.isAdmin === true
+                isAdmin: data.isAdmin === true,
+                reportsAdmin: data.isAdmin === true || data.permissions?.reports === 'admin'
             });
-
-            // Remove plaintext password from Firestore
             await userDoc.ref.update({
                 password: admin.firestore.FieldValue.delete(),
                 authMigrated: true,
                 authMigratedAt: admin.firestore.FieldValue.serverTimestamp()
             });
-
-            console.log(`  OK    ${username} (${uid}) — migrated`);
             migrated++;
         } catch (err) {
-            console.error(`  ERROR ${username} (${uid}) — ${err.message}`);
+            console.error(`Migration failed for user ${uid}: ${err.message}`);
             errors++;
         }
     }
 
-    console.log('\nMigration complete.');
-    console.log(`  Migrated: ${migrated}`);
-    console.log(`  Skipped:  ${skipped}`);
-    console.log(`  Errors:   ${errors}`);
-
-    if (errors > 0) {
-        console.log('\nSome users had errors. Check the output above and fix them manually.');
-        process.exit(1);
-    }
+    console.log(`Migrated: ${migrated}; skipped: ${skipped}; errors: ${errors}`);
+    if (errors > 0) process.exitCode = 1;
 }
 
-migrate().catch(err => {
-    console.error('Migration failed:', err);
-    process.exit(1);
+migrate().catch((err) => {
+    console.error(`Migration stopped: ${err.message}`);
+    process.exitCode = 1;
 });

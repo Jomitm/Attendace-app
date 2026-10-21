@@ -155,7 +155,7 @@ describe('auth-login credential outcomes', () => {
         assert.equal(res.statusCode, 200);
         assert.equal(res.body.customToken, 'tok_u1');
         assert.equal(res.body.user.username, 'JomitM');
-        assert.deepEqual(claimsCalls[0], { uid: 'u1', claims: { role: 'Staff', isAdmin: false } });
+        assert.deepEqual(claimsCalls[0], { uid: 'u1', claims: { role: 'Staff', isAdmin: false, reportsAdmin: false } });
     });
 
     test('falls back to Firebase Auth when the Firestore password was migrated away', async () => {

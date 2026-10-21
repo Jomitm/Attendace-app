@@ -2,6 +2,7 @@
 // Changes a user's password server-side. Removes plaintext from Firestore.
 
 const { getAdmin, getDb } = require('./_firebase-admin.js');
+const { authenticateRequest, isGlobalAdmin, sendAuthError } = require('./_api-auth.js');
 
 module.exports = async function handler(req, res) {
     if (req.method !== 'POST') {
@@ -18,7 +19,7 @@ module.exports = async function handler(req, res) {
     }
 
     try {
-        const { userId, newPassword, idToken } = body;
+        const { userId, newPassword } = body;
         if (!userId || !newPassword) {
             return res.status(400).json({ error: 'Missing userId or newPassword' });
         }
@@ -28,22 +29,16 @@ module.exports = async function handler(req, res) {
             return res.status(400).json({ error: 'Password must be at least 4 characters' });
         }
 
-        const admin = getAdmin();
+        const auth = await authenticateRequest(req);
+        if (!auth.ok) return sendAuthError(res, auth);
+        if (auth.user.uid !== String(userId) && !isGlobalAdmin(auth.user)) {
+            return res.status(403).json({ error: 'Not authorized to change this password' });
+        }
+
+        const admin = auth.admin || getAdmin();
         const db = getDb();
         if (!admin || !db) {
             return res.status(500).json({ error: 'Server configuration error' });
-        }
-
-        // Verify the requester is the same user or an admin
-        if (idToken) {
-            try {
-                const decoded = await admin.auth().verifyIdToken(idToken);
-                if (decoded.uid !== userId && decoded.isAdmin !== true) {
-                    return res.status(403).json({ error: 'Not authorized to change this password' });
-                }
-            } catch {
-                return res.status(401).json({ error: 'Invalid authentication token' });
-            }
         }
 
         // Update Firebase Auth password

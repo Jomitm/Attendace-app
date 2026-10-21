@@ -6,10 +6,15 @@
 import { safeHtml } from './helpers.js';
 
 export async function renderSalaryProcessing() {
-    const summary = await window.AppAnalytics.getSystemMonthlySummary();
-    const today = new Date();
     const currentUser = window.AppAuth.getUser();
     const isFullAdmin = window.app_hasPerm('reports', 'admin', currentUser);
+    if (!isFullAdmin) return '<div class="card full-width"><h3>Access denied</h3><p>You need Reports admin permission to view payroll.</p></div>';
+
+    const summary = await window.AppAnalytics.getSystemMonthlySummary();
+    const privateUsers = await window.AppDB.getAll('user_private');
+    const privateById = new Map((privateUsers || []).map((entry) => [String(entry.id), entry]));
+    summary.forEach((item) => { item.user = { ...item.user, ...(privateById.get(String(item.user.id)) || {}) }; });
+    const today = new Date();
     const monthLabel = today.toLocaleDateString('default', { month: 'long', year: 'numeric' });
 
     return `

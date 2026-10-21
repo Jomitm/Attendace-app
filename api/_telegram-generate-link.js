@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { getDb } = require('./_firebase-admin');
+const { authenticateRequest } = require('./_api-auth');
 
 function getLinkSecret() {
     return process.env.TELEGRAM_LINK_SECRET
@@ -21,9 +22,8 @@ function makeShortId() {
 }
 
 module.exports = async (req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
     if (req.method === 'OPTIONS') {
         res.statusCode = 204;
@@ -37,6 +37,14 @@ module.exports = async (req, res) => {
         return;
     }
 
+    const auth = await authenticateRequest(req);
+    if (!auth.ok) {
+        res.statusCode = auth.status;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.end(JSON.stringify({ ok: false, error: auth.error }));
+        return;
+    }
+
     const secret = getLinkSecret();
     if (!secret) {
         res.statusCode = 503;
@@ -44,16 +52,7 @@ module.exports = async (req, res) => {
         return;
     }
 
-    let body = req.body;
-    if (typeof body === 'string') {
-        try { body = JSON.parse(body); } catch { body = {}; }
-    }
-    const userId = String(body?.userId || body?.uid || '').trim();
-    if (!userId) {
-        res.statusCode = 400;
-        res.end(JSON.stringify({ ok: false, error: 'Missing userId' }));
-        return;
-    }
+    const userId = auth.user.uid;
 
     const botUsername = process.env.TELEGRAM_BOT_USERNAME || 'CRWIAttendancebot';
     const expiryMs = Date.now() + 10 * 60 * 1000;
