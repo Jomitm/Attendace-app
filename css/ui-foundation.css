@@ -375,3 +375,180 @@ textarea:focus {
         scroll-behavior: auto !important;
     }
 }
+
+/* Dashboard refresh: make the workday cards readable at common laptop widths. */
+.modern-dashboard {
+    gap: 22px;
+}
+
+.modern-dashboard .dashboard-hero-card {
+    min-height: 142px;
+    padding: 22px 26px;
+    color: #fff;
+    background:
+        radial-gradient(circle at 82% 18%, rgb(143 180 255 / 24%), transparent 28%),
+        linear-gradient(118deg, #182b50 0%, #25487d 58%, #3465a7 100%);
+    border: 1px solid rgb(255 255 255 / 14%);
+    border-radius: 20px;
+    box-shadow: 0 12px 30px rgb(26 51 91 / 18%);
+}
+
+.modern-dashboard .dashboard-hero-card::before {
+    width: 420px;
+    height: 420px;
+    top: -68%;
+    right: -5%;
+    background: radial-gradient(circle, rgb(197 218 255 / 17%), transparent 68%);
+}
+
+.modern-dashboard .dashboard-hero-card .dashboard-hero-eyebrow {
+    color: #c7d9f5;
+    font-size: .68rem;
+    letter-spacing: .12em;
+}
+
+.modern-dashboard .dashboard-hero-card .dashboard-hero-welcome {
+    color: #dce8fb;
+    font-size: .78rem;
+}
+
+.modern-dashboard .dashboard-hero-card .dashboard-hero-title {
+    color: #fff;
+    font-size: clamp(1.4rem, 2vw, 1.85rem);
+    letter-spacing: -.035em;
+}
+
+.modern-dashboard .dashboard-hero-card .dashboard-hero-chip {
+    padding: .3rem .62rem;
+    color: #f8fbff;
+    background: rgb(255 255 255 / 12%);
+    border-color: rgb(255 255 255 / 20%);
+    font-size: .7rem;
+}
+
+.modern-dashboard .dashboard-hero-card .dashboard-hero-meta,
+.modern-dashboard .dashboard-hero-card .dashboard-hero-date {
+    color: #d5e2f7;
+}
+
+.modern-dashboard .dashboard-hero-card .dashboard-hero-meta .dashboard-refresh-link {
+    color: #fff;
+    background: rgb(255 255 255 / 12%);
+    border-color: rgb(255 255 255 / 24%);
+}
+
+.modern-dashboard .dashboard-hero-card .dashboard-hero-meta .dashboard-refresh-link:hover {
+    color: #fff;
+    background: rgb(255 255 255 / 20%);
+}
+
+.modern-dashboard .dashboard-section-label {
+    color: #334866;
+    font-size: .76rem;
+    letter-spacing: .1em;
+}
+
+.modern-dashboard .dashboard-section-label-rule {
+    background: #d8e1ed;
+}
+
+.modern-dashboard .modern-bento-main,
+.modern-dashboard .modern-bento-sidebar {
+    gap: 18px;
+}
+
+.modern-dashboard .dashboard-primary-row {
+    gap: 14px;
+}
+
+.modern-dashboard .dashboard-primary-row > .card,
+.modern-dashboard .dashboard-primary-row .dashboard-primary-col > .card,
+.modern-dashboard .dashboard-perf-card,
+.modern-dashboard .dashboard-stats-card,
+.modern-dashboard .dashboard-hero-stats-card {
+    border-radius: 18px;
+    border: 1px solid #e3eaf3;
+    background-color: #fff;
+    box-shadow: 0 3px 12px rgb(32 55 88 / 5%);
+}
+
+.modern-dashboard .dashboard-primary-row > .card:hover,
+.modern-dashboard .dashboard-primary-row .dashboard-primary-col > .card:hover,
+.modern-dashboard .dashboard-perf-card:hover,
+.modern-dashboard .dashboard-stats-card:hover,
+.modern-dashboard .dashboard-hero-stats-card:hover {
+    border-color: #cbd8e8;
+    box-shadow: 0 8px 22px rgb(32 55 88 / 9%);
+}
+
+.modern-dashboard .dashboard-worklog-card {
+    background: linear-gradient(180deg, #fff 0%, #fbfcff 100%);
+}
+
+.modern-dashboard .dashboard-team-schedule-card {
+    background: #fff;
+}
+
+.modern-dashboard .dashboard-checkin-card {
+    border-color: #d6e3f5;
+    background: linear-gradient(155deg, #fff 0%, #f5f8ff 100%);
+}
+
+.modern-dashboard .dashboard-hero-stats-card {
+    background: linear-gradient(145deg, #f5f8ff 0%, #eaf1ff 100%);
+}
+
+.modern-dashboard .dashboard-stats-card-title,
+.modern-dashboard .dashboard-perf-card h2,
+.modern-dashboard .dashboard-perf-card h3 {
+    color: #233653;
+}
+
+.modern-dashboard .dashboard-hero-missed-corner-wrap {
+    margin: -8px 2px 2px;
+}
+
+@media (max-width: 1379px) {
+    .modern-dashboard .modern-bento-grid {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 18px;
+    }
+
+    .modern-dashboard .modern-bento-sidebar {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        align-items: start;
+    }
+
+    .modern-dashboard .dashboard-hero-stats-card {
+        grid-column: 1 / -1;
+        min-height: 0;
+    }
+
+    .modern-dashboard .dashboard-stats-card {
+        min-height: 170px;
+    }
+}
+
+@media (max-width: 760px) {
+    .modern-dashboard .dashboard-hero-card {
+        min-height: 0;
+        padding: 18px;
+    }
+
+    .modern-dashboard .dashboard-hero-card .dashboard-hero-row {
+        align-items: flex-start;
+    }
+
+    .modern-dashboard .dashboard-hero-card .dashboard-hero-aside {
+        display: none;
+    }
+
+    .modern-dashboard .modern-bento-sidebar {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .modern-dashboard .dashboard-hero-stats-card {
+        grid-column: auto;
+    }
+}
