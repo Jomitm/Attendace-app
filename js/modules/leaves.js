@@ -442,17 +442,20 @@ export class Leaves {
         let current = new Date(start);
         while (current <= end) {
             const dateStr = current.toISOString().split('T')[0];
+            const isShortLeave = normalizedType === 'Short Leave';
+            const shortLeaveHours = Number(leave.durationHours) || 0;
             const attendanceLog = {
                 id: 'att_' + leave.userId + '_' + dateStr,
                 user_id: leave.userId,
                 date: dateStr,
-                checkIn: '09:00',
-                checkOut: normalizedType === 'Half Day' ? '13:00' : '17:00',
-                duration: normalizedType === 'Half Day' ? '4h 0m' : '8h 0m',
+                checkIn: isShortLeave ? '' : '09:00',
+                checkOut: isShortLeave ? '' : normalizedType === 'Half Day' ? '13:00' : '17:00',
+                duration: isShortLeave ? `${shortLeaveHours}h 0m` : normalizedType === 'Half Day' ? '4h 0m' : '8h 0m',
                 location: isWorkFromHome ? 'Work - Home' : 'On Leave',
                 type: isWorkFromHome ? 'Work - Home' : normalizedType,
                 status: normalizedType === 'Half Day' ? 'Half Day' : 'in',
                 dayCredit: normalizedType === 'Half Day' ? 0.5 : 1,
+                ...(isShortLeave ? { durationHours: shortLeaveHours } : {}),
                 synced: false,
                 leaveRequestId: leave.id,
                 leaveGenerated: true

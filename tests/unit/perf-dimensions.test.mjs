@@ -123,17 +123,16 @@ test('attendance: scattered check-in times shrink the consistency bonus', () => 
     assert.equal(scattered.dimensions.attendance.score, 68, 'spread check-ins must cost points');
 });
 
-// ── 6: Leave logs never inflate attended hours ──────────────────────────────
-test('attendance: Leave logs count as days but contribute no hours', () => {
+// ── 6: Leave logs do not earn attendance credit ─────────────────────────────
+test('attendance: Leave logs contribute neither worked days nor hours', () => {
     const logs = [
         ...threeDayLogs(),
         mkLog('2026-10-01', { type: 'Leave - Annual', durationMs: 8 * HOUR, checkInAt: undefined })
     ];
     const out = AppAnalytics._computeWeekPerformance(logs, [], WEEK, cfg());
-    // daysWorked 4 (leave day included) → daysScore 80; hours stay 24/40 → 6;
-    // consistency over the three 09:00 check-ins → 10. Leave hours would make
-    // it 32/40 → 8 → 98, so 96 pins the exclusion.
-    assert.equal(out.dimensions.attendance.score, 96);
+    // Only three worked days count; the leave record must not increase either
+    // the attendance day credit or attended hours.
+    assert.equal(out.dimensions.attendance.score, 76);
 });
 
 // ── 7: compliance penalties (widget) ────────────────────────────────────────

@@ -384,8 +384,8 @@ export class Analytics {
         );
 
         let score = 1;
-        if (isActualCheckoutLog) score = 2;
-        if (isLeaveLog) score = 3;
+        if (isActualCheckoutLog) score = 3;
+        if (isLeaveLog) score = log?.leaveGenerated ? 1 : 2;
         if (log?.isManualOverride) score = 4;
         return score;
     }
@@ -393,18 +393,38 @@ export class Analytics {
     pickBestAttendanceLogPerDay(logs, startDate, endDate) {
         const bestByDate = new Map();
         const toLocalIso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const dateKey = (value) => {
+            const raw = String(value || '');
+            if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+            const parsed = new Date(value);
+            return Number.isNaN(parsed.getTime()) ? '' : toLocalIso(parsed);
+        };
+        const startKey = dateKey(startDate);
+        const endKey = dateKey(endDate);
 
         logs.forEach((log) => {
-            const logDate = new Date(log?.date);
-            if (Number.isNaN(logDate.getTime()) || logDate < startDate || logDate > endDate) return;
-            const dateKey = /^\d{4}-\d{2}-\d{2}$/.test(String(log?.date || '')) ? String(log.date) : toLocalIso(logDate);
-            const existing = bestByDate.get(dateKey);
+            const key = dateKey(log?.date);
+            if (!key || key < startKey || key > endKey) return;
+            const existing = bestByDate.get(key);
             if (!existing || this.getAttendanceLogPriority(log) > this.getAttendanceLogPriority(existing)) {
-                bestByDate.set(dateKey, log);
+                bestByDate.set(key, log);
             }
         });
 
         return Array.from(bestByDate.values());
+    }
+
+    getAttendanceDayCredit(log) {
+        const type = String(log?.type || '').trim().toLowerCase();
+        if (type === 'half day' || type === 'half day leave') return Math.min(1, Math.max(0, Number(log?.dayCredit ?? 0.5)));
+        if (type === 'absent' || (type.includes('leave') && type !== 'short leave')) return 0;
+        if (type === 'short leave') {
+            const rawHours = Number(log?.durationHours ?? log?.dayCreditHours);
+            if (!Number.isFinite(rawHours)) return 0;
+            const hours = Math.max(0, rawHours);
+            return Math.max(0, 1 - Math.min(8, hours) / 8);
+        }
+        return 1;
     }
     // Helper to format minutes to "Xh Ym"
     formatDuration(totalMinutes) {
@@ -551,8 +571,10 @@ export class Analytics {
         ]);
 
         const summary = await Promise.all(allUsers.map(async (user) => {
+            const startKey = this.toLocalDateKey(startOfMonth);
+            const endKey = this.toLocalDateKey(endOfMonth);
             const userLogs = allLogs.filter(l => (l.userId === user.id || l.user_id === user.id) &&
-                (new Date(l.date) >= startOfMonth && new Date(l.date) <= endOfMonth));
+                String(l.date || '').slice(0, 10) >= startKey && String(l.date || '').slice(0, 10) <= endKey);
 
             const stats = this.applyImpliedMonthlyAbsences(
                 user,
@@ -692,6 +714,11 @@ export class Analytics {
                     breakdown['Other Leave'] += Number(log.dayCredit ?? 0.5);
                     breakdown['Half Day Present'] += Number(log.dayCredit ?? 0.5);
                 }
+                else if (type === 'Short Leave') {
+                    const workedCredit = this.getAttendanceDayCredit(log);
+                    breakdown['Other Leave'] += 1 - workedCredit;
+                    breakdown['Present'] += workedCredit;
+                }
                 else if (String(type).toLowerCase().includes('leave')) breakdown['Other Leave']++;
                 else if (type === 'National Holiday') breakdown['National Holiday']++;
                 else if (type === 'Regional Holidays') breakdown['Regional Holidays']++;
@@ -716,6 +743,7 @@ export class Analytics {
         const penaltyStepDays = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_DEDUCTION_PER_BLOCK : 0.5) || 0.5;
         stats.penaltyOffset = Math.floor((stats.extraWorkedHours || 0) / offsetStepHours) * penaltyStepDays;
         stats.effectivePenalty = Math.max(0, stats.penaltyLeaves - stats.penaltyOffset);
+        stats.penalty = stats.effectivePenalty;
         stats.totalLateDuration = this.formatDuration(totalLateMinutes);
         stats.totalExtraDuration = this.formatDuration(totalExtraMinutes);
 
@@ -768,6 +796,13 @@ export class Analytics {
         let totalExtraMinutes = 0;
 
         const canonicalLogs = this.pickBestAttendanceLogPerDay(userLogs, start, end);
+        const logsByMonth = new Map();
+        canonicalLogs.forEach((log) => {
+            if (!this.isAttendanceEligibleLog(log)) return;
+            const key = String(log.date || '').slice(0, 7);
+            if (!logsByMonth.has(key)) logsByMonth.set(key, []);
+            logsByMonth.get(key).push(log);
+        });
         // Hoist config lookups outside the loop
         const lateCutoff = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_CUTOFF_MINUTES : 555) || 555;
         const earlyDeparture = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.EARLY_DEPARTURE_MINUTES : 1020) || 1020;
@@ -851,6 +886,11 @@ export class Analytics {
                     breakdown['Other Leave'] += Number(log.dayCredit ?? 0.5);
                     breakdown['Half Day Present'] += Number(log.dayCredit ?? 0.5);
                 }
+                else if (type === 'Short Leave') {
+                    const workedCredit = this.getAttendanceDayCredit(log);
+                    breakdown['Other Leave'] += 1 - workedCredit;
+                    breakdown['Present'] += workedCredit;
+                }
                 else if (String(type).toLowerCase().includes('leave')) breakdown['Other Leave']++;
                 else if (type === 'National Holiday') breakdown['National Holiday']++;
                 else if (type === 'Regional Holidays') breakdown['Regional Holidays']++;
@@ -867,11 +907,13 @@ export class Analytics {
         stats.totalLateDuration = this.formatDuration(totalLateMinutes);
         stats.totalExtraDuration = this.formatDuration(totalExtraMinutes);
 
-        stats.penaltyLeaves = Math.floor((breakdown['Late'] || 0) / ((typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_GRACE_COUNT : 3) || 3)) * ((typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_DEDUCTION_PER_BLOCK : 0.5) || 0.5);
-        const offsetStepHours = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.EXTRA_HOURS_FOR_HALF_DAY_OFFSET : 4) || 4;
-        const penaltyStepDays = (typeof AppConfig !== 'undefined' && AppConfig ? AppConfig.LATE_DEDUCTION_PER_BLOCK : 0.5) || 0.5;
-        stats.penaltyOffset = Math.floor((stats.extraWorkedHours || 0) / offsetStepHours) * penaltyStepDays;
-        stats.effectivePenalty = Math.max(0, stats.penaltyLeaves - stats.penaltyOffset);
+        for (const monthLogs of logsByMonth.values()) {
+            const monthStats = this.calculateStatsForLogs(monthLogs);
+            stats.penaltyLeaves += monthStats.penaltyLeaves || 0;
+            stats.penaltyOffset += monthStats.penaltyOffset || 0;
+            stats.effectivePenalty += monthStats.effectivePenalty || 0;
+        }
+        stats.penalty = stats.effectivePenalty;
 
         return stats;
     }
@@ -1152,13 +1194,25 @@ export class Analytics {
      */
     isHeroLeaveLog(log) {
         const type = String(log?.type || '');
+        if (type.toLowerCase() === 'half day' || type.toLowerCase() === 'half day leave') return false;
         return type.toLowerCase().includes('leave') ||
             type === 'Absent' ||
             log?.location === 'On Leave';
     }
 
     normalizeHeroLogs(logs = []) {
-        return (logs || [])
+        const bestByUserDay = new Map();
+        (logs || []).forEach((log) => {
+            const date = this.parseHeroLogDate(log?.date);
+            const userId = this.resolveHeroUserId(log);
+            if (!date || !userId) return;
+            const key = `${userId}:${this.toLocalDateKey(date)}`;
+            const existing = bestByUserDay.get(key);
+            if (!existing || this.getAttendanceLogPriority(log) > this.getAttendanceLogPriority(existing)) {
+                bestByUserDay.set(key, log);
+            }
+        });
+        return Array.from(bestByUserDay.values())
             .map((log) => {
                 const logDate = this.parseHeroLogDate(log?.date);
                 const userId = this.resolveHeroUserId(log);
@@ -1172,6 +1226,7 @@ export class Analytics {
                     logDate,
                     dateKey: this.toLocalDateKey(logDate),
                     durationMs,
+                    dayCredit: this.getAttendanceDayCredit(log),
                     activityLogDepth: String(log?.workDescription || '').length,
                     activityScore: Number.isFinite(activityScore) ? activityScore : null,
                     pauseCount: Number(log?.pauseCount) || 0,
@@ -1189,6 +1244,7 @@ export class Analytics {
                 byUser.set(log.userId, {
                     userId: log.userId,
                     totalDurationMs: 0,
+                    dayCredit: 0,
                     daysSet: new Set(),
                     activityLogDepth: 0,
                     activityScoreTotal: 0,
@@ -1200,6 +1256,7 @@ export class Analytics {
             }
             const bucket = byUser.get(log.userId);
             bucket.totalDurationMs += Math.max(0, Number(log.durationMs) || 0);
+            bucket.dayCredit += Math.max(0, Number(log.dayCredit) || 0);
             bucket.daysSet.add(log.dateKey);
             bucket.activityLogDepth += Math.max(0, Number(log.activityLogDepth) || 0);
             if (Number.isFinite(log.activityScore)) {
@@ -1563,11 +1620,12 @@ export class Analytics {
 
             // ── PUNCTUALITY (0–100) ──
             // Same rule as the widget: only required working days count.
-            const punctualityLogs = dedupedLogs.filter(l => isRequiredWorkingDay(l?.date || l?.dateKey, holidayDates));
+            const workedLogs = dedupedLogs.filter(l => this.getAttendanceDayCredit(l) > 0);
+            const punctualityLogs = workedLogs.filter(l => isRequiredWorkingDay(l?.date || l?.dateKey, holidayDates));
             const lateDays = punctualityLogs.filter(l => l.lateCountable === true || String(l.type || '').toLowerCase() === 'late').length;
             const punctualityDays = punctualityLogs.length;
-            const totalDays = dedupedLogs.length;
-            const daysWorked = attendance.daysSet.size;
+            const totalDays = workedLogs.length;
+            const daysWorked = Number.isFinite(Number(attendance.dayCredit)) ? attendance.dayCredit : attendance.daysSet.size;
             const basePunctuality = punctualityDays > 0
                 ? Math.max(0, Math.round(((punctualityDays - lateDays) / punctualityDays) * 100))
                 : scoringDefaults.punctuality;
@@ -2652,11 +2710,12 @@ export class Analytics {
         // ── PUNCTUALITY (0–100) ──
         // Only logs on required working days enter the punctuality rate: a
         // late Sunday check-in is voluntary time, not a lateness offense.
-        const punctualityLogs = userLogs.filter(l => isRequiredWorkingDay(l?.date, holidayDates));
+        const workedLogs = userLogs.filter(l => this.getAttendanceDayCredit(l) > 0);
+        const punctualityLogs = workedLogs.filter(l => isRequiredWorkingDay(l?.date, holidayDates));
         const lateDays = punctualityLogs.filter(l => l.lateCountable === true || String(l.type || '').toLowerCase() === 'late').length;
         const punctualityDays = punctualityLogs.length;
-        const totalDays = userLogs.length;
-        const daysWorked = new Set(userLogs.map(l => String(l.date || ''))).size;
+        const totalDays = workedLogs.length;
+        const daysWorked = workedLogs.reduce((sum, log) => sum + this.getAttendanceDayCredit(log), 0);
         const basePunctuality = punctualityDays > 0
             ? Math.max(0, Math.round(((punctualityDays - lateDays) / punctualityDays) * 100))
             : scoringDefaults.punctuality;
@@ -2664,8 +2723,8 @@ export class Analytics {
         const pausePolicy = policy?.PAUSE_DISCIPLINE || {};
         const maxPausesPerDay = Number.isFinite(Number(pausePolicy.maxPausesPerDay)) ? Number(pausePolicy.maxPausesPerDay) : 3;
         const maxPauseMinsPerDay = Number.isFinite(Number(pausePolicy.maxPauseMinsPerDay)) ? Number(pausePolicy.maxPauseMinsPerDay) : 45;
-        const totalPauseCount = userLogs.reduce((sum, l) => sum + Math.max(0, Number(l.pauseCount) || 0), 0);
-        const totalPauseMs = userLogs.reduce((sum, l) => sum + Math.max(0, Number(l.pausedMs) || 0), 0);
+        const totalPauseCount = workedLogs.reduce((sum, l) => sum + Math.max(0, Number(l.pauseCount) || 0), 0);
+        const totalPauseMs = workedLogs.reduce((sum, l) => sum + Math.max(0, Number(l.pausedMs) || 0), 0);
         const avgPausesPerDay = daysWorked > 0 ? totalPauseCount / daysWorked : 0;
         const avgPauseMinsPerDay = daysWorked > 0 ? (totalPauseMs / 60000) / daysWorked : 0;
         const pausePenalty = Math.max(0,
@@ -2684,9 +2743,7 @@ export class Analytics {
         const expectedHoursRaw = attMod.expectedHoursPerDay ?? attMod.consistencyImpact;
         const expectedHoursPerDay = Number.isFinite(Number(expectedHoursRaw)) ? Number(expectedHoursRaw) : 8;
         const maxHoursBonus = Number.isFinite(Number(attMod.maxBonus)) ? Number(attMod.maxBonus) : 10;
-        const totalMs = userLogs.reduce((sum, l) => {
-            const type = String(l?.type || '');
-            if (type.includes('Leave') || type === 'Absent') return sum;
+        const totalMs = workedLogs.reduce((sum, l) => {
             return sum + Math.max(0, Number(l.durationMs) || 0);
         }, 0);
         const totalHours = totalMs / (1000 * 60 * 60);
@@ -2697,7 +2754,7 @@ export class Analytics {
         // Check-in consistency bonus
         const maxConsistencyBonus = Number.isFinite(Number(attMod.consistencyBonus)) ? Number(attMod.consistencyBonus) : 10;
         let consistencyBonus = 0;
-        const checkInTimes = userLogs.filter(l => l.checkInAt).map(l => l.checkInAt);
+        const checkInTimes = workedLogs.filter(l => l.checkInAt).map(l => l.checkInAt);
         if (checkInTimes.length >= 2) {
             const checkInMinutes = checkInTimes.map(t => {
                 const d = new Date(t);
