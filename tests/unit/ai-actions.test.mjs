@@ -23,6 +23,11 @@ describe('parsePlainDate', () => {
         assert.equal(parsePlainDate('submit taxes 2026-10-01', REF), '2026-10-01');
     });
 
+    it('rejects impossible ISO dates instead of scheduling them', () => {
+        assert.equal(parsePlainDate('2026-02-31', REF), null);
+        assert.equal(parsePlainDate('2026-13-01', REF), null);
+    });
+
     it('resolves weekdays to the next occurrence strictly after refDate', () => {
         assert.equal(parsePlainDate('wednesday', REF), '2026-09-16'); // +2
         assert.equal(parsePlainDate('fri', REF), '2026-09-18'); // +4

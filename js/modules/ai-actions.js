@@ -39,15 +39,20 @@ export async function fetchToolPlan(text) {
 export async function executeToolPlan(plan) {
   const user = window.AppAuth?.getUser?.();
   if (!user) throw new Error('Not logged in');
+  if (!plan || typeof plan !== 'object') throw new Error('Invalid action plan');
+  if (plan.date != null && !_isValidIsoDate(plan.date)) throw new Error('Invalid task date');
   switch (plan.action) {
-    case 'add_task':
-      return executeAddTask({ task: String(plan.task).trim(), date: plan.date || _todayStr() });
+    case 'add_task': {
+      const task = String(plan.task ?? '').trim();
+      if (!task) throw new Error('A task name is required');
+      return executeAddTask({ task, date: plan.date || _todayStr() });
+    }
     case 'complete_task':
-      return executeCompleteTask({ query: String(plan.query).trim(), isBulk: false });
+      return executeCompleteTask({ query: String(plan.query ?? '').trim(), isBulk: false });
     case 'complete_overdue':
       return executeCompleteTask({ query: '__OVERDUE__', isBulk: true });
     case 'postpone_task':
-      return executePostponeTask({ query: String(plan.query).trim(), date: plan.date });
+      return executePostponeTask({ query: String(plan.query ?? '').trim(), date: plan.date });
     default:
       throw new Error('Unknown action');
   }
@@ -59,11 +64,14 @@ export async function executeToolPlan(plan) {
 export async function executePostponeTask({ query, date }) {
   const user = window.AppAuth?.getUser?.();
   if (!user) throw new Error('Not logged in');
+  const normalizedQuery = String(query || '').trim();
+  if (!normalizedQuery) throw new Error('A task name is required');
+  if (date != null && !_isValidIsoDate(date)) throw new Error('Invalid task date');
   const target = date || _addDaysStr(1); // default: tomorrow
   let rows = [];
   try { rows = await window.AppAnalyticsService.getWorkPlans(); }
   catch { try { rows = await window.AppDB.getAll('work_plans'); } catch { rows = []; } }
-  const qLower = String(query).trim().toLowerCase();
+  const qLower = normalizedQuery.toLowerCase();
   const candidates = [];
   for (const wp of rows) {
     if (!wp || !Array.isArray(wp.plans)) continue;
@@ -105,6 +113,11 @@ function _addDaysFrom(base, days) {
 function _todayStr() {
   return _fmtDate(new Date());
 }
+function _isValidIsoDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
 function _addDaysStr(days) {
   return _fmtDate(_addDaysFrom(new Date(), days));
 }
@@ -142,7 +155,7 @@ export function parsePlainDate(text, refDate = new Date()) {
   const isoMatch = lower.match(/(\d{4}-\d{2}-\d{2})/);
   if (isoMatch) {
     const iso = isoMatch[1];
-    if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+    if (_isValidIsoDate(iso)) return iso;
   }
   // day after tomorrow first (contains tomorrow)
   if (lower.includes('day after tomorrow') || lower.includes('day after') || lower.includes('overmorrow')) {
@@ -316,10 +329,12 @@ export async function executeAddTask({ task, date }) {
 export async function executeCompleteTask({ query, isBulk }) {
   const user = window.AppAuth?.getUser?.();
   if (!user) throw new Error('Not logged in');
+  const isBulkAction = isBulk || String(query || '').toLowerCase().includes('overdue') || query === '__OVERDUE__';
+  if (!isBulkAction && !String(query || '').trim()) throw new Error('A task name is required');
   const metrics = window.AppMetricsService;
   if (!metrics?.getMyIssues) throw new Error('Metrics not ready');
   // Bulk overdue
-  if (isBulk || String(query).toLowerCase().includes('overdue') || query === '__OVERDUE__') {
+  if (isBulkAction) {
     // Fetch work_plans and complete overdue ones for this user
     const wpRows = await (window.AppAnalyticsService?.getWorkPlans?.() || window.AppCalendar?.db?.getAll?.('work_plans') || Promise.resolve([])).catch(()=>[]);
     // Fallback to AppDB

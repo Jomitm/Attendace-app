@@ -42,13 +42,12 @@ function applyCors(req, res) {
 }
 
 export default async function handler(req, res) {
-    if (req.method !== 'POST') {
-        return res.status(405).json({ error: 'Method not allowed' });
-    }
-
     const corsOk = applyCors(req, res);
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
+    }
+    if (req.method !== 'POST') {
+        return res.status(405).json({ error: 'Method not allowed' });
     }
     if (!corsOk) {
         return res.status(403).json({ error: 'Origin not allowed' });

@@ -123,4 +123,17 @@ describe('ai wiring - postpone plan executes the move end to end', () => {
         );
         await assert.rejects(executeToolPlan({ action: 'teleport_task' }), /Unknown action/);
     });
+
+    it('refuses an empty task query before it can match or change tasks', async () => {
+        global.window.AppAuth = { getUser: () => ({ id: 'u1' }) };
+        await assert.rejects(
+            executeToolPlan({ action: 'postpone_task', query: '', date: '2026-03-05' }),
+            /task name is required/
+        );
+        await assert.rejects(
+            executeToolPlan({ action: 'complete_task', query: '' }),
+            /task name is required/
+        );
+        await assert.rejects(executeToolPlan({ action: 'add_task', task: '  ' }), /task name is required/);
+    });
 });

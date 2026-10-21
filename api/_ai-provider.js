@@ -285,7 +285,7 @@ export function generatePerformanceFallback(metrics) {
         punctuality: 'Plan to check in before 09:15 daily.',
         attendance: 'Avoid unplanned absences and keep checkout consistent.',
         taskExecution: 'Clear overdue and postponed tasks first — they weigh down this score.',
-        productivity: 'Add richer work descriptions and log extra hours when they happen.',
+        productivity: 'Finish planned tasks and attach clear evidence of the outcome and its quality.',
         planning: 'Plan 5+ tasks weekly with sizes and purposes set.',
         compliance: 'Check out from your registered location to avoid mismatches.'
     };
@@ -517,7 +517,7 @@ export async function planToolAction({ text, today }) {
                 if (!VALID.includes(plan?.action)) continue;
                 if (plan.action === 'add_task' && !String(plan.task || '').trim()) continue;
                 if ((plan.action === 'complete_task' || plan.action === 'postpone_task') && !String(plan.query || '').trim()) continue;
-                if (plan.date && !/^\d{4}-\d{2}-\d{2}$/.test(plan.date)) delete plan.date;
+                if (Object.prototype.hasOwnProperty.call(plan, 'date') && !isValidIsoDate(plan.date)) continue;
                 return plan;
             } catch (err) {
                 console.warn(`[ai-provider] plan ${provider.name}/${model} failed:`, err.message);
@@ -526,6 +526,12 @@ export async function planToolAction({ text, today }) {
         }
     }
     return null;
+}
+
+function isValidIsoDate(value) {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 export async function callAI({ metrics, question, history, mode }) {
