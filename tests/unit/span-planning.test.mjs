@@ -209,6 +209,17 @@ describe('computeDayLoad', () => {
         const empty = span.computeDayLoad([], '2026-10-14', { dailyCapacity: 8 });
         assert.deepEqual(empty, { date: '2026-10-14', hours: 0, over: false });
     });
+
+    it('excludes reference plans and tasks assigned to another person', () => {
+        const load = span.computeDayLoad([
+            { task: 'Mine', sizeCategory: 'small-task' },
+            { task: 'Reference plan', sizeCategory: 'major-project', isReference: true },
+            { task: 'Assigned elsewhere', sizeCategory: 'large-task', assignedTo: 'u2' },
+            { task: 'Assigned to target', sizeCategory: 'quick-task', assignedTo: 'u1' }
+        ], '2026-10-14', { targetUserId: 'u1' });
+        assert.equal(load.hours, 5);
+        assert.equal(load.over, false);
+    });
 });
 
 describe('parseDurationPhrase', () => {

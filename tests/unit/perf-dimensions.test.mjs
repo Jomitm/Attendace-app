@@ -145,7 +145,7 @@ test('compliance: location mismatches and auto-checkouts both penalize', () => {
         mkLog('2026-10-02')
     ];
     const twoMismatch = AppAnalytics._computeWeekPerformance(mismatchLogs, [], WEEK, cfg());
-    assert.equal(twoMismatch.dimensions.compliance.score, 80, '2/5 × 50pts');
+    assert.equal(twoMismatch.dimensions.compliance.score, 96, '2/5 × 10pts');
     assert.equal(twoMismatch.details.locationMismatches, 2);
     assert.equal(twoMismatch.details.autoCheckouts, 0);
 
@@ -153,16 +153,24 @@ test('compliance: location mismatches and auto-checkouts both penalize', () => {
         [mismatchLogs[0], ...mismatchLogs.slice(1).map((l, i) => (i === 0 ? { ...l, autoCheckout: true } : l))],
         [], WEEK, cfg()
     );
-    assert.equal(withAuto.dimensions.compliance.score, 70, '2 mismatches + 1 auto-checkout');
+    assert.equal(withAuto.dimensions.compliance.score, 86, '2 capped location penalties + 1 auto-checkout');
     assert.equal(withAuto.details.autoCheckouts, 1);
 
     const allFlagged = AppAnalytics._computeWeekPerformance(
         ['2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02'].map((d) =>
             mkLog(d, { locationMismatched: true, autoCheckout: true })
         ),
-        [], WEEK, cfg()
+        [], WEEK, cfg({
+            policy: {
+                ...policy,
+                SCORING_RULES: {
+                    ...policy.SCORING_RULES,
+                    COMPLIANCE_PENALTY: { locationMismatch: 50, autoCheckout: 50 }
+                }
+            }
+        })
     );
-    assert.equal(allFlagged.dimensions.compliance.score, 0, 'penalties clamp at zero, never negative');
+    assert.equal(allFlagged.dimensions.compliance.score, 40, 'location penalty is capped at 10 points per full period');
 });
 
 // ── 8: widget ↔ leaderboard compliance parity ───────────────────────────────
@@ -199,7 +207,7 @@ test('compliance: widget and leaderboard apply the identical formula', () => {
     assert.ok(row, 'candidate row exists');
     assert.equal(row.compliance, widget.dimensions.compliance.score,
         'same 2 mismatches + 1 auto-checkout must score the same on both surfaces');
-    assert.equal(row.compliance, 70);
+    assert.equal(row.compliance, 86);
 });
 
 // ── 9–13: classification bonus / warning thresholds ─────────────────────────

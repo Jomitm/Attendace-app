@@ -32,14 +32,14 @@ const DEFAULT_SCORING_RULES = {
     PRIORITY_WEIGHTS: { urgent: 1.5, important: 1.2, standard: 1.0, flexible: 0.8 },
     TASK_EXECUTION_WEIGHTS: { completion: 0.5, onTime: 0.2, missed: 0.3 },
     POSTPONE_CREDIT: { workStarted: 0.3, inProgress: 0.6 },
-    PRODUCTIVITY_WEIGHTS: { activity: 0.4, extraHours: 0.3, workDescription: 0.3 },
+    PRODUCTIVITY_WEIGHTS: { taskOutcome: 0.7, qualityEvidence: 0.3 },
     PLANNING_WEIGHTS: { planVolume: 0.6, subPlans: 0.2, completed: 20 },
-    EXPECTED_EXTRA_HOURS_PER_DAY: 0.5,
     EVIDENCE_MIN_CHARS: 40,
     CLASSIFICATION_BONUS: { minTasks: 5, minPriorityRatio: 0.8, points: 3, warningRatio: 0.4 },
     COMPLEXITY_BONUS: { mediumThreshold: 3, highThreshold: 5, mediumPoints: 3, highPoints: 5 },
     PURPOSE_BONUS: { minPurposes: 2, fullPurposes: 4, points: 1, fullPoints: 3 },
-    PAUSE_PENALTY: { pauseCountPoints: 10, pauseMinutesBlock: 10 }
+    PAUSE_PENALTY: { pauseCountPoints: 10, pauseMinutesBlock: 10 },
+    COMPLIANCE_PENALTY: { locationMismatch: 10, autoCheckout: 50 }
 };
 
 function resolveHeroScoringRules(policy = {}) {
@@ -48,6 +48,9 @@ function resolveHeroScoringRules(policy = {}) {
     for (const key of ['SIZE_WEIGHTS', 'PRIORITY_WEIGHTS', 'TASK_EXECUTION_WEIGHTS', 'POSTPONE_CREDIT', 'PRODUCTIVITY_WEIGHTS', 'PLANNING_WEIGHTS', 'CLASSIFICATION_BONUS', 'COMPLEXITY_BONUS', 'PURPOSE_BONUS', 'PAUSE_PENALTY', 'COMPLIANCE_PENALTY', 'DEFAULTS']) {
         rules[key] = { ...DEFAULT_SCORING_RULES[key], ...(configured[key] || {}) };
     }
+    // Older Firestore policies may still store the former 50-point penalty.
+    // Keep compatibility with those records while enforcing the approved cap.
+    rules.COMPLIANCE_PENALTY.locationMismatch = Math.min(10, Math.max(0, Number(rules.COMPLIANCE_PENALTY.locationMismatch) || 0));
     return rules;
 }
 
@@ -1674,14 +1677,14 @@ export class Analytics {
             // Same effective (postpone-deduped) rows as the widget.
             const effectiveTasks = this._effectiveWindowTasks(userRawPlans);
             let taskPlanned = 0, taskCompleted = 0, taskMissed = 0, taskPostponed = 0, taskInProgress = 0;
-            let onTimeCompleted = 0, timedCompleted = 0;
-            let weightedPlanned = 0, weightedCompleted = 0;
+            let weightedPlanned = 0, weightedCompleted = 0, weightedOutcomeCompleted = 0;
+            let weightedTimedCompleted = 0, weightedOnTimeCompleted = 0, weightedMissed = 0;
             let classifiedCount = 0;
             effectiveTasks.forEach(({ wp, task, status }) => {
                 taskPlanned++;
                 const effSize = task.sizeCategory || task.aiSizeCategory;
                 const effPriority = task.priorityLevel || task.aiPriorityLevel;
-                const tw = sizeWeights[effSize] ?? 1;
+                const tw = sizeWeights[effSize] ?? sizeWeights['quick-task'] ?? 1;
                 const pw = priorityWeights[effPriority] ?? 1.0;
                 weightedPlanned += tw * pw;
                 const hasClassification = !!(task.priorityLevel || task.aiPriorityLevel);
@@ -1689,13 +1692,19 @@ export class Analytics {
                 if (status === 'completed') {
                     taskCompleted++;
                     weightedCompleted += tw * pw;
+                    weightedOutcomeCompleted += tw * pw;
                     if (task.completedDate && wp.date) {
-                        timedCompleted++;
+                        weightedTimedCompleted += tw * pw;
                         const diffMs = new Date(task.completedDate).getTime() - new Date(wp.date + 'T23:59:59').getTime();
-                        if (diffMs <= 0) onTimeCompleted++;
+                        if (diffMs <= 0) {
+                            weightedOnTimeCompleted += tw * pw;
+                        }
                     }
                     // Missing completedDate = unknown timing, excluded from the rate.
-                } else if (status === 'missed') taskMissed++;
+                } else if (status === 'missed') {
+                    taskMissed++;
+                    weightedMissed += tw * pw;
+                }
                 else if (status === 'postponed') {
                     taskPostponed++;
                     const ws = String(task.postponeWorkStatus || '');
@@ -1711,33 +1720,24 @@ export class Analytics {
                 taskInProgress = tasks.inProgress;
                 weightedPlanned = taskPlanned;
                 weightedCompleted = taskCompleted;
+                weightedMissed = taskMissed;
             }
             const completionRate = weightedPlanned > 0 ? (weightedCompleted / weightedPlanned) * 100 : 0;
             const simpleCompletionRate = taskPlanned > 0 ? (taskCompleted / taskPlanned) * 100 : 0;
-            const onTimeRate = timedCompleted > 0 ? (onTimeCompleted / timedCompleted) * 100 : scoringDefaults.onTimeRate;
-            const missRate = taskPlanned > 0 ? (taskMissed / taskPlanned) * 100 : 0;
+            const onTimeRate = weightedTimedCompleted > 0 ? (weightedOnTimeCompleted / weightedTimedCompleted) * 100 : scoringDefaults.onTimeRate;
+            const missRate = weightedPlanned > 0 ? (weightedMissed / weightedPlanned) * 100 : 0;
             const taskExecution = Math.max(0, Math.min(100, Math.round(
                 completionRate * executionWeights.completion + onTimeRate * executionWeights.onTime - missRate * executionWeights.missed
             )));
 
             // ── PRODUCTIVITY (0–100) ──
-            const activityScores = dedupedLogs.map(l => Number(l.activityScore)).filter(s => Number.isFinite(s));
-            const avgActivity = activityScores.length > 0
-                ? activityScores.reduce((a, b) => a + b, 0) / activityScores.length : scoringDefaults.activity;
-            const totalExtraMs = dedupedLogs.reduce((sum, l) => {
-                const type = String(l?.type || '');
-                if (type.includes('Leave') || type === 'Absent') return sum;
-                const confirmed = typeof l?.extraTimeConfirmedMs === 'number' && l.extraTimeConfirmedMs > 0 ? l.extraTimeConfirmedMs : 0;
-                const stored = typeof l?.extraWorkedMs === 'number' && l.extraWorkedMs > 0 ? l.extraWorkedMs : 0;
-                return sum + (confirmed || stored);
-            }, 0);
-            const extraHours = totalExtraMs / (1000 * 60 * 60);
-            const workDescDepth = dedupedLogs.reduce((sum, l) => sum + String(l?.workDescription || '').length, 0);
-            const qualityCharsPerDay = Number(policy.CAPS?.qualityChars ?? scoringRules.PRODUCTIVITY_DESCRIPTION_CHARS_PER_DAY);
-            const depthScore = Math.min(100, (workDescDepth / Math.max(1, totalDays * qualityCharsPerDay)) * 100);
-            const expectedExtraHours = Math.max(1, requiredDays * Number(scoringRules.EXPECTED_EXTRA_HOURS_PER_DAY));
-            const extraHoursScore = Math.min(100, (extraHours / expectedExtraHours) * 100);
-            const productivity = Math.round(avgActivity * productivityWeights.activity + extraHoursScore * productivityWeights.extraHours + depthScore * productivityWeights.workDescription);
+            const evidenceMinChars = Math.max(1, Number(scoringRules.EVIDENCE_MIN_CHARS) || 40);
+            const evidenceDays = workedLogs.filter(l => String(l?.workDescription || '').trim().length >= evidenceMinChars).length;
+            const qualityEvidenceScore = totalDays > 0 ? Math.min(100, (evidenceDays / totalDays) * 100) : 0;
+            const taskOutcomeScore = weightedPlanned > 0 ? (weightedOutcomeCompleted / weightedPlanned) * 100 : 0;
+            const productivity = Math.round(
+                taskOutcomeScore * productivityWeights.taskOutcome + qualityEvidenceScore * productivityWeights.qualityEvidence
+            );
 
             // ── PLANNING (0–100) ──
             const planVolume = Math.min(100, (taskPlanned / expectedTasks) * 100);
@@ -1748,7 +1748,7 @@ export class Analytics {
             // Task complexity bonus
             const sizeBuckets = {};
             effectiveTasks.forEach(({ task }) => {
-                const cat = task.sizeCategory || task.aiSizeCategory || 'small-task';
+                const cat = task.sizeCategory || task.aiSizeCategory || 'quick-task';
                 sizeBuckets[cat] = (sizeBuckets[cat] || 0) + 1;
             });
             const totalWeighted = Object.entries(sizeBuckets).reduce((sum, [cat, count]) =>
@@ -2772,8 +2772,9 @@ export class Analytics {
         // Effective rows apply postpone-lineage dedupe (widget ↔ leaderboard parity).
         const effectiveTasks = this._effectiveWindowTasks(userPlans);
         let taskPlanned = 0, taskCompleted = 0, taskMissed = 0, taskPostponed = 0, taskInProgress = 0;
-        let onTimeCompleted = 0, lateCompleted = 0, timedCompleted = 0;
-        let weightedPlanned = 0, weightedCompleted = 0;
+            let onTimeCompleted = 0, lateCompleted = 0, timedCompleted = 0;
+        let weightedPlanned = 0, weightedCompleted = 0, weightedOutcomeCompleted = 0;
+            let weightedTimedCompleted = 0, weightedOnTimeCompleted = 0, weightedMissed = 0;
         let classifiedCount = 0;
         effectiveTasks.forEach(({ wp, task, status }) => {
             taskPlanned++;
@@ -2781,7 +2782,7 @@ export class Analytics {
             // (aiSizeCategory/aiPriorityLevel written by ai-performance-coach.js)
             const effSize = task.sizeCategory || task.aiSizeCategory;
             const effPriority = task.priorityLevel || task.aiPriorityLevel;
-            const tw = sizeWeights[effSize] ?? 1;
+            const tw = sizeWeights[effSize] ?? sizeWeights['quick-task'] ?? 1;
             const pw = priorityWeights[effPriority] ?? 1.0;
             weightedPlanned += tw * pw;
             const hasClassification = !!(task.priorityLevel || task.aiPriorityLevel);
@@ -2789,16 +2790,24 @@ export class Analytics {
             if (status === 'completed') {
                 taskCompleted++;
                 weightedCompleted += tw * pw;
+                weightedOutcomeCompleted += tw * pw;
                 // On-time check. Tasks completed without a completion timestamp
                 // have UNKNOWN timing — they no longer count as on-time by
                 // default (they're excluded from the rate instead).
                 if (task.completedDate && wp.date) {
                     timedCompleted++;
+                    weightedTimedCompleted += tw * pw;
                     const diffMs = new Date(task.completedDate).getTime() - new Date(wp.date + 'T23:59:59').getTime();
-                    if (diffMs <= 0) onTimeCompleted++;
+                    if (diffMs <= 0) {
+                        onTimeCompleted++;
+                        weightedOnTimeCompleted += tw * pw;
+                    }
                     else lateCompleted++;
                 }
-            } else if (status === 'missed') taskMissed++;
+            } else if (status === 'missed') {
+                taskMissed++;
+                weightedMissed += tw * pw;
+            }
             else if (status === 'postponed') {
                 taskPostponed++;
                 const ws = String(task.postponeWorkStatus || '');
@@ -2808,38 +2817,32 @@ export class Analytics {
             else taskInProgress++;
         });
         const completionRate = weightedPlanned > 0 ? (weightedCompleted / weightedPlanned) * 100 : 0;
-        const onTimeRate = timedCompleted > 0 ? (onTimeCompleted / timedCompleted) * 100 : scoringDefaults.onTimeRate;
-        const missRate = taskPlanned > 0 ? (taskMissed / taskPlanned) * 100 : 0;
+        const onTimeRate = weightedTimedCompleted > 0 ? (weightedOnTimeCompleted / weightedTimedCompleted) * 100 : scoringDefaults.onTimeRate;
+        const missRate = weightedPlanned > 0 ? (weightedMissed / weightedPlanned) * 100 : 0;
         const taskExecution = Math.max(0, Math.min(100, Math.round(
             completionRate * executionWeights.completion + onTimeRate * executionWeights.onTime - missRate * executionWeights.missed
         )));
 
         // ── PRODUCTIVITY (0–100) ──
-        const activityScores = userLogs
-            .map(l => Number(l.activityScore))
-            .filter(s => Number.isFinite(s));
+        const evidenceMinChars = Math.max(1, Number(scoringRules.EVIDENCE_MIN_CHARS) || 40);
+        const evidenceDays = workedLogs.filter(l => String(l?.workDescription || '').trim().length >= evidenceMinChars).length;
+        const qualityEvidenceScore = totalDays > 0 ? Math.min(100, (evidenceDays / totalDays) * 100) : 0;
+        const taskOutcomeScore = weightedPlanned > 0 ? (weightedOutcomeCompleted / weightedPlanned) * 100 : 0;
+        const productivity = Math.round(
+            taskOutcomeScore * productivityWeights.taskOutcome + qualityEvidenceScore * productivityWeights.qualityEvidence
+        );
+        // Keep these as informational details for the performance card/coach;
+        // neither app activity nor overtime contributes to the productivity score.
+        const activityScores = workedLogs.map(l => Number(l.activityScore)).filter(Number.isFinite);
         const avgActivity = activityScores.length > 0
-            ? activityScores.reduce((a, b) => a + b, 0) / activityScores.length
+            ? activityScores.reduce((sum, score) => sum + score, 0) / activityScores.length
             : scoringDefaults.activity;
-        // Count extra hours only from working-day logs (same logic as Monthly Stats)
-        const totalExtraMs = userLogs.reduce((sum, l) => {
-            const type = String(l?.type || '');
-            if (type.includes('Leave') || type === 'Absent') return sum;
-            const confirmed = typeof l?.extraTimeConfirmedMs === 'number' && l.extraTimeConfirmedMs > 0 ? l.extraTimeConfirmedMs : 0;
-            const stored = typeof l?.extraWorkedMs === 'number' && l.extraWorkedMs > 0 ? l.extraWorkedMs : 0;
+        const extraWorkedMs = workedLogs.reduce((sum, log) => {
+            const confirmed = Number(log?.extraTimeConfirmedMs) > 0 ? Number(log.extraTimeConfirmedMs) : 0;
+            const stored = Number(log?.extraWorkedMs) > 0 ? Number(log.extraWorkedMs) : 0;
             return sum + (confirmed || stored);
         }, 0);
-        const extraHours = totalExtraMs / (1000 * 60 * 60);
-        const workDescDepth = userLogs.reduce((sum, l) =>
-            sum + String(l?.workDescription || '').length, 0
-        );
-        const qualityCharsPerDay = Number(policy.CAPS?.qualityChars ?? scoringRules.PRODUCTIVITY_DESCRIPTION_CHARS_PER_DAY);
-        const depthScore = Math.min(100, (workDescDepth / Math.max(1, totalDays * qualityCharsPerDay)) * 100);
-        const expectedExtraHours = Math.max(1, denomRequiredDays * Number(scoringRules.EXPECTED_EXTRA_HOURS_PER_DAY));
-        const extraHoursScore = Math.min(100, (extraHours / expectedExtraHours) * 100);
-        const productivity = Math.round(
-            avgActivity * productivityWeights.activity + extraHoursScore * productivityWeights.extraHours + depthScore * productivityWeights.workDescription
-        );
+        const extraHours = extraWorkedMs / (1000 * 60 * 60);
 
         // ── PLANNING (0–100) ──
         const expectedWeeklyTasks = Math.max(1, Number(policy.EXPECTED_WEEKLY_TASKS || 5));
@@ -2855,7 +2858,7 @@ export class Analytics {
         // Task complexity bonus
         const sizeBuckets = {};
         effectiveTasks.forEach(({ task }) => {
-            const cat = task.sizeCategory || task.aiSizeCategory || 'small-task';
+            const cat = task.sizeCategory || task.aiSizeCategory || 'quick-task';
             sizeBuckets[cat] = (sizeBuckets[cat] || 0) + 1;
         });
         const totalWeighted = Object.entries(sizeBuckets).reduce((sum, [cat, count]) =>

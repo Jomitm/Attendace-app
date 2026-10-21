@@ -503,7 +503,7 @@ function _localPerformanceNarrative(perfData) {
         punctuality: 'Plan to check in before 09:15 daily.',
         attendance: 'Avoid unplanned absences and keep checkout consistent.',
         taskExecution: 'Clear overdue and postponed tasks first — they weigh down this score.',
-        productivity: 'Add richer work descriptions and log extra hours when they happen.',
+        productivity: 'Complete planned work and add a short note showing the result or evidence for the work.',
         planning: 'Plan 5+ tasks weekly with sizes and purposes set.',
         compliance: 'Check out from your registered location to avoid mismatches.'
     };

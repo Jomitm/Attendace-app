@@ -153,7 +153,6 @@ export const AdminPolicies = {
                     renderNumberField({ label: 'Expected Weekly Tasks', name: 'hero_expectedWeeklyTasks', value: heroPolicy.EXPECTED_WEEKLY_TASKS ?? heroDefaults.EXPECTED_WEEKLY_TASKS ?? 5, step: '1', min: '1' }),
                     renderNumberField({ label: 'Default Activity Score', name: 'hero_defaultActivityScore', value: heroPolicy.DEFAULT_ACTIVITY_SCORE ?? heroDefaults.DEFAULT_ACTIVITY_SCORE ?? 50, step: '1', min: '0', max: '100', help: 'Baseline for users with no check-in data.' }),
                     renderNumberField({ label: 'Hours Cap (confidence)', name: 'hero_capsHours', value: heroCaps.hours ?? 40, step: '1', min: '1', help: 'Caps confidence display, not the score.' }),
-                    renderNumberField({ label: 'Quality Chars Cap', name: 'hero_capsQualityChars', value: heroCaps.qualityChars ?? 500, step: '1', min: '0', help: 'Limits work description length in scoring.' }),
                     renderNumberField({ label: 'Punctuality Weight', name: 'hero_weightPunctuality', value: heroWeights.punctuality ?? 0.15, step: '0.05', min: '0', max: '1' }),
                     renderNumberField({ label: 'Attendance Weight', name: 'hero_weightAttendance', value: heroWeights.attendance ?? 0.20, step: '0.05', min: '0', max: '1' }),
                     renderNumberField({ label: 'Task Weight', name: 'hero_weightTaskExecution', value: heroWeights.taskExecution ?? 0.25, step: '0.05', min: '0', max: '1' }),
@@ -174,7 +173,6 @@ export const AdminPolicies = {
                     renderNumberField({ label: 'Important Multiplier', name: 'hero_rulePriorityImportant', value: priorityWeights.important ?? 1.2, step: '0.1', min: '0' }),
                     renderNumberField({ label: 'Standard Multiplier', name: 'hero_rulePriorityStandard', value: priorityWeights.standard ?? 1, step: '0.1', min: '0' }),
                     renderNumberField({ label: 'Flexible Multiplier', name: 'hero_rulePriorityFlexible', value: priorityWeights.flexible ?? 0.8, step: '0.1', min: '0' }),
-                    renderNumberField({ label: 'Extra Hours Expected/Day', name: 'hero_ruleExtraHours', value: heroRules.EXPECTED_EXTRA_HOURS_PER_DAY ?? 0.5, step: '0.1', min: '0' }),
                     renderNumberField({ label: 'Evidence Characters', name: 'hero_ruleEvidenceChars', value: heroRules.EVIDENCE_MIN_CHARS ?? 40, step: '1', min: '1' })
                 ].join(''),
                 3
@@ -190,7 +188,7 @@ export const AdminPolicies = {
                     renderNumberField({ label: 'Subtask Points', name: 'hero_ruleSubPlanPoints', value: planningWeights.subPlanPoints ?? 20, step: '1', min: '0' }),
                     renderNumberField({ label: 'Pause Count Penalty', name: 'hero_rulePauseCountPoints', value: pausePenaltyRule.pauseCountPoints ?? 10, step: '1', min: '0' }),
                     renderNumberField({ label: 'Pause Minutes Block', name: 'hero_rulePauseMinutesBlock', value: pausePenaltyRule.pauseMinutesBlock ?? 10, step: '1', min: '1' }),
-                    renderNumberField({ label: 'Location Penalty', name: 'hero_ruleLocationPenalty', value: compliancePenalty.locationMismatch ?? 50, step: '1', min: '0' }),
+                    renderNumberField({ label: 'Location Penalty (max 10)', name: 'hero_ruleLocationPenalty', value: Math.min(10, Number(compliancePenalty.locationMismatch ?? 10)), step: '1', min: '0', max: '10', help: 'Movement flags can reduce compliance by up to 10 points.' }),
                     renderNumberField({ label: 'Auto-checkout Penalty', name: 'hero_ruleAutoCheckoutPenalty', value: compliancePenalty.autoCheckout ?? 50, step: '1', min: '0' })
                 ].join(''),
                 3
@@ -320,7 +318,6 @@ export const AdminPolicies = {
             nextHeroPolicy.PAUSE_DISCIPLINE.maxPauseMinsPerDay = Math.max(0, Math.round(getNumber('hero_maxPauseMinsPerDay', nextHeroPolicy.PAUSE_DISCIPLINE.maxPauseMinsPerDay ?? AppConfig?.HERO_POLICY?.PAUSE_DISCIPLINE?.maxPauseMinsPerDay ?? 45)));
 
             nextHeroPolicy.CAPS.hours = Math.max(1, Math.round(getNumber('hero_capsHours', nextHeroPolicy.CAPS.hours ?? AppConfig?.HERO_POLICY?.CAPS?.hours ?? 40)));
-            nextHeroPolicy.CAPS.qualityChars = Math.max(0, Math.round(getNumber('hero_capsQualityChars', nextHeroPolicy.CAPS.qualityChars ?? AppConfig?.HERO_POLICY?.CAPS?.qualityChars ?? 500)));
 
             nextHeroPolicy.MIN_EVIDENCE.minDays = Math.max(1, Math.round(getNumber('hero_minDays', nextHeroPolicy.MIN_EVIDENCE.minDays ?? AppConfig?.HERO_POLICY?.MIN_EVIDENCE?.minDays ?? 3)));
             const minDurationHours = Math.max(0, Number(getNumber('hero_minDurationHours', (nextHeroPolicy.MIN_EVIDENCE.minDurationMs ?? AppConfig?.HERO_POLICY?.MIN_EVIDENCE?.minDurationMs ?? 14400000) / 3600000)));
@@ -348,9 +345,8 @@ export const AdminPolicies = {
             rules.PLANNING_WEIGHTS.subPlanPoints = Math.max(0, getNumber('hero_ruleSubPlanPoints', rules.PLANNING_WEIGHTS.subPlanPoints ?? 20));
             rules.PAUSE_PENALTY.pauseCountPoints = Math.max(0, getNumber('hero_rulePauseCountPoints', rules.PAUSE_PENALTY.pauseCountPoints ?? 10));
             rules.PAUSE_PENALTY.pauseMinutesBlock = Math.max(1, getNumber('hero_rulePauseMinutesBlock', rules.PAUSE_PENALTY.pauseMinutesBlock ?? 10));
-            rules.COMPLIANCE_PENALTY.locationMismatch = Math.max(0, getNumber('hero_ruleLocationPenalty', rules.COMPLIANCE_PENALTY.locationMismatch ?? 50));
+            rules.COMPLIANCE_PENALTY.locationMismatch = Math.min(10, Math.max(0, getNumber('hero_ruleLocationPenalty', rules.COMPLIANCE_PENALTY.locationMismatch ?? 10)));
             rules.COMPLIANCE_PENALTY.autoCheckout = Math.max(0, getNumber('hero_ruleAutoCheckoutPenalty', rules.COMPLIANCE_PENALTY.autoCheckout ?? 50));
-            rules.EXPECTED_EXTRA_HOURS_PER_DAY = Math.max(0, getNumber('hero_ruleExtraHours', rules.EXPECTED_EXTRA_HOURS_PER_DAY ?? 0.5));
             rules.EVIDENCE_MIN_CHARS = Math.max(1, getNumber('hero_ruleEvidenceChars', rules.EVIDENCE_MIN_CHARS ?? 40));
 
             nextHeroPolicy.SCHEMA_VERSION = Math.max(

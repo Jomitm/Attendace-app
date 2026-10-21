@@ -177,6 +177,8 @@ export function renderModals() {
                             <option value="HR">HR</option>
                             <option value="Sales">Sales</option>
                             <option value="Operations">Operations</option>
+                            <option value="CIRRI">CIRRI</option>
+                            <option value="Data Center">Data Center</option>
                             <option value="General">General</option>
                         </select>
                     </label>
@@ -347,6 +349,8 @@ export function renderModals() {
                             <option value="HR">HR</option>
                             <option value="Sales">Sales</option>
                             <option value="Operations">Operations</option>
+                            <option value="CIRRI">CIRRI</option>
+                            <option value="Data Center">Data Center</option>
                             <option value="General">General</option>
                         </select>
                     </label>

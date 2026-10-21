@@ -104,16 +104,14 @@ export const AppConfig = {
             PRIORITY_WEIGHTS: { urgent: 1.5, important: 1.2, standard: 1.0, flexible: 0.8 },
             TASK_EXECUTION_WEIGHTS: { completion: 0.5, onTime: 0.2, missed: 0.3 },
             POSTPONE_CREDIT: { workStarted: 0.3, inProgress: 0.6 },
-            PRODUCTIVITY_WEIGHTS: { activity: 0.4, extraHours: 0.3, workDescription: 0.3 },
+            PRODUCTIVITY_WEIGHTS: { taskOutcome: 0.7, qualityEvidence: 0.3 },
             PLANNING_WEIGHTS: { planVolume: 0.6, subPlans: 0.2, completed: 20, subPlanPoints: 20 },
-            EXPECTED_EXTRA_HOURS_PER_DAY: 0.5,
             EVIDENCE_MIN_CHARS: 40,
-            PRODUCTIVITY_DESCRIPTION_CHARS_PER_DAY: 200,
             CLASSIFICATION_BONUS: { minTasks: 5, minPriorityRatio: 0.8, points: 3, warningRatio: 0.4 },
             COMPLEXITY_BONUS: { mediumThreshold: 3, highThreshold: 5, mediumPoints: 3, highPoints: 5 },
             PURPOSE_BONUS: { minPurposes: 2, fullPurposes: 4, points: 1, fullPoints: 3 },
             PAUSE_PENALTY: { pauseCountPoints: 10, pauseMinutesBlock: 10 },
-            COMPLIANCE_PENALTY: { locationMismatch: 50, autoCheckout: 50 },
+            COMPLIANCE_PENALTY: { locationMismatch: 10, autoCheckout: 50 },
             DEFAULTS: { punctuality: 50, activity: 50, onTimeRate: 100 }
         },
         EXPECTED_WEEKLY_TASKS: 5,
@@ -138,8 +136,7 @@ export const AppConfig = {
             maxPauseMinsPerDay: 45
         },
         CAPS: {
-            hours: 40,
-            qualityChars: 500
+            hours: 40
         },
         DEFAULT_ACTIVITY_SCORE: 50,
         MIN_EVIDENCE: {

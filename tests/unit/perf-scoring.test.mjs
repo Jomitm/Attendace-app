@@ -128,6 +128,48 @@ test('postpone lineage counts once; undated completion is not on-time', () => {
     assert.equal(out.details.onTimeCompleted, 0, 'undated completion must not count on-time');
 });
 
+test('task size weights completion, on-time, missed penalties, and productivity outcomes', () => {
+    const now = new Date(2026, 9, 5, 12, 0, 0, 0);
+    const plans = [{
+        id: 'weighted-plan', userId: 'u1', date: '2026-09-28',
+        plans: [
+            { task: 'Large missed task', sizeCategory: 'large-task', status: 'missed' },
+            { task: 'Quick completed task', sizeCategory: 'quick-task', status: 'completed', completedDate: '2026-09-28T16:00:00' }
+        ]
+    }];
+    const out = AppAnalytics._computeWeekPerformance([], plans, WEEK, cfg({ now }));
+
+    // The 8-weight missed task is four times the 2-weight completed task.
+    assert.equal(out.dimensions.taskExecution.score, 6);
+    assert.equal(out.dimensions.productivity.score, 14, '20% weighted outcomes, with no quality evidence');
+    const hero = AppAnalytics.rankHeroCandidates(
+        [],
+        new Map([['u1', { planned: 2, completed: 1, missed: 1, postponed: 0, inProgress: 0 }]]),
+        policy,
+        [],
+        plans,
+        { start: '2026-09-28T00:00:00', end: '2026-10-04T23:59:59' },
+        new Set()
+    ).find((row) => row.userId === 'u1');
+    assert.equal(hero.taskExecution, 6, 'Hero uses the same weighted task score as the widget');
+    assert.equal(hero.productivity, 14, 'Hero productivity also uses completed task outcome weights');
+});
+
+test('productivity rewards completed outcomes and substantive evidence, not app activity or overtime', () => {
+    const now = new Date(2026, 9, 5, 12, 0, 0, 0);
+    const plans = [{
+        id: 'evidence-plan', userId: 'u1', date: '2026-09-28',
+        plans: [{ task: 'Deliver project', sizeCategory: 'major-project', status: 'completed', completedDate: '2026-09-28T16:00:00' }]
+    }];
+    const logs = [mkLog('2026-09-28', {
+        activityScore: 0,
+        workDescription: 'Completed the project deliverable and recorded its review evidence.'
+    })];
+    const out = AppAnalytics._computeWeekPerformance(logs, plans, WEEK, cfg({ now }));
+
+    assert.equal(out.dimensions.productivity.score, 100);
+});
+
 test('leaderboard mirrors the widget: punctuality + task dedupe parity', () => {
     const holidayDates = new Set(['2026-09-29']);
     const mkHeroLog = (key) => ({

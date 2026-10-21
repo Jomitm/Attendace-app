@@ -260,6 +260,8 @@ if (typeof window !== 'undefined') {
         onAction('reject-leave', (el) => window.app_rejectLeave?.(el.dataset.leaveId || ''));
         onAction('save-budget-head', (el) => window.app_saveBudgetHeadRow?.(el.dataset.budgetHeadId || '', el));
         onAction('prefill-budget-parent', (el) => window.app_prefillBudgetHeadParent?.(el.dataset.budgetHeadId || ''));
+        onAction('add-external-birthday', () => window.app_openExternalBirthdayPersonModal?.());
+        onAction('edit-external-birthday', (el) => window.app_openBirthdayEditor?.('external', el.dataset.birthdayId || ''));
 
         // Complex handlers
         onAction('undo-missed-checkout-review', (el) => {
@@ -316,6 +318,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
     let budgetHeads = [];
     let recentAttendanceLogs = [];
     let recentTeamActivities = [];
+    let externalBirthdayPeople = [];
 
     try {
         const today = new Date().toISOString().split('T')[0];
@@ -360,7 +363,8 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                         sideEffects: false
                     }).catch(() => []);
                 })()
-                : Promise.resolve([])
+                : Promise.resolve([]),
+            window.AppDB.getAll('birthday_people').catch(() => [])
         ]);
 
         const readSettled = (idx, fallback, label) => {
@@ -381,6 +385,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         budgetHeads = readSettled(6, [], 'budget_heads');
         recentAttendanceLogs = readSettled(7, [], 'recent_attendance');
         recentTeamActivities = readSettled(8, [], 'recent_team_activities');
+        externalBirthdayPeople = readSettled(9, [], 'birthday_people');
 
         audits = audits.filter(a => {
             const d = new Date(a.timestamp).toISOString().split('T')[0];
@@ -731,6 +736,25 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                 </tbody>
             </table>
         </div>
+        ${window.app_canAdminBirthdays?.() ? `
+            <section class="admin-external-staff-section" aria-labelledby="admin-external-staff-title" style="margin-top:1rem; padding:1rem; border:1px solid #e2e8f0; border-radius:12px; background:#f8fafc;">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.75rem;">
+                    <div>
+                        <h3 id="admin-external-staff-title" style="margin:0; font-size:1rem;">External Staff &amp; Contacts</h3>
+                        <div class="text-muted" style="font-size:0.8rem;">People without app accounts. Add birthday details here to enable calendar reminders.</div>
+                    </div>
+                    <button type="button" class="action-btn secondary" data-ts-action="add-external-birthday"><i class="fa-solid fa-user-plus"></i> Add Person</button>
+                </div>
+                ${externalBirthdayPeople.length ? `<div class="table-container"><table class="compact-table"><thead><tr><th>Name</th><th>Position</th><th>Birthday</th><th></th></tr></thead><tbody>
+                    ${externalBirthdayPeople.map((person) => `<tr>
+                        <td>${safeHtml(person.name || 'Unnamed')}</td>
+                        <td>${safeHtml(person.position || person.location || '--')}</td>
+                        <td>${Number(person.birthDay) && Number(person.birthMonth) ? `${String(person.birthDay).padStart(2, '0')}/${String(person.birthMonth).padStart(2, '0')}` : 'Not added'}</td>
+                        <td><button type="button" class="admin-icon-btn" data-ts-action="edit-external-birthday" data-birthday-id="${safeHtml(person.id || '')}" aria-label="Edit ${safeHtml(person.name || 'person')}"><i class="fa-solid fa-pen"></i></button></td>
+                    </tr>`).join('')}
+                </tbody></table></div>` : '<div class="text-muted" style="font-size:0.85rem;">No external people added yet.</div>'}
+            </section>
+        ` : ''}
     `;
 
     const pendingLeaveGroups = Array.from(

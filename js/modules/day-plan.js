@@ -1004,7 +1004,7 @@ export async function openPlanEditor(args) {
     sizeSelect.innerHTML = `
         <option value="" ${planData.sizeCategory === '' ? 'selected' : ''}>Select size...</option>
         <option value="single-action" ${planData.sizeCategory === 'single-action' ? 'selected' : ''}>&#9889; Quick Action (&lt;15 min)</option>
-        <option value="quick-task" ${(isNewTask || planData.sizeCategory === 'quick-task') ? 'selected' : ''}>&#10003; Quick Task (15-60 min)</option>
+        <option value="quick-task" ${planData.sizeCategory === 'quick-task' ? 'selected' : ''}>&#10003; Quick Task (15-60 min)</option>
         <option value="small-task" ${planData.sizeCategory === 'small-task' ? 'selected' : ''}>&#128203; Small Task (1-4 hrs)</option>
         <option value="medium-task" ${planData.sizeCategory === 'medium-task' ? 'selected' : ''}>&#128337; Medium Task (4-8 hrs)</option>
         <option value="large-task" ${planData.sizeCategory === 'large-task' ? 'selected' : ''}>&#128197; Large Task (8-24 hrs)</option>
@@ -1440,7 +1440,8 @@ export async function quickAddPersonalPlan(date = null, targetUserId = null) {
     sizeField.innerHTML = '<label>Task Size</label>';
     const sizeSelect = createElement('select', { className: 'plan-editor-select' });
     sizeSelect.innerHTML = `
-        <option value="quick-task" selected>&#10003; Quick Task (15-60 min)</option>
+        <option value="" selected>Select size...</option>
+        <option value="quick-task">&#10003; Quick Task (15-60 min)</option>
         <option value="single-action">&#9889; Quick Action (&lt;15 min)</option>
         <option value="small-task">&#128203; Small Task (1-4 hrs)</option>
         <option value="medium-task">&#128337; Medium Task (4-8 hrs)</option>
@@ -1632,7 +1633,7 @@ export async function quickAddPersonalPlan(date = null, targetUserId = null) {
                     carryForwardRootId: '',
                     isRemoved: false,
                     isPrivate: privateCheckbox.checked,
-                    sizeCategory: sizeSelect.value || 'quick-task',
+                    sizeCategory: sizeSelect.value || '',
                     purposeCategory: purposeSelect.value || 'routine',
                     priorityLevel: prioritySelect.value || ''
                 });
@@ -2242,12 +2243,15 @@ export async function openDayPlan(date, targetUserId = null, forcedScope = null,
             if (kicker) kicker.textContent = 'Today';
             // Overload banner: planned load vs a productive day.
             try {
-                const dayLoad = computeDayLoad(initialBlocks, dateKey, { dailyCapacity: SPAN_HOURS_PER_DAY });
+                const dayLoad = computeDayLoad(initialBlocks, dateKey, {
+                    dailyCapacity: SPAN_HOURS_PER_DAY,
+                    targetUserId: targetId
+                });
                 if (dayLoad.over) {
                     const banner = createElement('div', {
                         className: 'day-plan-overload-banner',
                         attributes: { role: 'status' },
-                        innerHTML: `<i class="fa-solid fa-triangle-exclamation"></i><span>About ${dayLoad.hours}h planned — over a ~${SPAN_HOURS_PER_DAY}h day. Consider extending a task or moving one.</span>`
+                        innerHTML: `<i class="fa-solid fa-triangle-exclamation"></i><span>About ${dayLoad.hours}h estimated effort is assigned to you — over a ~${SPAN_HOURS_PER_DAY}h day. Consider extending a task or moving one.</span>`
                     });
                     const anchor = modalContent.querySelector('.day-plan-subline');
                     if (anchor && anchor.parentElement) anchor.parentElement.appendChild(banner);

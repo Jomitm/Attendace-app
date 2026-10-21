@@ -232,9 +232,13 @@ export function computeDayLoad(tasks, dateStr, opts = {}) {
     if (!day) return { date: String(dateStr || ''), hours: 0, over: false };
     const capacity = Number(opts.dailyCapacity) || SPAN_HOURS_PER_DAY;
     const holidayDates = opts.holidayDates;
+    const targetUserId = String(opts.targetUserId || '').trim();
     let hours = 0;
     for (const t of (Array.isArray(tasks) ? tasks : [])) {
         if (!t || t.isRemoved) continue;
+        if (t.isReference === true) continue;
+        const assignedTo = String(t.assignedTo || '').trim();
+        if (targetUserId && assignedTo && assignedTo !== targetUserId) continue;
         if (!String(t.task || '').trim()) continue;
         if (String(t.status || '').trim().toLowerCase() === 'completed') continue;
         const span = getTaskSpan(t, day);

@@ -837,8 +837,8 @@ function getHeroScoringHelpHtml() {
             <ul class="hero-help-list">
                 <li><span>Task execution</span><strong>Completion ${safeHtml(String(execution.completion ?? 0.5))}, on-time ${safeHtml(String(execution.onTime ?? 0.2))}</strong></li>
                 <li><span>Pause discipline</span><strong>${safeHtml(String(pause.maxPausesPerDay ?? 3))} pauses / ${safeHtml(String(pause.maxPauseMinsPerDay ?? 45))} mins per day</strong></li>
-                <li><span>Productivity</span><strong>Activity ${safeHtml(String(productivity.activity ?? 0.4))}, notes ${safeHtml(String(productivity.workDescription ?? 0.3))}</strong></li>
-                <li><span>Compliance</span><strong>Location penalty ${safeHtml(String(compliance.locationMismatch ?? 50))}, auto-checkout penalty ${safeHtml(String(compliance.autoCheckout ?? 50))}</strong></li>
+                <li><span>Productivity</span><strong>Task outcomes ${Math.round(Number(productivity.taskOutcome ?? 0.7) * 100)}%, quality evidence ${Math.round(Number(productivity.qualityEvidence ?? 0.3) * 100)}%</strong></li>
+                <li><span>Compliance</span><strong>Location penalty up to ${Math.min(10, Number(compliance.locationMismatch ?? 10))}, auto-checkout penalty ${safeHtml(String(compliance.autoCheckout ?? 50))}</strong></li>
             </ul>
             <h4>Eligibility</h4>
             <p>To qualify, staff need at least ${safeHtml(String(evidence.minDays ?? 3))} attendance days, ${safeHtml(String(Math.round(Number(evidence.minDurationMs ?? 14400000) / 3600000)))} tracked hours, and ${safeHtml(String(evidence.minPlannedTasks ?? 3))} planned tasks.</p>
