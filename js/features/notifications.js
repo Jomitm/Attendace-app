@@ -11,6 +11,48 @@ const isPendingNotif = (notif) => {
     return toSafeNotifStatus(notif) === 'pending';
 };
 
+const getNotificationKey = (notif) => {
+    if (notif?.id !== undefined && notif?.id !== null && String(notif.id).trim()) {
+        return `id:${String(notif.id)}`;
+    }
+    return `legacy:${[
+        notif?.type,
+        notif?.date,
+        notif?.taggedAt,
+        notif?.title,
+        notif?.message
+    ].map(value => String(value ?? '')).join('|')}`;
+};
+
+const notificationSeenStorageKey = (userId) => `crwi_seen_notifications_${String(userId || '')}`;
+const seenNotificationKeysByUser = new Map();
+const readSeenNotificationKeys = (userId) => {
+    const key = String(userId || '');
+    if (seenNotificationKeysByUser.has(key)) return seenNotificationKeysByUser.get(key);
+    try {
+        const stored = window.localStorage.getItem(notificationSeenStorageKey(key));
+        if (stored === null) return null;
+        const parsed = JSON.parse(stored);
+        if (!Array.isArray(parsed)) return null;
+        const seenKeys = new Set(parsed.map(String));
+        seenNotificationKeysByUser.set(key, seenKeys);
+        return seenKeys;
+    } catch {
+        return null;
+    }
+};
+const saveSeenNotificationKeys = (userId, notifications) => {
+    const userKey = String(userId || '');
+    const keys = [...new Set(notifications.map(getNotificationKey))];
+    const seenKeys = new Set(keys);
+    seenNotificationKeysByUser.set(userKey, seenKeys);
+    try {
+        window.localStorage.setItem(notificationSeenStorageKey(userKey), JSON.stringify(keys));
+    } catch {
+        // Keep notification history usable when browser storage is unavailable.
+    }
+};
+
 const isAutoSystemPostponedNotification = (notif) => {
     if (!notif) return false;
     if (notif.autoPostponed === true || notif.isAutoForwarded === true) return true;
@@ -76,7 +118,15 @@ window.app_refreshNotificationBell = async () => {
     const user = window.AppAuth.getUser();
     const notificationsRaw = Array.isArray(user?.notifications) ? user.notifications : [];
     const notifications = notificationsRaw.filter(n => !isAutoSystemPostponedNotification(n));
-    const pendingCount = notifications.filter(isPendingNotif).length;
+    let seenKeys = user ? readSeenNotificationKeys(user.id) : null;
+    if (user && !seenKeys) {
+        // Existing notifications are the initial baseline, not new alerts.
+        seenKeys = new Set(notifications.map(getNotificationKey));
+        saveSeenNotificationKeys(user.id, notifications);
+    }
+    const newCount = user
+        ? notifications.filter(n => !seenKeys.has(getNotificationKey(n))).length
+        : 0;
     if (user && notifications.length !== notificationsRaw.length) {
         try {
             const updatedUser = await window.AppDB.get('users', user.id).catch(() => null);
@@ -97,13 +147,13 @@ window.app_refreshNotificationBell = async () => {
             if (badge) badge.style.display = 'none';
             return;
         }
-        btn.classList.toggle('has-pending', pendingCount > 0);
-        btn.setAttribute('title', pendingCount > 0
-            ? `${pendingCount} pending notification${pendingCount > 1 ? 's' : ''}`
+        btn.classList.toggle('has-pending', newCount > 0);
+        btn.setAttribute('title', newCount > 0
+            ? `${newCount} new notification${newCount > 1 ? 's' : ''}`
             : 'Notification history');
         if (badge) {
-            if (pendingCount > 0) {
-                badge.textContent = pendingCount > 99 ? '99+' : String(pendingCount);
+            if (newCount > 0) {
+                badge.textContent = newCount > 99 ? '99+' : String(newCount);
                 badge.style.display = '';
             } else {
                 badge.style.display = 'none';
@@ -287,6 +337,8 @@ window.app_openNotificationHistory = async () => {
         }
     }
     const notifications = cleanedNotifications;
+    saveSeenNotificationKeys(currentUser.id, notifications);
+    await window.app_refreshNotificationBell?.();
     const tagHistory = Array.isArray(freshUser?.tagHistory) ? freshUser.tagHistory : [];
     const rows = [
         ...notifications.map((n, index) => ({ ...n, _source: 'live', _index: index })),

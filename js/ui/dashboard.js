@@ -2071,6 +2071,7 @@ export async function renderDashboard() {
     const dashRenderStart = performance.now();
     staffPerformanceModulePromise?.then((module) => module.cleanupPerformanceChart()).catch(() => {});
     window.app_closeDashboardCardMaximize?.();
+    window.app_closeAttendanceSessionHelp?.();
     const user = window.AppAuth.getUser();
     const isAdmin = window.app_hasPerm('dashboard', 'view', user);
     const isFullAdmin = window.app_hasPerm('dashboard', 'admin', user);
@@ -2803,7 +2804,12 @@ export async function renderDashboard() {
                                     <div class="dashboard-checkin-status-dot" data-checked-in="${isCheckedIn ? 'true' : 'false'}"></div>
                                 </div>
                                 <div class="dashboard-checkin-identity">
-                                <h4 class="dashboard-checkin-name">${safeHtml(displayUser.name)}</h4>
+                                <div class="dashboard-checkin-name-line">
+                                    <h4 class="dashboard-checkin-name">${safeHtml(displayUser.name)}</h4>
+                                    <button type="button" class="dashboard-checkin-help-trigger" aria-label="Information about multiple work sessions" title="Same-day work sessions count together. Click for details." aria-controls="dashboard-attendance-session-help" aria-expanded="false" onclick="window.app_toggleAttendanceSessionHelp(this)">
+                                        <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+                                    </button>
+                                </div>
                                 <p class="text-muted dashboard-checkin-role">${safeHtml(displayUser.role)}</p>
                                 <span class="dashboard-checkin-state-label"><span class="dashboard-checkin-state-dot" aria-hidden="true"></span>${checkinStateLabel}</span>
                                 </div>
@@ -3074,6 +3080,66 @@ const refreshStaffActivityWidget = async (fetchLogs = true, options = {}) => {
 
 // --- Export to Window (Global) ---
 if (typeof window !== 'undefined') {
+    const attendanceSessionHelpId = 'dashboard-attendance-session-help';
+    const closeAttendanceSessionHelp = () => {
+        const popover = document.getElementById(attendanceSessionHelpId);
+        if (!popover) return;
+        const trigger = popover._triggerElement;
+        if (trigger?.isConnected) {
+            trigger.setAttribute('aria-expanded', 'false');
+            trigger.removeAttribute('aria-describedby');
+        }
+        popover.remove();
+    };
+    const bindAttendanceSessionHelpDismiss = () => {
+        if (window.__dashboardAttendanceHelpDismissBound) return;
+        document.addEventListener('click', (event) => {
+            const popover = document.getElementById(attendanceSessionHelpId);
+            if (!popover || popover.contains(event.target) || popover._triggerElement?.contains(event.target)) return;
+            closeAttendanceSessionHelp();
+        });
+        document.addEventListener('keydown', (event) => {
+            if (event.key !== 'Escape' || !document.getElementById(attendanceSessionHelpId)) return;
+            const trigger = document.getElementById(attendanceSessionHelpId)?._triggerElement;
+            closeAttendanceSessionHelp();
+            trigger?.focus();
+        });
+        window.addEventListener('resize', closeAttendanceSessionHelp);
+        window.addEventListener('scroll', closeAttendanceSessionHelp, true);
+        window.__dashboardAttendanceHelpDismissBound = true;
+    };
+
+    window.app_closeAttendanceSessionHelp = closeAttendanceSessionHelp;
+    window.app_toggleAttendanceSessionHelp = (trigger) => {
+        if (!trigger || !document.body) return;
+        const existing = document.getElementById(attendanceSessionHelpId);
+        if (existing) {
+            closeAttendanceSessionHelp();
+            if (existing._triggerElement === trigger) return;
+        }
+
+        bindAttendanceSessionHelpDismiss();
+        const popover = document.createElement('div');
+        popover.id = attendanceSessionHelpId;
+        popover.className = 'dashboard-checkin-session-help';
+        popover.setAttribute('role', 'tooltip');
+        popover.textContent = 'You can check out and check in again when work resumes. Each session needs a valid check-in and checkout, with work details to support the time recorded. Sessions count together for the day.';
+        popover._triggerElement = trigger;
+        document.body.appendChild(popover);
+
+        trigger.setAttribute('aria-expanded', 'true');
+        trigger.setAttribute('aria-describedby', attendanceSessionHelpId);
+        const rect = trigger.getBoundingClientRect();
+        const popoverRect = popover.getBoundingClientRect();
+        const left = Math.max(12, Math.min(rect.left, window.innerWidth - popoverRect.width - 12));
+        const belowTop = rect.bottom + 8;
+        const top = belowTop + popoverRect.height <= window.innerHeight - 12
+            ? belowTop
+            : Math.max(12, rect.top - popoverRect.height - 8);
+        popover.style.left = `${left}px`;
+        popover.style.top = `${top}px`;
+    };
+
     if (!window.__dashboardMaxEscHandlerBound) {
         document.addEventListener('keydown', (event) => {
             if (event.key === 'Escape' && document.body.classList.contains('dashboard-max-open')) {
