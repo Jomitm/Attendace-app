@@ -429,6 +429,54 @@ export class Analytics {
         }
         return 1;
     }
+
+    getPunctualityStats(logs, holidayDates) {
+        const punctualityLogs = (logs || []).filter((log) => {
+            const type = String(log?.type || '').trim().toLowerCase();
+            const location = String(log?.location || '').trim().toLowerCase();
+            const isLeaveOnly = (type.includes('leave') && type !== 'short leave')
+                || (location === 'on leave' && type !== 'short leave');
+            return !isLeaveOnly
+                && this.isAttendanceEligibleLog(log)
+                && this.getAttendanceDayCredit(log) > 0
+                && isRequiredWorkingDay(log?.date || log?.dateKey, holidayDates);
+        });
+        const lateDays = punctualityLogs.filter((log) => {
+            const type = String(log?.type || '').trim().toLowerCase();
+            if (log?.isManualOverride === true) return type === 'late';
+            // The persisted flag can be stale or disagree with the actual check-in
+            // (for example, an old record was classified before a cutoff change).
+            // Prefer the timestamp, which is what attendance status calculation
+            // uses; only fall back to the saved flag/type when no usable time exists.
+            let checkIn = null;
+            const rawCheckInAt = log?.checkInAt;
+            if (typeof rawCheckInAt === 'number' && Number.isFinite(rawCheckInAt)) {
+                const date = new Date(rawCheckInAt);
+                if (!Number.isNaN(date.getTime())) checkIn = date.getHours() * 60 + date.getMinutes();
+            } else if (typeof rawCheckInAt === 'string' && rawCheckInAt.trim()) {
+                const raw = rawCheckInAt.trim();
+                const numeric = Number(raw);
+                if (Number.isFinite(numeric) && numeric > 0) {
+                    const date = new Date(numeric);
+                    if (!Number.isNaN(date.getTime())) checkIn = date.getHours() * 60 + date.getMinutes();
+                } else {
+                    const date = new Date(raw);
+                    if (!Number.isNaN(date.getTime())) checkIn = date.getHours() * 60 + date.getMinutes();
+                }
+            }
+            if (checkIn === null) checkIn = this.parseTimeToMinutes(String(log?.checkIn || ''));
+            const cutoff = Number(AppConfig?.LATE_CUTOFF_MINUTES || 555);
+            if (checkIn !== null) return checkIn > cutoff;
+            if (Object.prototype.hasOwnProperty.call(log || {}, 'lateCountable')) return log.lateCountable === true;
+            return type === 'late';
+        }).length;
+        return {
+            punctualityDays: punctualityLogs.length,
+            lateDays,
+            onTimeDays: Math.max(0, punctualityLogs.length - lateDays)
+        };
+    }
+
     // Helper to format minutes to "Xh Ym"
     formatDuration(totalMinutes) {
         const h = Math.floor(totalMinutes / 60);
@@ -1623,16 +1671,16 @@ export class Analytics {
 
             // ── PUNCTUALITY (0–100) ──
             // Same rule as the widget: only required working days count.
-            const workedLogs = dedupedLogs.filter(l => this.getAttendanceDayCredit(l) > 0);
-            const punctualityLogs = workedLogs.filter(l => isRequiredWorkingDay(l?.date || l?.dateKey, holidayDates));
-            const lateDays = punctualityLogs.filter(l => l.lateCountable === true || String(l.type || '').toLowerCase() === 'late').length;
-            const punctualityDays = punctualityLogs.length;
+            const workedLogs = dedupedLogs.filter(l => this.isAttendanceEligibleLog(l) && this.getAttendanceDayCredit(l) > 0);
+            const punctualityStats = this.getPunctualityStats(workedLogs, holidayDates);
+            const { lateDays, punctualityDays } = punctualityStats;
             const totalDays = workedLogs.length;
             const daysWorked = Number.isFinite(Number(attendance.dayCredit)) ? attendance.dayCredit : attendance.daysSet.size;
-            const basePunctuality = punctualityDays > 0
-                ? Math.max(0, Math.round(((punctualityDays - lateDays) / punctualityDays) * 100))
+            const punctuality = punctualityDays > 0
+                ? Math.max(0, Math.round((punctualityStats.onTimeDays / punctualityDays) * 100))
                 : scoringDefaults.punctuality;
-            // Pause discipline penalty
+            // Keep pause discipline out of Punctuality; it is deducted from
+            // Compliance below so the punctuality score reflects arrival rate.
             const pausePolicy = policy.PAUSE_DISCIPLINE || {};
             const maxPausesPerDay = Number.isFinite(Number(pausePolicy.maxPausesPerDay)) ? Number(pausePolicy.maxPausesPerDay) : 3;
             const maxPauseMinsPerDay = Number.isFinite(Number(pausePolicy.maxPauseMinsPerDay)) ? Number(pausePolicy.maxPauseMinsPerDay) : 45;
@@ -1642,7 +1690,6 @@ export class Analytics {
                 Math.floor(Math.max(0, avgPausesPerDay - maxPausesPerDay) * pausePenaltyRule.pauseCountPoints)
                 + Math.floor(Math.max(0, avgPauseMinsPerDay - maxPauseMinsPerDay) / Math.max(1, pausePenaltyRule.pauseMinutesBlock))
             );
-            const punctuality = Math.max(0, basePunctuality - pausePenalty);
 
             // ── ATTENDANCE (0–100) ──
             const daysScore = Math.min(100, Math.round((daysWorked / requiredDays) * 100));
@@ -1770,6 +1817,7 @@ export class Analytics {
             const compliance = Math.max(0, Math.min(100, Math.round(100
                 - (totalDays > 0 ? (locationMismatches / totalDays) * compliancePenalty.locationMismatch : 0)
                 - (totalDays > 0 ? (autoCheckouts / totalDays) * compliancePenalty.autoCheckout : 0)
+                - pausePenalty
             )));
 
             // ── CLASSIFICATION BONUS ──
@@ -2571,8 +2619,9 @@ export class Analytics {
             productivity: wProductivity, planning: wPlanning, compliance: wCompliance } = resolveHeroDimensionWeights(policy);
 
         // Score + trend windows. Contract (tests/unit/perf-windows.test.mjs):
-        // current window ENDS TODAY, windows are contiguous, trend >= 4 points,
-        // year period = single year score window + 12 monthly trend points.
+        // weekly windows are fixed Monday–Sunday and score only elapsed days,
+        // windows are contiguous, trend >= 4 points, year period = one score
+        // window plus 12 monthly trend points.
         const { scoreWindows, trendWindows } = buildPerformanceWindows({
             now: new Date(),
             windowDays,
@@ -2710,16 +2759,17 @@ export class Analytics {
         // ── PUNCTUALITY (0–100) ──
         // Only logs on required working days enter the punctuality rate: a
         // late Sunday check-in is voluntary time, not a lateness offense.
-        const workedLogs = userLogs.filter(l => this.getAttendanceDayCredit(l) > 0);
-        const punctualityLogs = workedLogs.filter(l => isRequiredWorkingDay(l?.date, holidayDates));
-        const lateDays = punctualityLogs.filter(l => l.lateCountable === true || String(l.type || '').toLowerCase() === 'late').length;
-        const punctualityDays = punctualityLogs.length;
+        const eligibleLogs = userLogs.filter(l => this.isAttendanceEligibleLog(l));
+        const workedLogs = eligibleLogs.filter(l => this.getAttendanceDayCredit(l) > 0);
+        const punctualityStats = this.getPunctualityStats(workedLogs, holidayDates);
+        const { lateDays, punctualityDays } = punctualityStats;
         const totalDays = workedLogs.length;
         const daysWorked = workedLogs.reduce((sum, log) => sum + this.getAttendanceDayCredit(log), 0);
-        const basePunctuality = punctualityDays > 0
-            ? Math.max(0, Math.round(((punctualityDays - lateDays) / punctualityDays) * 100))
+        const punctuality = punctualityDays > 0
+            ? Math.max(0, Math.round((punctualityStats.onTimeDays / punctualityDays) * 100))
             : scoringDefaults.punctuality;
-        // Pause discipline penalty
+        // Keep pause discipline out of Punctuality; it is deducted from
+        // Compliance below so the punctuality score reflects arrival rate.
         const pausePolicy = policy?.PAUSE_DISCIPLINE || {};
         const maxPausesPerDay = Number.isFinite(Number(pausePolicy.maxPausesPerDay)) ? Number(pausePolicy.maxPausesPerDay) : 3;
         const maxPauseMinsPerDay = Number.isFinite(Number(pausePolicy.maxPauseMinsPerDay)) ? Number(pausePolicy.maxPauseMinsPerDay) : 45;
@@ -2731,7 +2781,6 @@ export class Analytics {
             Math.floor(Math.max(0, avgPausesPerDay - maxPausesPerDay) * pausePenaltyRule.pauseCountPoints)
             + Math.floor(Math.max(0, avgPauseMinsPerDay - maxPauseMinsPerDay) / Math.max(1, pausePenaltyRule.pauseMinutesBlock))
         );
-        const punctuality = Math.max(0, basePunctuality - pausePenalty);
 
         // ── ATTENDANCE (0–100) ──
         // Denominator = required working days elapsed in the window (not raw
@@ -2875,11 +2924,12 @@ export class Analytics {
             const planning = Math.min(100, Math.round(planVolume * planningWeights.planVolume + subPlanScore * planningWeights.subPlans + (taskCompleted > 0 ? planningWeights.completed : 0) + complexityBonus + purposeBonus));
 
         // ── COMPLIANCE (0–100) ──
-        const locationMismatches = userLogs.filter(l => l.locationMismatched === true).length;
-        const autoCheckouts = userLogs.filter(l => l.autoCheckout === true).length;
+        const locationMismatches = eligibleLogs.filter(l => l.locationMismatched === true).length;
+        const autoCheckouts = eligibleLogs.filter(l => l.autoCheckout === true).length;
         const compliance = Math.max(0, Math.min(100, Math.round(100
             - (totalDays > 0 ? (locationMismatches / totalDays) * compliancePenalty.locationMismatch : 0)
             - (totalDays > 0 ? (autoCheckouts / totalDays) * compliancePenalty.autoCheckout : 0)
+            - pausePenalty
         )));
 
         // ── CLASSIFICATION BONUS ──
@@ -2910,7 +2960,8 @@ export class Analytics {
                 compliance: { score: compliance, label: 'Compliance', icon: 'fa-solid fa-shield-halved', color: '#22c55e' }
             },
             details: {
-                lateDays, totalDays, daysWorked,
+                lateDays, punctualityDays, onTimeDays: punctualityStats.onTimeDays,
+                pausePenalty, totalDays, daysWorked,
                 requiredDays: requiredDaysFull,
                 requiredDaysElapsed,
                 attendanceDenom: denomRequiredDays,
@@ -2975,10 +3026,15 @@ export class Analytics {
             else insights.push({ type: 'neutral', text: `Stable performance this ${periodLabel}` });
         }
 
-        // Late days (use shared stats for consistency with Monthly Stats)
-        const lateCount = sharedStats?.late ?? details.lateDays;
+        // Late days must use the same required-day/eligibility rules as the
+        // punctuality dimension. Monthly Stats intentionally has a broader range.
+        const lateCount = details.lateDays;
         if (lateCount > 0) {
             insights.push({ type: 'warning', text: `${lateCount} late day${lateCount > 1 ? 's' : ''} this ${periodLabel}` });
+        }
+
+        if (Number(details.pausePenalty) > 0) {
+            insights.push({ type: 'warning', text: `Pause discipline reduced Compliance by ${details.pausePenalty} points` });
         }
 
         // Missed tasks

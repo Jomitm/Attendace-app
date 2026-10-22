@@ -153,11 +153,14 @@ function insightsHtml(insights) {
 function detailChipsHtml(details, stats) {
     if (!details || Object.keys(details).length === 0) return '';
     const chips = [];
-    // Use stats (same source as Monthly Stats card) for attendance metrics
-    const daysWorked = stats?.present ?? details.daysWorked;
+    // Use the score window's own attendance details so these chips describe
+    // the same fixed week as the performance dimensions.
+    const daysWorked = details.daysWorked ?? stats?.present;
     const extraHours = stats?.extraWorkedHours ?? details.extraHours;
-    const _lateCount = stats?.late ?? details.lateDays;
     if (daysWorked) chips.push(`<span class="perf-chip"><i class="fa-solid fa-calendar"></i> ${daysWorked} days worked</span>`);
+    if (Number(details.punctualityDays) > 0) {
+        chips.push(`<span class="perf-chip" title="On-time eligible weekday attendance divided by eligible weekday attendance."><i class="fa-solid fa-clock"></i> ${details.onTimeDays}/${details.punctualityDays} on time</span>`);
+    }
     if (details.taskCompleted) chips.push(`<span class="perf-chip perf-chip-green"><i class="fa-solid fa-check"></i> ${details.taskCompleted} completed</span>`);
     if (details.taskInProgress) chips.push(`<span class="perf-chip perf-chip-blue"><i class="fa-solid fa-spinner"></i> ${details.taskInProgress} in progress</span>`);
     if (details.taskMissed) chips.push(`<span class="perf-chip perf-chip-red"><i class="fa-solid fa-xmark"></i> ${details.taskMissed} missed</span>`);
@@ -272,7 +275,7 @@ export function renderStaffPerformance(perfData, options = {}) {
                 <div class="dashboard-perf-head">
                     <div>
                         <h4 class="dashboard-perf-title">Your Performance</h4>
-                        <span class="dashboard-perf-subtitle">${safeHtml(period.calendarMonth ? (perfData.trend?.[perfData.trend.length - 1]?.week || period.label) : `${period.label} · ${options.windowDays || period.windowDays}-day window`)}</span>
+                        <span class="dashboard-perf-subtitle">${safeHtml(period.calendarMonth ? (perfData.trend?.[perfData.trend.length - 1]?.week || period.label) : period.key === 'week' ? `${period.label} · Mon–Sun` : `${period.label} · ${options.windowDays || period.windowDays}-day window`)}</span>
                     </div>
                 </div>
                 <div class="perf-team-tabs">${personalPerfTabsHtml(periodKey)}</div>

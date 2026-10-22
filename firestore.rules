@@ -32,9 +32,9 @@ service cloud.firestore {
         get(/databases/$(database)/documents/user_access/$(request.auth.uid)).data.permissions.reports == 'admin';
     }
 
-    // Birthday writes are restricted to existing admin paths plus explicit
+    // Birthday writes are restricted to existing HR/admin paths plus explicit
     // per-user admin permissions maintained by the app. The users document
-    // fallback covers accounts created before the user_access mirror existed.
+    // fallback covers legacy accounts created before the user_access mirror.
     function hasBirthdayAdminPermission() {
       let accessPath = /databases/$(database)/documents/user_access/$(request.auth.uid);
       let userPath = /databases/$(database)/documents/users/$(request.auth.uid);
@@ -46,6 +46,7 @@ service cloud.firestore {
         (exists(userPath) && (
           get(userPath).data.get('permissions', {}).get('birthday', '') == 'admin' ||
           get(userPath).data.get('permissions', {}).get('users', '') == 'admin' ||
+          get(userPath).data.get('role', '') == 'Administrator' ||
           get(userPath).data.get('canManageBirthdays', false) == true
         ))
       );

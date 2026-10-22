@@ -54,7 +54,9 @@ const mkLog = (date, extra = {}) => ({
     ...extra
 });
 
-const lateLog = (date) => mkLog(date, { type: 'late', lateCountable: true });
+const lateLog = (date) => mkLog(date, {
+    type: 'late', lateCountable: true, checkInAt: `${date}T09:30:00`, checkIn: '09:30 AM'
+});
 
 test('pace denominators: partial Wednesday is not judged against a full week', () => {
     const now = new Date(2026, 8, 30, 18, 0, 0, 0); // Wednesday evening
@@ -94,6 +96,40 @@ test('punctuality ignores late logs on holidays and weekends', () => {
     assert.equal(out.details.totalDays, 7, 'raw log count unchanged');
     assert.equal(out.details.requiredDays, 4, 'Mon–Fri minus Tuesday holiday');
     assert.equal(out.details.requiredDaysElapsed, 4);
+});
+
+test('punctuality is on-time eligible weekdays, independent of pause discipline', () => {
+    const now = new Date(2026, 9, 4, 21, 0, 0, 0); // Sunday, full week
+    const logs = [
+        lateLog('2026-09-28'),
+        lateLog('2026-09-29'),
+        mkLog('2026-09-30', { pauseCount: 4, pausedMs: 60 * 60 * 1000 })
+    ].map((log) => ({ ...log, pauseCount: 4, pausedMs: 60 * 60 * 1000 }));
+
+    const out = AppAnalytics._computeWeekPerformance(logs, [], WEEK, cfg({ now }));
+
+    assert.equal(out.details.punctualityDays, 3);
+    assert.equal(out.details.lateDays, 2);
+    assert.equal(out.details.onTimeDays, 1);
+    assert.equal(out.dimensions.punctuality.score, 33, 'two late out of three eligible weekdays is 33/100');
+    assert.equal(out.details.pausePenalty, 11);
+    assert.equal(out.dimensions.compliance.score, 89, 'pause discipline is scored under Compliance');
+});
+
+test('punctuality uses actual check-in time when the saved late flag is stale', () => {
+    const now = new Date(2026, 9, 4, 21, 0, 0, 0); // Sunday, full week
+    const logs = [
+        mkLog('2026-09-28', { lateCountable: true }), // actual timestamp is 09:00
+        mkLog('2026-09-29', { lateCountable: true }), // actual timestamp is 09:00
+        lateLog('2026-09-30')                         // actual timestamp is 09:30
+    ];
+
+    const out = AppAnalytics._computeWeekPerformance(logs, [], WEEK, cfg({ now }));
+
+    assert.equal(out.details.punctualityDays, 3);
+    assert.equal(out.details.lateDays, 1);
+    assert.equal(out.details.onTimeDays, 2);
+    assert.equal(out.dimensions.punctuality.score, 67);
 });
 
 test('postpone lineage counts once; undated completion is not on-time', () => {

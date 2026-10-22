@@ -35,38 +35,41 @@ function nextDayStart(d) {
 const WED = new Date(2026, 8, 30, 14, 30, 0, 0);
 const MONDAY = new Date(2026, 9, 5, 9, 0, 0, 0);
 
-describe('buildPerformanceWindows — current window includes today', () => {
-    it('current window ends today (end-of-day) and covers "now"', () => {
+describe('buildPerformanceWindows — fixed calendar week', () => {
+    it('current week is Monday through Sunday and contains now', () => {
         const { scoreWindows } = buildPerformanceWindows({ now: MONDAY, windowDays: 7, trendWeeks: 4 });
         const cur = scoreWindows[0];
-        assert.equal(ymd(cur.end), ymd(MONDAY), 'current window must end today');
-        assert.ok(cur.end.getTime() >= MONDAY.getTime(), 'current window must include now');
-        assert.ok(isEndOfDay(cur.end), 'current window ends at 23:59:59.999');
+        assert.equal(ymd(cur.start), '2026-10-05', 'current week starts Monday');
+        assert.equal(ymd(cur.end), '2026-10-11', 'current week ends Sunday');
+        assert.ok(cur.start.getTime() <= MONDAY.getTime() && cur.end.getTime() >= MONDAY.getTime());
+        assert.ok(isStartOfDay(cur.start) && isEndOfDay(cur.end));
     });
 
-    it("Monday's window is the current week (Mon..Mon), not the previous week", () => {
+    it("Monday's window is the new Monday..Sunday week", () => {
         const { scoreWindows } = buildPerformanceWindows({ now: MONDAY, windowDays: 7, trendWeeks: 4 });
         const cur = scoreWindows[0];
-        assert.equal(ymd(cur.start), ymd(addDays(MONDAY, -6)), 'starts 6 days ago');
-        assert.equal(ymd(cur.end), ymd(MONDAY), 'ends today');
-        // The old builder ended yesterday, showing the ENTIRE previous week on Monday.
-        assert.notEqual(ymd(cur.end), ymd(addDays(MONDAY, -1)), 'must not be the previous-week window');
-        assert.ok(isStartOfDay(cur.start), 'current window starts at 00:00:00.000');
+        assert.equal(ymd(cur.start), '2026-10-05');
+        assert.equal(ymd(cur.end), '2026-10-11');
     });
 
-    it('current window spans exactly windowDays days', () => {
-        for (const windowDays of [7, 30]) {
-            const { scoreWindows } = buildPerformanceWindows({ now: WED, windowDays, trendWeeks: 4 });
-            const cur = scoreWindows[0];
-            assert.equal(daySpan(cur.start, cur.end), windowDays);
-            assert.equal(cur.days, windowDays);
-            assert.equal(ymd(cur.end), ymd(WED));
-        }
+    it('midweek score window remains the same Monday..Sunday week', () => {
+        const { scoreWindows } = buildPerformanceWindows({ now: WED, windowDays: 7, trendWeeks: 4 });
+        const cur = scoreWindows[0];
+        assert.equal(ymd(cur.start), '2026-09-28');
+        assert.equal(ymd(cur.end), '2026-10-04');
+        assert.equal(daySpan(cur.start, cur.end), 7);
+        assert.equal(cur.days, 7);
+    });
+
+    it('non-week custom windows still end today', () => {
+        const { scoreWindows } = buildPerformanceWindows({ now: WED, windowDays: 30, trendWeeks: 4 });
+        assert.equal(daySpan(scoreWindows[0].start, scoreWindows[0].end), 30);
+        assert.equal(ymd(scoreWindows[0].end), ymd(WED));
     });
 });
 
 describe('buildPerformanceWindows — contiguity (no 1-day gap)', () => {
-    it('rolling-week trend windows are contiguous', () => {
+    it('weekly trend windows are contiguous fixed weeks', () => {
         const { trendWindows } = buildPerformanceWindows({ now: WED, windowDays: 7, trendWeeks: 4 });
         for (let i = 0; i < trendWindows.length - 1; i++) {
             const newer = trendWindows[i];
@@ -79,17 +82,19 @@ describe('buildPerformanceWindows — contiguity (no 1-day gap)', () => {
         }
     });
 
-    it('covers the day that fell in the old builder gap (day -7)', () => {
+    it('each trend point covers one Monday..Sunday calendar week', () => {
         const { trendWindows } = buildPerformanceWindows({ now: WED, windowDays: 7, trendWeeks: 4 });
-        // Old bug: window0 = days -6..-1, window1 = days -14..-8 → day -7 uncovered.
-        assert.equal(ymd(trendWindows[1].end), ymd(addDays(WED, -7)), 'day -7 must be the end of trend window 1');
-        assert.equal(ymd(trendWindows[1].start), ymd(addDays(WED, -13)));
+        for (const win of trendWindows) {
+            assert.equal(win.start.getDay(), 1, 'week starts Monday');
+            assert.equal(win.end.getDay(), 0, 'week ends Sunday');
+            assert.equal(daySpan(win.start, win.end), 7);
+        }
     });
 
-    it('contiguous span reaches exactly from trend start to today', () => {
+    it('oldest trend window starts the requested number of weeks back', () => {
         const { trendWindows } = buildPerformanceWindows({ now: WED, windowDays: 7, trendWeeks: 4 });
         const oldest = trendWindows[trendWindows.length - 1];
-        const expectedStart = addDays(WED, -(trendWindows.length * 7) + 1);
+        const expectedStart = addDays(trendWindows[0].start, -(trendWindows.length - 1) * 7);
         assert.equal(ymd(oldest.start), ymd(expectedStart));
         assert.equal(daySpan(oldest.start, trendWindows[0].end), trendWindows.length * 7);
     });

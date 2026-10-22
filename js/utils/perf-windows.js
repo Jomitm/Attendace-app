@@ -3,10 +3,8 @@
 // Pure window builder for the personal performance widget ("Your Performance").
 //
 // Contract (reliability fixes — covered by tests/unit/perf-windows.test.mjs):
-// - The CURRENT window (index 0) ENDS TODAY (23:59:59.999) so today's
-//   check-ins, tasks and plan are included. Previously the score window ended
-//   yesterday, so on Monday the "This Week" tab showed the entire previous
-//   week and today's activity never counted.
+// - Weekly windows use fixed Monday–Sunday calendar weeks. The current
+//   window includes the whole week, while scoring caps its denominator at now.
 // - Windows are CONTIGUOUS: start(i + 1) = end(i) - 1 calendar day. The old
 //   builder left a 1-day gap between every pair of trend windows.
 // - The trend always carries at least MIN_TREND_POINTS points, regardless of
@@ -57,7 +55,7 @@ function monthLabel(firstOfMonth, long) {
  * @param {boolean}[opts.calendarMonth] Use calendar-month windows instead of rolling days.
  * @returns {{ scoreWindows: Array<{start: Date, end: Date, label: string, days: number}>,
  *             trendWindows: Array<{start: Date, end: Date, label: string, days: number}> }}
- *          Both arrays are newest-first. For week/month periods they reference
+ *          Both arrays are newest-first. For weekly/month periods they reference
  *          the SAME window objects (trend includes the current window); for the
  *          year period trendWindows holds 12 monthly windows while
  *          scoreWindows holds the single current-year window.
@@ -111,7 +109,29 @@ export function buildPerformanceWindows(opts = {}) {
         return { scoreWindows, trendWindows };
     }
 
-    // ── Rolling window (week / custom): contiguous, ending TODAY ──
+    // ── Fixed calendar weeks: Monday through Sunday ──
+    if (width === 7) {
+        const today = startOfDay(now);
+        const daysSinceMonday = (today.getDay() + 6) % 7;
+        const monday = new Date(today);
+        monday.setDate(today.getDate() - daysSinceMonday);
+        const windows = [];
+        for (let i = 0; i < trendCount; i++) {
+            const start = new Date(monday);
+            start.setDate(monday.getDate() - i * 7);
+            const end = endOfDay(new Date(start));
+            end.setDate(start.getDate() + 6);
+            windows.push({
+                start,
+                end,
+                label: weeklyLabel(start, end),
+                days: daySpan(start, end)
+            });
+        }
+        return { scoreWindows: windows, trendWindows: windows };
+    }
+
+    // ── Rolling custom windows: contiguous, ending TODAY ──
     const windows = [];
     for (let i = 0; i < trendCount; i++) {
         const end = new Date(now);
