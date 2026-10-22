@@ -1,17 +1,40 @@
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { AppAuth } from '../../js/modules/auth.js';
 import { AppDB } from '../../js/modules/db.js';
 import { AppConfig } from '../../js/config.js';
 
 const store = new Map();
+const firestoreUsers = new Map();
+const firestore = {
+    collection: (collection) => ({
+        doc: (id) => ({ collection, id: String(id), onSnapshot: () => () => {} })
+    }),
+    runTransaction: async (callback) => {
+        const writes = [];
+        const transaction = {
+            get: async (ref) => {
+                const data = firestoreUsers.get(`${ref.collection}/${ref.id}`);
+                return { exists: !!data, data: () => data };
+            },
+            set: (ref, data) => writes.push({ ref, data })
+        };
+        const result = await callback(transaction);
+        writes.forEach(({ ref, data }) => {
+            const key = `${ref.collection}/${ref.id}`;
+            firestoreUsers.set(key, { ...(firestoreUsers.get(key) || {}), ...data });
+        });
+        return result;
+    }
+};
 globalThis.localStorage = {
     getItem: (k) => (store.has(k) ? store.get(k) : null),
     setItem: (k, v) => store.set(k, String(v)),
     removeItem: (k) => store.delete(k),
     clear: () => store.clear()
 };
-globalThis.window = { location: { reload() {} }, dispatchEvent() {}, addEventListener() {} };
+globalThis.window = { AppFirestore: firestore, location: { reload() {} }, dispatchEvent() {}, addEventListener() {} };
+globalThis.document = { visibilityState: 'visible', addEventListener() {} };
 
 let putCalls = [];
 AppDB.put = async (coll, data) => { putCalls.push({ coll, data }); };
@@ -25,10 +48,13 @@ AppAuth._getFirebaseAuth = () => globalThis.firebase.auth();
 
 beforeEach(() => {
     store.clear();
+    firestoreUsers.clear();
     putCalls = [];
     AppAuth.currentUser = null;
     AppAuth.localToken = null;
 });
+
+afterEach(() => AppAuth._clearSessionExpiry());
 
 function mockFetch(user, options = {}) {
     const response = (body, status = 200) => ({
@@ -85,7 +111,11 @@ describe('owner-only login', () => {
         assert.ok(result && result.serverError);
     });
 
-    it('logs the owner in and reuses the shared token', async () => {
+    it('allows the owner to add a second device and schedules the older session for 10 PM', async () => {
+        firestoreUsers.set('users/u_jomit', {
+            activeSessionToken: 'tok_jomit',
+            activeSessionStartedAt: Date.now() - 1000
+        });
         mockFetch({
             id: 'u_jomit', username: 'jomit',
             activeSessionToken: 'tok_jomit', activeSessionStartedAt: Date.now()
@@ -93,17 +123,24 @@ describe('owner-only login', () => {
 
         const result = await AppAuth.loginOwner('jomit', 'pass');
         assert.equal(result, true);
-        assert.equal(AppAuth.localToken, 'tok_jomit', 'owner should reuse the existing token');
+        assert.notEqual(AppAuth.localToken, 'tok_jomit', 'the second device gets its own token');
         assert.equal(AppAuth.currentUser.id, 'u_jomit');
-        const wroteToken = putCalls.find((c) => c.data && c.data.activeSessionToken);
-        assert.equal(wroteToken, undefined, 'owner login must not overwrite the shared token');
+        const sessions = firestoreUsers.get('users/u_jomit').activeSessions;
+        assert.equal(sessions.length, 2);
+        assert.equal(sessions[0].token, 'tok_jomit');
+        assert.ok(sessions[0].logoutAt > Date.now());
+        assert.equal(sessions[1].token, AppAuth.localToken);
+        assert.equal(sessions[1].logoutAt, null);
     });
 
     it('establishes a token for the owner on first login', async () => {
+        firestoreUsers.set('users/u_jomit', { id: 'u_jomit', username: 'jomit' });
         mockFetch({ id: 'u_jomit', username: 'jomit' });
         const result = await AppAuth.loginOwner('jomit', 'pass');
         assert.equal(result, true);
-        const wroteToken = putCalls.find((c) => c.data && c.data.activeSessionToken);
-        assert.ok(wroteToken, 'first owner login should establish a token');
+        const savedUser = firestoreUsers.get('users/u_jomit');
+        assert.ok(savedUser.activeSessionToken, 'first owner login should establish a token');
+        assert.equal(savedUser.activeSessions.length, 1);
+        assert.equal(savedUser.activeSessions[0].token, AppAuth.localToken);
     });
 });

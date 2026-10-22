@@ -2656,7 +2656,7 @@ textarea.gm-input {
 /* On laptop-sized viewports, let each primary card end with its content.
    The shared 240px tile floor and equal-height grid stretching leave large
    blank areas in shorter cards such as check-in and yearly plan. */
-@media (min-width: 1024px) and (max-width: 1599px) {
+@media (min-width: 1024px) and (max-width: 1439px) {
   .modern-dashboard .dashboard-primary-row {
     grid-template-columns: minmax(0, 1fr);
     align-items: start;
@@ -3821,6 +3821,46 @@ textarea.gm-input {
   flex-wrap: wrap;
   gap: 0.4rem;
   overflow-x: visible;
+}
+
+/* Wide dashboards pair the attendance controls with the team calendar to
+   keep the first screen short. The task list gets the full row beneath them. */
+@media (min-width: 1440px) {
+  .modern-dashboard .dashboard-primary-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+    align-items: start;
+  }
+
+  .modern-dashboard .dashboard-primary-row > .dashboard-checkin-card {
+    grid-column: 1;
+    grid-row: 1;
+    align-self: start;
+  }
+
+  .modern-dashboard .dashboard-primary-row > .dashboard-checkin-card.dashboard-card-mode-tile {
+    align-self: start;
+    height: auto;
+  }
+
+  .modern-dashboard .dashboard-primary-row > .dashboard-primary-col:nth-child(2) {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .modern-dashboard .dashboard-primary-row > .dashboard-primary-col:nth-child(3) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .modern-dashboard .dashboard-primary-row > .dashboard-checkin-card.dashboard-card-mode-tile,
+  .modern-dashboard .dashboard-primary-row > .dashboard-primary-col > .card.dashboard-card-mode-tile {
+    min-height: 0;
+  }
+
+  .dashboard-staff-view.modern-dashboard .dashboard-primary-row .dashboard-primary-col > .card,
+  .dashboard-admin-view.modern-dashboard .dashboard-primary-row .dashboard-primary-col > .card {
+    flex: 0 0 auto;
+  }
 }
 
 /* NOTE: the compact check-in card rules live in ONE place only —

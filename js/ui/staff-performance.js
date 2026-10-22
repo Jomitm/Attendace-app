@@ -7,6 +7,8 @@
 
 import { safeHtml, safeUrl, formatLabeledInsight } from './helpers.js';
 import { runDailyPerformanceAI, getTodaysCachedNarrative, getTodaysCachedAiScore, refreshPerformanceAI, verifyPerformanceData } from '../modules/ai-performance-coach.js';
+import { PERF_PERIODS } from '../utils/performance-periods.js';
+export { PERF_PERIODS };
 
 // ─── Radar Chart (Chart.js global) ─────────────────────────────
 let _radarInstance = null;
@@ -195,12 +197,6 @@ function scoreRingHtml(score) {
 // Shared with dashboard.js so the dashboard fetch and the tab switcher always
 // use the same window/trend parameters for a given period.
 // week trendWeeks is 4 (was 1) so every period gets a real trend series.
-export const PERF_PERIODS = [
-    { key: 'week', label: 'This Week', windowDays: 7, trendWeeks: 4 },
-    { key: 'month', label: 'This Month', windowDays: 30, trendWeeks: 4, calendarMonth: true },
-    { key: 'year', label: 'This Year', windowDays: 365, trendWeeks: 12 }
-];
-
 let _personalPerfUserId = null;
 let _personalPerfCurrentPeriod = 'week';
 

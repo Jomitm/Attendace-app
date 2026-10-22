@@ -9,7 +9,7 @@ import { normalizeTaskStatus } from '../utils/task-status.js';
 import { isTaskVisibleToViewer } from '../utils/task-visibility.js';
 import { renderYearlyPlan } from './team-schedule.js';
 import { renderJourneyReflectionCard } from './journey-reflection.js';
-import { renderStaffPerformance, cleanupPerformanceChart, renderTeamPerformanceExpanded, PERF_PERIODS } from './staff-performance.js';
+import { PERF_PERIODS } from '../utils/performance-periods.js';
 import { AppConfig } from '../config.js';
 import {
   DASHBOARD_CARD_MODE_TILE,
@@ -29,6 +29,17 @@ import {
 } from './dashboard-card-mode.js';
 import { onAction } from '../utils/action-router.js';
 import { getTodayFeast, loadFeastImage, getLiturgicalSeasonColor, getLiturgicalSeasonBg, getRankLabel } from '../modules/feasts.js';
+
+let staffPerformanceModulePromise = null;
+const loadStaffPerformanceModule = () => {
+    if (!staffPerformanceModulePromise) {
+        staffPerformanceModulePromise = import('./staff-performance.js').catch((err) => {
+            staffPerformanceModulePromise = null;
+            throw err;
+        });
+    }
+    return staffPerformanceModulePromise;
+};
 
 const escapeJsSingleQuote = (value) => String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 const WORKLOG_PAGE_SIZE = 25;
@@ -481,7 +492,9 @@ window.app_updateHeroExpandedOverlay = updateHeroExpandedOverlay;
 
 window.app_updatePerfExpandedOverlay = () => {
     console.log('[Perf] Expanded overlay hook fired');
-    renderTeamPerformanceExpanded().catch(e => console.error('[Perf] Expanded render failed:', e));
+    loadStaffPerformanceModule()
+        .then((module) => module.renderTeamPerformanceExpanded())
+        .catch(e => console.error('[Perf] Expanded render failed:', e));
 };
 
 const createDashboardModeButton = (cardId, title, mode) => {
@@ -2048,6 +2061,7 @@ export function renderStaffDirectory(allUsers, _notifications, currentUser) {
 export async function renderDashboard() {
     markPerf('dashboard:render:start');
     const dashRenderStart = performance.now();
+    staffPerformanceModulePromise?.then((module) => module.cleanupPerformanceChart()).catch(() => {});
     window.app_closeDashboardCardMaximize?.();
     const user = window.AppAuth.getUser();
     const isAdmin = window.app_hasPerm('dashboard', 'view', user);
@@ -2149,6 +2163,22 @@ export async function renderDashboard() {
         pendingMissedCheckoutNotifications.map((notif) => String(notif.logId || '')).filter(Boolean)
     ));
     const currentWeekRange = getWeekRange(leaveHistoryDate);
+    const currentWeekWorkPlansPromise = window.AppAnalyticsService?.getWorkPlansByDateRange
+        ? window.AppAnalyticsService.getWorkPlansByDateRange(currentWeekRange.startKey, currentWeekRange.endKey)
+        : window.AppAnalyticsService.getWorkPlans().then((rows) => (rows || []).filter((row) => {
+            const date = String(row?.date || '');
+            return date >= currentWeekRange.startKey && date <= currentWeekRange.endKey;
+        }));
+    const currentWeekCollaborationsPromise = currentWeekWorkPlansPromise
+        .then((rows) => (rows || []).filter((plan) =>
+            Array.isArray(plan?.plans) && plan.plans.some((task) =>
+                Array.isArray(task?.tags) && task.tags.some((tag) => tag.id === targetStaffId && tag.status === 'accepted')
+            )
+        ))
+        .catch((err) => {
+            console.warn('Failed to derive this week’s collaborations:', err);
+            return [];
+        });
 
     // Staged loading feedback: every fetch below reports completion so the
     // skeleton status banner can tell the user what is happening while they
@@ -2193,7 +2223,7 @@ export async function renderDashboard() {
         trackStage(window.app_hasPerm('leaves', 'view') ? window.AppLeaves.getPendingLeaves() : Promise.resolve([]), 'Checking leave requests…'),
         trackStage(
             window.AppUserService.getActiveStaff().then(users => users.filter(u => !AppConfig.isDemoUser(u))), 'Loading the staff list…'),
-        trackStage(window.AppCalendar ? window.AppCalendar.getCollaborations(targetStaffId) : Promise.resolve([]), 'Loading shared tasks…'),
+        trackStage(currentWeekCollaborationsPromise, 'Loading shared tasks…'),
         trackStage(window.app_hasPerm('leaves', 'view')
             ? window.AppLeaveService.getAll().then((rows) => {
                 const leavesThirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -2210,10 +2240,7 @@ export async function renderDashboard() {
         trackStage((isAdmin && window.app_hasPerm('leaves', 'view'))
             ? window.AppAttendanceService.getByDateRange(currentWeekRange.startKey, currentWeekRange.endKey)
             : Promise.resolve([]), 'Loading this week’s attendance…'),
-        trackStage(            window.AppAnalyticsService.getWorkPlans().then((rows) => (rows || []).filter((row) => {
-                const d = String(row?.date || '');
-                return d >= currentWeekRange.startKey && d <= currentWeekRange.endKey;
-            })), 'Loading this week’s plan…'),
+        trackStage(currentWeekWorkPlansPromise, 'Loading this week’s plan…'),
         trackStage(window.AppJourneyReflection ? window.AppJourneyReflection.buildDashboardState({
             viewerUser: user,
             targetUserId: targetStaffId,
@@ -2655,25 +2682,26 @@ export async function renderDashboard() {
 
     // Deferred: populate personal performance widget after HTML is in DOM
     personalPerfPromise.then(personalPerfData => {
-        try {
-            cleanupPerformanceChart();
-            const slot = document.getElementById('dashboard-perf-slot');
-            if (slot && personalPerfData) {
-                const perfVisible = wv['staffPerformance'] !== false;
-                if (perfVisible) {
-                    slot.outerHTML = renderStaffPerformance(personalPerfData, {
-                        windowDays: personalPerfPeriod.windowDays,
-                        period: personalPerfPeriod.key
-                    });
-                    // AI Coach — once-a-day classify backfill + narrative (non-blocking)
-                    import('./staff-performance.js').then(m => m.hydrateAICoach?.(personalPerfData, 'week').catch(() => {})).catch(() => {});
-                } else {
-                    slot.style.display = 'none';
-                }
-            } else if (slot) {
-                slot.style.display = 'none';
-            }
-        } catch { /* best-effort */ }
+        const slot = document.getElementById('dashboard-perf-slot');
+        if (!slot) return;
+        if (!personalPerfData || wv['staffPerformance'] === false) {
+            slot.style.display = 'none';
+            return;
+        }
+        // Load the chart and AI narrative code only after the dashboard has
+        // rendered. This keeps nonessential performance UI off the startup path.
+        setTimeout(() => {
+            loadStaffPerformanceModule().then((module) => {
+                const currentSlot = document.getElementById('dashboard-perf-slot');
+                if (!currentSlot) return;
+                module.cleanupPerformanceChart();
+                currentSlot.outerHTML = module.renderStaffPerformance(personalPerfData, {
+                    windowDays: personalPerfPeriod.windowDays,
+                    period: personalPerfPeriod.key
+                });
+                module.hydrateAICoach?.(personalPerfData, 'week').catch(() => {});
+            }).catch(() => {});
+        }, 0);
     }).catch(() => {});
 
     // Clear skeleton loading state

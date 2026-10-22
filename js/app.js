@@ -5883,6 +5883,10 @@ document.addEventListener('submit', (e) => {
                     alert(result.serverError || 'Login service error — please try again in a moment.');
                     return;
                 }
+                if (result && result.sessionLimitReached) {
+                    alert('This account is already signed in on two devices. Sign out on one device and try again.');
+                    return;
+                }
                 if (result && result.denied === 'not-owner') {
                     alert('This portal is for owner access only.');
                     return;
@@ -5947,6 +5951,10 @@ document.addEventListener('submit', (e) => {
                 const result = await window.AppAuth.login(fd.get('username'), fd.get('password'));
                 if (result && result.serverError) {
                     alert(result.serverError || 'Login service error — please try again in a moment.');
+                    return;
+                }
+                if (result && result.sessionLimitReached) {
+                    alert('This account is already signed in on two devices. Sign out on one device and try again.');
                     return;
                 }
                 if (result && result.needsConflictConfirmation) {

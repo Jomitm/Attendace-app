@@ -42,12 +42,13 @@ import { renderModals } from './ui/global-modals.js';
 import { renderYearlyPlan } from './ui/team-schedule.js';
 import { renderTeamActivitiesPage } from './ui/team-activities.js';
 import { renderDashboardSectionPage, initDashboardSectionPage } from './ui/dashboard-sections.js';
-import { renderLetterPad } from './ui/letter-pad.js';
+const renderLetterPad = lazyPage(() => import('./ui/letter-pad.js'), 'renderLetterPad');
 import { renderJourneyReflectionCard } from './ui/journey-reflection.js';
 import { initDashboardLayout, toggleEditMode, applyDashboardLayout, isEditModeActive } from './ui/dashboard-layout.js';
 import { renderKanbanBoard, initKanbanBoard, startKanbanRealtimeListener, stopKanbanRealtimeListener } from './ui/kanban-board.js';
 import { renderViewToggle, initViewToggle, ensureViewToggleCSS } from './ui/view-toggle.js';
-import { renderAICenter, initAICenter } from './ui/ai-center.js';
+const renderAICenter = lazyPage(() => import('./ui/ai-center.js'), 'renderAICenter');
+const initAICenter = lazyPage(() => import('./ui/ai-center.js'), 'initAICenter');
 
 // Re-export for ESM usage
 export {

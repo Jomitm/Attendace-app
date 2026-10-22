@@ -1,6 +1,32 @@
 import { AppDB } from './db.js';
 import { AppConfig } from '../config.js';
 
+const MAX_DEVICE_SESSIONS = 2;
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function nextTenPmIst(now = Date.now()) {
+    const istNow = new Date(now + IST_OFFSET_MS);
+    let cutoff = Date.UTC(
+        istNow.getUTCFullYear(),
+        istNow.getUTCMonth(),
+        istNow.getUTCDate(),
+        22, 0, 0, 0
+    ) - IST_OFFSET_MS;
+    if (cutoff <= now) cutoff += DAY_MS;
+    return cutoff;
+}
+
+const normalizeSession = (session) => {
+    const token = String(session?.token || '').trim();
+    if (!token) return null;
+    return {
+        token,
+        signedInAt: Math.max(0, Number(session.signedInAt) || 0),
+        logoutAt: Math.max(0, Number(session.logoutAt) || 0) || null
+    };
+};
+
 async function readLoginResponse(response, label) {
     const raw = await response.text();
     if (!raw.trim()) {
@@ -28,6 +54,9 @@ export class Auth {
         this.localToken = null;
         this.heartbeatInterval = null;
         this.userDocUnsubscribe = null;
+        this.sessionExpiryTimer = null;
+        this.isForceLoggingOut = false;
+        this.visibilityCheckHandler = null;
         this.isImpersonating = false;
         this._realUser = null;
         this._realToken = null;
@@ -46,10 +75,19 @@ export class Auth {
             this.currentUser = await AppDB.get('users', storedId);
             if (this.currentUser) {
                 this.localToken = localStorage.getItem(this.deviceTokenKey) || null;
-                if (this.currentUser.activeSessionToken && this.localToken && this.currentUser.activeSessionToken !== this.localToken) {
-                    this.forceLogout('Your session was ended because you logged in on another device.');
+                if (!this.localToken) {
+                    this.forceLogout('Your saved sign-in could not be verified. Please sign in again.');
                     return;
                 }
+                const registered = await this._registerDeviceSession(this.currentUser, this.localToken);
+                if (!registered.ok) {
+                    this.forceLogout(registered.expired
+                        ? 'This device session reached its 10 PM India time sign-out.'
+                        : 'This account is already signed in on two devices. Sign out on one device and try again.');
+                    return;
+                }
+                this.currentUser = { ...this.currentUser, activeSessions: registered.sessions };
+                this._scheduleSessionExpiry(registered.session);
                 this.startHeartbeat();
                 this.startCurrentUserSync();
             }
@@ -70,8 +108,8 @@ export class Auth {
         const latest = await AppDB.get('users', sessionId);
         this.currentUser = latest || null;
         this.localToken = localStorage.getItem(this.deviceTokenKey) || null;
-        if (latest && latest.activeSessionToken && this.localToken && latest.activeSessionToken !== this.localToken) {
-            this.forceLogout('Your session was ended because you logged in on another device.');
+        if (latest && !this._validateUserSession(latest)) {
+            return null;
         }
         return this.currentUser;
     }
@@ -114,20 +152,9 @@ export class Auth {
             // Use the user data returned from the server
             const user = data.user;
 
-            // Check session conflict (same logic as before)
-            const localToken = localStorage.getItem(this.deviceTokenKey) || null;
-            const foreignToken = user.activeSessionToken || null;
-            const startedAt = user.activeSessionStartedAt || 0;
-            const windowMs = (AppConfig && AppConfig.SESSION_TAKEOVER_PROMPT_WINDOW_MS) || (24 * 60 * 60 * 1000);
-            const recent = (Date.now() - startedAt) <= windowMs;
-            const hasConflict = !!foreignToken && foreignToken !== localToken && recent;
             const isOwner = (AppConfig && Array.isArray(AppConfig.OWNER_USERNAMES)
                 ? AppConfig.OWNER_USERNAMES.map(s => String(s).toLowerCase())
                 : []).includes((user.username || '').toLowerCase());
-
-            if (hasConflict && !isOwner) {
-                return { needsConflictConfirmation: true, user };
-            }
             return this._establishSession(user, isOwner);
         } catch (err) {
             if (serverResponded) {
@@ -150,38 +177,40 @@ export class Auth {
             return false;
         }
 
-        const localToken = localStorage.getItem(this.deviceTokenKey) || null;
-        const foreignToken = user.activeSessionToken || null;
-        const startedAt = user.activeSessionStartedAt || 0;
-        const windowMs = (AppConfig && AppConfig.SESSION_TAKEOVER_PROMPT_WINDOW_MS) || (24 * 60 * 60 * 1000);
-        const recent = (Date.now() - startedAt) <= windowMs;
-        const hasConflict = !!foreignToken && foreignToken !== localToken && recent;
         const isOwner = (AppConfig && Array.isArray(AppConfig.OWNER_USERNAMES)
             ? AppConfig.OWNER_USERNAMES.map(s => String(s).toLowerCase())
             : []).includes((user.username || '').toLowerCase());
-
-        if (hasConflict && !isOwner) {
-            return { needsConflictConfirmation: true, user };
-        }
         return this._establishSession(user, isOwner);
     }
 
-    async _establishSession(user, isOwner = false) {
-        let token = this.generateSessionToken();
-        if (isOwner && user.activeSessionToken) {
-            token = user.activeSessionToken;
+    async _establishSession(user, _isOwner = false) {
+        const savedUserId = localStorage.getItem(this.sessionKey);
+        const savedToken = localStorage.getItem(this.deviceTokenKey);
+        const token = savedUserId === String(user.id) && savedToken
+            ? savedToken
+            : this.generateSessionToken();
+        let registered;
+        try {
+            registered = await this._registerDeviceSession(user, token);
+        } catch (err) {
+            console.error('Failed to register device session:', err);
+            const auth = this._getFirebaseAuth();
+            if (auth) await auth.signOut().catch(() => {});
+            return { serverError: 'Could not save this device session. Check your connection and Firestore permissions, then try again.' };
         }
+        if (!registered.ok) {
+            const auth = this._getFirebaseAuth();
+            if (auth) await auth.signOut().catch(() => {});
+            return registered.expired
+                ? { serverError: 'This device session has expired. Please sign in again.' }
+                : { sessionLimitReached: true };
+        }
+
         this.localToken = token;
-        this.currentUser = user;
+        this.currentUser = { ...user, activeSessions: registered.sessions };
         localStorage.setItem(this.sessionKey, user.id);
         localStorage.setItem(this.deviceTokenKey, token);
-        if (!isOwner || !user.activeSessionToken) {
-            await AppDB.put('users', {
-                id: user.id,
-                activeSessionToken: token,
-                activeSessionStartedAt: Date.now()
-            }).catch((err) => console.warn('Failed to set session token:', err));
-        }
+        this._scheduleSessionExpiry(registered.session);
         this.startHeartbeat();
         this.startCurrentUserSync();
         return true;
@@ -190,6 +219,163 @@ export class Auth {
     async confirmTakeoverLogin(user) {
         if (!user || !user.id) return false;
         return this._establishSession(user);
+    }
+
+    async _registerDeviceSession(user, token) {
+        const firestore = window.AppFirestore || AppDB.db;
+        if (!firestore?.runTransaction || !user?.id || !token) {
+            throw new Error('Firestore session storage is unavailable.');
+        }
+        const ref = firestore.collection('users').doc(String(user.id));
+        const now = Date.now();
+
+        return firestore.runTransaction(async (transaction) => {
+            const snapshot = await transaction.get(ref);
+            if (!snapshot.exists) throw new Error('The user record no longer exists.');
+            const data = snapshot.data() || {};
+            let sessions = Array.isArray(data.activeSessions)
+                ? data.activeSessions.map(normalizeSession).filter(Boolean)
+                : [];
+
+            // Migrate older app versions' single-device session without signing
+            // that device out immediately.
+            if (!Array.isArray(data.activeSessions) && data.activeSessionToken) {
+                sessions.push(normalizeSession({
+                    token: data.activeSessionToken,
+                    signedInAt: data.activeSessionStartedAt || now,
+                    logoutAt: null
+                }));
+                sessions = sessions.filter(Boolean);
+            }
+
+            const existing = sessions.find((session) => session.token === token);
+            if (existing?.logoutAt && existing.logoutAt <= now) return { ok: false, expired: true };
+
+            sessions = sessions.filter((session) => session.token === token || !session.logoutAt || session.logoutAt > now);
+            let current = sessions.find((session) => session.token === token) || null;
+            if (!current && sessions.length >= MAX_DEVICE_SESSIONS) {
+                const storedSessions = Array.isArray(data.activeSessions)
+                    ? data.activeSessions.map(normalizeSession).filter(Boolean)
+                    : [];
+                if (sessions.length !== storedSessions.length) {
+                    transaction.set(ref, { activeSessions: sessions }, { merge: true });
+                }
+                return { ok: false, sessionLimitReached: true };
+            }
+            if (!current) {
+                const latestStart = sessions.reduce((max, session) => Math.max(max, session.signedInAt), 0);
+                current = { token, signedInAt: Math.max(now, latestStart + 1), logoutAt: null };
+                sessions.push(current);
+            }
+
+            sessions.sort((a, b) => a.signedInAt - b.signedInAt || a.token.localeCompare(b.token));
+            if (sessions.length === 2) {
+                sessions[0].logoutAt = sessions[0].logoutAt || nextTenPmIst(now);
+                sessions[1].logoutAt = null;
+            } else if (sessions[0]) {
+                sessions[0].logoutAt = null;
+            }
+            const legacySession = sessions[0] || null;
+            transaction.set(ref, {
+                activeSessions: sessions,
+                activeSessionToken: legacySession?.token || null,
+                activeSessionStartedAt: legacySession?.signedInAt || null
+            }, { merge: true });
+
+            return {
+                ok: true,
+                sessions,
+                session: sessions.find((session) => session.token === token)
+            };
+        });
+    }
+
+    async _releaseDeviceSession(userId, token) {
+        const firestore = window.AppFirestore || AppDB.db;
+        if (!firestore?.runTransaction || !userId || !token) return;
+        const ref = firestore.collection('users').doc(String(userId));
+        await firestore.runTransaction(async (transaction) => {
+            const snapshot = await transaction.get(ref);
+            if (!snapshot.exists) return;
+            const data = snapshot.data() || {};
+            let sessions = Array.isArray(data.activeSessions)
+                ? data.activeSessions.map(normalizeSession).filter(Boolean)
+                : [];
+            if (!Array.isArray(data.activeSessions) && data.activeSessionToken) {
+                sessions.push(normalizeSession({
+                    token: data.activeSessionToken,
+                    signedInAt: data.activeSessionStartedAt || Date.now(),
+                    logoutAt: null
+                }));
+                sessions = sessions.filter(Boolean);
+            }
+            sessions = sessions.filter((session) => session.token !== token && (!session.logoutAt || session.logoutAt > Date.now()));
+            sessions.sort((a, b) => a.signedInAt - b.signedInAt || a.token.localeCompare(b.token));
+            if (sessions.length === 2) {
+                sessions[0].logoutAt = sessions[0].logoutAt || nextTenPmIst();
+                sessions[1].logoutAt = null;
+            } else if (sessions[0]) {
+                sessions[0].logoutAt = null;
+            }
+            const legacySession = sessions[0] || null;
+            transaction.set(ref, {
+                activeSessions: sessions,
+                activeSessionToken: legacySession?.token || null,
+                activeSessionStartedAt: legacySession?.signedInAt || null
+            }, { merge: true });
+        });
+    }
+
+    _validateUserSession(user) {
+        const token = localStorage.getItem(this.deviceTokenKey) || this.localToken;
+        if (!token) {
+            this.forceLogout('Your saved sign-in could not be verified. Please sign in again.');
+            return false;
+        }
+        if (Array.isArray(user.activeSessions)) {
+            const session = user.activeSessions.map(normalizeSession).find((item) => item?.token === token);
+            if (!session) {
+                this.forceLogout('This device is no longer signed in. Please sign in again.');
+                return false;
+            }
+            if (session.logoutAt && session.logoutAt <= Date.now()) {
+                this.forceLogout('Your older device session was automatically signed out at 10 PM India time.');
+                return false;
+            }
+            this._scheduleSessionExpiry(session);
+            return true;
+        }
+        if (user.activeSessionToken && user.activeSessionToken !== token) {
+            this.forceLogout('Your session was ended because you logged in on another device.');
+            return false;
+        }
+        return true;
+    }
+
+    _scheduleSessionExpiry(session) {
+        this._clearSessionExpiry();
+        if (!session?.logoutAt) return;
+        const checkExpiry = () => {
+            if (session.logoutAt <= Date.now()) {
+                this.forceLogout('Your older device session was automatically signed out at 10 PM India time.');
+            } else {
+                this.sessionExpiryTimer = setTimeout(checkExpiry, session.logoutAt - Date.now());
+            }
+        };
+        this.sessionExpiryTimer = setTimeout(checkExpiry, Math.max(0, session.logoutAt - Date.now()));
+        if (!this.visibilityCheckHandler) {
+            this.visibilityCheckHandler = () => {
+                if (document.visibilityState === 'visible' && this.currentUser) {
+                    this.refreshCurrentUserFromDB().catch((err) => console.warn('Session refresh failed:', err));
+                }
+            };
+            document.addEventListener('visibilitychange', this.visibilityCheckHandler);
+        }
+    }
+
+    _clearSessionExpiry() {
+        if (this.sessionExpiryTimer) clearTimeout(this.sessionExpiryTimer);
+        this.sessionExpiryTimer = null;
     }
 
     // Owner-only login — server validates owner status
@@ -343,14 +529,8 @@ export class Auth {
         const sessionId = localStorage.getItem(this.sessionKey);
         const localToken = localStorage.getItem(this.deviceTokenKey);
         if (sessionId && localToken) {
-            try {
-                const latest = await AppDB.get('users', sessionId);
-                if (latest && latest.activeSessionToken && latest.activeSessionToken === localToken) {
-                    await AppDB.put('users', { id: sessionId, activeSessionToken: null, activeSessionStartedAt: null });
-                }
-            } catch (err) {
-                console.warn('Failed to clear session token on logout:', err);
-            }
+            try { await this._releaseDeviceSession(sessionId, localToken); }
+            catch (err) { console.warn('Failed to release device session on logout:', err); }
         }
         // Sign out from Firebase Auth
         const auth = this._getFirebaseAuth();
@@ -359,6 +539,7 @@ export class Auth {
         }
         this.stopHeartbeat();
         this.stopCurrentUserSync();
+        this._clearSessionExpiry();
         this.currentUser = null;
         this.localToken = null;
         try {
@@ -368,10 +549,19 @@ export class Auth {
         window.location.reload();
     }
 
-    forceLogout(message = 'Your session was ended.') {
+    async forceLogout(message = 'Your session was ended.') {
+        if (this.isForceLoggingOut) return;
+        this.isForceLoggingOut = true;
         try {
             sessionStorage.setItem('crwi_auth_notice', message);
         } catch { /* ignore */ }
+        const sessionId = localStorage.getItem(this.sessionKey);
+        const localToken = localStorage.getItem(this.deviceTokenKey);
+        if (sessionId && localToken) {
+            await this._releaseDeviceSession(sessionId, localToken).catch((err) => {
+                console.warn('Failed to release expired device session:', err);
+            });
+        }
         // Sign out from Firebase Auth
         const auth = this._getFirebaseAuth();
         if (auth) {
@@ -379,6 +569,7 @@ export class Auth {
         }
         this.stopHeartbeat();
         this.stopCurrentUserSync();
+        this._clearSessionExpiry();
         this.currentUser = null;
         this.localToken = null;
         try {
@@ -504,12 +695,7 @@ export class Auth {
                         return;
                     }
                     const latestUser = { ...doc.data(), id: doc.id };
-
-                    const localToken = localStorage.getItem(this.deviceTokenKey) || this.localToken;
-                    if (latestUser.activeSessionToken && localToken && latestUser.activeSessionToken !== localToken) {
-                        this.forceLogout('You have been logged out because you logged in on another device.');
-                        return;
-                    }
+                    if (!this._validateUserSession(latestUser)) return;
 
                     this.currentUser = latestUser;
                     window.dispatchEvent(new CustomEvent('app:user-sync', { detail: latestUser }));

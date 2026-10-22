@@ -54,6 +54,33 @@ export class AnalyticsService {
         return db.getCached(cacheKey, ttl, () => db.getAll('work_plans', opts));
     }
 
+    /** Get only work plans in the requested date range, with write-aware caching. */
+    async getWorkPlansByDateRange(startDate, endDate) {
+        const db = _db();
+        if (!db) return [];
+        const start = String(startDate || '').trim();
+        const end = String(endDate || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || start > end) return [];
+
+        const ttl = (_cfg()?.READ_CACHE_TTLS?.workPlansAllReadMs) || 300000;
+        const cacheKey = db.getCacheKey('svc_analytics_workPlansRange', 'work_plans', { start, end });
+        return db.getCached(cacheKey, ttl, async () => {
+            let plans;
+            if (db.queryManyStrict) {
+                plans = await db.queryManyStrict('work_plans', [
+                    { field: 'date', operator: '>=', value: start },
+                    { field: 'date', operator: '<=', value: end }
+                ]);
+            } else {
+                plans = await db.getAll('work_plans').then((rows) => (rows || []).filter((row) => {
+                    const date = String(row?.date || '');
+                    return date >= start && date <= end;
+                }));
+            }
+            return db.hydrateWorkPlans ? db.hydrateWorkPlans(plans) : plans;
+        });
+    }
+
     /**
      * Get events.
      */
