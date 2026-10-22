@@ -116,7 +116,7 @@ service cloud.firestore {
           (
             resource.data.get('userId', '') == request.auth.uid &&
             (
-              !resource.data.keys().hasAny(['createdById'])
+              resource.data.get('createdById', '') == '' || resource.data.get('createdById', '') == null
                 ? request.resource.data.get('createdById', '') == request.auth.uid
                 : request.resource.data.get('createdById', '') == resource.data.get('createdById', '')
             )

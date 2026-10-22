@@ -478,6 +478,11 @@ export class Database {
         const writerId = String(window.AppFirebaseAuth?.currentUser?.uid || window.AppAuth?.getUser?.()?.id || '').trim();
         const ownerId = String(oldPlan.userId === 'annual_shared' ? oldPlan.createdById : oldPlan.userId || item.userId || '').trim();
         const writerOwnsPlan = Boolean(writerId && writerId === ownerId);
+        if (!String(safeInput.createdById || '').trim()) {
+            const existingCreatorId = String(oldPlan.createdById || '').trim();
+            if (existingCreatorId) safeInput.createdById = existingCreatorId;
+            else if (writerOwnsPlan) safeInput.createdById = writerId;
+        }
         // A collaborator cannot see an owner's private task bodies. Preserve
         // those references when they save edits to the public tasks in a plan.
         if (oldSnapshot.exists && !writerOwnsPlan) {
