@@ -254,8 +254,8 @@ const ensurePlannedTaskInteractions = () => {
     if (!window._dashboardActionRegistered) {
         window._dashboardActionRegistered = true;
         onAction('edit-task', (el) => window.app_editDashboardActivity?.('plan', '', el.dataset.date || '', el.dataset.userId || '', ''));
-        onAction('postpone-task', (el) => window.app_openPostponeModal?.(el.dataset.planId, Number(el.dataset.taskIndex)));
-        onAction('complete-task', (el) => window.app_teamActivitiesCompleteTask?.(el));
+        onAction('postpone-task', (el) => window.app_openPostponeModal?.(el.dataset.planId, Number(el.dataset.taskIndex), { dashboardAction: true }));
+        onAction('complete-task', (el) => window.app_teamActivitiesCompleteTask?.(el, { dashboardAction: true }));
         onAction('add-to-outlook', (el) => {
                 import('../utils/ical.js').then(({ buildICS, downloadICS }) => {
                 const title = el.dataset.taskTitle || 'Task';
@@ -1721,7 +1721,7 @@ function buildStatsDetailBuckets(logs, range) {
     let canonical = Array.isArray(logs) ? logs : [];
     if (window.AppAnalytics && window.AppAnalytics.pickBestAttendanceLogPerDay) {
         try {
-            canonical = window.AppAnalytics.pickBestAttendanceLogPerDay(canonical, startDate, endDate);
+            canonical = window.AppAnalytics.aggregateAttendanceSessionsPerDay(canonical, startDate, endDate);
         } catch (err) {
             console.warn('pickBestAttendanceLogPerDay failed', err);
         }

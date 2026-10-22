@@ -4021,9 +4021,9 @@ window.app_deleteMeeting = async (id) => {
 
 
 // Helper to postpone a task
-window.app_postponeTask = async (planId, taskIndex, targetDate, postponeWorkStatus) => {
+window.app_postponeTask = async (planId, taskIndex, targetDate, postponeWorkStatus, options = {}) => {
     if (!targetDate) {
-        window.app_openPostponeModal?.(planId, taskIndex);
+        window.app_openPostponeModal?.(planId, taskIndex, options);
         return;
     }
     const ws = (postponeWorkStatus === 'work_started' || postponeWorkStatus === 'in_progress' || postponeWorkStatus === 'not_started')
@@ -4041,28 +4041,17 @@ window.app_postponeTask = async (planId, taskIndex, targetDate, postponeWorkStat
         if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate) || targetDate <= fromDate) {
             throw new Error('Postpone date must be after the source date.');
         }
-        // Re-fetch plan right before mutation to catch any concurrent edits
-        plan = await window.AppDB.get('work_plans', planId);
-        if (!plan || !Array.isArray(plan.plans) || !plan.plans[taskIndex]) {
-            throw new Error('Task was modified by another user. Please refresh and try again.');
-        }
-        const freshTask = plan.plans[taskIndex];
-        await window.AppCalendar.updateTaskStatus(planId, taskIndex, 'postponed');
-        // Record the target date on the source so the widget/checkout can label
-        // the task as moved (and the widget stops showing it as a today task).
-        const sourcePatch = await window.AppDB.get('work_plans', planId).catch(() => null);
-        if (sourcePatch && sourcePatch.plans?.[taskIndex]) {
-            sourcePatch.plans[taskIndex].postponedToDate = targetDate;
-            sourcePatch.plans[taskIndex].postponeWorkStatus = ws;
-            // Move, don't copy: hide the source on the old date (same rule as
-            // the checkout and AI-agent postpone flows). The copy created below
-            // carries postponedFromDate, so the history is kept. This runs only
-            // after target-date validation passed, so a failed postpone never
-            // hides the original.
-            sourcePatch.plans[taskIndex].isRemoved = true;
-            sourcePatch.updatedAt = new Date().toISOString();
-            await window.AppDB.put('work_plans', sourcePatch).catch(() => null);
-        }
+        // updateTaskStatus fetches the latest source plan before writing and
+        // returns that saved version, so reuse it for the moved task instead
+        // of reading the source again after the status update.
+        plan = await window.AppCalendar.updateTaskStatus(planId, taskIndex, 'postponed', null, {
+            postponeWorkStatus: ws,
+            postponedToDate: targetDate,
+            removeFromSource: true,
+            skipRating: options.dashboardAction === true
+        });
+        const freshTask = plan?.plans?.[taskIndex];
+        if (!freshTask) throw new Error('Task was modified by another user. Please refresh and try again.');
         const details = (freshTask && freshTask.subPlans && freshTask.subPlans.length) ? ` - ${freshTask.subPlans.join(', ')}` : '';
         const text = freshTask ? `${freshTask.task}${details}` : '';
         const assigneeId = String(freshTask.assignedTo || ownerUserId || '').trim() || ownerUserId;
@@ -4085,11 +4074,42 @@ window.app_postponeTask = async (planId, taskIndex, targetDate, postponeWorkStat
             assignedTo: assigneeId,
             assignedToName: freshTask.assignedToName || plan?.userName || ''
         });
+        if (options.dashboardAction === true && window.AppRating?.updateUserRating) {
+            window.AppRating.updateUserRating(ownerUserId).catch((ratingErr) => {
+                console.warn('Background task rating refresh failed:', ratingErr);
+            });
+        }
         if (window.AppStore && window.AppStore.invalidatePlans) window.AppStore.invalidatePlans();
-        if (window.app_refreshDashboard) await window.app_refreshDashboard();
-        alert(`Task postponed to ${targetDate}`);
+        if (options.dashboardAction === true) {
+            const taskButton = Array.from(document.querySelectorAll('.dashboard-planned-task-btn[data-plan-id][data-task-index]'))
+                .find((el) => el.dataset.planId === String(planId) && Number(el.dataset.taskIndex) === Number(taskIndex));
+            const taskItem = taskButton?.closest('.dashboard-planned-task-item');
+            const taskList = taskItem?.parentElement;
+            taskItem?.remove();
+            if (taskList) {
+                const remaining = taskList.querySelectorAll('.dashboard-planned-task-item').length;
+                const summary = taskList.closest('.dashboard-worklog-card')?.querySelector('.dashboard-card-summary');
+                if (summary) summary.textContent = `${remaining} ${remaining === 1 ? 'task' : 'tasks'}`;
+                if (!remaining) taskList.innerHTML = '<div class="dashboard-activity-empty">No planned tasks for today.</div>';
+            }
+            if (typeof window.app_refreshDashboard === 'function') {
+                Promise.resolve().then(() => window.app_refreshDashboard()).catch((refreshErr) => {
+                    console.warn('Dashboard refresh after postpone failed:', refreshErr);
+                });
+            }
+            if (typeof window.app_showSyncToast === 'function') {
+                window.app_showSyncToast(`Task postponed to ${targetDate}.`);
+            } else {
+                alert(`Task postponed to ${targetDate}`);
+            }
+        } else {
+            if (window.app_refreshDashboard) await window.app_refreshDashboard();
+            alert(`Task postponed to ${targetDate}`);
+        }
+        return true;
     } catch (err) {
         alert("Failed to postpone task: " + err.message);
+        return false;
     }
 };
 
@@ -4099,7 +4119,7 @@ window.app_selectPostponeWorkStatus = function (val, btn) {
     if (group) group.querySelectorAll('.ps-btn').forEach((b) => b.classList.toggle('active', b === btn));
 };
 
-window.app_openPostponeModal = function (planId, taskIndex) {
+window.app_openPostponeModal = function (planId, taskIndex, options = {}) {
     const modalId = 'postpone-task-modal';
     document.getElementById(modalId)?.remove();
     window._postponeWorkStatus = 'not_started';
@@ -4124,19 +4144,33 @@ window.app_openPostponeModal = function (planId, taskIndex) {
                     </div>
                     <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1rem;">
                         <button type="button" class="action-btn secondary" onclick="document.getElementById('${modalId}')?.remove()" style="padding:0.55rem 0.9rem;">Cancel</button>
-                        <button type="button" class="action-btn" onclick="window.app_confirmPostponeTask('${planId}', ${taskIndex})" style="padding:0.55rem 0.9rem;">Confirm</button>
+                        <button type="button" class="action-btn" onclick="window.app_confirmPostponeTask('${planId}', ${taskIndex}, this, ${options.dashboardAction === true})" style="padding:0.55rem 0.9rem;">Confirm</button>
                     </div>
                 </div>
             </div>`;
     window.app_showModal(html, modalId);
 };
 
-window.app_confirmPostponeTask = async function (planId, taskIndex) {
+window.app_confirmPostponeTask = async function (planId, taskIndex, button = null, dashboardAction = false) {
     const targetDate = document.getElementById('postpone-date-input')?.value;
     if (!targetDate) return alert('Please select a date.');
     const ws = window._postponeWorkStatus || 'not_started';
-    document.getElementById('postpone-task-modal')?.remove();
-    await window.app_postponeTask(planId, taskIndex, targetDate, ws);
+    const originalHtml = button?.innerHTML || '';
+    if (dashboardAction) {
+        if (button) {
+            button.disabled = true;
+            button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
+        }
+    } else {
+        document.getElementById('postpone-task-modal')?.remove();
+    }
+    const success = await window.app_postponeTask(planId, taskIndex, targetDate, ws, { dashboardAction });
+    if (dashboardAction && success) {
+        document.getElementById('postpone-task-modal')?.remove();
+    } else if (dashboardAction && button?.isConnected) {
+        button.disabled = false;
+        button.innerHTML = originalHtml;
+    }
 };
 window.app_openDelegateModal = async function (planId, taskIndex) {
     const modalId = 'delegate-task-modal';
@@ -4212,9 +4246,8 @@ window.app_checkoutPostponeChip = function (task) {
     return window.app_formatPostponeChip ? window.app_formatPostponeChip(task) : '';
 };
 
-window.app_appendCompletedTaskToSummary = async function (planId, taskIndex, comment) {
-    const plan = await window.AppDB.get('work_plans', planId);
-    const task = plan?.plans?.[taskIndex];
+window.app_appendCompletedTaskToSummary = async function (planId, taskIndex, comment, savedTask = null) {
+    const task = savedTask || (await window.AppDB.get('work_plans', planId))?.plans?.[taskIndex];
     if (!task) return;
     const details = (task.subPlans && task.subPlans.length) ? ` (${task.subPlans.join(', ')})` : '';
     // Base line (without the optional comment) is the de-dupe key so a later
@@ -8091,8 +8124,13 @@ window.app_runAttendancePolicyMigration = async () => {
         }
 
         const keeperByGroup = new Map();
+        const actualSessionsByGroup = new Map();
         for (const [key, bucket] of groupBuckets.entries()) {
             if (!bucket || bucket.length === 0) continue;
+            actualSessionsByGroup.set(key, bucket.filter((log) => {
+                const meta = metaById.get(log.id) || inferMeta(log);
+                return meta.inferredSource === 'checkin_checkout' && meta.validTimeRange;
+            }).length);
             const sorted = bucket.slice().sort((a, b) => {
                 const am = metaById.get(a.id) || inferMeta(a);
                 const bm = metaById.get(b.id) || inferMeta(b);
@@ -8119,7 +8157,11 @@ window.app_runAttendancePolicyMigration = async () => {
             const uid = log.user_id || log.userId;
             const groupKey = (uid && dateIso) ? `${uid}|${dateIso}` : null;
             const keeperId = groupKey ? keeperByGroup.get(groupKey) : null;
-            const isDuplicate = !!(keeperId && keeperId !== log.id);
+            const hasMultipleActualSessions = groupKey
+                && (actualSessionsByGroup.get(groupKey) || 0) > 1
+                && inferredSource === 'checkin_checkout'
+                && meta.validTimeRange;
+            const isDuplicate = !!(keeperId && keeperId !== log.id && !hasMultipleActualSessions);
             const hasTimePair = !!(log.checkIn && log.checkOut && log.checkOut !== 'Active Now');
             const invalidTimeRange = hasTimePair && !!(inDt && outDt && outDt <= inDt);
             const preserveApprovedAutoClosure = !!(
@@ -8131,6 +8173,12 @@ window.app_runAttendancePolicyMigration = async () => {
             let nextDayCredit = log.dayCredit;
             let nextLateCountable = log.lateCountable;
             let nextExtraWorkedMs = log.extraWorkedMs || 0;
+
+            if (hasMultipleActualSessions) {
+                // Restore additional real sessions that an earlier migration may have
+                // neutralized when it mistook them for duplicate same-day logs.
+                inferredAttendanceEligible = true;
+            }
 
             if (isDuplicate) {
                 inferredAttendanceEligible = false;

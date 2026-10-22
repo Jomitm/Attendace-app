@@ -75,6 +75,59 @@ test('Hero counts each person-day once and gives half-day credit', () => {
     assert.equal(half.totalDurationMs, 4 * HOUR);
 });
 
+test('same-day check-in sessions add worked time while keeping one attendance day', () => {
+    const originalAttendance = window.AppAttendance;
+    window.AppAttendance = {
+        evaluateAttendanceStatus: (checkIn, durationMs) => ({
+            status: durationMs >= 8 * HOUR ? 'Present' : durationMs >= 4 * HOUR ? 'Half Day' : 'Absent',
+            dayCredit: durationMs >= 8 * HOUR ? 1 : durationMs >= 4 * HOUR ? 0.5 : 0,
+            lateCountable: checkIn.getHours() >= 9 && checkIn.getMinutes() > 15,
+            extraWorkedMs: Math.max(0, durationMs - (8 * HOUR))
+        }),
+        msToTime: (durationMs) => `${Math.floor(durationMs / HOUR)}h ${Math.floor((durationMs % HOUR) / 60000)}m`
+    };
+
+    try {
+        const firstIn = new Date(2026, 8, 22, 9, 0).getTime();
+        const secondIn = new Date(2026, 8, 22, 15, 0).getTime();
+        const sessions = [
+            baseLog('2026-09-22', {
+                id: 'first-session', entrySource: 'checkin_checkout', user_id: 'analytics-regression-user',
+                type: 'Half Day', dayCredit: 0.5, checkIn: '09:00', checkOut: '13:00',
+                checkInAt: firstIn, checkOutAt: firstIn + 4 * HOUR, durationMs: 4 * HOUR,
+                extraWorkedMs: 30 * 60 * 1000, pausedMs: 5 * 60 * 1000, pauseCount: 1
+            }),
+            baseLog('2026-09-22', {
+                id: 'second-session', entrySource: 'checkin_checkout', user_id: 'analytics-regression-user',
+                type: 'Half Day', dayCredit: 0.5, checkIn: '15:00', checkOut: '19:00',
+                checkInAt: secondIn, checkOutAt: secondIn + 4 * HOUR, durationMs: 4 * HOUR,
+                extraWorkedMs: 20 * 60 * 1000, pausedMs: 10 * 60 * 1000, pauseCount: 1
+            })
+        ];
+
+        const combined = AppAnalytics.aggregateAttendanceSessionsPerDay(sessions);
+        assert.equal(combined.length, 1);
+        assert.equal(combined[0].durationMs, 8 * HOUR);
+        assert.equal(combined[0].dayCredit, 1);
+        assert.equal(combined[0].type, 'Present');
+        assert.equal(combined[0].checkInAt, firstIn);
+        assert.equal(combined[0].checkOutAt, secondIn + 4 * HOUR);
+        assert.equal(combined[0].pausedMs, 15 * 60 * 1000);
+        assert.equal(combined[0].extraWorkedMs, 50 * 60 * 1000);
+
+        const hero = AppAnalytics.buildHeroCandidateStats(AppAnalytics.normalizeHeroLogs(sessions))[0];
+        assert.equal(hero.totalDurationMs, 8 * HOUR);
+        assert.equal(hero.daysSet.size, 1);
+        assert.equal(hero.dayCredit, 1);
+
+        const monthly = AppAnalytics.calculateStatsForLogs(sessions);
+        assert.equal(monthly.present, 1);
+        assert.equal(monthly.extraWorkedHours, 0.83);
+    } finally {
+        window.AppAttendance = originalAttendance;
+    }
+});
+
 test('Short Leave is credited by hours and actual checkout outranks generated leave', () => {
     const stats = AppAnalytics.calculateStatsForLogs([
         baseLog('2026-09-22', { type: 'Short Leave', durationHours: 2 })

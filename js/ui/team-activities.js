@@ -1210,7 +1210,10 @@ if (typeof window !== 'undefined') {
         }
     };
 
-    window.app_teamActivitiesCompleteTask = async function (btn) {
+    window.app_teamActivitiesCompleteTask = async function (btn, options = {}) {
+        const dashboardAction = options?.dashboardAction === true;
+        const originalButtonHtml = btn?.innerHTML || '';
+        const originalDisabled = !!btn?.disabled;
         try {
             const currentUser = window.AppAuth?.getUser ? window.AppAuth.getUser() : null;
             const currentUserId = currentUser?.id || null;
@@ -1228,10 +1231,14 @@ if (typeof window !== 'undefined') {
                 : '';
             if (comment === null) return; // user skipped/cancelled
             btn.disabled = true;
-            await window.AppCalendar.updateTaskStatus(planId, taskIndex, 'completed', null, { completionComment: comment });
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i><span>Saving…</span>';
+            const savedPlan = await window.AppCalendar.updateTaskStatus(planId, taskIndex, 'completed', null, {
+                completionComment: comment,
+                deferRating: dashboardAction
+            });
             // Reflect on the work-completion report (checkout summary draft).
             if (typeof window.app_appendCompletedTaskToSummary === 'function') {
-                await window.app_appendCompletedTaskToSummary(planId, taskIndex, comment);
+                await window.app_appendCompletedTaskToSummary(planId, taskIndex, comment, savedPlan?.plans?.[taskIndex]);
             }
             const state = getTeamActivitiesState();
             if (Array.isArray(state.data)) {
@@ -1243,7 +1250,19 @@ if (typeof window !== 'undefined') {
                 });
                 updateUI();
             }
-            showInlineActionToast(btn, 'Marked completed');
+            if (dashboardAction) {
+                const taskItem = btn.closest('.dashboard-planned-task-item');
+                const taskList = taskItem?.parentElement;
+                taskItem?.remove();
+                if (taskList) {
+                    const remaining = taskList.querySelectorAll('.dashboard-planned-task-item').length;
+                    const summary = taskList.closest('.dashboard-worklog-card')?.querySelector('.dashboard-card-summary');
+                    if (summary) summary.textContent = `${remaining} ${remaining === 1 ? 'task' : 'tasks'}`;
+                    if (!remaining) taskList.innerHTML = '<div class="dashboard-activity-empty">No planned tasks for today.</div>';
+                }
+            } else {
+                showInlineActionToast(btn, 'Marked completed');
+            }
             setTimeout(() => refreshData(), 400);
             if (window.app_showSyncToast) {
                 window.app_showSyncToast('Task marked as completed.');
@@ -1261,6 +1280,11 @@ if (typeof window !== 'undefined') {
         } catch (err) {
             console.error('Complete task failed', err);
             alert('Failed to complete task.');
+        } finally {
+            if (btn?.isConnected) {
+                btn.disabled = originalDisabled;
+                btn.innerHTML = originalButtonHtml;
+            }
         }
     };
 

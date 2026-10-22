@@ -417,6 +417,107 @@ export class Analytics {
         return Array.from(bestByDate.values());
     }
 
+    aggregateAttendanceSessionsPerDay(logs = [], startDate, endDate) {
+        const dateKey = (value) => {
+            const raw = String(value || '');
+            if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+            const parsed = new Date(value);
+            return Number.isNaN(parsed.getTime()) ? '' : this.toLocalDateKey(parsed);
+        };
+        const startKey = startDate ? dateKey(startDate) : '';
+        const endKey = endDate ? dateKey(endDate) : '';
+        const byUserDay = new Map();
+
+        (Array.isArray(logs) ? logs : []).forEach((log) => {
+            const userId = this.resolveHeroUserId(log);
+            const day = dateKey(log?.date);
+            if (!userId || !day || (startKey && day < startKey) || (endKey && day > endKey)) return;
+            const key = `${userId}:${day}`;
+            if (!byUserDay.has(key)) byUserDay.set(key, []);
+            byUserDay.get(key).push(log);
+        });
+
+        return Array.from(byUserDay.values()).map((dayLogs) => {
+            const day = dayLogs[0]?.date;
+            const canonical = this.pickBestAttendanceLogPerDay(dayLogs, day, day)[0];
+            if (!canonical) return null;
+            const sessions = dayLogs.filter((log) => {
+                if (String(log?.entrySource || '') !== 'checkin_checkout') return false;
+                // Older recalculation runs marked additional real sessions as Work Log.
+                return log.attendanceEligible === true || (log.type === 'Work Log' && Number(log.dayCredit) === 0);
+            });
+            if (sessions.length < 2) return canonical;
+
+            const sessionTimes = sessions.map((log) => {
+                let checkInAt = Number(log?.checkInAt);
+                if (!Number.isFinite(checkInAt) || checkInAt <= 0) {
+                    const parsedTime = this.parseTimeToMinutes(String(log?.checkIn || ''));
+                    const logDate = this.parseHeroLogDate(log?.date);
+                    if (parsedTime !== null && logDate) {
+                        logDate.setHours(Math.floor(parsedTime / 60), parsedTime % 60, 0, 0);
+                        checkInAt = logDate.getTime();
+                    }
+                }
+                let checkOutAt = Number(log?.checkOutAt);
+                if (!Number.isFinite(checkOutAt) || checkOutAt <= 0) {
+                    const parsedTime = this.parseTimeToMinutes(String(log?.checkOut || ''));
+                    const logDate = this.parseHeroLogDate(log?.date);
+                    if (parsedTime !== null && logDate) {
+                        logDate.setHours(Math.floor(parsedTime / 60), parsedTime % 60, 0, 0);
+                        checkOutAt = logDate.getTime();
+                    }
+                }
+                return { log, checkInAt, checkOutAt };
+            }).sort((a, b) => (a.checkInAt || 0) - (b.checkInAt || 0));
+            const firstSession = sessionTimes[0];
+            const lastSession = sessionTimes[sessionTimes.length - 1];
+            const totalDurationMs = sessions.reduce((sum, log) => sum + this.resolveHeroDurationMs(log), 0);
+            const canonicalIsSession = String(canonical.entrySource || '') === 'checkin_checkout';
+            const firstCheckInDate = Number.isFinite(firstSession.checkInAt) ? new Date(firstSession.checkInAt) : null;
+            const statusMeta = canonicalIsSession && firstCheckInDate && window.AppAttendance?.evaluateAttendanceStatus
+                ? window.AppAttendance.evaluateAttendanceStatus(firstCheckInDate, totalDurationMs)
+                : null;
+            const totalPausedMs = sessions.reduce((sum, log) => sum + Math.max(0, Number(log?.pausedMs) || 0), 0);
+            const totalPauseCount = sessions.reduce((sum, log) => sum + Math.max(0, Number(log?.pauseCount) || 0), 0);
+            const totalExtraWorkedMs = sessions.reduce((sum, log) => {
+                const confirmedExtraMs = Math.max(0, Number(log?.extraTimeConfirmedMs) || 0);
+                return sum + (confirmedExtraMs || Math.max(0, Number(log?.extraWorkedMs) || 0));
+            }, 0);
+            const descriptions = [...new Set(sessions.map((log) => String(log?.workDescription || '').trim()).filter(Boolean))];
+            const activityScores = sessions.map((log) => Number(log?.activityScore)).filter(Number.isFinite);
+            const duration = window.AppAttendance?.msToTime ? window.AppAttendance.msToTime(totalDurationMs) : canonical.duration;
+
+            return {
+                ...canonical,
+                ...(canonicalIsSession ? { attendanceEligible: true } : {}),
+                ...(canonicalIsSession ? {
+                    checkIn: firstSession.log.checkIn || canonical.checkIn,
+                    checkOut: lastSession.log.checkOut || canonical.checkOut,
+                    checkInAt: Number.isFinite(firstSession.checkInAt) ? firstSession.checkInAt : canonical.checkInAt,
+                    checkOutAt: Number.isFinite(lastSession.checkOutAt) ? lastSession.checkOutAt : canonical.checkOutAt
+                } : {}),
+                durationMs: totalDurationMs,
+                duration,
+                combinedSessionLog: true,
+                pausedMs: totalPausedMs,
+                pauseCount: totalPauseCount,
+                workDescription: descriptions.join('\n'),
+                activityScore: activityScores.length
+                    ? activityScores.reduce((sum, score) => sum + score, 0) / activityScores.length
+                    : canonical.activityScore,
+                locationMismatched: sessions.some((log) => log.locationMismatched === true),
+                autoCheckout: sessions.some((log) => log.autoCheckout === true),
+                extraWorkedMs: totalExtraWorkedMs,
+                extraTimeConfirmedMs: 0,
+                ...(statusMeta ? {
+                    type: statusMeta.status,
+                    dayCredit: statusMeta.dayCredit,
+                    lateCountable: statusMeta.lateCountable
+                } : {})
+            };
+        }).filter(Boolean);
+    }
+
     getAttendanceDayCredit(log) {
         const type = String(log?.type || '').trim().toLowerCase();
         if (type === 'half day' || type === 'half day leave') return Math.min(1, Math.max(0, Number(log?.dayCredit ?? 0.5)));
@@ -585,7 +686,7 @@ export class Analytics {
         const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
         const joinDate = String(user?.joinDate || '').trim();
         const joinDateIso = /^\d{4}-\d{2}-\d{2}$/.test(joinDate) ? joinDate : '';
-        const canonicalLogs = this.pickBestAttendanceLogPerDay(userLogs, startOfMonth, endOfMonth);
+        const canonicalLogs = this.aggregateAttendanceSessionsPerDay(userLogs, startOfMonth, endOfMonth);
         const eligibleDates = new Set(
             canonicalLogs
                 .filter((log) => this.isAttendanceEligibleLog(log))
@@ -684,7 +785,7 @@ export class Analytics {
             return (parts[0] || 9) * 60 + (parts[1] || 0);
         })();
 
-        const canonicalLogs = this.pickBestAttendanceLogPerDay(userLogs, startOfMonth, endOfMonth);
+        const canonicalLogs = this.aggregateAttendanceSessionsPerDay(userLogs, startOfMonth, endOfMonth);
         canonicalLogs.forEach(log => {
                 if (!this.isAttendanceEligibleLog(log)) return;
                 let type = log.type || '';
@@ -731,7 +832,9 @@ export class Analytics {
                     : (typeof log.extraWorkedMs === 'number'
                         ? Math.max(0, Math.round(log.extraWorkedMs / (1000 * 60)))
                         : 0);
-                if (storedExtraMinutes > 0) {
+                if (log.combinedSessionLog) {
+                    totalExtraMinutes += storedExtraMinutes;
+                } else if (storedExtraMinutes > 0) {
                     totalExtraMinutes += storedExtraMinutes;
                 } else {
                     const allowExtra = !(log.autoCheckout && !log.autoCheckoutExtraApproved);
@@ -845,7 +948,7 @@ export class Analytics {
         let totalLateMinutes = 0;
         let totalExtraMinutes = 0;
 
-        const canonicalLogs = this.pickBestAttendanceLogPerDay(userLogs, start, end);
+        const canonicalLogs = this.aggregateAttendanceSessionsPerDay(userLogs, start, end);
         const logsByMonth = new Map();
         canonicalLogs.forEach((log) => {
             if (!this.isAttendanceEligibleLog(log)) return;
@@ -903,7 +1006,9 @@ export class Analytics {
                     : (typeof log.extraWorkedMs === 'number'
                         ? Math.max(0, Math.round(log.extraWorkedMs / (1000 * 60)))
                         : 0);
-                if (storedExtraMinutes > 0) {
+                if (log.combinedSessionLog) {
+                    totalExtraMinutes += storedExtraMinutes;
+                } else if (storedExtraMinutes > 0) {
                     totalExtraMinutes += storedExtraMinutes;
                 } else {
                     const allowExtra = !(log.autoCheckout && !log.autoCheckoutExtraApproved);
@@ -1251,18 +1356,7 @@ export class Analytics {
     }
 
     normalizeHeroLogs(logs = []) {
-        const bestByUserDay = new Map();
-        (logs || []).forEach((log) => {
-            const date = this.parseHeroLogDate(log?.date);
-            const userId = this.resolveHeroUserId(log);
-            if (!date || !userId) return;
-            const key = `${userId}:${this.toLocalDateKey(date)}`;
-            const existing = bestByUserDay.get(key);
-            if (!existing || this.getAttendanceLogPriority(log) > this.getAttendanceLogPriority(existing)) {
-                bestByUserDay.set(key, log);
-            }
-        });
-        return Array.from(bestByUserDay.values())
+        return this.aggregateAttendanceSessionsPerDay(logs)
             .map((log) => {
                 const logDate = this.parseHeroLogDate(log?.date);
                 const userId = this.resolveHeroUserId(log);
@@ -1666,7 +1760,7 @@ export class Analytics {
             const userRawPlans = plansByUser.get(userId) || [];
 
             // Deduplicate logs (one per day, same as Performance widget)
-            const dedupedLogs = this.pickBestAttendanceLogPerDay(userRawLogs, rangeStart, rangeEnd);
+            const dedupedLogs = this.aggregateAttendanceSessionsPerDay(userRawLogs, rangeStart, rangeEnd);
 
             // ── PUNCTUALITY (0–100) ──
             // Same rule as the widget: only required working days count.
@@ -2666,7 +2760,7 @@ export class Analytics {
         const scoreCache = new Map();
         const scoreWindow = (win) => {
             if (scoreCache.has(win)) return scoreCache.get(win);
-            const userLogs = this.pickBestAttendanceLogPerDay(allUserLogs, win.start, win.end);
+            const userLogs = this.aggregateAttendanceSessionsPerDay(allUserLogs, win.start, win.end);
             const startIso = this.toLocalDateKey(win.start);
             const endIso = this.toLocalDateKey(win.end);
             const userPlans = allUserPlans.filter((p) => {
@@ -2688,7 +2782,7 @@ export class Analytics {
 
         // Get the SAME attendance stats that getUserMonthlyStats() returns
         // so both the Performance widget and Monthly Stats card show identical numbers
-        const canonicalUserLogs = this.pickBestAttendanceLogPerDay(allUserLogs, scoreWindows[0].start, scoreWindows[0].end);
+        const canonicalUserLogs = this.aggregateAttendanceSessionsPerDay(allUserLogs, scoreWindows[0].start, scoreWindows[0].end);
         const currentStats = this.calculateStatsForLogs(canonicalUserLogs);
 
         // Trend: ascending chronological (oldest first), capped at 12 points

@@ -1267,14 +1267,27 @@ export class Calendar {
             if ((newStatus === 'postponed') && opts && typeof opts.postponeWorkStatus === 'string') {
                 plan.plans[taskIndex].postponeWorkStatus = opts.postponeWorkStatus;
             }
+            if (newStatus === 'postponed' && opts && typeof opts.postponedToDate === 'string') {
+                plan.plans[taskIndex].postponedToDate = opts.postponedToDate;
+            }
+            if (newStatus === 'postponed' && opts?.removeFromSource === true) {
+                plan.plans[taskIndex].isRemoved = true;
+            }
             plan.updatedAt = new Date().toISOString();
 
             await this.db.put('work_plans', plan);
             this.invalidateCarryForwardCache();
 
-            // Trigger rating recalculation
-            if (AppRating) {
-                await AppRating.updateUserRating(plan.userId);
+            // Some callers (such as a multi-write postpone) recalculate after
+            // the complete move. Dashboard actions may defer the work so the
+            // user-facing save does not wait for rating aggregation.
+            if (AppRating && opts?.skipRating !== true) {
+                const ratingUpdate = AppRating.updateUserRating(plan.userId);
+                if (opts?.deferRating === true) {
+                    ratingUpdate.catch((err) => console.warn('Background task rating refresh failed:', err));
+                } else {
+                    await ratingUpdate;
+                }
             }
 
             return plan;
