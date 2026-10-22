@@ -76,6 +76,20 @@ test('pace denominators: partial Wednesday is not judged against a full week', (
     assert.equal(out.details.windowPartial, true);
 });
 
+test('in-progress window excludes plans dated after today', () => {
+    const now = new Date(2026, 8, 30, 18, 0, 0, 0); // Wednesday evening
+    const plans = [
+        { id: 'monday', userId: 'u1', date: '2026-09-28', plans: [{ task: 'Monday task', status: 'completed' }] },
+        { id: 'wednesday', userId: 'u1', date: '2026-09-30', plans: [{ task: 'Wednesday task', status: 'pending' }] },
+        { id: 'thursday', userId: 'u1', date: '2026-10-01', plans: [{ task: 'Future task', status: 'pending' }] }
+    ];
+
+    const out = AppAnalytics._computeWeekPerformance([], plans, WEEK, cfg({ now }));
+
+    assert.equal(out.details.taskPlanned, 2);
+    assert.equal(out.details.taskCompleted, 1);
+});
+
 test('punctuality ignores late logs on holidays and weekends', () => {
     const now = new Date(2026, 9, 4, 21, 0, 0, 0); // Sunday evening (window complete)
     const holidayDates = new Set(['2026-09-29']);   // Tuesday holiday
@@ -130,6 +144,18 @@ test('punctuality uses actual check-in time when the saved late flag is stale', 
     assert.equal(out.details.lateDays, 1);
     assert.equal(out.details.onTimeDays, 2);
     assert.equal(out.dimensions.punctuality.score, 67);
+});
+
+test('punctuality falls back to Late type when saved lateCountable is false and time is missing', () => {
+    const now = new Date(2026, 9, 4, 21, 0, 0, 0); // Sunday, full week
+    const logs = [
+        mkLog('2026-09-28', { type: 'Late', lateCountable: false, checkInAt: null, checkIn: '' })
+    ];
+
+    const out = AppAnalytics._computeWeekPerformance(logs, [], WEEK, cfg({ now }));
+
+    assert.equal(out.details.lateDays, 1);
+    assert.equal(out.details.onTimeDays, 0);
 });
 
 test('postpone lineage counts once; undated completion is not on-time', () => {

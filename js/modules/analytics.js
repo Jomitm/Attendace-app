@@ -467,8 +467,7 @@ export class Analytics {
             if (checkIn === null) checkIn = this.parseTimeToMinutes(String(log?.checkIn || ''));
             const cutoff = Number(AppConfig?.LATE_CUTOFF_MINUTES || 555);
             if (checkIn !== null) return checkIn > cutoff;
-            if (Object.prototype.hasOwnProperty.call(log || {}, 'lateCountable')) return log.lateCountable === true;
-            return type === 'late';
+            return log?.lateCountable === true || type === 'late';
         }).length;
         return {
             punctualityDays: punctualityLogs.length,
@@ -2819,7 +2818,14 @@ export class Analytics {
 
         // ── TASK EXECUTION (0–100) ──
         // Effective rows apply postpone-lineage dedupe (widget ↔ leaderboard parity).
-        const effectiveTasks = this._effectiveWindowTasks(userPlans);
+        // The current calendar window can extend past today (for example,
+        // Monday–Sunday weekly scoring). Future-dated plans are not due yet
+        // and must not affect the in-progress score.
+        const todayKey = this.toLocalDateKey(effectiveEnd);
+        const scoringPlans = isPartial
+            ? userPlans.filter((plan) => String(plan?.date || '') <= todayKey)
+            : userPlans;
+        const effectiveTasks = this._effectiveWindowTasks(scoringPlans);
         let taskPlanned = 0, taskCompleted = 0, taskMissed = 0, taskPostponed = 0, taskInProgress = 0;
             let onTimeCompleted = 0, lateCompleted = 0, timedCompleted = 0;
         let weightedPlanned = 0, weightedCompleted = 0, weightedOutcomeCompleted = 0;
