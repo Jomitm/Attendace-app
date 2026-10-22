@@ -100,6 +100,8 @@ function findTodayEvent(icalText, todayYmd) {
  */
 async function fetchSaintImage(saintName) {
     try {
+        // Weekday/season summaries are calendar labels, not saint pages.
+        if (/^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)\s+in\s+the\b/i.test(String(saintName || '').trim())) return null;
         const searchName = saintName
             .replace(/,?\s*(priest|virgin|martyr|bishop|deacon|religious|doctor|pope|abbot|monk|evangelist|apostle|companions).*$/i, '')
             .trim();

@@ -110,9 +110,22 @@ service cloud.firestore {
       allow create: if isAuthenticated() && (
         isHR() || isAdmin() || request.resource.data.get('userId', '') == request.auth.uid || request.resource.data.get('createdById', '') == request.auth.uid
       );
-      allow update: if isAuthenticated() && (
-        isHR() || isAdmin() || resource.data.get('userId', '') == request.auth.uid || resource.data.get('createdById', '') == request.auth.uid
-      ) && request.resource.data.get('userId', '') == resource.data.get('userId', '') && request.resource.data.get('createdById', '') == resource.data.get('createdById', '');
+      allow update: if isAuthenticated() &&
+        request.resource.data.get('userId', '') == resource.data.get('userId', '') && (
+          isHR() || isAdmin() ||
+          (
+            resource.data.get('userId', '') == request.auth.uid &&
+            (
+              !resource.data.keys().hasAny(['createdById'])
+                ? request.resource.data.get('createdById', '') == request.auth.uid
+                : request.resource.data.get('createdById', '') == resource.data.get('createdById', '')
+            )
+          ) ||
+          (
+            resource.data.get('createdById', '') == request.auth.uid &&
+            request.resource.data.get('createdById', '') == resource.data.get('createdById', '')
+          )
+        );
       allow delete: if isHR() || isAdmin() || resource.data.get('userId', '') == request.auth.uid || resource.data.get('createdById', '') == request.auth.uid;
     }
 

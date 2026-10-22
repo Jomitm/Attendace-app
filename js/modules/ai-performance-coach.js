@@ -136,7 +136,7 @@ function _collectUnclassifiedTasks(days = 30) {
 }
 
 async function _backfillClassifications() {
-    const candidates = await _collectUnclassifiedTasks();
+    const candidates = await _collectUnclassifiedTasks() || [];
     if (candidates.length === 0) return { classified: 0, skipped: true };
 
     // Dedupe by text hash using the classification cache

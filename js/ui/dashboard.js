@@ -2077,7 +2077,8 @@ export async function renderDashboard() {
     const customizationSettingsPromise = window.app_dashboardCustomization?.loadSettings?.() || Promise.resolve(null);
 
     const dashFetchStart = performance.now();
-    console.time('DashboardFetch');
+    const dashboardFetchTimer = `DashboardFetch:${dashFetchStart}`;
+    console.time(dashboardFetchTimer);
     markPerf('dashboard:fetch:start');
 
     const sharedSummaryTask = window.AppDB.getOrCreateDailySummary
@@ -2232,7 +2233,7 @@ export async function renderDashboard() {
     if (loadSlowTimer) clearTimeout(loadSlowTimer);
     markPerf('dashboard:fetch:end');
     measurePerf('dashboard:fetch', 'dashboard:fetch:start', 'dashboard:fetch:end');
-    console.timeEnd('DashboardFetch');
+    console.timeEnd(dashboardFetchTimer);
     const dashFetchMs = Math.round(performance.now() - dashFetchStart);
     showDashboardPerfBadge(dashFetchMs, null);
 
@@ -2709,9 +2710,6 @@ export async function renderDashboard() {
                                 <button class="${updateState.active ? 'dashboard-refresh-link is-update-pending' : 'dashboard-refresh-link'}" onclick="window.app_checkForSystemUpdate()" title="${updateState.active ? 'Update available. Click to refresh into the new version.' : 'Check for System Update'}">
                                     ${updateState.active ? 'System update available' : 'Check for System Update'}
                                 </button>
-                            </div>
-                            <div class="dashboard-hero-brand" aria-hidden="true">
-                                <img src="crwi-logo.png" alt="CRWI logo" class="dashboard-hero-brand-logo">
                             </div>
                         </div>
                     </div>
