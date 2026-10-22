@@ -253,15 +253,6 @@ export class Auth {
 
             sessions = sessions.filter((session) => session.token === token || !session.logoutAt || session.logoutAt > now);
             let current = sessions.find((session) => session.token === token) || null;
-            if (!current && sessions.length >= MAX_DEVICE_SESSIONS) {
-                const storedSessions = Array.isArray(data.activeSessions)
-                    ? data.activeSessions.map(normalizeSession).filter(Boolean)
-                    : [];
-                if (sessions.length !== storedSessions.length) {
-                    transaction.set(ref, { activeSessions: sessions }, { merge: true });
-                }
-                return { ok: false, sessionLimitReached: true };
-            }
             if (!current) {
                 const latestStart = sessions.reduce((max, session) => Math.max(max, session.signedInAt), 0);
                 current = { token, signedInAt: Math.max(now, latestStart + 1), logoutAt: null };
@@ -269,6 +260,12 @@ export class Auth {
             }
 
             sessions.sort((a, b) => a.signedInAt - b.signedInAt || a.token.localeCompare(b.token));
+            // A new login replaces the oldest device once the account reaches
+            // its two-device limit. Its user document listener will observe
+            // the missing token and sign that device out.
+            if (sessions.length > MAX_DEVICE_SESSIONS) {
+                sessions.splice(0, sessions.length - MAX_DEVICE_SESSIONS);
+            }
             if (sessions.length === 2) {
                 sessions[0].logoutAt = sessions[0].logoutAt || nextTenPmIst(now);
                 sessions[1].logoutAt = null;

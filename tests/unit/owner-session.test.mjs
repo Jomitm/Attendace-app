@@ -124,7 +124,7 @@ describe('two-device session registration', () => {
         assert.equal(savedUser.activeSessions[0].token, AppAuth.localToken);
     });
 
-    it('rejects a third device without adding it to the active sessions', async () => {
+    it('signs out the oldest device when a third device logs in', async () => {
         firestoreUsers.set('users/u_alice', {
             activeSessions: [
                 { token: 'older-device', signedInAt: Date.now() - 2000, logoutAt: Date.now() + 100000 },
@@ -134,8 +134,12 @@ describe('two-device session registration', () => {
         mockFetch({ id: 'u_alice', username: 'alice' });
 
         const result = await AppAuth.login('alice', 'pass');
-        assert.deepEqual(result, { sessionLimitReached: true });
-        assert.equal(firestoreUsers.get('users/u_alice').activeSessions.length, 2);
-        assert.equal(AppAuth.currentUser, null);
+        assert.equal(result, true);
+        const sessions = firestoreUsers.get('users/u_alice').activeSessions;
+        assert.equal(sessions.length, 2);
+        assert.deepEqual(sessions.map((session) => session.token), ['newer-device', AppAuth.localToken]);
+        assert.equal(sessions[0].logoutAt > Date.now(), true);
+        assert.equal(sessions[1].logoutAt, null);
+        assert.equal(AppAuth.currentUser.id, 'u_alice');
     });
 });
