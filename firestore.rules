@@ -32,6 +32,29 @@ service cloud.firestore {
         get(/databases/$(database)/documents/user_access/$(request.auth.uid)).data.permissions.reports == 'admin';
     }
 
+    // Birthday writes are restricted to existing admin paths plus explicit
+    // per-user admin permissions maintained by the app. The users document
+    // fallback covers accounts created before the user_access mirror existed.
+    function hasBirthdayAdminPermission() {
+      let accessPath = /databases/$(database)/documents/user_access/$(request.auth.uid);
+      let userPath = /databases/$(database)/documents/users/$(request.auth.uid);
+      return isAuthenticated() && (
+        (exists(accessPath) && (
+          get(accessPath).data.get('permissions', {}).get('birthday', '') == 'admin' ||
+          get(accessPath).data.get('permissions', {}).get('users', '') == 'admin'
+        )) ||
+        (exists(userPath) && (
+          get(userPath).data.get('permissions', {}).get('birthday', '') == 'admin' ||
+          get(userPath).data.get('permissions', {}).get('users', '') == 'admin' ||
+          get(userPath).data.get('canManageBirthdays', false) == true
+        ))
+      );
+    }
+
+    function isBirthdayAdmin() {
+      return isHR() || isAdmin() || hasBirthdayAdminPermission();
+    }
+
     // ── Users ──────────────────────────────────────────────────
     match /users/{userId} {
       // Any authenticated user can read (needed for staff directory, team views)
@@ -280,7 +303,7 @@ service cloud.firestore {
     // ── Birthday People ───────────────────────────────────────
     match /birthday_people/{docId} {
       allow read: if isAuthenticated();
-      allow write: if isHR() || isAdmin();
+      allow write: if isBirthdayAdmin();
     }
 
     // ── Letter Pad Profiles ───────────────────────────────────

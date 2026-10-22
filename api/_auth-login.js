@@ -11,7 +11,7 @@ const { getAdmin, getDb } = require('./_firebase-admin.js');
 const FIREBASE_WEB_API_KEY =
     process.env.FIREBASE_WEB_API_KEY || 'AIzaSyC7a8AxukI0-egXimYTedwCa2RFnMTBu84';
 
-const USER_FIELDS = ['username', 'email', 'password', 'name', 'role', 'isAdmin', 'avatar', 'permissions', 'activeSessionToken', 'activeSessionStartedAt'];
+const USER_FIELDS = ['username', 'email', 'password', 'authMigrated', 'name', 'role', 'isAdmin', 'avatar', 'permissions', 'activeSessionToken', 'activeSessionStartedAt'];
 
 // Case-insensitive username/email match. Firestore `==` is case-sensitive
 // while identifiers arrive lowercased, so a plain query misses stored
@@ -100,10 +100,18 @@ async function handler(req, res) {
         // Firebase Auth, so an empty stored password falls back to verifying
         // against Firebase Auth directly.
         const storedPassword = String(userData.password || '').trim();
-        let passwordOk = storedPassword !== '' && storedPassword === cleanPassword;
-        if (!passwordOk && storedPassword === '') {
+        let passwordOk = userData.authMigrated !== true && storedPassword !== '' && storedPassword === cleanPassword;
+        if (userData.authMigrated === true || storedPassword === '') {
+            // Staff profile email can change independently of the Auth account.
+            // Verify against the actual Auth email belonging to this uid.
+            let authUser;
+            try {
+                authUser = await admin.auth().getUser(uid);
+            } catch (error) {
+                if (error.code !== 'auth/user-not-found') throw error;
+            }
             passwordOk = await verifyPasswordWithFirebaseAuth(
-                userData.email || `${uid}@crwi.placeholder`,
+                authUser?.email || userData.email || `${uid}@crwi.placeholder`,
                 cleanPassword,
                 uid
             );

@@ -11,7 +11,6 @@ import { parseHeroAiResponse, sanitizeCandidates } from './api/_hero-select-core
 
 const require = createRequire(import.meta.url);
 const { readBuildMeta } = require('./scripts/build-meta.cjs');
-const authLoginHandler = require('./api/_auth-login.js');
 const buildMeta = readBuildMeta(process.cwd());
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -96,12 +95,55 @@ function createAuthLoginDevPlugin() {
                             return this;
                         }
                     };
-                    await authLoginHandler(Object.assign(req, { body }), apiResponse);
+                    // These CommonJS modules are outside Vite's browser HMR.
+                    // Reload the handler so local API edits do not stay cached
+                    // across Vite's in-process configuration restarts.
+                    const handlerPath = require.resolve('./api/_auth-login.js');
+                    delete require.cache[handlerPath];
+                    await require(handlerPath)(Object.assign(req, { body }), apiResponse);
                 } catch (err) {
                     if (err instanceof SyntaxError) {
                         return sendJson(res, 400, { error: 'Invalid JSON body' });
                     }
                     console.error('[auth-login-dev] error:', err);
+                    return sendJson(res, 500, { error: 'Internal server error' });
+                }
+            });
+        }
+    };
+}
+
+function createAuthSetPasswordDevPlugin() {
+    return {
+        name: 'auth-set-password-dev',
+        configureServer(server) {
+            server.middlewares.use('/api/auth-set-password', async (req, res) => {
+                if (req.method !== 'POST') {
+                    return sendJson(res, 405, { error: 'Method not allowed' });
+                }
+
+                try {
+                    const body = await readBody(req);
+                    req.localDevRequest = true;
+                    const apiResponse = {
+                        statusCode: 200,
+                        status(code) {
+                            this.statusCode = code;
+                            return this;
+                        },
+                        json(payload) {
+                            sendJson(res, this.statusCode, payload);
+                            return this;
+                        }
+                    };
+                    const handlerPath = require.resolve('./api/_auth-set-password.js');
+                    delete require.cache[handlerPath];
+                    await require(handlerPath)(Object.assign(req, { body }), apiResponse);
+                } catch (err) {
+                    if (err instanceof SyntaxError) {
+                        return sendJson(res, 400, { error: 'Invalid JSON body' });
+                    }
+                    console.error('[auth-set-password-dev] error:', err);
                     return sendJson(res, 500, { error: 'Internal server error' });
                 }
             });
@@ -365,7 +407,7 @@ export default defineConfig({
             }
         } catch { /* no .env file, that's fine */ }
 
-        return [createAuthLoginDevPlugin(), createFeastDevPlugin(), createAiInsightsDevPlugin(), createHeroSelectDevPlugin()];
+        return [createAuthLoginDevPlugin(), createAuthSetPasswordDevPlugin(), createFeastDevPlugin(), createAiInsightsDevPlugin(), createHeroSelectDevPlugin()];
     })(),
     define: {
         __APP_BUILD_META__: JSON.stringify(buildMeta)

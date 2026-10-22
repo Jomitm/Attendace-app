@@ -218,6 +218,7 @@ if (typeof window !== 'undefined') {
         // Show modal
         onAction('show-modal', (el) => {
             const id = el.dataset.target || '';
+            if (id === 'add-user-modal') window.app_resetAddUserModal?.();
             if (id) window.app_openModal(id);
         });
 
@@ -736,25 +737,24 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                 </tbody>
             </table>
         </div>
-        ${window.app_canAdminBirthdays?.() ? `
-            <section class="admin-external-staff-section" aria-labelledby="admin-external-staff-title" style="margin-top:1rem; padding:1rem; border:1px solid #e2e8f0; border-radius:12px; background:#f8fafc;">
-                <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.75rem;">
-                    <div>
-                        <h3 id="admin-external-staff-title" style="margin:0; font-size:1rem;">External Staff &amp; Contacts</h3>
-                        <div class="text-muted" style="font-size:0.8rem;">People without app accounts. Add birthday details here to enable calendar reminders.</div>
-                    </div>
-                    <button type="button" class="action-btn secondary" data-ts-action="add-external-birthday"><i class="fa-solid fa-user-plus"></i> Add Person</button>
-                </div>
-                ${externalBirthdayPeople.length ? `<div class="table-container"><table class="compact-table"><thead><tr><th>Name</th><th>Position</th><th>Birthday</th><th></th></tr></thead><tbody>
-                    ${externalBirthdayPeople.map((person) => `<tr>
-                        <td>${safeHtml(person.name || 'Unnamed')}</td>
-                        <td>${safeHtml(person.position || person.location || '--')}</td>
-                        <td>${Number(person.birthDay) && Number(person.birthMonth) ? `${String(person.birthDay).padStart(2, '0')}/${String(person.birthMonth).padStart(2, '0')}` : 'Not added'}</td>
-                        <td><button type="button" class="admin-icon-btn" data-ts-action="edit-external-birthday" data-birthday-id="${safeHtml(person.id || '')}" aria-label="Edit ${safeHtml(person.name || 'person')}"><i class="fa-solid fa-pen"></i></button></td>
-                    </tr>`).join('')}
-                </tbody></table></div>` : '<div class="text-muted" style="font-size:0.85rem;">No external people added yet.</div>'}
-            </section>
-        ` : ''}
+    `;
+
+    const canAdminBirthdays = !!window.app_canAdminBirthdays?.();
+    const renderExternalBirthdaysBlock = () => `
+        <div>
+            <p class="text-muted" style="margin-top:0;">People you work with who do not have staff accounts. Add just a name and date of birth.</p>
+            ${canAdminBirthdays ? `<div style="display:flex; justify-content:flex-end; margin-bottom:0.75rem;">
+                <button type="button" class="action-btn" data-ts-action="add-external-birthday"><i class="fa-solid fa-cake-candles"></i> Add External Birthday</button>
+            </div>` : ''}
+            ${externalBirthdayPeople.length ? `<div class="table-container"><table class="compact-table"><thead><tr><th>Name</th><th>Relationship to CRWI</th><th>Date of birth</th><th></th></tr></thead><tbody>
+                ${externalBirthdayPeople.map((person) => `<tr>
+                    <td>${safeHtml(person.name || 'Unnamed')}</td>
+                    <td>${safeHtml(person.relationshipToCrwi || person.position || '--')}</td>
+                    <td>${Number(person.birthDay) && Number(person.birthMonth) ? `${String(person.birthDay).padStart(2, '0')}/${String(person.birthMonth).padStart(2, '0')}${person.birthYear ? `/${safeHtml(person.birthYear)}` : ''}` : 'Not added'}</td>
+                    <td>${canAdminBirthdays ? `<button type="button" class="admin-icon-btn" data-ts-action="edit-external-birthday" data-birthday-id="${safeHtml(person.id || '')}" aria-label="Edit ${safeHtml(person.name || 'person')}"><i class="fa-solid fa-pen"></i></button>` : ''}</td>
+                </tr>`).join('')}
+            </tbody></table></div>` : '<div class="text-muted" style="font-size:0.85rem;">No external birthdays added yet.</div>'}
+        </div>
     `;
 
     const pendingLeaveGroups = Array.from(
@@ -1076,7 +1076,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         </div>
     `;
 
-    const pushCard = ({ id, title, compactHtml, expandedHtml = '', className = '', accentClass = '' }) => {
+    const pushCard = ({ id, title, compactHtml, expandedHtml = '', className = '', accentClass = '', headerActionHtml = '' }) => {
         if (!id || !title) return;
         const controlsHtml = buildAdminCardModeControls(id, title);
         cardTemplates[id] = {
@@ -1090,6 +1090,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
             <section class="card admin-card-compact admin-card-mode-collapsed ${className} ${accentClass}" data-admin-card="${id}" data-admin-card-mode="collapsed" data-admin-original-full-width="0" aria-expanded="false">
                 <div class="admin-card-header-row admin-card-collapse-trigger" data-ts-action="admin-toggle-card-collapse" data-card-id="${id}" role="button" tabindex="0" aria-expanded="false" aria-label="Expand ${safeHtml(title)}">
                     <h3 class="admin-card-title">${safeHtml(title)}</h3>
+                    ${headerActionHtml}
                     ${buildAdminCardModeControls(id, title)}
                 </div>
                 <div class="admin-card-content">
@@ -1180,6 +1181,18 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
             accentClass: 'admin-card-accent-amber',
             compactHtml: renderBirthdayBlock(),
             expandedHtml: renderBirthdayBlock()
+        });
+    }
+
+    if (window.app_canManageBirthdays?.()) {
+        pushCard({
+            id: 'external-birthdays',
+            title: 'External Staff & Contacts',
+            className: 'admin-section-card',
+            accentClass: 'admin-card-accent-amber',
+            headerActionHtml: window.app_canAdminBirthdays?.() ? `<button type="button" class="action-btn" data-ts-action="add-external-birthday"><i class="fa-solid fa-cake-candles"></i> Add</button>` : '',
+            compactHtml: renderExternalBirthdaysBlock(),
+            expandedHtml: renderExternalBirthdaysBlock()
         });
     }
 

@@ -8,6 +8,7 @@ import './modules/budget-heads.js';
 import './modules/system-dialog.js';
 import { escapeHtml as app_escapeHtml, escapeJsSingleQuote as app_escapeJsSingleQuote, escapeDialogHtml } from './utils/html-escape.js';
 import { getLocalISO } from './utils/date-helpers.js';
+import { staffProfileSnapshot, saveStaffAccountChanges } from './utils/staff-account-edit.js';
 import { computeDayLoad, SPAN_HOURS_PER_DAY, diffDaysStr, addDaysStr, parseDurationPhrase } from './utils/span-planning.js';
 import AppUI from './ui.js';
 import { telegramNotifyLeaveUpdate, telegramNotifyTaskTagged } from './utils/telegram.js';
@@ -37,7 +38,7 @@ import './services/settings-service.js';
 import './services/minutes-service.js';
 import './services/event-service.js';
 import './services/metrics-service.js';
-import { app_extractBirthdayFields, app_getISTNowDate, app_getPostponeDefaultDate, app_toDateKey } from './features/birthdays.js';
+import { app_extractBirthdayDate, app_extractBirthdayFields, app_getISTNowDate, app_getPostponeDefaultDate, app_toDateKey } from './features/birthdays.js';
 import { initPageUsageNotes } from './features/hover-help.js';
 import { registerSW, app_initTheme, app_initSectionToggle, app_updateNavigationSections, app_getNavSectionCollapsed, app_setNavSectionCollapsed, app_toggleNavSection, app_getShowHiddenSheets, app_setShowHiddenSheets, app_toggleShowHiddenSheets, app_applyShowHiddenSheetsToggle, app_startAutoCollapseTimer, app_resetAutoCollapseTimer, app_autoCollapseSections, initAppSetup } from './features/app-setup.js';
 import { app_refreshNotificationBell, app_closeNotificationHistory, app_recordNotifError, app_showLastNotifError, app_markNotificationResponded, app_respondNotificationFromHistory, app_openNotificationHistory, initNotifications } from './features/notifications.js';
@@ -5430,9 +5431,49 @@ async function handleManualLog(e) {
     contentArea.innerHTML = await AppUI.renderTimesheet();
 }
 
+async function handleAddExternalStaffContact(formData) {
+    const currentUser = window.AppAuth?.getUser?.();
+    if (!window.app_canAdminBirthdays?.(currentUser)) {
+        alert('Birthday Calendar admin access is required to add external contacts.');
+        return;
+    }
+
+    const name = String(formData.get('name') || '').trim();
+    if (!name) {
+        alert('Please enter a name.');
+        return;
+    }
+
+    try {
+        const birthdayFields = app_extractBirthdayDate(formData.get('externalDateOfBirth'));
+        const timestamp = new Date().toISOString();
+        const contact = {
+            id: `birthday_person_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            name,
+            ...birthdayFields,
+            relationshipToCrwi: String(formData.get('relationshipToCrwi') || '').trim(),
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            createdById: currentUser?.id || '',
+            updatedById: currentUser?.id || ''
+        };
+        await window.AppDB.put('birthday_people', contact);
+        document.getElementById('add-user-modal').style.display = 'none';
+        alert('External contact added to the birthday calendar.');
+        const contentArea = document.getElementById('page-content');
+        if (contentArea) contentArea.innerHTML = await AppUI.renderAdmin();
+    } catch (err) {
+        alert(`Error adding external contact: ${err.message}`);
+    }
+}
+
 async function handleAddUser(e) {
     e.preventDefault();
     const formData = new FormData(e.target);
+    if (String(formData.get('role') || '') === 'External') {
+        await handleAddExternalStaffContact(formData);
+        return;
+    }
 
     // Sanitize Input (Trim whitespace)
     const name = formData.get('name').trim();
@@ -5624,7 +5665,8 @@ window.app_submitEditUser = async (e) => {
         permissions: window.app_getPermissionsFromUI('edit')
     };
 
-    console.log("Executing Update for User:", userData);
+    const profileSnapshot = staffProfileSnapshot(formData.entries());
+    const profileChanged = form.dataset.profileSnapshot !== profileSnapshot;
     if (userData.isAdmin) {
         userData.canManageAttendanceSheet = true;
         userData.canManageBirthdays = true;
@@ -5637,16 +5679,22 @@ window.app_submitEditUser = async (e) => {
         userData.canManageBirthdays = userData.permissions?.birthday === 'admin';
     }
 
+    if (form.dataset.saving === 'true') return;
+    form.dataset.saving = 'true';
+    const submitButton = form.querySelector('[type="submit"]');
+    if (submitButton) submitButton.disabled = true;
     try {
-        if (newPassword) {
-            const passwordResult = await window.AppAuth.setPassword(id, newPassword);
-            if (passwordResult !== true) throw new Error(passwordResult?.error || 'Could not set the account password');
-        }
-        const success = await window.AppAuth.updateUser(userData, privateData);
+        const result = await saveStaffAccountChanges({
+            auth: window.AppAuth, userData, privateData, newPassword, profileChanged
+        });
+        if (result.profileSaved) form.dataset.profileSnapshot = profileSnapshot;
+        if (result.error) throw new Error(result.error);
 
-        if (success) {
+        if (result.profileSaved || result.passwordSaved) {
             console.log("Success: User updated in DB.");
-            alert(`SUCCESS: Details for '${userData.name}' have been saved.`);
+            alert(result.passwordSaved
+                ? `SUCCESS: Password for '${userData.name}' has been changed.${result.profileSaved ? ' Staff details were also saved.' : ''}`
+                : `SUCCESS: Details for '${userData.name}' have been saved.`);
             document.getElementById('edit-user-modal').style.display = 'none';
 
             const contentArea = document.getElementById('page-content');
@@ -5658,11 +5706,14 @@ window.app_submitEditUser = async (e) => {
                 }, 50);
             }
         } else {
-            alert('Update failed: User not found.');
+            alert('No changes to save.');
         }
     } catch (err) {
         console.error("Update Error:", err);
         alert('Error: ' + err.message);
+    } finally {
+        delete form.dataset.saving;
+        if (submitButton) submitButton.disabled = false;
     }
 };
 
@@ -5921,8 +5972,8 @@ document.addEventListener('submit', (e) => {
                 alert('Passwords do not match.');
                 return;
             }
-            if (!newPass || newPass.length < 4) {
-                alert('Password must be at least 4 characters.');
+            if (!newPass || newPass.length < 6) {
+                alert('Password must be at least 6 characters.');
                 return;
             }
             try {
@@ -6823,7 +6874,6 @@ document.addEventListener('set-duration', (e) => {
 window.app_editUser = async (userId) => {
     console.log("Opening Edit Modal for ID:", userId);
     const user = await window.AppDB.get('users', userId);
-    console.log("User Data Found:", user);
     if (!user) return;
     const actor = window.AppAuth.getUser();
     const canViewPayroll = actor?.permissions?.reports === 'admin';
@@ -6892,6 +6942,8 @@ window.app_editUser = async (userId) => {
         if (birthdayAdminEl) birthdayAdminEl.checked = true;
     }
 
+    form.dataset.profileSnapshot = staffProfileSnapshot(new FormData(form).entries());
+    delete form.dataset.saving;
     const modal = document.getElementById('edit-user-modal');
     if (modal) {
         window.app_openModal(modal);

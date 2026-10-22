@@ -73,6 +73,28 @@ beforeEach(() => {
     claimsCalls.length = 0;
 });
 
+test('migrated accounts ignore restored legacy passwords and use the Auth account email', async () => {
+    userDocs = [{ id: 'migrated', username: 'staff', email: 'edited-profile@example.org', password: 'old-secret', authMigrated: true }];
+    const originalFetch = globalThis.fetch;
+    const originalAuth = adminMock.auth;
+    const requests = [];
+    adminMock.auth = () => ({ ...originalAuth(), getUser: async (uid) => ({ uid, email: 'actual-auth@example.org' }) });
+    globalThis.fetch = async (_url, options) => {
+        const body = JSON.parse(options.body);
+        requests.push(body);
+        return { ok: body.password === 'new-secret', json: async () => ({ localId: 'migrated' }) };
+    };
+    try {
+        assert.equal((await post({ identifier: 'staff', password: 'old-secret' })).statusCode, 401);
+        assert.equal((await post({ identifier: 'staff', password: 'new-secret' })).statusCode, 200);
+        assert.equal(requests.length, 2);
+        assert.ok(requests.every((request) => request.email === 'actual-auth@example.org'));
+    } finally {
+        globalThis.fetch = originalFetch;
+        adminMock.auth = originalAuth;
+    }
+});
+
 describe('auth-login handler guards', () => {
     test('rejects non-POST with 405', async () => {
         const res = mockRes();

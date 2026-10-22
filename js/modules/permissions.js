@@ -63,6 +63,7 @@ export function canAdminBirthdays(user = getCurrentUser()) {
     if (!user) return false;
     return isAdminUser(user)
         || user.role === 'Administrator'
+        || hasPerm('users', 'admin', user)
         || !!user.canManageBirthdays
         || hasPerm('birthday', 'admin', user);
 }

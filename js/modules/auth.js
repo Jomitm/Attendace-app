@@ -464,7 +464,7 @@ export class Auth {
     async setPassword(userId, newPassword) {
         if (!userId || !newPassword) return false;
         const cleanPass = String(newPassword).trim();
-        if (cleanPass.length < 4) return { error: 'Password must be at least 4 characters.' };
+        if (cleanPass.length < 6 || cleanPass.length > 4096) return { error: 'Password must be between 6 and 4096 characters.' };
 
         try {
             const auth = this._getFirebaseAuth();
@@ -477,9 +477,18 @@ export class Auth {
                 body: JSON.stringify({ userId, newPassword: cleanPass })
             });
 
-            const data = await response.json();
+            const data = await response.json().catch(() => null);
             if (!response.ok) {
-                return { error: data.error || 'Failed to set password' };
+                return { error: data?.error || (response.status === 404
+                    ? 'Password service is unavailable. Restart the local development server.'
+                    : `Password change failed (HTTP ${response.status}).`) };
+            }
+            if (data?.success !== true) return { error: 'Password service returned an invalid response.' };
+            AppDB.invalidateCollectionCache('users');
+            if (this.currentUser?.id === userId) {
+                delete this.currentUser.password;
+                this.currentUser.passwordSetupRequired = false;
+                this.currentUser.authMigrated = true;
             }
             return true;
         } catch (err) {
@@ -602,6 +611,9 @@ export class Auth {
             'pan', 'PAN', 'uan', 'UAN'
         ];
         const safeUserData = { ...userData };
+        // Credentials are owned by auth-set-password. Never copy a legacy
+        // password or migration flags from a previously loaded staff record.
+        ['password', 'passwordSetupRequired', 'authMigrated'].forEach((field) => delete safeUserData[field]);
         const privateUpdate = { ...(privateData || {}) };
         privateFields.forEach((field) => {
             if (Object.prototype.hasOwnProperty.call(safeUserData, field)) {
@@ -610,6 +622,7 @@ export class Auth {
             }
         });
         const updated = { ...existing, ...safeUserData };
+        delete updated.password;
         privateFields.forEach((field) => delete updated[field]);
 
         if (Object.prototype.hasOwnProperty.call(userData, 'isAdmin')) {
@@ -623,7 +636,9 @@ export class Auth {
             updated.avatar = `https://ui-avatars.com/api/?name=${userData.name}&background=random&color=fff`;
         }
 
-        await AppDB.put('users', updated);
+        const profilePatch = { ...safeUserData, isAdmin: updated.isAdmin, role: updated.role };
+        if (updated.avatar !== existing.avatar) profilePatch.avatar = updated.avatar;
+        await AppDB.put('users', profilePatch);
 
         if (this.currentUser?.isAdmin === true) {
             await AppDB.put('user_access', {

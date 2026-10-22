@@ -52,7 +52,8 @@ const toSourceBadge = (entry) => entry?.source === 'external'
 
 const toMetaLine = (entry) => {
     if (entry?.source === 'external') {
-        return `${entry?.position || 'Position not set'} • ${entry?.location || 'Location not set'}`;
+        const details = [entry?.position, entry?.location].filter(Boolean).join(' • ');
+        return details || 'External collaborator';
     }
     return `${entry?.role || 'Employee'} • ${entry?.dept || 'General'}`;
 };
@@ -247,7 +248,7 @@ export async function renderBirthdayCalendar() {
                 </div>
                 <button type="submit" class="action-btn">Save Staff Birthday</button>
             </form>
-            <button type="button" class="action-btn secondary" onclick="window.app_openExternalBirthdayPersonModal(${selectedMonth})">Add Person Not In System</button>
+            <button type="button" class="action-btn secondary" onclick="window.app_openExternalBirthdayPersonModal()">Add External Birthday</button>
         </section>
     ` : '';
 
@@ -329,7 +330,7 @@ export async function renderBirthdayCalendar() {
                             <p class="birthday-copy">Start from the current month, move through the year only when you need to, and manage staff plus outside people from one calendar view.</p>
                         </div>
                         <div class="birthday-hero-actions">
-                            ${canEdit ? `<button type="button" class="action-btn" onclick="window.app_openExternalBirthdayPersonModal(${selectedMonth})">Add Person Not In System</button>` : ''}
+                            ${canEdit ? `<button type="button" class="action-btn" onclick="window.app_openExternalBirthdayPersonModal()">Add External Birthday</button>` : ''}
                             <button type="button" class="action-btn secondary" onclick="window.location.hash='${canSeeAdmin ? 'admin' : 'dashboard'}'">${canSeeAdmin ? 'Back to Admin' : 'Back to Dashboard'}</button>
                         </div>
                     </div>

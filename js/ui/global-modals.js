@@ -25,6 +25,43 @@ if (!window._globalModalActionsRegistered) {
     });
 }
 
+window.app_toggleAddUserType = (roleSelect) => {
+    const form = document.getElementById('add-user-form');
+    if (!form || !roleSelect) return;
+    const isExternal = roleSelect.value === 'External';
+    form.querySelectorAll('[data-staff-account-field]').forEach((field) => {
+        field.hidden = isExternal;
+        field.querySelectorAll('input, select, textarea').forEach((input) => {
+            input.disabled = isExternal;
+        });
+    });
+    const externalFields = document.getElementById('add-external-staff-fields');
+    if (externalFields) {
+        externalFields.hidden = !isExternal;
+        externalFields.querySelectorAll('input, select, textarea').forEach((input) => {
+            input.disabled = !isExternal;
+            input.required = isExternal && input.name === 'externalDateOfBirth';
+        });
+    }
+    const title = document.getElementById('add-user-modal-title');
+    const submit = document.getElementById('add-user-submit');
+    if (title) title.textContent = isExternal ? 'Add External Contact' : 'Create New Account';
+    if (submit) submit.textContent = isExternal ? 'Add External Contact' : 'Create Account';
+    const adminCheckbox = document.getElementById('add-user-isAdmin');
+    if (isExternal && adminCheckbox) adminCheckbox.checked = false;
+};
+
+window.app_resetAddUserModal = () => {
+    const form = document.getElementById('add-user-form');
+    if (!form) return;
+    form.reset();
+    const roleSelect = document.getElementById('add-user-role');
+    if (roleSelect) {
+        roleSelect.value = 'Employee';
+        window.app_toggleAddUserType(roleSelect);
+    }
+};
+
 export function renderModals() {
     const _user = window.AppAuth?.getUser();
     const budgetSelectHtml = typeof window.app_renderBudgetHeadOptions === 'function'
@@ -156,7 +193,7 @@ export function renderModals() {
                         </label>
                         <label class="gm-flex-fill">
                             Password
-                            <div class="password-field-wrap"><input type="password" name="password" id="edit-user-password" autocomplete="new-password" placeholder="Leave blank to keep current password" class="gm-input"><button type="button" class="password-toggle" onclick="window.app_togglePasswordVisibility(this)" aria-label="Show password" title="Show password"><i class="fa-solid fa-eye"></i></button></div>
+                            <div class="password-field-wrap"><input type="password" name="password" id="edit-user-password" autocomplete="new-password" placeholder="Leave blank to keep current password" minlength="6" class="gm-input"><button type="button" class="password-toggle" onclick="window.app_togglePasswordVisibility(this)" aria-label="Show password" title="Show password"><i class="fa-solid fa-eye"></i></button></div>
                         </label>
                     </div>
 
@@ -314,34 +351,35 @@ export function renderModals() {
          <!-- Add User Modal -->
         <div id="add-user-modal" class="modal-overlay gm-hidden">
             <div class="modal-content">
-                <h3>Create New Account</h3>
+                <h3 id="add-user-modal-title">Create New Account</h3>
                 <form id="add-user-form" class="gm-flex-col-mt">
                     <label>
                         Full Name
                         <input type="text" name="name" required class="gm-input">
                     </label>
                     
-                    <div style="display: flex; gap: 1rem; background: #f9fafb; padding: 1rem; border-radius: 0.5rem; border: 1px dashed #d1d5db;">
+                    <div data-staff-account-field style="display: flex; gap: 1rem; background: #f9fafb; padding: 1rem; border-radius: 0.5rem; border: 1px dashed #d1d5db;">
                         <label class="gm-flex-fill">
                             Login ID
                             <input type="text" name="username" placeholder="e.g. john.doe" required class="gm-input">
                         </label>
                         <label class="gm-flex-fill">
                             Password
-                            <div class="password-field-wrap"><input type="password" name="password" placeholder="Leave empty for first-login setup" autocomplete="new-password" class="gm-input"><button type="button" class="password-toggle" onclick="window.app_togglePasswordVisibility(this)" aria-label="Show password" title="Show password"><i class="fa-solid fa-eye"></i></button></div>
+                            <div class="password-field-wrap"><input type="password" name="password" placeholder="Leave empty for first-login setup" autocomplete="new-password" minlength="6" class="gm-input"><button type="button" class="password-toggle" onclick="window.app_togglePasswordVisibility(this)" aria-label="Show password" title="Show password"><i class="fa-solid fa-eye"></i></button></div>
                         </label>
                     </div>
 
                     <label>
                         Role / Designation
-                        <select name="role" id="add-user-role" required class="gm-input" onchange="const cb = document.getElementById('add-user-isAdmin'); cb.checked = (this.value === 'Administrator');">
+                        <select name="role" id="add-user-role" required class="gm-input" onchange="window.app_toggleAddUserType(this); const cb = document.getElementById('add-user-isAdmin'); if(this.value !== 'External') cb.checked = (this.value === 'Administrator');">
                             <option value="Employee">Employee</option>
                             <option value="Administrator">Administrator</option>
                             <option value="Guest">Guest</option>
                             <option value="Intern">Intern</option>
+                            <option value="External">External</option>
                         </select>
                     </label>
-                    <label>
+                    <label data-staff-account-field>
                         Department
                         <select name="dept" id="add-user-dept" required class="gm-input">
                             <option value="Administration">Administration</option>
@@ -355,12 +393,24 @@ export function renderModals() {
                         </select>
                     </label>
 
-                    <label style="display: flex; align-items: center; gap: 0.5rem; background: #f0f7ff; padding: 0.75rem; border-radius: 0.5rem; cursor: pointer; margin-top: 0.5rem;">
+                    <div id="add-external-staff-fields" hidden style="display:grid; gap:0.85rem; padding:0.9rem; border:1px solid #fed7aa; border-radius:0.75rem; background:#fffaf2;">
+                        <label>
+                            Date of Birth
+                            <input type="date" name="externalDateOfBirth" min="1900-01-01" max="${new Date().toISOString().slice(0, 10)}" class="gm-input">
+                        </label>
+                        <label>
+                            Relationship to CRWI <span class="gm-hint">(optional)</span>
+                            <input type="text" name="relationshipToCrwi" maxlength="80" placeholder="e.g. partner, vendor, consultant" class="gm-input">
+                        </label>
+                        <div class="gm-hint">External contacts are added to the birthday calendar and do not receive app accounts.</div>
+                    </div>
+
+                    <label data-staff-account-field style="display: flex; align-items: center; gap: 0.5rem; background: #f0f7ff; padding: 0.75rem; border-radius: 0.5rem; cursor: pointer; margin-top: 0.5rem;">
                         <input type="checkbox" name="isAdmin" id="add-user-isAdmin" style="width: 1.2rem; height: 1.2rem;" onchange="const sel = document.getElementById('add-user-role'); if(this.checked) { sel.value = 'Administrator'; } else { if(sel.value === 'Administrator') sel.value = 'Employee'; }">
                         <div style="font-weight: 600; color: #1e40af;">Grant Full Administrator Rights</div>
                     </label>
 
-                    <div id="add-user-permissions-panel" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0.5rem; padding: 1rem; margin-top: 0.5rem;">
+                    <div data-staff-account-field id="add-user-permissions-panel" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0.5rem; padding: 1rem; margin-top: 0.5rem;">
                         <div style="font-weight: 700; font-size: 0.85rem; color: #475569; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
                             <i class="fa-solid fa-shield-halved"></i> Section-Specific Permissions
                         </div>
@@ -421,7 +471,7 @@ export function renderModals() {
 
                         </div>
                     </div>
-                     <div style="display: flex; gap: 1rem;">
+                     <div data-staff-account-field style="display: flex; gap: 1rem;">
                         <label class="gm-flex-fill">
                             Email
                             <input type="email" name="email" required class="gm-input">
@@ -431,7 +481,7 @@ export function renderModals() {
                             <input type="tel" name="phone" required class="gm-input">
                         </label>
                     </div>
-                    <div>
+                    <div data-staff-account-field>
                         <div style="font-size: 0.85rem; font-weight: 600; color: #334155; margin-bottom: 0.45rem;">Date of Birth</div>
                         <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:0.75rem;">
                             <label>
@@ -449,14 +499,14 @@ export function renderModals() {
                         </div>
                         <div style="font-size:0.78rem; color:#64748b; margin-top:0.35rem;">You can save any one or more birthday fields. Day and month are required only for reminders.</div>
                     </div>
-                    <label>
+                    <label data-staff-account-field>
                         Joining Date
                         <input type="date" name="joinDate" required class="gm-input">
                     </label>
                     
                     <div class="gm-flex-gap">
                         <button type="button" data-ts-action="hide-modal" data-target="add-user-modal" class="gm-card-flex">Cancel</button>
-                        <button type="submit" class="action-btn" style="flex: 1; padding: 0.75rem; border-radius: 0.5rem;">Create Account</button>
+                        <button type="submit" id="add-user-submit" class="action-btn" style="flex: 1; padding: 0.75rem; border-radius: 0.5rem;">Create Account</button>
                     </div>
                 </form>
             </div>

@@ -113,12 +113,12 @@ export function renderOwnerPasswordSetup(username = '') {
                     <input type="hidden" name="username" value="${String(username).replace(/"/g, '&quot;')}">
                     <div class="auth-stagger password-field-wrap">
                         <label style="font-size: 0.9rem; font-weight: 500; margin-bottom: 0.5rem; display: block;">New Password</label>
-                        <input type="password" name="newPassword" placeholder="At least 4 characters" required minlength="4" style="width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem;">
+                        <input type="password" name="newPassword" placeholder="At least 6 characters" required minlength="6" style="width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem;">
                         <button type="button" class="password-toggle" onclick="window.app_togglePasswordVisibility(this)" aria-label="Show password" title="Show password"><i class="fa-solid fa-eye"></i></button>
                     </div>
                     <div class="auth-stagger password-field-wrap">
                         <label style="font-size: 0.9rem; font-weight: 500; margin-bottom: 0.5rem; display: block;">Confirm Password</label>
-                        <input type="password" name="confirmPassword" placeholder="Re-enter password" required minlength="4" style="width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem;">
+                        <input type="password" name="confirmPassword" placeholder="Re-enter password" required minlength="6" style="width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem;">
                         <button type="button" class="password-toggle" onclick="window.app_togglePasswordVisibility(this)" aria-label="Show password" title="Show password"><i class="fa-solid fa-eye"></i></button>
                     </div>
 
