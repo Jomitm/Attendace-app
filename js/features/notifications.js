@@ -30,10 +30,18 @@ const getNotifSource = (notif) => {
     return 'Notification';
 };
 
-const canRespondToNotification = (notif) => {
+const canRespondToNotification = (notif, user) => {
     if (!notif) return false;
-    if (notif.type === 'minute-access-request') return true;
-    if (String(notif.type || '').includes('missed-checkout')) return true;
+    if (notif.type === 'minute-access-request') {
+        return !!(
+            user?.isAdmin === true
+            || user?.role === 'Administrator'
+            || window.app_hasPerm?.('minutes', 'admin', user)
+        );
+    }
+    if (String(notif.type || '').includes('missed-checkout')) {
+        return !!(user?.isAdmin === true || user?.role === 'Administrator');
+    }
     return notif.type === 'tag' || notif.type === 'mention';
 };
 
@@ -214,11 +222,22 @@ window.app_respondNotificationFromHistory = async (notifIndex, notifId, action) 
     window.app_closeNotificationHistory();
 
     try {
-        if (notif.type === 'minute-access-request' && window.app_hasPerm('minutes', 'admin', currentUser)) {
+        if (notif.type === 'minute-access-request') {
+            const canReviewMinutes = currentUser.isAdmin === true
+                || currentUser.role === 'Administrator'
+                || window.app_hasPerm?.('minutes', 'admin', currentUser);
+            if (!canReviewMinutes) {
+                alert('You do not have permission to review minutes access requests.');
+                return;
+            }
             await window.app_reviewMinuteAccessFromNotification(resolvedIndex, notif.id, decision === 'approve' ? 'approved' : 'rejected');
             return;
         }
-        if (notif.type === 'missed-checkout-reason' && (currentUser.isAdmin || currentUser.role === 'Administrator')) {
+        if (notif.type === 'missed-checkout-reason') {
+            if (!(currentUser.isAdmin === true || currentUser.role === 'Administrator')) {
+                alert('Only administrators can review missed checkout reasons.');
+                return;
+            }
             await window.app_reviewMissedCheckoutReasonFromNotification(resolvedIndex, notif.id, decision === 'approve' ? 'approved' : 'rejected');
             return;
         }
@@ -269,8 +288,6 @@ window.app_openNotificationHistory = async () => {
     }
     const notifications = cleanedNotifications;
     const tagHistory = Array.isArray(freshUser?.tagHistory) ? freshUser.tagHistory : [];
-    const isAdmin = currentUser.isAdmin || currentUser.role === 'Administrator';
-
     const rows = [
         ...notifications.map((n, index) => ({ ...n, _source: 'live', _index: index })),
         ...tagHistory.map((h) => ({ ...h, _source: 'history', _index: -1 }))
@@ -304,7 +321,7 @@ window.app_openNotificationHistory = async () => {
         };
         const colors = statusColors[status] || statusColors.default;
 
-        const approveRejectBtns = ((isPending && canRespondToNotification(row)) || (isAdmin && row.type === 'minute-access-request')) ? `
+        const approveRejectBtns = (isPending && canRespondToNotification(row, currentUser)) ? `
             <div class="notif-drawer-actions">
                 <button type="button" class="notif-drawer-btn approve" onclick="window.app_respondNotificationFromHistory(${Number(row._index)}, '${notifIdArg}', 'approve')">
                     <i class="fa-solid fa-check"></i> Approve

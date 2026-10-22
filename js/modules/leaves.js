@@ -422,7 +422,9 @@ export class Leaves {
         await this.db.put('leaves', updatedLeave);
 
         if (wasApproved) {
-            await this.generateApprovedLeaveAttendance(updatedLeave);
+            const attendanceSync = await this.generateApprovedLeaveAttendance(updatedLeave);
+            updatedLeave.attendanceConflictDates = attendanceSync.skippedDates;
+            await this.db.put('leaves', updatedLeave);
         }
 
         return updatedLeave;
@@ -439,9 +441,49 @@ export class Leaves {
         ) ? 'Work - Home' : leave.type;
         const isWorkFromHome = normalizedType === 'Work - Home';
 
+        let existingAttendance = [];
+        if (this.db.queryMany) {
+            existingAttendance = await this.db.queryMany('attendance', [
+                { field: 'date', operator: '>=', value: leave.startDate },
+                { field: 'date', operator: '<=', value: leave.endDate }
+            ]);
+        } else if (this.db.getAll) {
+            existingAttendance = await this.db.getAll('attendance');
+        }
+        if (!Array.isArray(existingAttendance)) existingAttendance = [];
+
+        const skippedDates = [];
         let current = new Date(start);
         while (current <= end) {
             const dateStr = current.toISOString().split('T')[0];
+            const sameDayLogs = existingAttendance.filter((log) =>
+                String(log.user_id || log.userId || '') === String(leave.userId || '')
+                && String(log.date || '') === dateStr
+            );
+            const leaveLogForThisRequest = sameDayLogs.some((log) =>
+                log.leaveGenerated === true && String(log.leaveRequestId || '') === String(leave.id || '')
+            );
+            const conflictingAttendance = sameDayLogs.some((log) =>
+                !(log.leaveGenerated === true && String(log.leaveRequestId || '') === String(leave.id || ''))
+            );
+
+            // Preserve real punches and other approved leave records on overlapping dates.
+            // The approved leave remains in the leave collection, but its synthetic log must
+            // not replace or outrank attendance already recorded for that day.
+            if (conflictingAttendance) {
+                skippedDates.push(dateStr);
+                if (leaveLogForThisRequest && this.db.delete) {
+                    const ownLeaveLogs = sameDayLogs.filter((log) =>
+                        log.leaveGenerated === true && String(log.leaveRequestId || '') === String(leave.id || '')
+                    );
+                    await Promise.all(ownLeaveLogs.map((log) =>
+                        log.id ? this.db.delete('attendance', log.id) : Promise.resolve()
+                    ));
+                }
+                current.setDate(current.getDate() + 1);
+                continue;
+            }
+
             const isShortLeave = normalizedType === 'Short Leave';
             const shortLeaveHours = Number(leave.durationHours) || 0;
             const attendanceLog = {
@@ -461,8 +503,11 @@ export class Leaves {
                 leaveGenerated: true
             };
             await this.db.put('attendance', attendanceLog);
+            existingAttendance = existingAttendance.filter((log) => String(log.id || '') !== attendanceLog.id);
+            existingAttendance.push(attendanceLog);
             current.setDate(current.getDate() + 1);
         }
+        return { skippedDates };
     }
 
     async removeApprovedLeaveAttendance(leave) {
@@ -512,6 +557,7 @@ export class Leaves {
         leave.status = nextStatus;
         leave.actionDate = nowIso;
         leave.adminComment = adminComment;
+        if (nextStatus !== 'Approved') delete leave.attendanceConflictDates;
 
         if (actingUserId) {
             leave.actionBy = actingUserId;
@@ -545,8 +591,10 @@ export class Leaves {
         if (isStatusChange && previousStatus === 'Approved' && nextStatus !== 'Approved') {
             await this.removeApprovedLeaveAttendance(leave);
         }
-        if (isStatusChange && nextStatus === 'Approved') {
-            await this.generateApprovedLeaveAttendance(leave);
+        if (nextStatus === 'Approved') {
+            const attendanceSync = await this.generateApprovedLeaveAttendance(leave);
+            leave.attendanceConflictDates = attendanceSync.skippedDates;
+            await this.db.put('leaves', leave);
         }
         return leave;
     }

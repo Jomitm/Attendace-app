@@ -281,6 +281,12 @@ const ensurePlannedTaskInteractions = () => {
             if (id) window.app_undoLeaveDecision?.(id);
         });
         onAction('close-maximize', () => window.app_closeDashboardCardMaximize?.());
+        onAction('scroll-admin-widget', (el) => {
+            const target = document.getElementById(el.dataset.targetId || '');
+            if (!target) return;
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            target.focus({ preventScroll: true });
+        });
     }
 
     document.addEventListener('click', (event) => {
@@ -1834,12 +1840,13 @@ export function renderStaffLeaveSummary(leaves, user) {
         </div>`;
 }
 
-export function renderLeaveRequests(leaves, workFromHomeEntries = []) {
+export function renderLeaveRequests(leaves, workFromHomeEntries = [], options = {}) {
+    const widgetId = options.id ? ` id="${safeHtml(options.id)}" tabindex="-1"` : '';
     const hasLeaves = Array.isArray(leaves) && leaves.length > 0;
     const hasWfh = Array.isArray(workFromHomeEntries) && workFromHomeEntries.length > 0;
 
     if (!hasLeaves && !hasWfh) {
-        return `<div class="dashboard-empty-state">
+        return `<div class="dashboard-empty-state"${widgetId}>
             <i class="fa-solid fa-check-circle"></i>
             <p>No pending leave requests</p>
             <span>All leave requests have been reviewed</span>
@@ -1882,7 +1889,7 @@ export function renderLeaveRequests(leaves, workFromHomeEntries = []) {
         : '';
 
     return `
-        <div class="card dashboard-leave-requests-card">
+        <div class="card dashboard-leave-requests-card"${widgetId}>
             <div class="dashboard-leave-requests-head"><h4>Pending Leaves & Work From Home</h4><span>Review requirements</span></div>
             <div class="dashboard-leave-requests-list">
                 ${leaveRows}
@@ -1891,9 +1898,10 @@ export function renderLeaveRequests(leaves, workFromHomeEntries = []) {
             ${hasLeaves && leaves.length > 5 ? `<div class="dashboard-leave-footer"><button onclick="window.location.hash = 'leaves'">View all ${leaves.length} leave requests</button></div>` : ''}
         </div>`;
 }
-export function renderMissedCheckoutRequests(items) {
+export function renderMissedCheckoutRequests(items, options = {}) {
+    const widgetId = options.id ? ` id="${safeHtml(options.id)}" tabindex="-1"` : '';
     if (!items || items.length === 0) {
-        return `<div class="dashboard-empty-state">
+        return `<div class="dashboard-empty-state"${widgetId}>
             <i class="fa-solid fa-clock"></i>
             <p>No missed checkout requests</p>
             <span>All caught up!</span>
@@ -1901,7 +1909,7 @@ export function renderMissedCheckoutRequests(items) {
     }
 
     return `
-        <div class="card full-width dashboard-tagged-card">
+        <div class="card full-width dashboard-tagged-card"${widgetId}>
             <div class="dashboard-tagged-head"><h4>Missed Tasks Requests</h4><span>Pending admin review</span></div>
             <div class="dashboard-tagged-list">
                 ${items.map((item) => `
@@ -2523,6 +2531,8 @@ export async function renderDashboard() {
     }
 
     let detailSectionHTML = '';
+    let adminWorkspaceHTML = '';
+    let adminSummaryHTML = '';
     let statsRowHTML = '';
     const primaryRowThirdCard = renderActivityLog(staffActivities);
     const renderYearlyPlanHTML = renderYearlyPlan(calendarPlans);
@@ -2563,16 +2573,39 @@ export async function renderDashboard() {
             canUndo: true
         });
 
+        const adminReviewHTML = isFullAdmin ? `
+            <div class="dashboard-admin-actions-row" id="dashboard-admin-notifications" tabindex="-1" aria-label="Admin notifications and review requests">
+                ${renderLeaveRequests(pendingLeaves, workFromHomeRows, { id: 'dashboard-admin-leave-notifications' })}
+                ${renderMissedCheckoutRequests(missedCheckoutRequests, { id: 'dashboard-admin-checkout-notifications' })}
+                ${historyHTML}
+            </div>` : '';
         detailSectionHTML = `
                     <div class="dashboard-detail-section" data-zone-id="detailSection">
-                        ${isFullAdmin ? `<div class="dashboard-admin-actions-row">
-                            ${renderLeaveRequests(pendingLeaves, workFromHomeRows)}
-                            ${renderMissedCheckoutRequests(missedCheckoutRequests)}
-                            ${historyHTML}
-                        </div>` : ''}
+                        ${isFullAdmin ? adminReviewHTML : ''}
                         ${wvIf('teamActivity', primaryRowThirdCard)}
                         ${wvIf('journeyReflection', journeyReflectionHTML)}
                     </div>`;
+        adminWorkspaceHTML = `
+            <section class="dashboard-admin-workspace" aria-labelledby="dashboard-admin-title">
+                <div class="dashboard-section-label dashboard-admin-section-label" id="dashboard-admin-title">
+                    <span>Admin Workspace</span>
+                    <span class="dashboard-section-label-rule" aria-hidden="true"></span>
+                    <span class="dashboard-section-label-note">Team actions and reviews</span>
+                </div>
+                ${detailSectionHTML}
+            </section>`;
+        adminSummaryHTML = isFullAdmin ? `
+            <section class="dashboard-admin-quick-summary" aria-labelledby="dashboard-admin-summary-title">
+                <div class="dashboard-section-label dashboard-admin-section-label" id="dashboard-admin-summary-title">
+                    <span>Admin Summary</span>
+                    <span class="dashboard-section-label-rule" aria-hidden="true"></span>
+                    <span class="dashboard-section-label-note">Quick review</span>
+                </div>
+                <nav class="dashboard-admin-notification-links" aria-label="Admin notifications">
+                    <button type="button" class="dashboard-admin-notification-link" data-ts-action="scroll-admin-widget" data-target-id="dashboard-admin-leave-notifications" aria-label="${pendingLeaves.length} pending leave requests; jump to widget"><span>Pending leave requests</span><strong>${pendingLeaves.length}</strong></button>
+                    <button type="button" class="dashboard-admin-notification-link" data-ts-action="scroll-admin-widget" data-target-id="dashboard-admin-checkout-notifications" aria-label="${missedCheckoutRequests.length} missed checkout reviews; jump to widget"><span>Missed checkout reviews</span><strong>${missedCheckoutRequests.length}</strong></button>
+                </nav>
+            </section>` : '';
         statsRowHTML = wvIf('statsRow', `
             <div class="dashboard-stats-row" data-zone-id="statsRow">
                 ${wvIf('feast', feastWidgetHTML)}
@@ -2752,6 +2785,8 @@ export async function renderDashboard() {
                 ${overdueTaskStripHTML || ''}
             </div>
 
+            ${adminSummaryHTML}
+
             <!-- ── Personal Workday ── -->
             <section class="dashboard-personal-workday" aria-labelledby="dashboard-personal-title">
                 <div class="dashboard-section-label" id="dashboard-personal-title">
@@ -2817,16 +2852,8 @@ export async function renderDashboard() {
                     </aside>
                 </div>
 
-                ${canViewAdminSections ? `
-                    <section class="dashboard-admin-workspace" aria-labelledby="dashboard-admin-title">
-                        <div class="dashboard-section-label dashboard-admin-section-label" id="dashboard-admin-title">
-                            <span>Admin Workspace</span>
-                            <span class="dashboard-section-label-rule" aria-hidden="true"></span>
-                            <span class="dashboard-section-label-note">Team actions and reviews</span>
-                        </div>
-                        ${detailSectionHTML}
-                    </section>` : ''}
             </section>
+            ${adminWorkspaceHTML}
         </div>`;
 }
 

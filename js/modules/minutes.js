@@ -12,7 +12,11 @@ function getCurrentUser() {
 }
 
 function isMinutesAdmin(user) {
-    return !!(window.app_hasPerm && window.app_hasPerm('minutes', 'admin', user));
+    return !!(
+        user?.isAdmin === true
+        || user?.role === 'Administrator'
+        || (window.app_hasPerm && window.app_hasPerm('minutes', 'admin', user))
+    );
 }
 
 function canUpdateMinute(existing, user, auditAction, options = {}) {

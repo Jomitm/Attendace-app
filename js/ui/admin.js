@@ -870,7 +870,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                     <div class="dashboard-tagged-status">
                         <span class="dashboard-tagged-pill ${String(log.reviewStatus).toLowerCase() === 'approved' ? 'accepted' : 'rejected'}">${safeHtml(String(log.reviewStatus || '').toUpperCase())}</span>
                         <div class="dashboard-tagged-actions">
-                            <button type="button" class="dashboard-tagged-btn" data-ts-action="undo-missed-checkout-review"(${JSON.stringify(String(log.notificationId || ''))})">Undo</button>
+                            <button type="button" class="dashboard-tagged-btn" data-ts-action="undo-missed-checkout-review" data-notification-id="${safeHtml(String(log.notificationId || ''))}">Undo</button>
                         </div>
                     </div>
                 </div>

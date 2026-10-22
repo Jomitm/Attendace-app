@@ -6490,9 +6490,13 @@ document.addEventListener('auth-logout', () => window.AppAuth.logout());
 window.app_reviewMinuteAccessFromNotification = async (notifIndex, notifId, decision) => {
     try {
         const currentUser = window.AppAuth.getUser();
-        const isAdmin = currentUser && (currentUser.isAdmin || currentUser.role === 'Administrator');
-        if (!isAdmin) {
-            alert('Only admin can review access requests.');
+        const canReviewMinutes = currentUser && (
+            currentUser.isAdmin === true
+            || currentUser.role === 'Administrator'
+            || window.app_hasPerm?.('minutes', 'admin', currentUser)
+        );
+        if (!canReviewMinutes) {
+            alert('You do not have permission to review minutes access requests.');
             return;
         }
 
@@ -7481,12 +7485,17 @@ window.app_approveLeave = async (leaveId) => {
     try {
         const user = window.AppAuth.getUser();
         const leave = await window.AppDB.get('leaves', leaveId).catch(() => null);
-        await window.AppLeaves.updateLeaveStatus(leaveId, 'Approved', user.id);
+        const approvedLeave = await window.AppLeaves.updateLeaveStatus(leaveId, 'Approved', user.id);
         // Telegram notification (fire-and-forget)
         if (leave && leave.staffName) {
             telegramNotifyLeaveUpdate(leave.staffName, 'approved', leave.id);
         }
-        alert("Leave Approved! Attendance logs have been automatically generated.");
+        const skippedDates = Array.isArray(approvedLeave?.attendanceConflictDates)
+            ? approvedLeave.attendanceConflictDates
+            : [];
+        alert(skippedDates.length
+            ? `Leave Approved. Existing attendance was preserved and no duplicate leave log was created for: ${skippedDates.join(', ')}.`
+            : "Leave Approved! Attendance logs have been automatically generated.");
         await app_refreshAfterLeaveAction();
     } catch (err) {
         alert("Error: " + err.message);

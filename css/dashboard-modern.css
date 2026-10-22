@@ -244,6 +244,75 @@
   color: var(--md-secondary);
 }
 
+.modern-dashboard .dashboard-admin-quick-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.modern-dashboard .dashboard-admin-notification-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: -0.15rem 0 0.15rem;
+}
+
+.modern-dashboard .dashboard-admin-notification-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  flex: 0 0 auto;
+  min-height: 2rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid rgba(0, 88, 190, 0.22);
+  border-radius: 10px;
+  background: #edf5ff;
+  color: #174b83;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.modern-dashboard .dashboard-admin-notification-link strong {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.3rem;
+  height: 1.3rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: var(--md-secondary);
+  color: var(--md-on-primary);
+  font-size: 0.7rem;
+}
+
+.modern-dashboard .dashboard-admin-notification-link:hover {
+  background: #dcecff;
+}
+
+.modern-dashboard .dashboard-admin-notification-link:focus-visible {
+  outline: 2px solid var(--md-secondary);
+  outline-offset: 2px;
+}
+
+[data-theme="dark"] .modern-dashboard .dashboard-admin-notification-link {
+  border-color: rgba(96, 165, 250, 0.38);
+  background: #172b46;
+  color: #d7e8ff;
+}
+
+[data-theme="dark"] .modern-dashboard .dashboard-admin-notification-link:hover {
+  background: #203b60;
+}
+
+[data-theme="dark"] .modern-dashboard .dashboard-admin-notification-link strong {
+  background: var(--md-secondary-container);
+  color: #ffffff;
+}
+
 .modern-dashboard .dashboard-admin-workspace .dashboard-detail-section {
   margin-top: 0;
 }
@@ -3104,24 +3173,71 @@ textarea.gm-input {
   gap: 0.55rem;
 }
 
-/* Admin actions row — three empty-state cards side by side on desktop,
-   two columns on tablets (three squeezed cards overflowed into each other),
-   one column on phones. */
+/* Keep the pending requests readable while the two status cards use less space. */
 .dashboard-staff-view .dashboard-admin-actions-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  grid-auto-rows: minmax(100px, auto);
   gap: 0.55rem;
+  align-items: stretch;
+}
+
+.dashboard-staff-view .dashboard-admin-actions-row > .card {
+  min-width: 0;
+  max-height: none;
+  overflow: visible;
+}
+
+.dashboard-staff-view .dashboard-admin-actions-row > .dashboard-leave-requests-card {
+  grid-row: span 2;
+}
+
+.dashboard-staff-view .dashboard-admin-actions-row .dashboard-empty-state {
+  height: auto;
+  min-height: 100px;
+}
+
+.dashboard-staff-view .dashboard-admin-actions-row .dashboard-leave-requests-list {
+  max-height: none;
+  overflow: visible;
+}
+
+.dashboard-staff-view .dashboard-admin-actions-row .dashboard-leave-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  min-width: 0;
+}
+
+.dashboard-staff-view .dashboard-admin-actions-row .dashboard-leave-actions {
+  min-width: 0;
+  flex: 0 0 auto;
+  gap: 0.4rem;
 }
 
 @media (max-width: 1199px) {
   .dashboard-staff-view .dashboard-admin-actions-row {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 }
 
 @media (max-width: 768px) {
   .dashboard-staff-view .dashboard-admin-actions-row {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-staff-view .dashboard-admin-actions-row > .dashboard-leave-requests-card {
+    grid-row: auto;
+  }
+}
+
+@media (max-width: 520px) {
+  .dashboard-staff-view .dashboard-admin-actions-row .dashboard-leave-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-staff-view .dashboard-admin-actions-row .dashboard-leave-actions {
+    justify-content: flex-start;
   }
 }
 
@@ -3823,9 +3939,9 @@ textarea.gm-input {
   overflow-x: visible;
 }
 
-/* Wide dashboards pair the attendance controls with the team calendar to
-   keep the first screen short. The task list gets the full row beneath them. */
-@media (min-width: 1440px) {
+/* Laptop-width dashboards pair check-in with the yearly plan to keep the
+   first screen compact. The task list gets the full row beneath them. */
+@media (min-width: 1280px) {
   .modern-dashboard .dashboard-primary-row {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
     align-items: start;

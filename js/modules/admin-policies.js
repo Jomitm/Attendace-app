@@ -373,7 +373,18 @@ export const AdminPolicies = {
             if (!comment) return;
 
             try {
-                await AppLeaves.updateLeaveStatus(leaveId, 'Approved', AppAuth.getUser().id, `[Overridden] ${comment}`);
+                const approvedLeave = await AppLeaves.updateLeaveStatus(
+                    leaveId,
+                    'Approved',
+                    AppAuth.getUser().id,
+                    `[Overridden] ${comment}`
+                );
+                const skippedDates = Array.isArray(approvedLeave?.attendanceConflictDates)
+                    ? approvedLeave.attendanceConflictDates
+                    : [];
+                if (skippedDates.length) {
+                    alert(`Leave approved. Existing attendance was preserved and no duplicate leave log was created for: ${skippedDates.join(', ')}.`);
+                }
                 window.location.reload();
             } catch (e) {
                 alert(e.message);
