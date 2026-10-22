@@ -2093,25 +2093,46 @@ export class Analytics {
     }
 
     /**
-     * Single source of truth for the weekly hero. Builds the ranked/eligibility board for the
-     * effective window (primary, widened to FALLBACK_LOOKBACK_DAYS when nobody is eligible) and
-     * returns both the full rows and the winning (top eligible) row. Both getHeroLeaderboard and
-     * getHeroOfTheWeek consume this so the mini card and the audit table always agree.
+     * Single source of truth for the weekly hero. Eligibility and ranking always
+     * use the same seven-day window so older activity cannot produce this week's
+     * winner. Both getHeroLeaderboard and getHeroOfTheWeek consume this result.
      */
     async buildHeroRanking(options = {}) {
         const policy = this.getHeroPolicy();
         const source = String(options.source || 'direct_cache');
-        const primaryWindow = Math.max(1, Number(options.windowDays ?? policy.WINDOW_DAYS ?? 7));
-        const fallbackWindow = Math.max(primaryWindow, Math.round(Number(policy.FALLBACK_LOOKBACK_DAYS ?? primaryWindow)));
+        const primaryWindow = 7;
         const minEvidence = policy.MIN_EVIDENCE || {};
-        const minDays = Math.max(0, Number.isFinite(Number(minEvidence.minDays)) ? Number(minEvidence.minDays) : 1);
-        const minDurationMs = Math.max(0, Number.isFinite(Number(minEvidence.minDurationMs)) ? Number(minEvidence.minDurationMs) : 1);
-        const minPlannedTasks = Math.max(0, Number.isFinite(Number(minEvidence.minPlannedTasks)) ? Number(minEvidence.minPlannedTasks) : 1);
+        const configuredMinDays = Math.max(1, Number.isFinite(Number(minEvidence.minDays)) ? Number(minEvidence.minDays) : 3);
+        const configuredMinDurationMs = Math.max(0, Number.isFinite(Number(minEvidence.minDurationMs)) ? Number(minEvidence.minDurationMs) : 43200000);
+        const configuredMinPlannedTasks = Math.max(0, Number.isFinite(Number(minEvidence.minPlannedTasks)) ? Number(minEvidence.minPlannedTasks) : 5);
 
         const rankWindow = async (windowDays) => {
             const dataset = await this.getHeroSharedDataset({ ...options, windowDays });
             const holidayDates = await this.getHolidayDateSetInRange(dataset.start, dataset.end).catch(() => new Set());
+            const requiredDays = Math.max(1, countRequiredWorkingDays(dataset.start, dataset.end, holidayDates));
+            const minDays = Math.min(configuredMinDays, requiredDays);
+            const minPlannedTasks = Math.ceil(configuredMinPlannedTasks * (requiredDays / 5));
+            const minTrackedHoursPerDayMs = configuredMinDays > 0
+                ? configuredMinDurationMs / configuredMinDays
+                : 0;
+            const minDurationMs = Math.round(minTrackedHoursPerDayMs * minDays);
             const normalizedLogs = this.normalizeHeroLogs(dataset.logs);
+            const trackedDurationByUserDay = new Map();
+            normalizedLogs.forEach((log) => {
+                const userId = String(log?.userId || '');
+                const dateKey = String(log?.dateKey || '');
+                const durationMs = Math.max(0, Number(log?.durationMs) || 0);
+                if (!userId || !dateKey || durationMs <= 0 || !this.isAttendanceEligibleLog(log)) return;
+                if (!trackedDurationByUserDay.has(userId)) trackedDurationByUserDay.set(userId, new Map());
+                const userDays = trackedDurationByUserDay.get(userId);
+                userDays.set(dateKey, (userDays.get(dateKey) || 0) + durationMs);
+            });
+            const minTrackedDaysByUser = new Map(
+                Array.from(trackedDurationByUserDay, ([userId, dayDurations]) => [
+                    userId,
+                    Array.from(dayDurations.values()).filter((durationMs) => durationMs >= minTrackedHoursPerDayMs).length
+                ])
+            );
             const normalizedTasks = this.normalizeHeroTasksFromActivities(dataset.activityRows, dataset.users);
             const taskStats = this.mergeTaskStats(
                 this.buildHeroTaskStats(normalizedTasks),
@@ -2138,8 +2159,11 @@ export class Analytics {
             const rows = eligibleUsers.map((user) => {
                 const userId = String(user?.id || '').trim();
                 const stats = rankedMap.get(userId) || { ...this.createZeroHeroStats(userId), rank: null };
+                const trackedDaysWithEvidence = minTrackedDaysByUser.get(userId) || 0;
+                stats.trackedDaysWithEvidence = trackedDaysWithEvidence;
                 const isEligible = stats.taskPlanned >= minPlannedTasks
                     && stats.days >= minDays
+                    && trackedDaysWithEvidence >= minDays
                     && stats.totalDurationMs >= minDurationMs;
                 return {
                     user,
@@ -2154,7 +2178,7 @@ export class Analytics {
                     },
                     eligibilityReason: isEligible
                         ? 'Eligible'
-                        : `Needs at least ${minPlannedTasks} planned task${minPlannedTasks === 1 ? '' : 's'}, ${minDays} day${minDays === 1 ? '' : 's'}, and ${Math.round(minDurationMs / 3600000)} hours tracked.`,
+                        : `Needs at least ${minPlannedTasks} planned task${minPlannedTasks === 1 ? '' : 's'} and ${minDays} workday${minDays === 1 ? '' : 's'} with ${Number((minTrackedHoursPerDayMs / 3600000).toFixed(1))} tracked hours each.`,
                     period: 'yesterday_back_7_days'
                 };
             }).sort((a, b) => {
@@ -2168,13 +2192,6 @@ export class Analytics {
         };
 
         let result = await rankWindow(primaryWindow);
-        if (!result.winner && fallbackWindow > primaryWindow) {
-            const fallbackResult = await rankWindow(fallbackWindow);
-            if (fallbackResult.winner) {
-                result = fallbackResult;
-            }
-        }
-
         // Optional AI winner selection — overrides only the winning row; rows
         // stay rank-sorted for the audit table. Any failure keeps the
         // deterministic winner (selection stays null).
@@ -2199,7 +2216,7 @@ export class Analytics {
             rows: result.rows,
             winnerRow: result.winner,
             selection,
-            usedFallbackWindow: Number(result.dataset?.windowDays || primaryWindow) > primaryWindow
+            usedFallbackWindow: false
         };
     }
 

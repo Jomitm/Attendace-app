@@ -31,9 +31,19 @@ export class Leaves {
         if (storedAttendance.expectedHoursPerDay === undefined && Number.isFinite(Number(storedAttendance.consistencyImpact))) {
             storedAttendance.expectedHoursPerDay = Number(storedAttendance.consistencyImpact);
         }
+        // One-time migration from the previous Hero eligibility thresholds.
+        // Newer admin edits are preserved after they carry rule version 2.
+        const eligibilityRuleVersion = Number(stored.ELIGIBILITY_RULE_VERSION || 0);
+        const minEvidence = eligibilityRuleVersion < 2
+            ? { ...(base.MIN_EVIDENCE || {}) }
+            : { ...(base.MIN_EVIDENCE || {}), ...(stored.MIN_EVIDENCE || {}) };
         return {
             ...base,
             ...stored,
+            SCHEMA_VERSION: Math.max(Number(base.SCHEMA_VERSION || 1), Number(stored.SCHEMA_VERSION || 0)),
+            WINDOW_DAYS: 7,
+            FALLBACK_LOOKBACK_DAYS: 7,
+            ELIGIBILITY_RULE_VERSION: 2,
             WEIGHTS: {
                 ...(base.WEIGHTS || {}),
                 ...(stored.WEIGHTS || {})
@@ -70,10 +80,7 @@ export class Leaves {
                 ...(base.CAPS || {}),
                 ...(stored.CAPS || {})
             },
-            MIN_EVIDENCE: {
-                ...(base.MIN_EVIDENCE || {}),
-                ...(stored.MIN_EVIDENCE || {})
-            }
+            MIN_EVIDENCE: minEvidence
         };
     }
 

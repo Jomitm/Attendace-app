@@ -128,15 +128,15 @@ export const AdminPolicies = {
             'Basic Settings',
             null,
             [
-                renderNumberField({ label: 'Hero Scoring Period (days)', name: 'hero_windowDays', value: heroPolicy.WINDOW_DAYS ?? heroDefaults.WINDOW_DAYS ?? 7, step: '1', min: '1' }),
+                '<p class="text-muted" style="margin:0;">Hero of the Week always scores the previous 7 complete calendar days.</p>',
                 renderNumberField({ label: 'Expected Hours/Day', name: 'hero_attendanceConsistencyImpact', value: heroAttendance.expectedHoursPerDay ?? heroAttendance.consistencyImpact ?? 8, step: '0.5', min: '1', max: '16', help: 'Sets the hours target per required weekday; hours worked on weekends or holidays also count.' }),
                 renderNumberField({ label: 'Max Hours Bonus (pts)', name: 'hero_attendanceMaxBonus', value: heroAttendance.maxBonus ?? 10, step: '1', min: '0', max: '25', help: 'Bonus for working long hours. 0 = off.' }),
                 renderNumberField({ label: 'Max Pauses/Day', name: 'hero_maxPausesPerDay', value: (heroPolicy.PAUSE_DISCIPLINE || heroDefaults.PAUSE_DISCIPLINE || {}).maxPausesPerDay ?? 3, step: '1', min: '0', max: '10', help: 'More pauses than this = punctuality penalty.' }),
                 renderNumberField({ label: 'Max Pause Mins/Day', name: 'hero_maxPauseMinsPerDay', value: (heroPolicy.PAUSE_DISCIPLINE || heroDefaults.PAUSE_DISCIPLINE || {}).maxPauseMinsPerDay ?? 45, step: '5', min: '0', max: '120', help: 'Longer pauses than this = punctuality penalty.' }),
                 renderNumberField({ label: 'Consistency Bonus (pts)', name: 'hero_consistencyBonus', value: heroAttendance.consistencyBonus ?? 10, step: '1', min: '0', max: '20', help: 'Reward for stable check-in times.' }),
-                renderNumberField({ label: 'Hero Qualification: Min Days', name: 'hero_minDays', value: heroEvidence.minDays ?? 3, step: '1', min: '1' }),
-                renderNumberField({ label: 'Hero Qualification: Min Hours', name: 'hero_minDurationHours', value: Math.max(0, Number(heroEvidence.minDurationMs ?? 14400000) / 3600000), step: '0.5', min: '0' }),
-                renderNumberField({ label: 'Hero Qualification: Min Tasks', name: 'hero_minPlannedTasks', value: heroEvidence.minPlannedTasks ?? 3, step: '1', min: '0' })
+                renderNumberField({ label: 'Hero Qualification: Min Days', name: 'hero_minDays', value: heroEvidence.minDays ?? 3, step: '1', min: '1', help: 'Capped to the number of required workdays in holiday weeks.' }),
+                renderNumberField({ label: 'Hero Qualification: Min Hours', name: 'hero_minDurationHours', value: Math.max(0, Number(heroEvidence.minDurationMs ?? 43200000) / 3600000), step: '0.5', min: '0', help: 'Spread across the minimum attendance days; each qualifying day must meet that hourly average.' }),
+                renderNumberField({ label: 'Hero Qualification: Min Tasks', name: 'hero_minPlannedTasks', value: heroEvidence.minPlannedTasks ?? 5, step: '1', min: '0', help: 'Prorated based on required workdays in holiday weeks.' })
             ].join(''),
             3
         )}
@@ -147,9 +147,8 @@ export const AdminPolicies = {
                         <div style="display:grid; gap:0.75rem; margin-top:0.75rem;">
                             ${renderSection(
                 'Scoring Parameters',
-                'The full-week task target scales to each Performance period and also informs Hero confidence.',
+                    'Hero eligibility always uses the previous 7 complete calendar days. If nobody meets the evidence thresholds, no Hero is selected for that period.',
                 [
-                    renderNumberField({ label: 'Fallback Lookback (days)', name: 'hero_fallbackLookbackDays', value: heroPolicy.FALLBACK_LOOKBACK_DAYS ?? heroDefaults.FALLBACK_LOOKBACK_DAYS ?? 90, step: '1', min: '1', help: 'Wider window if nobody qualifies in primary period.' }),
                     renderNumberField({ label: 'Expected Weekly Tasks', name: 'hero_expectedWeeklyTasks', value: heroPolicy.EXPECTED_WEEKLY_TASKS ?? heroDefaults.EXPECTED_WEEKLY_TASKS ?? 5, step: '1', min: '1', help: 'Target count used by the Planning dimension; scaled for the selected period.' }),
                     renderNumberField({ label: 'Hours Cap (confidence)', name: 'hero_capsHours', value: heroCaps.hours ?? 40, step: '1', min: '1', help: 'Caps confidence display, not the score.' }),
                     renderNumberField({ label: 'Punctuality Weight', name: 'hero_weightPunctuality', value: heroWeights.punctuality ?? 0.15, step: '0.05', min: '0', max: '1' }),
@@ -295,8 +294,9 @@ export const AdminPolicies = {
                 return Number.isFinite(parsed) ? parsed : fallback;
             };
 
-            nextHeroPolicy.WINDOW_DAYS = Math.max(1, Math.round(getNumber('hero_windowDays', nextHeroPolicy.WINDOW_DAYS ?? AppConfig?.HERO_POLICY?.WINDOW_DAYS ?? 7)));
-            nextHeroPolicy.FALLBACK_LOOKBACK_DAYS = Math.max(1, Math.round(getNumber('hero_fallbackLookbackDays', nextHeroPolicy.FALLBACK_LOOKBACK_DAYS ?? AppConfig?.HERO_POLICY?.FALLBACK_LOOKBACK_DAYS ?? 90)));
+            nextHeroPolicy.WINDOW_DAYS = 7;
+            nextHeroPolicy.FALLBACK_LOOKBACK_DAYS = 7;
+            nextHeroPolicy.ELIGIBILITY_RULE_VERSION = 2;
             nextHeroPolicy.EXPECTED_WEEKLY_TASKS = Math.max(1, Math.round(getNumber('hero_expectedWeeklyTasks', nextHeroPolicy.EXPECTED_WEEKLY_TASKS ?? AppConfig?.HERO_POLICY?.EXPECTED_WEEKLY_TASKS ?? 5)));
             const rawConsistencyImpact = Number(getNumber('hero_attendanceConsistencyImpact', nextHeroPolicy.ATTENDANCE_MODIFIER.consistencyImpact));
             const migratedConsistencyImpact = (rawConsistencyImpact >= 0 && rawConsistencyImpact < 2) ? 8 : rawConsistencyImpact;
@@ -317,9 +317,9 @@ export const AdminPolicies = {
             nextHeroPolicy.CAPS.hours = Math.max(1, Math.round(getNumber('hero_capsHours', nextHeroPolicy.CAPS.hours ?? AppConfig?.HERO_POLICY?.CAPS?.hours ?? 40)));
 
             nextHeroPolicy.MIN_EVIDENCE.minDays = Math.max(1, Math.round(getNumber('hero_minDays', nextHeroPolicy.MIN_EVIDENCE.minDays ?? AppConfig?.HERO_POLICY?.MIN_EVIDENCE?.minDays ?? 3)));
-            const minDurationHours = Math.max(0, Number(getNumber('hero_minDurationHours', (nextHeroPolicy.MIN_EVIDENCE.minDurationMs ?? AppConfig?.HERO_POLICY?.MIN_EVIDENCE?.minDurationMs ?? 14400000) / 3600000)));
+            const minDurationHours = Math.max(0, Number(getNumber('hero_minDurationHours', (nextHeroPolicy.MIN_EVIDENCE.minDurationMs ?? AppConfig?.HERO_POLICY?.MIN_EVIDENCE?.minDurationMs ?? 43200000) / 3600000)));
             nextHeroPolicy.MIN_EVIDENCE.minDurationMs = Math.max(0, Math.round(minDurationHours * 3600000));
-            nextHeroPolicy.MIN_EVIDENCE.minPlannedTasks = Math.max(0, Math.round(getNumber('hero_minPlannedTasks', nextHeroPolicy.MIN_EVIDENCE.minPlannedTasks ?? AppConfig?.HERO_POLICY?.MIN_EVIDENCE?.minPlannedTasks ?? 3)));
+            nextHeroPolicy.MIN_EVIDENCE.minPlannedTasks = Math.max(0, Math.round(getNumber('hero_minPlannedTasks', nextHeroPolicy.MIN_EVIDENCE?.minPlannedTasks ?? AppConfig?.HERO_POLICY?.MIN_EVIDENCE?.minPlannedTasks ?? 5)));
 
             const dimensionWeights = ['punctuality', 'attendance', 'taskExecution', 'productivity', 'planning', 'compliance'];
             dimensionWeights.forEach((key) => {

@@ -485,7 +485,7 @@ const heroPayloadMissingAiSelection = (heroData) =>
     heroData?.state === 'winner'
     && (!('selection' in (heroData || {})) || heroData.selection == null);
 const renderHeroExpandedAuditMarkup = () => {
-    return `${renderHeroCard(window.app_dashboardHeroData, window.app_dashboardHeroMeta || {})}${renderHeroLeaderboardExpanded(window.app_dashboardHeroLeaderboard, window.app_dashboardHeroData)}`;
+    return `<div class="hero-expanded-popout">${renderHeroCard(window.app_dashboardHeroData, window.app_dashboardHeroMeta || {})}${renderHeroLeaderboardExpanded(window.app_dashboardHeroLeaderboard, window.app_dashboardHeroData)}</div>`;
 };
 
 const updateHeroExpandedOverlay = () => {
@@ -825,55 +825,146 @@ function ensureDashboardActionDelegates() {
     });
 }
 
-function getHeroScoringHelpHtml() {
+const HERO_DIMENSION_META = [
+    { key: 'punctuality', statKey: 'punctuality', label: 'Punctuality', description: 'On-time arrivals on required working days.' },
+    { key: 'attendance', statKey: 'attendanceScore', label: 'Attendance', description: 'Required days attended, tracked hours, and check-in consistency.' },
+    { key: 'taskExecution', statKey: 'taskExecution', label: 'Task execution', description: 'Weighted completion and on-time results, with missed work reducing the score.' },
+    { key: 'productivity', statKey: 'productivity', label: 'Productivity', description: 'Task outcomes and clear work evidence in attendance records.' },
+    { key: 'planning', statKey: 'planning', label: 'Planning', description: 'Plan coverage, task steps, completion, complexity, and purpose variety.' },
+    { key: 'compliance', statKey: 'compliance', label: 'Compliance', description: 'Starts at 100; applicable location, auto-checkout, and pause penalties reduce it.' }
+];
+
+const getHeroDimensionWeights = () => {
     const policy = window.AppHeroPolicy || AppConfig?.HERO_POLICY || {};
-    const configuredWeights = policy.DIMENSION_WEIGHTS || {};
-    const defaultWeights = { punctuality: 0.15, attendance: 0.20, taskExecution: 0.25, productivity: 0.15, planning: 0.15, compliance: 0.10 };
-    const weights = Object.fromEntries(Object.entries(defaultWeights).map(([key, fallback]) => [key, Number.isFinite(Number(configuredWeights[key])) && Number(configuredWeights[key]) >= 0 ? Number(configuredWeights[key]) : fallback]));
-    const weightTotal = Object.values(weights).reduce((sum, value) => sum + value, 0) || 1;
+    const configured = policy.DIMENSION_WEIGHTS || {};
+    const defaults = { punctuality: 0.15, attendance: 0.20, taskExecution: 0.25, productivity: 0.15, planning: 0.15, compliance: 0.10 };
+    const raw = Object.fromEntries(Object.entries(defaults).map(([key, fallback]) => {
+        const value = Number(configured[key]);
+        return [key, Number.isFinite(value) && value >= 0 ? value : fallback];
+    }));
+    const total = Object.values(raw).reduce((sum, value) => sum + value, 0);
+    const normalized = total > 0
+        ? Object.fromEntries(Object.entries(raw).map(([key, value]) => [key, value / total]))
+        : defaults;
+    return { policy, weights: normalized };
+};
+
+const getHeroWeightedScoreRows = (stats = {}) => {
+    const { weights } = getHeroDimensionWeights();
+    return HERO_DIMENSION_META.map((dimension) => {
+        const rawScore = Math.max(0, Math.min(100, Number(stats?.[dimension.statKey]) || 0));
+        const weight = Math.max(0, Number(weights[dimension.key]) || 0);
+        return {
+            ...dimension,
+            rawScore,
+            weight,
+            contribution: rawScore * weight
+        };
+    });
+};
+
+function getHeroScoringHelpHtml(heroData = window.app_dashboardHeroData) {
+    const { policy, weights } = getHeroDimensionWeights();
     const rules = policy.SCORING_RULES || {};
     const bonus = rules.CLASSIFICATION_BONUS || {};
     const priority = rules.PRIORITY_WEIGHTS || {};
-    const pause = policy.PAUSE_DISCIPLINE || {};
+    const size = rules.SIZE_WEIGHTS || {};
     const execution = rules.TASK_EXECUTION_WEIGHTS || {};
+    const postpone = rules.POSTPONE_CREDIT || {};
     const productivity = rules.PRODUCTIVITY_WEIGHTS || {};
+    const planning = rules.PLANNING_WEIGHTS || {};
+    const complexity = rules.COMPLEXITY_BONUS || {};
+    const purpose = rules.PURPOSE_BONUS || {};
+    const pausePenalty = rules.PAUSE_PENALTY || {};
     const compliance = rules.COMPLIANCE_PENALTY || {};
+    const pause = policy.PAUSE_DISCIPLINE || {};
+    const attendance = policy.ATTENDANCE_MODIFIER || {};
     const evidence = policy.MIN_EVIDENCE || {};
-    const weightRows = Object.entries(weights).map(([key, value]) => `<li><span>${safeHtml(key === 'taskExecution' ? 'Task completion' : key[0].toUpperCase() + key.slice(1))}</span><strong>${Math.round((value / weightTotal) * 100)}%</strong></li>`).join('');
-    const priorityRows = ['urgent', 'important', 'standard', 'flexible'].map((key) => `<li><span>${safeHtml(key[0].toUpperCase() + key.slice(1))}</span><strong>${safeHtml(String(priority[key] ?? 1))}x</strong></li>`).join('');
+    const minEvidenceDays = Math.max(1, Number(evidence.minDays ?? 3));
+    const minEvidenceHours = Math.max(0, Number(evidence.minDurationMs ?? 43200000) / 3600000);
+    const minEvidenceHoursPerDay = minEvidenceHours / minEvidenceDays;
+    const weightRows = HERO_DIMENSION_META.map((dimension) => {
+        const weightPct = Math.round((Number(weights[dimension.key]) || 0) * 100);
+        return `<li><span><strong>${safeHtml(dimension.label)}</strong><small>${safeHtml(dimension.description)}</small></span><strong>${weightPct}%</strong></li>`;
+    }).join('');
+    const priorityRows = ['urgent', 'important', 'standard', 'flexible'].map((key) => `<li><span>${safeHtml(key[0].toUpperCase() + key.slice(1))}</span><strong>${safeHtml(String(priority[key] ?? 1))}×</strong></li>`).join('');
+    const sizeRows = Object.entries(size).map(([key, value]) => `<li><span>${safeHtml(key.replace(/-/g, ' '))}</span><strong>${safeHtml(String(value))}×</strong></li>`).join('');
+    const bonusPoints = Number(bonus.points ?? 3);
+    const maxConfidenceTasks = Math.max(1, Number(policy.EXPECTED_WEEKLY_TASKS || 5));
+    const confidenceHoursCap = Math.max(1, Number(policy?.CAPS?.hours || 40));
+    const scoreWindowDays = Math.max(1, Number(heroData?.meta?.windowDays || policy.WINDOW_DAYS || 7));
+    const confidenceDescription = `Evidence coverage averages completed tasks against ${maxConfidenceTasks} expected, attendance days against ${scoreWindowDays} days, and tracked hours against ${confidenceHoursCap} hours. It describes coverage, not statistical certainty.`;
+    const planningDescription = `Plan volume contributes ${Math.round(Number(planning.planVolume ?? 0.6) * 100)}% of this category and task steps contribute ${Math.round(Number(planning.subPlans ?? 0.2) * 100)}%. Completing planned work adds ${safeHtml(String(planning.completed ?? 20))} points. Complexity adds ${safeHtml(String(complexity.mediumPoints ?? 3))} points at average task weight ${safeHtml(String(complexity.mediumThreshold ?? 3))}×, or ${safeHtml(String(complexity.highPoints ?? 5))} points at ${safeHtml(String(complexity.highThreshold ?? 5))}×. Purpose variety adds up to ${safeHtml(String(purpose.fullPoints ?? 3))} points.`;
+    const period = heroData?.meta?.startDate && heroData?.meta?.endDate
+        ? `${safeHtml(heroData.meta.startDate)} to ${safeHtml(heroData.meta.endDate)}`
+        : `The latest ${safeHtml(String(policy.WINDOW_DAYS ?? 7))} calendar days, ending yesterday`;
+
     return `
         <div class="hero-help-modal-head">
-            <div><h3>How Hero scoring works</h3><p>The rules below are the current saved policy.</p></div>
+            <div><h3>How Hero scoring works</h3><p>Plain-language guide using the current saved policy.</p></div>
             <button type="button" class="dashboard-max-close" onclick="window.app_closeHeroScoringHelp?.()" aria-label="Close scoring help"><i class="fa-solid fa-xmark"></i></button>
         </div>
         <div class="hero-help-modal-body">
-            <h4>Score weighting</h4>
-            <ul class="hero-help-list">${weightRows}</ul>
-            <h4>Priority</h4>
-            <p>Priority affects task importance. When at least ${safeHtml(String(bonus.minTasks ?? 5))} tasks are planned and ${Math.round(Number(bonus.minPriorityRatio ?? 0.8) * 100)}% have Priority set, the total score receives <strong>+${safeHtml(String(bonus.points ?? 3))}</strong> bonus points.</p>
-            <ul class="hero-help-list">${priorityRows}</ul>
-            <h4>Other rules</h4>
-            <ul class="hero-help-list">
-                <li><span>Task execution</span><strong>Completion ${safeHtml(String(execution.completion ?? 0.5))}, on-time ${safeHtml(String(execution.onTime ?? 0.2))}</strong></li>
-                <li><span>Pause discipline</span><strong>${safeHtml(String(pause.maxPausesPerDay ?? 3))} pauses / ${safeHtml(String(pause.maxPauseMinsPerDay ?? 45))} mins per day</strong></li>
-                <li><span>Productivity</span><strong>Task outcomes ${Math.round(Number(productivity.taskOutcome ?? 0.7) * 100)}%, quality evidence ${Math.round(Number(productivity.qualityEvidence ?? 0.3) * 100)}%</strong></li>
-                <li><span>Compliance</span><strong>Location penalty up to ${Math.min(10, Number(compliance.locationMismatch ?? 10))}, auto-checkout penalty ${safeHtml(String(compliance.autoCheckout ?? 50))}</strong></li>
-            </ul>
-            <h4>Eligibility</h4>
-            <p>To qualify, staff need at least ${safeHtml(String(evidence.minDays ?? 3))} attendance days, ${safeHtml(String(Math.round(Number(evidence.minDurationMs ?? 14400000) / 3600000)))} tracked hours, and ${safeHtml(String(evidence.minPlannedTasks ?? 3))} planned tasks.</p>
-            <p class="hero-help-note">The primary period is ${safeHtml(String(policy.WINDOW_DAYS ?? 7))} calendar days. If nobody qualifies, the system may use the extended ${safeHtml(String(policy.FALLBACK_LOOKBACK_DAYS ?? 90))}-day period. Scores are limited to 100.</p>
+            <div class="hero-help-formula">
+                <strong>Final score = weighted category scores + eligible bonus</strong>
+                <span>Each category is scored from 0–100. Its score is multiplied by the weight below; the final score is rounded and capped at 100.</span>
+            </div>
+            <details class="hero-help-section" open>
+                <summary>What makes up the score</summary>
+                <ul class="hero-help-list">${weightRows}</ul>
+            </details>
+            <details class="hero-help-section">
+                <summary>How task work is counted</summary>
+                <div class="hero-help-detail-copy">
+                    <p>Task execution combines weighted completion (${Math.round(Number(execution.completion ?? 0.5) * 100)}%), on-time completion (${Math.round(Number(execution.onTime ?? 0.2) * 100)}%), and a missed-work deduction (${Math.round(Number(execution.missed ?? 0.3) * 100)}%). Task size and priority multipliers affect task weight.</p>
+                    <p>Postponed work can receive partial credit when work has started (${Math.round(Number(postpone.workStarted ?? 0.3) * 100)}%) or is in progress (${Math.round(Number(postpone.inProgress ?? 0.6) * 100)}%). ${planningDescription}</p>
+                    <p>With at least ${safeHtml(String(bonus.minTasks ?? 5))} planned tasks and ${Math.round(Number(bonus.minPriorityRatio ?? 0.8) * 100)}% classified with priority, a ${safeHtml(String(bonus.points ?? bonusPoints))}-point bonus may apply.</p>
+                </div>
+                <h5>Priority multiplier</h5><ul class="hero-help-list hero-help-list-compact">${priorityRows}</ul>
+                <h5>Task size multiplier</h5><ul class="hero-help-list hero-help-list-compact">${sizeRows}</ul>
+            </details>
+            <details class="hero-help-section">
+                <summary>Attendance, evidence, and deductions</summary>
+                <div class="hero-help-detail-copy">
+                    <p>Attendance can include up to ${safeHtml(String(attendance.maxBonus ?? 10))} bonus points for tracked hours and up to ${safeHtml(String(attendance.consistencyBonus ?? 10))} for consistent check-in times. Clear work descriptions need at least ${safeHtml(String(rules.EVIDENCE_MIN_CHARS ?? 40))} characters to count as quality evidence.</p>
+                    <p>Compliance deductions can include location mismatches (scaled by the share of affected days), automatic checkout (configured penalty ${safeHtml(String(compliance.autoCheckout ?? 50))}), and pause-rule breaches. Pause limits are ${safeHtml(String(pause.maxPausesPerDay ?? 3))} pauses or ${safeHtml(String(pause.maxPauseMinsPerDay ?? 45))} minutes per day; excess pauses cost ${safeHtml(String(pausePenalty.pauseCountPoints ?? 10))} points each and excess time is deducted in ${safeHtml(String(pausePenalty.pauseMinutesBlock ?? 10))}-minute blocks.</p>
+                    <p>Productivity combines task outcomes (${Math.round(Number(productivity.taskOutcome ?? 0.7) * 100)}%) and quality evidence (${Math.round(Number(productivity.qualityEvidence ?? 0.3) * 100)}%).</p>
+                </div>
+            </details>
+            <details class="hero-help-section">
+                <summary>Eligibility, period, and evidence coverage</summary>
+                <div class="hero-help-detail-copy">
+                    <p>To qualify in a standard five-workday period, staff need at least ${safeHtml(String(minEvidenceDays))} attendance days with ${safeHtml(minEvidenceHoursPerDay.toFixed(1))} tracked hours each, and ${safeHtml(String(evidence.minPlannedTasks ?? 5))} planned tasks. The day minimum is capped by required workdays, and the task minimum scales for holiday weeks.</p>
+                    <p>Scored period: <strong>${period}</strong>. Eligibility always uses these seven complete calendar days. If nobody qualifies, no Hero is selected for this period.</p>
+                    <p class="hero-help-note"><strong>Evidence coverage:</strong> ${safeHtml(confidenceDescription)}</p>
+                </div>
+            </details>
         </div>`;
 }
 
 window.app_openHeroScoringHelp = function () {
     const modalId = 'hero-scoring-help-modal';
     document.getElementById(modalId)?.remove();
-    const html = `<div class="modal-overlay" id="${modalId}" style="display:flex;"><div class="modal-content hero-help-modal-shell">${getHeroScoringHelpHtml()}</div></div>`;
+    const html = `<div class="modal-overlay" id="${modalId}" style="display:flex;" onclick="if(event.target===this) window.app_closeHeroScoringHelp?.()"><div class="modal-content hero-help-modal-shell" role="dialog" aria-modal="true" aria-labelledby="hero-scoring-help-title">${getHeroScoringHelpHtml()}</div></div>`;
     (document.getElementById('modal-container') || document.body).insertAdjacentHTML('beforeend', html);
+    const modal = document.getElementById(modalId);
+    modal?.querySelector('h3')?.setAttribute('id', 'hero-scoring-help-title');
+    if (modal) {
+        modal._returnFocus = document.activeElement;
+        modal._escapeHandler = (event) => {
+            if (event.key === 'Escape') window.app_closeHeroScoringHelp?.();
+        };
+        document.addEventListener('keydown', modal._escapeHandler);
+        modal.querySelector('.dashboard-max-close')?.focus();
+    }
 };
 
 window.app_closeHeroScoringHelp = function () {
-    document.getElementById('hero-scoring-help-modal')?.remove();
+    const modal = document.getElementById('hero-scoring-help-modal');
+    if (!modal) return;
+    if (modal._escapeHandler) document.removeEventListener('keydown', modal._escapeHandler);
+    modal.remove();
+    modal._returnFocus?.focus?.();
 };
 
 // --- Dashboard Components ---
@@ -904,7 +995,7 @@ export function renderHeroCard(heroData, heroMeta = {}) {
         const emptyReason = heroData?.reason || (heroState === 'fetch_error'
             ? 'Hero stats are temporarily unavailable.'
             : 'No eligible hero data available.');
-        const chipText = heroState === 'fetch_error' ? 'Fetch Error' : 'No Eligible Data';
+        const chipText = heroState === 'fetch_error' ? 'Fetch Error' : 'No Eligible Hero This Week';
         return `
             <div class="card dashboard-hero-stats-card hero-slot">
                 <div class="dashboard-hero-stats-head">
@@ -1010,7 +1101,7 @@ export function renderHeroCard(heroData, heroMeta = {}) {
             </div>
             <div class="dashboard-hero-stats-foot">
                 <span class="dashboard-kpi-tag">${safeHtml(periodLabel)}</span>
-                <span class="dashboard-kpi-tag">Confidence ${confidencePct}%</span>
+                <span class="dashboard-kpi-tag" title="Evidence coverage across completed tasks, attendance days, and tracked hours; it is not statistical certainty.">Evidence ${confidencePct}%</span>
                 ${fallbackBadgeHTML}
                 ${aiPickBadgeHTML}
                 <span class="hero-version-badge" title="Hero Calculation Algorithm Version">v5</span>
@@ -1155,9 +1246,24 @@ function renderHeroLeaderboardExpanded(leaderboardData, heroData = null) {
     const rows = Array.isArray(leaderboardData?.rows) ? leaderboardData.rows : [];
     const meta = leaderboardData?.meta || {};
     const winnerId = String(leaderboardData?.winnerUserId || heroData?.user?.id || '');
-    const periodLabel = meta.startDate && meta.endDate
-        ? `${safeHtml(meta.startDate)} to ${safeHtml(meta.endDate)}`
+    const startDate = meta.startDate || heroData?.meta?.startDate;
+    const endDate = meta.endDate || heroData?.meta?.endDate;
+    const periodLabel = startDate && endDate
+        ? `${safeHtml(startDate)} to ${safeHtml(endDate)}`
         : 'Previous calendar days';
+    const winnerRow = rows.find((row) => String(row?.user?.id || '') === winnerId);
+    const isAiSelection = heroData?.selection?.by === 'ai';
+    const winnerRank = winnerRow?.rank !== null && winnerRow?.rank !== undefined && Number.isFinite(Number(winnerRow.rank))
+        ? Number(winnerRow.rank)
+        : null;
+    const selectionMessage = !winnerId
+        ? 'No staff met the eligibility requirements in this period. Rows below are ranked by score for review.'
+        : isAiSelection
+        ? `AI selected ${safeHtml(winnerRow?.user?.name || heroData?.user?.name || 'the Hero')} from eligible staff${winnerRank ? ` (score rank #${winnerRank})` : ''}. The score leaderboard below remains ordered by calculated score.`
+        : `The highest-scoring eligible staff member is selected${winnerRank ? ` (score rank #${winnerRank})` : ''}.`;
+    const selectionRationale = isAiSelection && heroData?.selection?.rationale
+        ? `<p class="hero-leaderboard-selection-reason"><strong>Selection rationale:</strong> ${safeHtml(heroData.selection.rationale)}</p>`
+        : '';
 
     if (!rows.length) {
         return `
@@ -1180,16 +1286,54 @@ function renderHeroLeaderboardExpanded(leaderboardData, heroData = null) {
         return `<button type="button" class="hero-leaderboard-count-btn" onclick="window.app_openHeroTaskList('${safeHtml(userId)}','${safeHtml(bucketKey)}')">${count}<span class="sr-only">${safeHtml(label)}</span></button>`;
     };
 
-    const rowsHtml = rows.map((entry) => {
+    const renderScoreBreakdown = (entry, index) => {
+        const stats = entry?.stats || {};
+        const breakdownRows = getHeroWeightedScoreRows(stats);
+        const weightedSubtotal = breakdownRows.reduce((sum, row) => sum + row.contribution, 0);
+        const bonus = Math.max(0, Number(stats.classificationBonus) || 0);
+        const uncappedScore = weightedSubtotal + bonus;
+        return `
+            <tr class="hero-leaderboard-detail-row" id="hero-score-detail-${index}" hidden>
+                <td colspan="15">
+                    <div class="hero-score-breakdown">
+                        <div class="hero-score-breakdown-head">
+                            <div><strong>${safeHtml(entry?.user?.name || 'Staff')} — score breakdown</strong><span>Category score × category weight = points toward the total.</span></div>
+                            <span class="hero-score-total-chip">Final ${Number(stats.finalScore || 0).toFixed(0)} / 100</span>
+                        </div>
+                        <div class="hero-score-contribution-list">
+                            ${breakdownRows.map((row) => `
+                                <div class="hero-score-contribution">
+                                    <div class="hero-score-contribution-label"><strong>${safeHtml(row.label)}</strong><span>${row.rawScore.toFixed(0)} × ${Math.round(row.weight * 100)}% = ${row.contribution.toFixed(1)} pts</span></div>
+                                    <div class="hero-score-track" role="img" aria-label="${safeHtml(row.label)} score ${row.rawScore.toFixed(0)} out of 100"><span style="width:${row.rawScore.toFixed(1)}%"></span></div>
+                                    <small>${safeHtml(row.description)}</small>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <div class="hero-score-breakdown-footer">
+                            <span>Weighted subtotal <strong>${weightedSubtotal.toFixed(1)}</strong></span>
+                            <span>Classification bonus <strong>+${bonus.toFixed(0)}</strong></span>
+                            <span>After cap and rounding <strong>${Math.min(100, Math.round(uncappedScore))}</strong></span>
+                        </div>
+                        <div class="hero-score-evidence-line">Evidence: ${Number(stats.days || 0)} attendance days · ${Number(stats.hours || 0).toFixed(1)} tracked hours · ${Number(stats.taskCompleted || 0)} of ${Number(stats.taskPlanned || 0)} tasks completed · ${Number(stats.taskMissed || 0)} missed</div>
+                    </div>
+                </td>
+            </tr>`;
+    };
+
+    const rowsHtml = rows.map((entry, index) => {
         const user = entry?.user || {};
         const stats = entry?.stats || {};
         const userId = String(user.id || '');
         const isWinner = winnerId && userId === winnerId;
         const eligibilityClass = entry?.isEligible ? 'is-eligible' : 'is-ineligible';
         const eligibilityText = entry?.isEligible ? 'Eligible' : safeHtml(entry?.eligibilityReason || 'Not eligible');
-        const rankLabel = Number.isFinite(Number(entry?.rank)) ? `#${Number(entry.rank)}` : 'NR';
+        const rankLabel = entry?.rank !== null && entry?.rank !== undefined && Number.isFinite(Number(entry.rank))
+            ? `#${Number(entry.rank)}`
+            : 'NR';
+        const searchText = safeHtml(`${user.name || ''} ${user.role || ''}`.toLowerCase());
+        const rowId = `hero-score-detail-${index}`;
         return `
-            <tr class="hero-leaderboard-row ${isWinner ? 'is-winner' : ''}">
+            <tr class="hero-leaderboard-row hero-leaderboard-data-row ${isWinner ? 'is-winner' : ''}" data-eligible="${entry?.isEligible ? 'true' : 'false'}" data-search="${searchText}">
                 <td class="hero-leaderboard-rank">${rankLabel}</td>
                 <td class="hero-leaderboard-staff">
                     <div class="hero-leaderboard-staff-wrap">
@@ -1210,12 +1354,15 @@ function renderHeroLeaderboardExpanded(leaderboardData, heroData = null) {
                 <td>${Number(stats.simpleCompletionRate ?? 0).toFixed(1)}%</td>
                 <td>${Number(stats.completionRate || 0).toFixed(1)}%</td>
                 <td>${Number(stats.finalScore || 0).toFixed(2)}</td>
-                <td>${stats.classificationBonus > 0 ? `<span class="hero-leaderboard-bonus-pill">+${stats.classificationBonus} priority</span>` : ''}</td>
+                <td>${stats.classificationBonus > 0 ? `<span class="hero-leaderboard-bonus-pill" title="Priority classification bonus">+${stats.classificationBonus} classified</span>` : ''}</td>
                 <td><span class="hero-leaderboard-pill ${eligibilityClass}">${eligibilityText}</span></td>
+                <td><button type="button" class="hero-score-details-btn" aria-expanded="false" aria-controls="${rowId}" onclick="window.app_toggleHeroScoreDetails?.(this)">Breakdown</button></td>
             </tr>
+            ${renderScoreBreakdown(entry, index)}
         `;
     }).join('');
 
+    const selectedCount = rows.filter((row) => row?.isEligible).length;
     return `
         <section class="hero-leaderboard-panel">
             <div class="hero-leaderboard-head">
@@ -1224,9 +1371,25 @@ function renderHeroLeaderboardExpanded(leaderboardData, heroData = null) {
                     <p>Scored range: ${periodLabel}</p>
                 </div>
                 <div class="hero-leaderboard-summary">
-                    <span class="dashboard-kpi-tag">Staff ${rows.length}</span>
+                    <span class="dashboard-kpi-tag" data-hero-visible-count>Showing ${rows.length} of ${rows.length}</span>
+                    <span class="dashboard-kpi-tag">Eligible ${selectedCount}</span>
                     <span class="dashboard-kpi-tag">Winner ${safeHtml(heroData?.user?.name || rows.find((row) => String(row?.user?.id || '') === winnerId)?.user?.name || 'None')}</span>
                 </div>
+            </div>
+            <div class="hero-leaderboard-selection-note">
+                <i class="fa-solid ${isAiSelection ? 'fa-wand-magic-sparkles' : 'fa-ranking-star'}" aria-hidden="true"></i>
+                <span>${selectionMessage}</span>
+                ${selectionRationale}
+            </div>
+            <div class="hero-leaderboard-tools">
+                <label class="hero-leaderboard-search"><span class="sr-only">Search staff</span><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input type="search" placeholder="Search staff" oninput="window.app_filterHeroLeaderboard?.(this)"></label>
+                <label class="hero-leaderboard-filter-label">Show
+                    <select aria-label="Filter staff by eligibility" onchange="window.app_filterHeroLeaderboard?.(this)">
+                        <option value="all">All staff</option>
+                        <option value="eligible">Eligible only</option>
+                        <option value="ineligible">Needs more evidence</option>
+                    </select>
+                </label>
             </div>
             <div class="table-container hero-leaderboard-table-wrap">
                 <table class="hero-leaderboard-table">
@@ -1246,14 +1409,52 @@ function renderHeroLeaderboardExpanded(leaderboardData, heroData = null) {
                             <th>Score</th>
                             <th>Bonus</th>
                             <th>Status</th>
+                            <th>Details</th>
                         </tr>
                     </thead>
                     <tbody>${rowsHtml}</tbody>
                 </table>
             </div>
+            <div class="dashboard-activity-empty hero-leaderboard-no-results" hidden>No staff match those filters.</div>
+            <p class="hero-leaderboard-footnote">Select a breakdown to see how the score was weighted. Select a task count to inspect its source tasks.</p>
         </section>
     `;
 }
+
+window.app_toggleHeroScoreDetails = (button) => {
+    const detailRow = button?.closest('tr')?.nextElementSibling;
+    if (!detailRow?.classList.contains('hero-leaderboard-detail-row')) return;
+    const isOpen = !detailRow.hidden;
+    detailRow.hidden = isOpen;
+    button.setAttribute('aria-expanded', String(!isOpen));
+    button.textContent = isOpen ? 'Breakdown' : 'Hide details';
+};
+
+window.app_filterHeroLeaderboard = (control) => {
+    const panel = control?.closest('.hero-leaderboard-panel');
+    if (!panel) return;
+    const search = String(panel.querySelector('.hero-leaderboard-search input')?.value || '').trim().toLowerCase();
+    const filter = String(panel.querySelector('.hero-leaderboard-filter-label select')?.value || 'all');
+    let visibleCount = 0;
+    panel.querySelectorAll('.hero-leaderboard-data-row').forEach((row) => {
+        const matchesFilter = filter === 'all' || row.dataset.eligible === String(filter === 'eligible');
+        const matchesSearch = !search || String(row.dataset.search || '').includes(search);
+        const visible = matchesFilter && matchesSearch;
+        row.hidden = !visible;
+        const detailRow = row.nextElementSibling;
+        if (detailRow?.classList.contains('hero-leaderboard-detail-row')) {
+            if (!visible) {
+                detailRow.hidden = true;
+                row.querySelector('.hero-score-details-btn')?.setAttribute('aria-expanded', 'false');
+            }
+        }
+        if (visible) visibleCount++;
+    });
+    const count = panel.querySelector('[data-hero-visible-count]');
+    if (count) count.textContent = `Showing ${visibleCount} of ${panel.querySelectorAll('.hero-leaderboard-data-row').length}`;
+    const empty = panel.querySelector('.hero-leaderboard-no-results');
+    if (empty) empty.hidden = visibleCount > 0;
+};
 
 function renderHeroTaskDetailsModalContent(userRow, bucketKey) {
     const currentUser = window.AppAuth?.getUser?.();

@@ -5,6 +5,11 @@ const MAX_DEVICE_SESSIONS = 2;
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+function isLocalTestingHost() {
+    const hostname = String(window.location?.hostname || '').toLowerCase();
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+}
+
 function nextTenPmIst(now = Date.now()) {
     const istNow = new Date(now + IST_OFFSET_MS);
     let cutoff = Date.UTC(
@@ -79,15 +84,17 @@ export class Auth {
                     this.forceLogout('Your saved sign-in could not be verified. Please sign in again.');
                     return;
                 }
-                const registered = await this._registerDeviceSession(this.currentUser, this.localToken);
-                if (!registered.ok) {
-                    this.forceLogout(registered.expired
-                        ? 'This device session reached its 10 PM India time sign-out.'
-                        : 'This account is already signed in on two devices. Sign out on one device and try again.');
-                    return;
+                if (!isLocalTestingHost()) {
+                    const registered = await this._registerDeviceSession(this.currentUser, this.localToken);
+                    if (!registered.ok) {
+                        this.forceLogout(registered.expired
+                            ? 'This device session reached its 10 PM India time sign-out.'
+                            : 'This account is already signed in on two devices. Sign out on one device and try again.');
+                        return;
+                    }
+                    this.currentUser = { ...this.currentUser, activeSessions: registered.sessions };
+                    this._scheduleSessionExpiry(registered.session);
                 }
-                this.currentUser = { ...this.currentUser, activeSessions: registered.sessions };
-                this._scheduleSessionExpiry(registered.session);
                 this.startHeartbeat();
                 this.startCurrentUserSync();
             }
@@ -191,7 +198,9 @@ export class Auth {
             : this.generateSessionToken();
         let registered;
         try {
-            registered = await this._registerDeviceSession(user, token);
+            registered = isLocalTestingHost()
+                ? { ok: true, sessions: user.activeSessions || [], session: { token, signedInAt: Date.now(), logoutAt: null } }
+                : await this._registerDeviceSession(user, token);
         } catch (err) {
             console.error('Failed to register device session:', err);
             const auth = this._getFirebaseAuth();
@@ -248,10 +257,11 @@ export class Auth {
                 sessions = sessions.filter(Boolean);
             }
 
+            const now = Date.now();
             const existing = sessions.find((session) => session.token === token);
             if (existing?.logoutAt && existing.logoutAt <= now) return { ok: false, expired: true };
-
             sessions = sessions.filter((session) => session.token === token || !session.logoutAt || session.logoutAt > now);
+
             let current = sessions.find((session) => session.token === token) || null;
             if (!current) {
                 const latestStart = sessions.reduce((max, session) => Math.max(max, session.signedInAt), 0);
@@ -288,6 +298,7 @@ export class Auth {
     }
 
     async _releaseDeviceSession(userId, token) {
+        if (isLocalTestingHost()) return;
         const firestore = window.AppFirestore || AppDB.db;
         if (!firestore?.runTransaction || !userId || !token) return;
         const ref = firestore.collection('users').doc(String(userId));
@@ -329,6 +340,7 @@ export class Auth {
             this.forceLogout('Your saved sign-in could not be verified. Please sign in again.');
             return false;
         }
+        if (isLocalTestingHost()) return true;
         if (Array.isArray(user.activeSessions)) {
             const session = user.activeSessions.map(normalizeSession).find((item) => item?.token === token);
             if (!session) {

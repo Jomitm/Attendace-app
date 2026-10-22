@@ -80,9 +80,11 @@ export const AppConfig = {
         FALLBACK_TO_PREVIOUS_DAY: true
     },
     HERO_POLICY: {
-        SCHEMA_VERSION: 8,
+        SCHEMA_VERSION: 9,
         WINDOW_DAYS: 7,
-        FALLBACK_LOOKBACK_DAYS: 90,
+        // Compatibility value for older saved policies; Hero ranking is weekly only.
+        FALLBACK_LOOKBACK_DAYS: 7,
+        ELIGIBILITY_RULE_VERSION: 2,
         WEIGHTS: {
             completionRate: 0.35,
             absoluteVolume: 0.15,
@@ -140,8 +142,8 @@ export const AppConfig = {
         },
         MIN_EVIDENCE: {
             minDays: 3,
-            minDurationMs: 14400000,
-            minPlannedTasks: 3
+            minDurationMs: 43200000,
+            minPlannedTasks: 5
         },
         // AI-based winner selection (api/hero-select.js). The deterministic
         // ranking still owns eligibility — the AI only picks one hero from the

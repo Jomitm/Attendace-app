@@ -33,7 +33,7 @@ globalThis.localStorage = {
     removeItem: (k) => store.delete(k),
     clear: () => store.clear()
 };
-globalThis.window = { AppFirestore: firestore, location: { reload() {} }, dispatchEvent() {}, addEventListener() {} };
+globalThis.window = { AppFirestore: firestore, location: { hostname: 'app.example.com', reload() {} }, dispatchEvent() {}, addEventListener() {} };
 globalThis.document = { visibilityState: 'visible', addEventListener() {} };
 
 let putCalls = [];
@@ -49,6 +49,7 @@ AppAuth._getFirebaseAuth = () => globalThis.firebase.auth();
 beforeEach(() => {
     store.clear();
     firestoreUsers.clear();
+    window.location.hostname = 'app.example.com';
     putCalls = [];
     AppAuth.currentUser = null;
     AppAuth.localToken = null;
@@ -73,6 +74,25 @@ function mockFetch(user) {
 }
 
 describe('two-device session registration', () => {
+    it('does not register or release a device session on localhost', async () => {
+        window.location.hostname = 'localhost';
+        firestoreUsers.set('users/u_alice', {
+            activeSessionToken: 'tok_alice',
+            activeSessionStartedAt: Date.now() - 1000
+        });
+        mockFetch({ id: 'u_alice', username: 'alice' });
+
+        const result = await AppAuth.login('alice', 'pass');
+        assert.equal(result, true);
+        assert.notEqual(AppAuth.localToken, 'tok_alice');
+        assert.equal(firestoreUsers.get('users/u_alice').activeSessionToken, 'tok_alice');
+        assert.equal(firestoreUsers.get('users/u_alice').activeSessions, undefined);
+
+        await AppAuth.logout();
+        assert.equal(firestoreUsers.get('users/u_alice').activeSessionToken, 'tok_alice');
+        assert.equal(firestoreUsers.get('users/u_alice').activeSessions, undefined);
+    });
+
     it('allows a normal user to keep the old session until the 10 PM cutoff', async () => {
         firestoreUsers.set('users/u_alice', {
             activeSessionToken: 'tok_alice',
