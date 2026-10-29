@@ -7026,35 +7026,61 @@ window.app_linkTelegram = async () => {
     const user = window.AppAuth.getUser();
     if (!user) return;
 
+    const showTelegramModal = (content) => {
+        const existing = document.getElementById('telegram-link-modal');
+        if (existing) {
+            const modalContent = existing.querySelector('.modal-content');
+            if (modalContent) modalContent.innerHTML = content;
+            return;
+        }
+        window.app_showModal(`<div class="modal-overlay telegram-link-overlay" id="telegram-link-modal" role="presentation"><div class="modal-content" role="dialog" aria-modal="true" aria-label="Telegram connection">${content}</div></div>`, 'telegram-link-modal');
+        const overlay = document.getElementById('telegram-link-modal');
+        if (overlay && !overlay.dataset.closeBound) {
+            overlay.dataset.closeBound = 'true';
+            overlay.addEventListener('click', (event) => {
+                if (event.target === overlay) window.app_closeModal(overlay.querySelector('.telegram-connect-close'));
+            });
+            overlay.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape') window.app_closeModal(overlay.querySelector('.telegram-connect-close'));
+            });
+        }
+    };
+    const updateTelegramModal = (content) => {
+        const modalContent = document.querySelector('#telegram-link-modal .modal-content');
+        if (!modalContent) return false;
+        modalContent.innerHTML = content;
+        return true;
+    };
+
     if (user.telegramChatId) {
         const html = `
-            <div style="text-align:center;padding:1.5rem;position:relative;">
-                <button onclick="document.getElementById('telegram-link-modal')?.remove(); document.body.style.overflow=''" style="position:absolute;top:0.5rem;right:0.5rem;width:2rem;height:2rem;border:1px solid #fed7aa;border-radius:999px;background:#fff7ed;color:#9a3412;font-size:1.1rem;cursor:pointer;z-index:1;">×</button>
-                <i class="fa-brands fa-telegram" style="font-size:3rem;color:#229ED9;margin-bottom:0.5rem;display:block;"></i>
-                <h3 style="margin-bottom:0.25rem;">✅ Telegram Connected</h3>
-                <p style="color:#16a34a;font-weight:600;margin-bottom:1rem;">You will get your personal messages here</p>
-                <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:0.75rem 1rem;margin:0 auto 1rem;max-width:360px;text-align:left;font-size:0.85rem;color:#374151;">
-                    <div>• 9:15am — if you have not checked in</div>
-                    <div>• 6pm — if you are still checked in</div>
-                    <div>• 8pm — final checkout follow-up if still checked in</div>
+            <section class="telegram-connect-panel is-connected">
+                <button type="button" class="telegram-connect-close" onclick="window.app_closeModal(this)" aria-label="Close Telegram details"><i class="fa-solid fa-xmark"></i></button>
+                <div class="telegram-connect-heading">
+                    <span class="telegram-connect-mark"><i class="fa-brands fa-telegram" aria-hidden="true"></i></span>
+                    <div><span class="telegram-connect-eyebrow">PERSONAL REMINDERS</span><h2>Telegram is connected</h2><p>Attendance reminders will be sent privately to your Telegram chat.</p></div>
                 </div>
-                <div style="background:#f3f4f6;border-radius:8px;padding:0.5rem;margin:0 auto 1.25rem;max-width:360px;font-size:0.75rem;color:#6b7280;word-break:break-all;">Chat ID: ${String(user.telegramChatId).slice(0,4)}••••${String(user.telegramChatId).slice(-4)}</div>
-                <button onclick="window.app_unlinkTelegram()" style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:8px;padding:0.6rem 1.2rem;font-weight:600;cursor:pointer;width:100%;max-width:360px;">Disconnect Telegram</button>
-                <p style="font-size:0.75rem;color:#9ca3af;margin-top:0.75rem;">You can reconnect anytime with one tap.</p>
-            </div>
+                <div class="telegram-reminder-list" aria-label="Telegram reminder schedule">
+                    <div><span class="telegram-reminder-time">9:15 <small>AM</small></span><span><strong>Check-in reminder</strong><small>If you have not checked in</small></span><i class="fa-solid fa-check" aria-hidden="true"></i></div>
+                    <div><span class="telegram-reminder-time">6:00 <small>PM</small></span><span><strong>Checkout reminder</strong><small>If you are still checked in</small></span><i class="fa-solid fa-check" aria-hidden="true"></i></div>
+                    <div><span class="telegram-reminder-time">8:00 <small>PM</small></span><span><strong>Final follow-up</strong><small>If you are still checked in</small></span><i class="fa-solid fa-check" aria-hidden="true"></i></div>
+                </div>
+                <div class="telegram-connect-reference"><i class="fa-solid fa-lock" aria-hidden="true"></i><span><strong>Private connection</strong><small>Chat reference · ${app_escapeHtml(String(user.telegramChatId).slice(0,4))}••••${app_escapeHtml(String(user.telegramChatId).slice(-4))}</small></span></div>
+                <div class="telegram-connect-actions"><button type="button" class="telegram-disconnect-button" onclick="window.app_unlinkTelegram()"><i class="fa-solid fa-link-slash" aria-hidden="true"></i> Disconnect Telegram</button><button type="button" class="telegram-done-button" onclick="window.app_closeModal(this)">Done</button></div>
+            </section>
         `;
-        window.app_showModal(html, 'telegram-link-modal');
+        showTelegramModal(html);
         return;
     }
 
     const loadingHtml = `
-        <div style="text-align:center;padding:2rem;position:relative;">
-            <button onclick="document.getElementById('telegram-link-modal')?.remove(); document.body.style.overflow=''" style="position:absolute;top:0.5rem;right:0.5rem;width:2rem;height:2rem;border:1px solid #fed7aa;border-radius:999px;background:#fff7ed;color:#9a3412;font-size:1.1rem;cursor:pointer;z-index:1;">×</button>
-            <i class="fa-solid fa-spinner fa-spin" style="font-size:2rem;color:#2563eb;margin-bottom:1rem;display:block;"></i>
-            <p style="color:#6b7280;">Generating your secure link…</p>
-        </div>
+        <section class="telegram-connect-panel telegram-connect-loading">
+            <button type="button" class="telegram-connect-close" onclick="window.app_closeModal(this)" aria-label="Close Telegram connection"><i class="fa-solid fa-xmark"></i></button>
+            <span class="telegram-connect-mark"><i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i></span>
+            <h2>Preparing your secure link</h2><p>One moment while we create a private, one-time connection.</p>
+        </section>
     `;
-    window.app_showModal(loadingHtml, 'telegram-link-modal');
+    showTelegramModal(loadingHtml);
     try {
         const firebaseUser = window.AppFirebaseAuth?.currentUser;
         const idToken = firebaseUser ? await firebaseUser.getIdToken() : '';
@@ -7071,45 +7097,39 @@ window.app_linkTelegram = async () => {
         const qrFallback = `https://quickchart.io/qr?text=${encoded}&size=300`;
         const startCmd = `/start ${data.token}`;
         const html = `
-            <div style="text-align:center;padding:1.5rem;position:relative;">
-                <button onclick="document.getElementById('telegram-link-modal')?.remove(); document.body.style.overflow=''" style="position:absolute;top:0.5rem;right:0.5rem;width:2rem;height:2rem;border:1px solid #fed7aa;border-radius:999px;background:#fff7ed;color:#9a3412;font-size:1.1rem;cursor:pointer;z-index:1;">×</button>
-                <i class="fa-brands fa-telegram" style="font-size:3rem;color:#229ED9;margin-bottom:0.5rem;display:block;"></i>
-                <h3 style="margin-bottom:0.25rem;">Connect Telegram in One Tap</h3>
-                <p style="color:#6b7280;margin-bottom:1rem;font-size:0.9rem;">Tap the button or scan the QR — then press <b>Start</b> in Telegram</p>
-                <a href="${data.url}" target="_blank" rel="noopener" style="display:inline-block;background:#229ED9;color:#fff;border-radius:8px;padding:0.75rem 1.5rem;font-weight:700;text-decoration:none;margin-bottom:0.75rem;"><i class="fa-brands fa-telegram" style="margin-right:0.5rem;"></i>Open Telegram to Connect</a>
-                <div style="margin-bottom:0.75rem;">
-                    <button onclick="navigator.clipboard.writeText('${data.url}').then(()=>{const e=document.getElementById('copy-feedback'); if(e){e.textContent='Link copied!'; setTimeout(()=>e.textContent='',2000);}}).catch(()=>alert('Copy failed, please copy manually'))" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:8px;padding:0.5rem 1rem;font-size:0.85rem;cursor:pointer;margin-right:0.5rem;"><i class="fa-regular fa-copy" style="margin-right:0.25rem;"></i>Copy Link</button>
-                    <span id="copy-feedback" style="font-size:0.75rem;color:#16a34a;margin-left:0.5rem;"></span>
+            <section class="telegram-connect-panel">
+                <button type="button" class="telegram-connect-close" onclick="window.app_closeModal(this)" aria-label="Close Telegram connection"><i class="fa-solid fa-xmark"></i></button>
+                <div class="telegram-connect-heading">
+                    <span class="telegram-connect-mark"><i class="fa-brands fa-telegram" aria-hidden="true"></i></span>
+                    <div><span class="telegram-connect-eyebrow">SECURE ONE-TIME LINK</span><h2>Connect Telegram</h2><p>Open the bot and press <strong>Start</strong>, or scan the QR code with your phone.</p></div>
                 </div>
-                <div style="margin:0 auto 1rem;max-width:280px;background:#fff;padding:12px;border-radius:12px;border:1px solid #e5e7eb;text-align:center;">
-                    <img src="${qrUrl}" alt="Scan to connect Telegram" style="width:100%;height:auto;display:block;border-radius:8px;max-width:260px;margin:0 auto;" loading="lazy" onerror="this.onerror=null;this.src='${qrFallback}';this.style.display='block';">
-                    <div style="font-size:0.7rem;color:#9ca3af;margin-top:0.5rem;">Scan with Telegram or your phone camera</div>
-                </div>
-                <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:0.75rem 1rem;margin:0 auto;max-width:360px;text-align:left;font-size:0.85rem;color:#1e40af;">
-                    <div style="font-weight:700;margin-bottom:0.25rem;">After you tap Start:</div>
-                    <div>• You will get a sample message — <i>"✅ Connected!"</i> — to confirm</div>
-                    <div>• This link expires in 10 minutes for safety</div>
-                    <div style="margin-top:0.5rem;font-size:0.75rem;color:#6b7280;word-break:break-all;">Link: <a href="${data.url}" target="_blank" style="color:#2563eb;">${data.url}</a></div>
-                </div>
-                <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:0.75rem 1rem;margin:0.75rem auto 0;max-width:360px;text-align:left;font-size:0.8rem;color:#9a3412;">
-                    <div style="font-weight:700;margin-bottom:0.25rem;">If the button shows "no handler for tg://":</div>
-                    <div>Your computer does not have Telegram app — scan the QR with your phone, or open Telegram on your phone, search <b>@CRWIAttendancebot</b> and send:</div>
-                    <div style="background:#f3f4f6;border-radius:6px;padding:0.4rem 0.6rem;margin-top:0.5rem;font-family:monospace;word-break:break-all;display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">
-                        <span id="start-cmd-text">${startCmd}</span>
-                        <button onclick="navigator.clipboard.writeText('${startCmd}').then(()=>alert('Copied! Paste it to the bot in Telegram'))" style="background:#fff;border:1px solid #d1d5db;border-radius:6px;padding:0.25rem 0.5rem;font-size:0.75rem;cursor:pointer;flex-shrink:0;">Copy</button>
+                <div class="telegram-connect-body">
+                    <div class="telegram-connect-primary">
+                        <a href="${app_escapeHtml(data.url)}" target="_blank" rel="noopener" class="telegram-open-button"><i class="fa-brands fa-telegram" aria-hidden="true"></i> Open Telegram</a>
+                        <button type="button" class="telegram-copy-button" onclick="navigator.clipboard.writeText('${app_escapeJsSingleQuote(data.url)}').then(()=>{const e=document.getElementById('copy-feedback'); if(e){e.textContent='Link copied'; setTimeout(()=>e.textContent='',2200);}}).catch(()=>alert('Copy failed. Please open Telegram using the button.'))"><i class="fa-regular fa-copy" aria-hidden="true"></i> Copy secure link</button>
+                        <span id="copy-feedback" class="telegram-copy-feedback" aria-live="polite"></span>
+                        <div class="telegram-connect-steps"><strong>Finish linking in Telegram</strong><span><b>1</b> Open the bot</span><span><b>2</b> Tap <strong>Start</strong></span><span><b>3</b> Look for the “Connected” confirmation</span></div>
+                    </div>
+                    <div class="telegram-qr-card">
+                        <div class="telegram-qr-wrap"><img src="${qrUrl}" alt="QR code to connect Telegram" loading="lazy" onerror="this.onerror=null;this.src='${qrFallback}';"></div>
+                        <span>Scan with your phone camera</span>
                     </div>
                 </div>
-                <p style="font-size:0.75rem;color:#9ca3af;margin-top:0.75rem;">On desktop without Telegram app, scan the QR with your phone. On phone, just tap the button.</p>
-            </div>
+                <div class="telegram-connect-note"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i><span><strong>Private and time-limited</strong><small>This link can be used once and expires in 10 minutes. Telegram will send a confirmation when it is connected.</small></span>
+                </div>
+                <details class="telegram-manual-link">
+                    <summary>Telegram did not open?</summary>
+                    <div><span>Search for <strong>@CRWIAttendancebot</strong> in Telegram and send this one-time command:</span>
+                        <code>${app_escapeHtml(startCmd)}</code>
+                    </div>
+                </details>
+                <div class="telegram-connect-footer"><span>Reminders: 9:15 AM · 6:00 PM · 8:00 PM</span><button type="button" class="telegram-done-button" onclick="window.app_closeModal(this)">Close</button></div>
+            </section>
         `;
-        const modal = document.getElementById('telegram-link-modal');
-        if (modal) modal.querySelector('.modal-content') ? (modal.querySelector('.modal-content').innerHTML = html) : (modal.innerHTML = html);
-        else window.app_showModal(html, 'telegram-link-modal');
+        if (!updateTelegramModal(html)) return;
     } catch (err) {
-        const html = `<div style="text-align:center;padding:1.5rem;"><p style="color:#dc2626;">Failed to make link: ${String(err.message || err)}</p><p style="color:#6b7280;font-size:0.85rem;">Please try again or ask your admin to set telegramChatId manually.</p></div>`;
-        const modal = document.getElementById('telegram-link-modal');
-        if (modal) modal.querySelector('.modal-content') ? (modal.querySelector('.modal-content').innerHTML = html) : (modal.innerHTML = html);
-        else window.app_showModal(html, 'telegram-link-modal');
+        const html = `<section class="telegram-connect-panel telegram-connect-error"><button type="button" class="telegram-connect-close" onclick="window.app_closeModal(this)" aria-label="Close"><i class="fa-solid fa-xmark"></i></button><span class="telegram-connect-mark"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i></span><span class="telegram-connect-eyebrow">CONNECTION NOT STARTED</span><h2>Could not create your link</h2><p>${app_escapeHtml(String(err.message || err))}</p><button type="button" class="telegram-done-button" onclick="window.app_closeModal(this)">Close</button></section>`;
+        updateTelegramModal(html);
     }
 };
 

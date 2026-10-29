@@ -61,6 +61,7 @@ export class Auth {
         this.userDocUnsubscribe = null;
         this.sessionExpiryTimer = null;
         this.isForceLoggingOut = false;
+        this.pendingSessionChecks = new Set();
         this.visibilityCheckHandler = null;
         this.isImpersonating = false;
         this._realUser = null;
@@ -237,11 +238,10 @@ export class Auth {
     }
 
     async _establishSession(user, _isOwner = false) {
-        const savedUserId = localStorage.getItem(this.sessionKey);
-        const savedToken = localStorage.getItem(this.deviceTokenKey);
-        const token = savedUserId === String(user.id) && savedToken
-            ? savedToken
-            : this.generateSessionToken();
+        // Interactive sign-in must get a fresh token. Reusing a saved token
+        // can strand a device on a session that was already removed or expired.
+        // Page refreshes retain the current token through init(), not here.
+        const token = this.generateSessionToken();
         let registered;
         try {
             registered = isLocalTestingHost()
@@ -390,7 +390,11 @@ export class Auth {
         if (Array.isArray(user.activeSessions)) {
             const session = user.activeSessions.map(normalizeSession).find((item) => item?.token === token);
             if (!session) {
-                this.forceLogout('This device is no longer signed in. Please sign in again.');
+                // A different tab can receive the Firestore session update
+                // before the tab that signed in has saved its new token. Check
+                // the authoritative server state after that write can settle
+                // before ending Firebase Auth across the shared browser tabs.
+                this._confirmSessionMembership(user.id, token);
                 return false;
             }
             if (session.logoutAt && session.logoutAt <= Date.now()) {
@@ -401,10 +405,51 @@ export class Auth {
             return true;
         }
         if (user.activeSessionToken && user.activeSessionToken !== token) {
-            this.forceLogout('Your session was ended because you logged in on another device.');
+            this._confirmSessionMembership(user.id, token);
             return false;
         }
         return true;
+    }
+
+    _confirmSessionMembership(userId, observedToken) {
+        const key = `${String(userId || '')}:${String(observedToken || '')}`;
+        if (!userId || !observedToken || this.pendingSessionChecks.has(key)) return;
+        this.pendingSessionChecks.add(key);
+        window.setTimeout(async () => {
+            try {
+                const firestore = window.AppFirestore || AppDB.db;
+                const ref = firestore?.collection?.('users')?.doc?.(String(userId));
+                if (!ref?.get) return;
+                const snapshot = await ref.get({ source: 'server' });
+                if (!snapshot.exists) return;
+                const data = snapshot.data() || {};
+                const sharedToken = localStorage.getItem(this.deviceTokenKey);
+                const tokenToCheck = sharedToken || observedToken;
+                const sessions = Array.isArray(data.activeSessions)
+                    ? data.activeSessions.map(normalizeSession).filter(Boolean)
+                    : [];
+                const session = sessions.find((item) => item.token === tokenToCheck);
+                const stillAuthorized = session
+                    ? !session.logoutAt || session.logoutAt > Date.now()
+                    : !Array.isArray(data.activeSessions)
+                        && (!data.activeSessionToken || data.activeSessionToken === tokenToCheck);
+                if (stillAuthorized) {
+                    this.localToken = tokenToCheck;
+                    return;
+                }
+                // Another tab may have completed a fresh sign-in while this
+                // check was in flight. Never sign it out based on the stale
+                // token this listener originally observed.
+                if (sharedToken && sharedToken !== observedToken) return;
+                await this.forceLogout('This device is no longer signed in. Please sign in again.');
+            } catch (error) {
+                // A transient network/cache error must not revoke a valid
+                // session. The next Firestore snapshot or heartbeat retries.
+                console.warn('Could not confirm this device session with the server:', error);
+            } finally {
+                this.pendingSessionChecks.delete(key);
+            }
+        }, 500);
     }
 
     _scheduleSessionExpiry(session) {
@@ -616,12 +661,52 @@ export class Auth {
 
     async forceLogout(message = 'Your session was ended.') {
         if (this.isForceLoggingOut) return;
+        const sessionId = localStorage.getItem(this.sessionKey);
+        const tabToken = this.localToken;
+        const sharedToken = localStorage.getItem(this.deviceTokenKey);
+        if (sessionId && sessionId === String(this.currentUser?.id || sessionId)
+            && tabToken && sharedToken && sharedToken !== tabToken) {
+            this.isForceLoggingOut = true;
+            // A different tab may already have completed a fresh sign-in. Do
+            // not let this tab's stale expiry callback sign out shared Firebase
+            // Auth or erase the replacement token from browser storage.
+            try {
+                await new Promise((resolve) => window.setTimeout(resolve, 500));
+                const latestSharedToken = localStorage.getItem(this.deviceTokenKey);
+                if (latestSharedToken) {
+                    // The sign-in may have replaced the token while this
+                    // expiry callback waited for the server check.
+                    const replacementToken = latestSharedToken;
+                    const firestore = window.AppFirestore || AppDB.db;
+                    const snapshot = await firestore.collection('users').doc(String(sessionId)).get({ source: 'server' });
+                    if (snapshot.exists) {
+                        const data = snapshot.data() || {};
+                        const sessions = Array.isArray(data.activeSessions)
+                            ? data.activeSessions.map(normalizeSession).filter(Boolean)
+                            : [];
+                        const replacement = sessions.find((item) => item.token === replacementToken);
+                        const replacementActive = replacement
+                            ? !replacement.logoutAt || replacement.logoutAt > Date.now()
+                            : !Array.isArray(data.activeSessions)
+                                && (!data.activeSessionToken || data.activeSessionToken === replacementToken);
+                        if (replacementActive) {
+                            this.localToken = replacementToken;
+                            this.isForceLoggingOut = false;
+                            return;
+                        }
+                    }
+                }
+            } catch (error) {
+                console.warn('Skipped stale-tab sign-out because the replacement session could not be checked:', error);
+                this.isForceLoggingOut = false;
+                return;
+            }
+        }
         this.isForceLoggingOut = true;
         try {
             sessionStorage.setItem('crwi_auth_notice', message);
         } catch { /* ignore */ }
-        const sessionId = localStorage.getItem(this.sessionKey);
-        const localToken = localStorage.getItem(this.deviceTokenKey);
+        const localToken = this.localToken || localStorage.getItem(this.deviceTokenKey);
         if (sessionId && localToken) {
             await this._releaseDeviceSession(sessionId, localToken).catch((err) => {
                 console.warn('Failed to release expired device session:', err);

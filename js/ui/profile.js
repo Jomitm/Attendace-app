@@ -257,10 +257,11 @@ export async function renderProfile() {
                                     <i class="fa-solid fa-chevron-right pro-quick-arrow"></i>
                                 </button>
                                 ${isViewingSelf ? `
-                                <button class="pro-quick-item" onclick="window.app_linkTelegram()">
-                                    <span class="pro-quick-icon" style="background:#eff6ff;color:#2563eb;"><i class="fa-brands fa-telegram"></i></span>
-                                    <span>${profileUser.telegramChatId ? '✅ Telegram Linked' : 'Link Telegram'}</span>
-                                    <i class="fa-solid fa-chevron-right pro-quick-arrow"></i>
+                                <button class="pro-quick-item pro-telegram-quick-item ${profileUser.telegramChatId ? 'is-linked' : ''}" onclick="window.app_linkTelegram()">
+                                    <span class="pro-quick-icon"><i class="fa-brands fa-telegram" aria-hidden="true"></i></span>
+                                    <span class="pro-telegram-quick-copy"><strong>${profileUser.telegramChatId ? 'Telegram connected' : 'Connect Telegram'}</strong><small>${profileUser.telegramChatId ? 'Personal attendance reminders are on' : 'Get private check-in and checkout reminders'}</small></span>
+                                    <span class="pro-telegram-quick-status">${profileUser.telegramChatId ? 'On' : 'Set up'}</span>
+                                    <i class="fa-solid fa-chevron-right pro-quick-arrow" aria-hidden="true"></i>
                                 </button>
                                 ${isOwner ? `
                                 <button class="pro-quick-item" onclick="window.app_registerTelegramWebhook()" title="One-time setup to connect Telegram bot to this app">
