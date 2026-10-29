@@ -41,11 +41,8 @@ export class Simulation {
 
     async run() {
         const flags = (AppConfig && AppConfig.READ_OPT_FLAGS) || {};
-        const host = (typeof window !== 'undefined' && window.location && window.location.hostname) ? window.location.hostname : '';
-        const isLocalHost = host === 'localhost' || host === '127.0.0.1';
-        if (!flags.ENABLE_SIMULATION_MODULE && !isLocalHost) {
-            return;
-        }
+        const user = typeof window !== 'undefined' ? window.AppAuth?.getUser?.() : null;
+        if (!flags.ENABLE_SIMULATION_MODULE || user?.isAdmin !== true) return;
 
         if (!localStorage.getItem(this.cleanupFlag)) {
             await this.cleanupLegacyDummyData();
@@ -170,6 +167,10 @@ export class Simulation {
     }
 
     async forceRun() {
+        const flags = (AppConfig && AppConfig.READ_OPT_FLAGS) || {};
+        const user = typeof window !== 'undefined' ? window.AppAuth?.getUser?.() : null;
+        if (!flags.ENABLE_SIMULATION_MODULE || user?.isAdmin !== true) return;
+
         console.log('Starting Office Scenario Simulation (V2)...');
 
         // Simulation now only handles shared event setup.
@@ -192,5 +193,7 @@ export class Simulation {
 export const AppSimulation = new Simulation();
 if (typeof window !== 'undefined') {
     window.AppSimulation = AppSimulation;
-    setTimeout(() => AppSimulation.run(), 2000);
+    setTimeout(() => {
+        AppSimulation.run().catch((error) => console.error('Simulation startup failed:', error));
+    }, 2000);
 }

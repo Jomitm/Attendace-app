@@ -9,6 +9,107 @@ let appServiceWorkerRegistration = null;
 
 // Module-scoped state for auto-collapse timer
 let autoCollapseTimer = null;
+const SIDEBAR_AUTO_HIDE_KEY = 'crwi_sidebar_auto_hide';
+
+const app_applySidebarAutoHide = (enabled) => {
+    const sidebar = document.querySelector('.app-container > .sidebar');
+    const toggle = document.getElementById('desktop-sidebar-autohide-toggle');
+    const handle = document.getElementById('sidebar-auto-hide-handle');
+    if (!sidebar) return false;
+
+    sidebar.classList.toggle('auto-hide-enabled', !!enabled);
+    sidebar.classList.remove('auto-hide-open');
+    if (enabled) sidebar.classList.remove('collapsed');
+
+    if (toggle) {
+        toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+        toggle.title = enabled ? 'Turn off Auto-hide' : 'Turn on Auto-hide';
+        toggle.setAttribute('aria-label', enabled ? 'Turn off Auto-hide sidebar' : 'Turn on Auto-hide sidebar');
+        toggle.classList.toggle('is-active', !!enabled);
+    }
+    if (handle) handle.setAttribute('aria-expanded', 'false');
+
+    return true;
+};
+
+const app_setSidebarAutoHide = (enabled, persist = true) => {
+    const value = !!enabled;
+    if (persist) {
+        try {
+            localStorage.setItem(SIDEBAR_AUTO_HIDE_KEY, value ? 'true' : 'false');
+        } catch (err) {
+            console.warn('Failed to save sidebar auto-hide preference:', err);
+        }
+    }
+    app_applySidebarAutoHide(value);
+    return value;
+};
+window.app_setSidebarAutoHide = app_setSidebarAutoHide;
+
+window.app_toggleSidebarAutoHide = (event) => {
+    const sidebar = document.querySelector('.app-container > .sidebar');
+    if (!sidebar) return;
+    app_setSidebarAutoHide(!sidebar.classList.contains('auto-hide-enabled'));
+    if (Number(event?.detail) > 0) event.currentTarget?.blur?.();
+};
+
+window.app_revealAutoHideSidebar = (event) => {
+    const sidebar = document.querySelector('.app-container > .sidebar');
+    const handle = document.getElementById('sidebar-auto-hide-handle');
+    if (!sidebar?.classList.contains('auto-hide-enabled')) return;
+    sidebar.classList.add('auto-hide-open');
+    handle?.setAttribute('aria-expanded', 'true');
+    if (event?.detail === 0) {
+        sidebar.querySelector('.nav-item:not([style*="display: none"])')?.focus();
+    }
+};
+
+const app_closeAutoHideSidebar = ({ focusHandle = false } = {}) => {
+    const sidebar = document.querySelector('.app-container > .sidebar');
+    const handle = document.getElementById('sidebar-auto-hide-handle');
+    if (!sidebar) return;
+    sidebar.classList.remove('auto-hide-open');
+    handle?.setAttribute('aria-expanded', 'false');
+    if (focusHandle && sidebar.classList.contains('auto-hide-enabled')) handle?.focus();
+};
+
+const app_initSidebarAutoHide = () => {
+    const sidebar = document.querySelector('.app-container > .sidebar');
+    const handle = document.getElementById('sidebar-auto-hide-handle');
+    if (!sidebar) return;
+
+    let enabled = false;
+    try {
+        enabled = localStorage.getItem(SIDEBAR_AUTO_HIDE_KEY) === 'true';
+    } catch (err) {
+        console.warn('Failed to read sidebar auto-hide preference:', err);
+    }
+    app_applySidebarAutoHide(enabled);
+
+    if (sidebar.dataset.autoHideListenersAttached === 'true') return;
+    sidebar.dataset.autoHideListenersAttached = 'true';
+
+    sidebar.addEventListener('mouseleave', () => app_closeAutoHideSidebar());
+    sidebar.addEventListener('click', (event) => {
+        if (Number(event.detail) <= 0 || !sidebar.classList.contains('auto-hide-enabled')) return;
+        if (!event.target?.closest?.('.nav-item, .nav-section-header, #desktop-sidebar-autohide-toggle')) return;
+        setTimeout(() => {
+            const activeElement = document.activeElement;
+            if (activeElement && sidebar.contains(activeElement)) activeElement.blur?.();
+        }, 0);
+    });
+    document.addEventListener('click', (event) => {
+        if (!sidebar.classList.contains('auto-hide-open')) return;
+        if (sidebar.contains(event.target) || handle?.contains(event.target)) return;
+        app_closeAutoHideSidebar();
+        if (sidebar.contains(document.activeElement)) document.activeElement.blur?.();
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape' || !sidebar.classList.contains('auto-hide-open')) return;
+        app_closeAutoHideSidebar({ focusHandle: true });
+    });
+};
+window.app_initSidebarAutoHide = app_initSidebarAutoHide;
 
 // --- Navigation Section Management (Collapsible Categories) ---
 
@@ -67,6 +168,7 @@ window.app_toggleNavSection = app_toggleNavSection;
  * Initialize section toggle handlers and restore collapse states
  */
 const app_initSectionToggle = () => {
+    app_initSidebarAutoHide();
     const headers = document.querySelectorAll('.nav-section-header');
     headers.forEach(header => {
         const section = header.closest('.nav-section');
@@ -361,22 +463,6 @@ function registerSW() {
     const isLocalHost = host === 'localhost' || host === '127.0.0.1' || host === '::1';
     if (isLocalHost) {
         console.log('ServiceWorker registration skipped on localhost');
-        void (async () => {
-            try {
-                const regs = await navigator.serviceWorker.getRegistrations();
-                for (const reg of regs) {
-                    await reg.unregister();
-                }
-                if ('caches' in window) {
-                    const keys = await caches.keys();
-                    for (const key of keys) {
-                        await caches.delete(key);
-                    }
-                }
-            } catch (err) {
-                console.warn('Local dev service worker cleanup failed:', err);
-            }
-        })();
         return;
     }
 

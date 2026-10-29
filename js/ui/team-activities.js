@@ -425,7 +425,7 @@ function renderTable(state) {
             </td>
         ` : '<td class="team-activities-select-col"></td>';
         return `
-        <tr>
+        <tr data-plan-id="${safeHtml(row.planId || '')}" data-task-index="${Number.isInteger(row.taskIndex) ? row.taskIndex : ''}">
             ${selectCell}
             <td>${safeHtml(row.date)}</td>
             <td>${safeHtml(row.staffName)}</td>
@@ -601,7 +601,7 @@ function renderGroupedTable(state) {
                 ? `<div class="team-activities-progress"${tooltip}>${safeHtml(progressLabel)}${progressLabel && statusLabel ? ' &bull; ' : ''}${safeHtml(statusLabel)}</div>`
                 : '';
             return `
-            <tr>
+            <tr data-plan-id="${safeHtml(row.planId || '')}" data-task-index="${Number.isInteger(row.taskIndex) ? row.taskIndex : ''}">
                 <td>${safeHtml(row.date)}</td>
                 ${state.groupBy !== 'staff' ? `<td>${safeHtml(row.staffName)}</td>` : ''}
                 <td class="team-activities-type">${safeHtml(row.type)}</td>
@@ -696,6 +696,98 @@ function updateUI() {
     }
 }
 
+function configureTaskFocus(task) {
+    const state = getTeamActivitiesState();
+    const date = String(task?.date || '').trim();
+    const planId = String(task?.planId || '').trim();
+    const taskIndex = Number(task?.taskIndex);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !planId || !Number.isInteger(taskIndex)) return false;
+
+    state.focusTask = {
+        planId,
+        taskIndex,
+        date,
+        userId: String(task?.userId || '').trim()
+    };
+    state.startIso = date;
+    state.endIso = date;
+    state.weeksLoaded = 1;
+    state.staffIds = state.focusTask.userId ? [state.focusTask.userId] : [];
+    state.status = 'all';
+    state.type = 'all';
+    state.budgetHead = 'all';
+    state.search = '';
+    state.sortKey = 'date-desc';
+    state.page = 1;
+    state.groupBy = 'none';
+    state.collapsedGroups = new Set();
+    state.advancedFilters = [];
+    state.advancedLogic = 'AND';
+    state.columnFilters = { date: '', staff: '', description: '', time: '', type: '', status: '' };
+
+    const valueById = {
+        'team-activities-start': date,
+        'team-activities-end': date,
+        'team-activities-type': 'all',
+        'team-activities-status': 'all',
+        'team-activities-budget-head': 'all',
+        'team-activities-search': '',
+        'team-activities-group-by': 'none',
+        'team-activities-filter-date': '',
+        'team-activities-filter-staff': '',
+        'team-activities-filter-desc': '',
+        'team-activities-filter-time': '',
+        'team-activities-filter-type': '',
+        'team-activities-filter-status': ''
+    };
+    Object.entries(valueById).forEach(([id, value]) => {
+        const input = document.getElementById(id);
+        if (input) input.value = value;
+    });
+    return true;
+}
+
+function focusConfiguredTask() {
+    const state = getTeamActivitiesState();
+    const task = state.focusTask;
+    if (!task) return;
+    const index = state.filtered.findIndex((row) =>
+        String(row.planId || '') === task.planId
+        && Number.isInteger(row.taskIndex)
+        && row.taskIndex === task.taskIndex
+        && (!task.userId || String(row.userId || '') === task.userId)
+    );
+    if (index < 0) {
+        const existsInFetchedData = state.data.some((row) =>
+            String(row.planId || '') === task.planId
+            && Number.isInteger(row.taskIndex)
+            && row.taskIndex === task.taskIndex
+            && (!task.userId || String(row.userId || '') === task.userId)
+        );
+        if (!existsInFetchedData) {
+            state.focusTask = null;
+            window.app_pendingMissedTaskFocus = null;
+            window.app_showSyncToast?.('That missed task is no longer listed in Team Activities.');
+        }
+        return;
+    }
+
+    state.page = Math.floor(index / state.pageSize) + 1;
+    updateUI();
+    const row = Array.from(document.querySelectorAll('#team-activities-table-wrap tr[data-plan-id]')).find((element) =>
+        element.dataset.planId === task.planId
+        && Number(element.dataset.taskIndex) === task.taskIndex
+    );
+    if (!row) return;
+    row.classList.add('team-activities-row-focused');
+    row.tabIndex = -1;
+    row.focus({ preventScroll: true });
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    state.focusTask = null;
+    window.app_pendingMissedTaskFocus = null;
+    window.setTimeout(() => row.classList.remove('team-activities-row-focused'), 5000);
+}
+
 function extendRangeByWeeks(state, weeks = 1) {
     if (!state) return;
     const start = new Date(`${state.startIso}T00:00:00`);
@@ -707,6 +799,7 @@ function extendRangeByWeeks(state, weeks = 1) {
 async function refreshData() {
     const state = getTeamActivitiesState();
     const loading = document.getElementById('team-activities-loading');
+    let fetchSucceeded = false;
     if (loading) loading.style.display = 'block';
 
     try {
@@ -718,6 +811,7 @@ async function refreshData() {
             sideEffects: false
         });
         state.data = normalizeActivityRows(rows);
+        fetchSucceeded = true;
         state.overdueRows = (state.data || []).filter(row => String(row.status || '').toLowerCase() === 'overdue');
         state.overdueCount = state.overdueRows.length;
         window.app_teamActivitiesOverdueRows = state.overdueRows;
@@ -735,6 +829,7 @@ async function refreshData() {
         if (loading) loading.style.display = 'none';
     }
     updateUI();
+    if (fetchSucceeded) focusConfiguredTask();
 }
 
 function updateStateFromFilters() {
@@ -1092,6 +1187,12 @@ function buildCSV(rows) {
 
 // --- Global Actions ---
 if (typeof window !== 'undefined') {
+    window.app_teamActivitiesFocusTask = function (task) {
+        if (!configureTaskFocus(task)) return false;
+        if (document.getElementById('team-activities-table-wrap')) void refreshData();
+        return true;
+    };
+
     window.app_openTeamActivitiesForStaff = function (staffId, dateKey = '', sortKey = 'date-desc') {
         const state = getTeamActivitiesState();
         const safeStaffId = String(staffId || '').trim();
@@ -1137,6 +1238,9 @@ if (typeof window !== 'undefined') {
             }
         } catch (err) {
             console.warn('Purge 2026-03-25 failed:', err);
+        }
+        if (window.app_pendingMissedTaskFocus) {
+            configureTaskFocus(window.app_pendingMissedTaskFocus);
         }
         bindEvents();
         updateUI();

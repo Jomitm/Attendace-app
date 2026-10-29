@@ -881,11 +881,33 @@ export async function openPlanEditor(args) {
 
 
     const body = createElement('div', { className: 'plan-editor-body' });
+    const planningGuide = createElement('section', {
+        className: 'plan-editor-guide',
+        attributes: { 'aria-label': 'How to make a useful work plan' },
+        innerHTML: `
+            <span class="plan-editor-guide-icon"><i class="fa-solid fa-compass" aria-hidden="true"></i></span>
+            <div>
+                <strong>Make your work easy to understand</strong>
+                <p>A clear plan helps your team balance workload, offer support and recognise what you have done.</p>
+            </div>
+        `
+    });
+    body.appendChild(planningGuide);
     const textarea = createElement('textarea', {
         className: 'plan-editor-textarea',
         textContent: planData.task,
-        attributes: { placeholder: 'What is the objective or task for today?', required: true }
+        attributes: { id: 'plan-task-description', placeholder: 'For example: “Prepare the monthly report and share it with the team.”', required: true, 'aria-label': 'Task and expected result', rows: '3' }
     });
+    const taskField = createElement('div', { className: 'plan-editor-task-field' });
+    taskField.appendChild(createElement('label', {
+        textContent: 'What will you do, and what result do you expect?',
+        attributes: { for: 'plan-task-description' }
+    }));
+    taskField.appendChild(textarea);
+    taskField.appendChild(createElement('p', {
+        className: 'plan-editor-field-hint',
+        textContent: 'A clear action and outcome helps your team understand the work.'
+    }));
 
     const grid = createElement('div', { className: 'plan-editor-grid' });
     const budgetHeads = Array.isArray(window.app_budgetHeadsCache) ? window.app_budgetHeadsCache : [{ id: 'UNALLOCATED', code: 'UNALLOCATED', name: 'Unallocated / To Be Mapped' }];
@@ -982,7 +1004,7 @@ export async function openPlanEditor(args) {
     grid.appendChild(privacyField);
 
     const budgetField = createElement('div', { className: 'plan-editor-field' });
-    budgetField.innerHTML = '<label>Budget Head</label>';
+    budgetField.innerHTML = '<label>Budget Head</label><p class="plan-editor-field-hint">Choose the programme or project this work supports. If none fits, keep Unallocated.</p>';
     const budgetSelect = createElement('select', { className: 'plan-editor-select' });
     const currentBudgetHeadId = String(planData.budgetHeadId || AppAuth.getUser()?.currentBudgetHeadId || 'UNALLOCATED');
     const sortedBudgetHeads = [...budgetHeads].sort((a, b) => {
@@ -1023,7 +1045,7 @@ export async function openPlanEditor(args) {
     }
 
     const sizeField = createElement('div', { className: 'plan-editor-field' });
-    sizeField.innerHTML = '<label>Task Size</label>';
+    sizeField.innerHTML = '<label>Task Size</label><p class="plan-editor-field-hint">Estimate the effort involved; it is a guide, not a deadline.</p>';
     const sizeSelect = createElement('select', { className: 'plan-editor-select' });
     const isNewTask = !existingBlock && planData.sizeCategory === undefined;
     sizeSelect.innerHTML = `
@@ -1090,7 +1112,7 @@ export async function openPlanEditor(args) {
 
 
     const purposeField = createElement('div', { className: 'plan-editor-field' });
-    purposeField.innerHTML = '<label>Task Purpose</label>';
+    purposeField.innerHTML = '<label>Task Purpose</label><p class="plan-editor-field-hint">Pick the closest reason for doing this work.</p>';
     const purposeSelect = createElement('select', { className: 'plan-editor-select' });
     purposeSelect.innerHTML = `
         <option value="" ${planData.purposeCategory === '' ? 'selected' : ''}>Select purpose...</option>
@@ -1105,7 +1127,7 @@ export async function openPlanEditor(args) {
     grid.appendChild(purposeField);
 
     const priorityField = createElement('div', { className: 'plan-editor-field' });
-    priorityField.innerHTML = '<label>Priority <span style="color:#d97706;font-size:0.55rem;font-weight:800;">* for bonus</span></label>';
+    priorityField.innerHTML = '<label>Priority</label><p class="plan-editor-field-hint">Choose based on urgency and impact. Use Urgent only when work needs attention today.</p>';
     const prioritySelect = createElement('select', { className: 'plan-editor-select' });
     prioritySelect.innerHTML = `
         <option value="" ${!planData.priorityLevel ? 'selected' : ''}>Select priority...</option>
@@ -1117,8 +1139,55 @@ export async function openPlanEditor(args) {
     priorityField.appendChild(prioritySelect);
     grid.appendChild(priorityField);
 
-    body.appendChild(textarea);
+    const readiness = createElement('section', {
+        className: 'plan-editor-readiness',
+        attributes: { 'aria-label': 'Plan details checklist', 'aria-live': 'polite' }
+    });
+    readiness.innerHTML = `
+        <div class="plan-editor-readiness-head">
+            <div><strong>Plan details</strong><span class="plan-editor-readiness-count"></span></div>
+            <span class="plan-editor-readiness-hint"></span>
+        </div>
+        <div class="plan-editor-readiness-meter" role="presentation"><span></span></div>
+        <div class="plan-editor-readiness-items">
+            <span data-ready-item="task"><i class="fa-regular fa-circle" aria-hidden="true"></i> Clear task</span>
+            <span data-ready-item="size"><i class="fa-regular fa-circle" aria-hidden="true"></i> Effort</span>
+            <span data-ready-item="purpose"><i class="fa-regular fa-circle" aria-hidden="true"></i> Purpose</span>
+            <span data-ready-item="priority"><i class="fa-regular fa-circle" aria-hidden="true"></i> Priority</span>
+            <span data-ready-item="budget"><i class="fa-regular fa-circle" aria-hidden="true"></i> Budget head</span>
+        </div>
+    `;
+    let readinessSignature = '';
+    const updateReadiness = () => {
+        const values = {
+            task: Boolean(String(textarea.value || '').trim()),
+            size: Boolean(String(sizeSelect.value || '').trim()),
+            purpose: Boolean(String(purposeSelect.value || '').trim()),
+            priority: Boolean(String(prioritySelect.value || '').trim()),
+            budget: Boolean(String(budgetSelect.value || '').trim())
+        };
+        const completed = Object.values(values).filter(Boolean).length;
+        const signature = `${completed}:${Object.entries(values).map(([key, value]) => `${key}=${value ? 1 : 0}`).join(',')}`;
+        if (signature === readinessSignature) return;
+        readinessSignature = signature;
+        readiness.querySelector('.plan-editor-readiness-count').textContent = `${completed} of 5 details added`;
+        readiness.querySelector('.plan-editor-readiness-hint').textContent = completed === 5
+            ? 'Ready — your plan tells the full story.'
+            : 'You can save now; these details help your team plan and recognise your work.';
+        readiness.querySelector('.plan-editor-readiness-meter > span').style.width = `${completed * 20}%`;
+        readiness.querySelectorAll('[data-ready-item]').forEach((item) => {
+            const complete = values[item.dataset.readyItem] === true;
+            item.classList.toggle('is-complete', complete);
+            const icon = item.querySelector('i');
+            if (icon) icon.className = complete ? 'fa-solid fa-circle-check' : 'fa-regular fa-circle';
+        });
+    };
+    textarea.addEventListener('input', updateReadiness);
+    [sizeSelect, purposeSelect, prioritySelect, budgetSelect].forEach((input) => input.addEventListener('change', updateReadiness));
+    body.appendChild(taskField);
+    body.appendChild(readiness);
     body.appendChild(grid);
+    updateReadiness();
 
     const commentField = createElement('div', { className: 'plan-editor-field plan-editor-comment-field' });
     commentField.innerHTML = '<label>Completion Note (optional)</label>';
@@ -1133,7 +1202,7 @@ export async function openPlanEditor(args) {
     /* ── Classification helper banner ── */
     const classHelper = createElement('div', {
         className: 'plan-editor-classification-helper',
-        innerHTML: '<i class="fa-solid fa-lightbulb"></i> <strong>Set the Priority</strong> for each task to improve your performance score and earn +3 bonus points. The system also learns your patterns and auto-fills suggestions next time.'
+        innerHTML: '<i class="fa-solid fa-lightbulb"></i> <strong>Choose an accurate priority</strong> to help your team order work and understand what needs attention. The system can learn your patterns and suggest task details next time.'
     });
     body.appendChild(classHelper);
 
@@ -1175,6 +1244,7 @@ export async function openPlanEditor(args) {
                         ? `Auto-filled from “${suggestion.sampleTask}”`
                         : 'Auto-filled from history';
                     suggestionIndicator.style.display = '';
+                    updateReadiness();
                 }
             } catch (__) { void __; }
         };

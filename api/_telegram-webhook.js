@@ -482,7 +482,7 @@ module.exports = async (req, res) => {
                         if (existingChat === newChat) {
                             await sendMessage(token, chatId,
                                 `✅ <b>Already connected!</b>\n\nYou are linked as <b>${targetSnap.data()?.name || fullName}</b>.\n` +
-                                `You will now get your 8am work plan, 9:30 check-in reminder, 6pm check-out reminder, and team updates here.\n\n` +
+                                `You will now get three personal attendance reminders here: 9:15am check-in, 6pm checkout, and an 8pm follow-up if you are still checked in.\n\n` +
                                 `This was a sample message — if you see this, you are all set.`,
                                 buildKeyboard()
                             );
@@ -490,11 +490,10 @@ module.exports = async (req, res) => {
                             await targetRef.update({ telegramChatId: newChat });
                             await sendMessage(token, chatId,
                                 `✅ <b>Telegram connected!</b>\n\nHi ${targetSnap.data()?.name || fullName}! Your Telegram is now linked.\n\n` +
-                                `You will now get:\n` +
-                                `• 8am — your work plan for today\n` +
-                                `• 9:30am — reminder if you forgot to check in\n` +
-                                `• 6pm — reminder if you forgot to check out\n` +
-                                `• Instant — when someone gives you work\n\n` +
+                                `You will now get three personal attendance reminders:\n` +
+                                `• 9:15am — reminder if you have not checked in\n` +
+                                `• 6pm — reminder if you are still checked in\n` +
+                                `• 8pm — final follow-up if you are still checked in\n\n` +
                                 `This is a sample message — if you see this, you are all set. ✅`,
                                 buildKeyboard()
                             );

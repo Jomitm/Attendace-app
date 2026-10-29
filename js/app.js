@@ -40,7 +40,9 @@ import './services/event-service.js';
 import './services/metrics-service.js';
 import { app_extractBirthdayDate, app_extractBirthdayFields, app_getISTNowDate, app_getPostponeDefaultDate, app_toDateKey } from './features/birthdays.js';
 import { initPageUsageNotes } from './features/hover-help.js';
-import { registerSW, app_initTheme, app_initSectionToggle, app_updateNavigationSections, app_getNavSectionCollapsed, app_setNavSectionCollapsed, app_toggleNavSection, app_getShowHiddenSheets, app_setShowHiddenSheets, app_toggleShowHiddenSheets, app_applyShowHiddenSheetsToggle, app_startAutoCollapseTimer, app_resetAutoCollapseTimer, app_autoCollapseSections, initAppSetup } from './features/app-setup.js';
+import './features/missed-task-prompt.js';
+import './features/telegram-link-prompt.js';
+import { app_initTheme, app_initSectionToggle, app_updateNavigationSections, app_getNavSectionCollapsed, app_setNavSectionCollapsed, app_toggleNavSection, app_getShowHiddenSheets, app_setShowHiddenSheets, app_toggleShowHiddenSheets, app_applyShowHiddenSheetsToggle, app_startAutoCollapseTimer, app_resetAutoCollapseTimer, app_autoCollapseSections, initAppSetup } from './features/app-setup.js';
 import { app_refreshNotificationBell, app_closeNotificationHistory, app_recordNotifError, app_showLastNotifError, app_markNotificationResponded, app_respondNotificationFromHistory, app_openNotificationHistory, initNotifications } from './features/notifications.js';
 import { app_showModal, app_openModal, app_renderCarryForwardIssues, app_removeCarryForwardIssues, app_findCarryForwardIssues, initModalsAndCarryForward } from './features/modals-carryforward.js';
 // Local aliases so legacy bare references inside this file keep working.
@@ -1121,13 +1123,14 @@ async function init() {
             startRoutineUpdateChecks();
             window.AppSiteAnnouncement?.start?.();
         }
-        registerSW();
+        if (initialUser) {
+            await app_migrateLegacyWorkPlanSchema();
+            await window.app_refreshBudgetHeadsCache();
+        }
 
-        await app_migrateLegacyWorkPlanSchema();
-        await window.app_refreshBudgetHeadsCache();
-
-        // Ensure Activity Command Listener starts even if not checked in
-        if (window.AppActivity) window.AppActivity.initCommandListener();
+        // system_commands is restricted to Firebase admins; staff should not
+        // subscribe to this collection at app startup.
+        if (initialUser?.isAdmin && window.AppActivity) window.AppActivity.initCommandListener();
     } catch (e) {
         console.error("Initialization Failed:", e);
         if (contentArea) contentArea.innerHTML = `<div style="text-align:center; padding:2rem; color:red;">Failed to load application.<br><small>${e.message}</small></div>`;
@@ -1390,6 +1393,8 @@ async function router() {
             contentArea.innerHTML = await AppUI.renderAICenter();
             await AppUI.initAICenter();
         }
+        void window.app_checkMissedTaskPrompt?.('login');
+        void window.app_checkTelegramLinkPrompt?.('login');
         await window.app_syncBirthdayReminders?.();
         if (window.app_updateStaffNavIndicator) {
             await window.app_updateStaffNavIndicator();
@@ -3675,6 +3680,7 @@ window.app_saveDayPlan = async (e, date, targetUserId = null) => {
         if (window.app_showSyncToast) {
             window.app_showSyncToast("Plans saved successfully!");
         }
+        void window.app_checkMissedTaskPrompt?.('plan-save', { targetUserId: targetId });
 
         // Classification bonus/warning toast
         {
@@ -6999,7 +7005,7 @@ window.app_unlinkTelegram = async () => {
         window.app_showSyncToast('Telegram is not linked.');
         return;
     }
-    if (!confirm('Disconnect Telegram? You will stop getting personal notifications (8am work plan, 9:30/6pm reminders, task assigned).')) return;
+    if (!confirm('Disconnect Telegram? You will stop getting the 9:15am check-in reminder, the 6pm checkout reminder, and the 8pm checkout follow-up.')) return;
     try {
         const fresh = await window.AppDB?.get?.('users', user.id);
         if (!fresh) throw new Error('User not found');
@@ -7028,10 +7034,9 @@ window.app_linkTelegram = async () => {
                 <h3 style="margin-bottom:0.25rem;">✅ Telegram Connected</h3>
                 <p style="color:#16a34a;font-weight:600;margin-bottom:1rem;">You will get your personal messages here</p>
                 <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:0.75rem 1rem;margin:0 auto 1rem;max-width:360px;text-align:left;font-size:0.85rem;color:#374151;">
-                    <div>• 8am — your work plan for today</div>
-                    <div>• 9:30am — if you forgot to check in</div>
-                    <div>• 6pm — if you forgot to check out</div>
-                    <div>• Instant — when someone gives you work</div>
+                    <div>• 9:15am — if you have not checked in</div>
+                    <div>• 6pm — if you are still checked in</div>
+                    <div>• 8pm — final checkout follow-up if still checked in</div>
                 </div>
                 <div style="background:#f3f4f6;border-radius:8px;padding:0.5rem;margin:0 auto 1.25rem;max-width:360px;font-size:0.75rem;color:#6b7280;word-break:break-all;">Chat ID: ${String(user.telegramChatId).slice(0,4)}••••${String(user.telegramChatId).slice(-4)}</div>
                 <button onclick="window.app_unlinkTelegram()" style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:8px;padding:0.6rem 1.2rem;font-weight:600;cursor:pointer;width:100%;max-width:360px;">Disconnect Telegram</button>

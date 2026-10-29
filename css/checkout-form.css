@@ -1,8 +1,9 @@
 /* Check-out form modal UI */
 
 .action-btn.checkout {
-    background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%);
-    box-shadow: 0 8px 18px rgba(15, 118, 110, 0.24);
+    background: linear-gradient(135deg, #3f63a8 0%, #2f4d86 100%);
+    border-color: #2f4d86;
+    box-shadow: 0 5px 12px rgb(47 77 134 / 18%);
 }
 
 .checkout-main-modal {
@@ -56,10 +57,10 @@
     align-items: center;
     min-height: 26px;
     padding: 0.18rem 0.55rem;
-    border: 1px solid rgba(20, 184, 166, 0.24);
+    border: 1px solid rgba(63, 99, 168, 0.2);
     border-radius: 999px;
-    background: #ccfbf1;
-    color: #0f766e;
+    background: #edf2fa;
+    color: #2f4d86;
     font-size: 0.66rem;
     font-weight: 800;
     text-transform: uppercase;
@@ -122,7 +123,7 @@
 }
 
 .checkout-plan-ref-head label {
-    color: #0f766e;
+    color: #2f4d86;
     font-size: 0.62rem;
     font-weight: 800;
     letter-spacing: 0.5px;
@@ -132,7 +133,7 @@
 .checkout-plan-ref-head button {
     border: 0;
     border-radius: 4px;
-    background: #0f766e;
+    background: #3f63a8;
     color: #ffffff;
     padding: 0.22rem 0.52rem;
     font-size: 0.62rem;
@@ -253,10 +254,10 @@
 
 .checkout-task-detail-btn {
     width: 100%;
-    border: 1px solid rgba(20, 184, 166, 0.22);
+    border: 1px solid rgba(63, 99, 168, 0.2);
     border-radius: 8px;
-    background: #f0fdfa;
-    color: #0f766e;
+    background: #f2f5fa;
+    color: #2f4d86;
     padding: 0.35rem 0.5rem;
     font-size: 0.7rem;
     font-weight: 600;
@@ -360,8 +361,8 @@
     min-width: 38px;
     justify-content: center;
     border-radius: 999px;
-    background: #ccfbf1;
-    color: #0f766e;
+    background: #edf5f0;
+    color: #337354;
     font-size: 0.62rem;
     font-variant-numeric: tabular-nums;
     font-weight: 700;
@@ -856,8 +857,8 @@
 }
 
 .checkout-task-chip.is-selected {
-    border-color: #0f766e;
-    background: #0f766e;
+    border-color: #3f63a8;
+    background: #3f63a8;
     color: #ffffff;
 }
 
@@ -907,8 +908,8 @@
 
 .checkout-action-preview-chip {
     border-radius: 999px;
-    background: #ccfbf1;
-    color: #0f766e;
+    background: #edf2fa;
+    color: #2f4d86;
     padding: 0.1rem 0.42rem;
     font-size: 0.62rem;
     font-weight: 700;
@@ -1064,17 +1065,17 @@
     color: #475569;
 }
 
-/* Checkout palette: calm teal surfaces, clear slate text, and green completion. */
+/* Checkout palette: shared CRWI blue, restrained surfaces, and green completion. */
 :root {
-    --checkout-ink: #19324b;
-    --checkout-muted: #63778b;
-    --checkout-line: #dbe5ee;
+    --checkout-ink: #1f2937;
+    --checkout-muted: #5a6676;
+    --checkout-line: #e3e7ed;
     --checkout-surface: #ffffff;
-    --checkout-soft: #f4f8fb;
-    --checkout-accent: #167d8d;
-    --checkout-accent-soft: #e8f6f5;
-    --checkout-green: #16714c;
-    --checkout-green-soft: #e9f7ef;
+    --checkout-soft: #f6f7f9;
+    --checkout-accent: #3f63a8;
+    --checkout-accent-soft: #edf2fa;
+    --checkout-green: #337354;
+    --checkout-green-soft: #edf5f0;
 }
 
 :root[data-theme="dark"] {
@@ -1083,10 +1084,10 @@
     --checkout-line: #3a4d60;
     --checkout-surface: #172638;
     --checkout-soft: #203247;
-    --checkout-accent: #43c4c1;
-    --checkout-accent-soft: #1c4249;
-    --checkout-green: #63d49a;
-    --checkout-green-soft: #1d4036;
+    --checkout-accent: #91abd1;
+    --checkout-accent-soft: #253650;
+    --checkout-green: #78b18f;
+    --checkout-green-soft: #20372f;
 }
 
 .checkout-main-modal {
@@ -1237,8 +1238,9 @@
 
 .checkout-submit-btn,
 .action-btn.checkout {
-    background: linear-gradient(135deg, #167d8d 0%, #116b7b 100%);
-    box-shadow: 0 7px 17px rgba(22, 125, 141, 0.2);
+    background: linear-gradient(135deg, #3f63a8 0%, #2f4d86 100%);
+    border-color: #2f4d86;
+    box-shadow: 0 5px 12px rgb(47 77 134 / 18%);
 }
 
 .checkout-extra-time-panel,

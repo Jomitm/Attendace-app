@@ -25,19 +25,19 @@
     <!-- Styles -->
     <!-- Styles -->
     <!-- Styles -->
-    <link rel="stylesheet" href="css/main.css?v=20260827-owner-login">
+    <link rel="stylesheet" href="css/main.css?v=20261029-formal-palette">
     <link rel="stylesheet" href="css/site-announcement.css?v=20260625-site-announcement-v1">
     <link rel="stylesheet" href="css/checkin-checkout.css">
-    <link rel="stylesheet" href="css/checkout-form.css?v=20261021-checkout-compact">
+    <link rel="stylesheet" href="css/checkout-form.css?v=20261029-formal-palette">
     <link rel="stylesheet" href="css/tour.css">
     <link rel="stylesheet" href="css/widget.css">
     <link rel="stylesheet" href="css/journey-reflection.css?v=20260625-journey-reflection-v1">
-    <link rel="stylesheet" href="css/day-plan.css?v=20261021-completion-note">
+    <link rel="stylesheet" href="css/day-plan.css?v=20261029-planner-guide">
     <link rel="stylesheet" href="css/dashboard-modern.css?v=20261021-performance-insights-stack">
     <link rel="stylesheet" href="css/dashboard-checkin-compact.css?v=20260906-modal-fix">
     <link rel="stylesheet" href="css/kanban.css?v=20260816-kanban-v1">
     <link rel="stylesheet" href="css/ai-center-float.css?v=20261001-ai-pc-gate">
-    <link rel="stylesheet" href="css/ui-foundation.css?v=20261021-ui-foundation-v6">
+    <link rel="stylesheet" href="css/ui-foundation.css?v=20261029-missed-task-prompt">
 
     <!-- PWA -->
     <link rel="manifest" href="manifest.json">
@@ -72,8 +72,9 @@
 
         const __localHostName = String(window.location.hostname || '').toLowerCase();
         const __isLocalDevHost = __localHostName === 'localhost' || __localHostName === '127.0.0.1' || __localHostName === '::1';
-        if (__isLocalDevHost && !sessionStorage.getItem('__app_local_sw_cleanup_done__')) {
-            sessionStorage.setItem('__app_local_sw_cleanup_done__', '1');
+        let __localSwCleanupDone = false;
+        try { __localSwCleanupDone = localStorage.getItem('__app_local_sw_cleanup_done__') === '1'; } catch (_) { /* storage may be unavailable */ }
+        if (__isLocalDevHost && !__localSwCleanupDone) {
             Promise.resolve().then(async () => {
                 try {
                     const cleanupTasks = [];
@@ -88,6 +89,7 @@
                         );
                     }
                     await Promise.all(cleanupTasks);
+                    localStorage.setItem('__app_local_sw_cleanup_done__', '1');
                     window.location.reload();
                 } catch (cleanupErr) {
                     console.warn('Local dev service worker cleanup failed:', cleanupErr);
@@ -148,6 +150,11 @@
                     <button class="desktop-toggle-btn" id="desktop-sidebar-toggle" onclick="window.app_toggleSidebar()"
                         title="Toggle Sidebar" aria-label="Toggle sidebar">
                         <i class="fa-solid fa-angles-left"></i>
+                    </button>
+                    <button class="desktop-toggle-btn sidebar-auto-hide-toggle" id="desktop-sidebar-autohide-toggle"
+                        type="button" aria-pressed="false" onclick="window.app_toggleSidebarAutoHide(event)"
+                        title="Turn on Auto-hide" aria-label="Turn on Auto-hide sidebar">
+                        <i class="fa-solid fa-thumbtack" aria-hidden="true"></i>
                     </button>
                 </div>
             </div>
@@ -281,6 +288,12 @@
             </div>
         </aside>
 
+        <button class="sidebar-auto-hide-handle" id="sidebar-auto-hide-handle" type="button"
+            aria-label="Show navigation" aria-expanded="false" title="Show navigation"
+            onclick="window.app_revealAutoHideSidebar(event)">
+            <i class="fa-solid fa-angles-right" aria-hidden="true"></i>
+        </button>
+
         <!-- Main Content -->
         <main class="main-content">
             <button class="icon-btn top-notification-btn desktop-notification-btn"
@@ -320,28 +333,28 @@
             </header>
 
             <div id="page-content" class="page-content">
-                <!-- Initial fallback login form (ensures smoke tests see login inputs before JS mounts) -->
-                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; padding: 2rem;">
-                    <div class="card" style="width: 100%; max-width: 400px; text-align: center;">
-                        <div class="logo-circle" style="width: 60px; height: 60px; margin: 0 auto 1.5rem auto;">
-                            <img src="https://ui-avatars.com/api/?name=CRWI&background=random" alt="Logo">
+                <!-- Initial fallback matches the mounted sign-in page to prevent a stale flash before JS initializes. -->
+                <div class="auth-page-shell">
+                    <div class="card auth-card">
+                        <div class="auth-brand-lockup">
+                            <div class="auth-brand-mark" aria-hidden="true"><i class="fa-solid fa-calendar-check"></i></div>
+                            <span class="auth-brand-name">CRWI <span>STAFF PORTAL</span></span>
                         </div>
-                        <h2 style="margin-bottom: 0.5rem;">CRWI Attendance</h2>
-                        <p class="text-muted" style="margin-bottom: 2rem;">Please sign in to continue</p>
-                        <form id="login-form" style="display: flex; flex-direction: column; gap: 1rem; text-align: left;">
-                            <div>
-                                <label style="font-size: 0.9rem; font-weight: 500; margin-bottom: 0.5rem; display: block;">Login ID / Email</label>
-                                <input type="text" name="username" placeholder="Enter Login ID" required style="width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem;">
+                        <h2 class="auth-stagger">Attendance</h2>
+                        <p class="text-muted auth-stagger auth-intro">Sign in to continue to your workspace.</p>
+                        <form id="login-form" class="auth-form">
+                            <div class="auth-stagger">
+                                <label for="login-username">Login ID or email</label>
+                                <input id="login-username" type="text" name="username" placeholder="Enter your login ID" autocomplete="username" required>
                             </div>
-                            <div>
-                                <label style="font-size: 0.9rem; font-weight: 500; margin-bottom: 0.5rem; display: block;">Password</label>
-                                <input type="password" name="password" placeholder="Enter Password" required style="width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem;">
+                            <div class="auth-stagger password-field-wrap">
+                                <label for="login-password">Password</label>
+                                <input id="login-password" type="password" name="password" placeholder="Enter your password" autocomplete="current-password" required>
+                                <button type="button" class="password-toggle" onclick="window.app_togglePasswordVisibility(this)" aria-label="Show password" title="Show password"><i class="fa-solid fa-eye"></i></button>
                             </div>
-                            <button type="submit" class="action-btn" style="margin-top: 1rem; width: 100%;">Sign In</button>
+                            <button type="submit" class="action-btn auth-submit auth-stagger">Sign in</button>
                         </form>
-                        <p style="margin-top: 2rem; font-size: 0.85rem; color: #6b7280;">
-                            Contact Admin for login credentials.
-                        </p>
+                        <p class="auth-support-note">Need access? Contact your administrator.</p>
                     </div>
                 </div>
             </div>
@@ -545,7 +558,7 @@
             } catch (err) { console.warn('master-sheet observer failed', err); }
         })();
     </script>
-    <script type="module" src="js/app.js?v=20261015-modular-v1"></script>
+    <script type="module" src="js/app.js?v=20261029-missed-task-prompt"></script>
 </body>
 
 </html>

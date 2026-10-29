@@ -294,6 +294,9 @@ if (typeof window !== 'undefined') {
         // Card mode toggles
         onAction('admin-toggle-card-mode', (el) => window.app_toggleAdminCardMode?.(el.dataset.cardId || '', el.dataset.mode || 'tile', el));
         onAction('admin-toggle-card-collapse', (el) => window.app_toggleAdminCardCollapse?.(el.dataset.cardId || '', el));
+        onAction('telegram-prompt-toggle', (el) => window.app_saveTelegramLinkPromptSetting?.(el.dataset.enabled === 'true')
+            .catch((error) => window.app_showSyncToast?.(error?.message || 'Could not update Telegram prompt setting.')));
+        onAction('telegram-prompt-preview', () => window.app_openTelegramLinkPromptPreview?.());
         document.addEventListener('keydown', (event) => {
             const header = event.target?.closest?.('.dashboard-admin-view .admin-card-collapse-trigger');
             if (!header || !['Enter', ' '].includes(event.key)) return;
@@ -1060,7 +1063,10 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         `;
     };
 
-    const siteAnnouncementSettings = await SiteAnnouncement.getSettings().catch(() => null);
+    const [siteAnnouncementSettings, telegramPromptSettings] = await Promise.all([
+        SiteAnnouncement.getSettings().catch(() => null),
+        window.AppDB?.get?.('settings', 'telegram_link_prompt').catch(() => null)
+    ]);
 
     const cards = [];
     const cardTemplates = {};
@@ -1139,6 +1145,43 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
             accentClass: 'admin-card-accent-amber',
             compactHtml: lateNotifHtml,
             expandedHtml: lateNotifExpandedHtml
+        });
+    }
+
+    if (window.app_hasPerm('users', 'admin')) {
+        const telegramStaff = allUsers.filter((user) => user
+            && user.status !== 'archived'
+            && user.isAdmin !== true
+            && String(user.role || '').toLowerCase() !== 'administrator');
+        const linkedTelegramStaff = telegramStaff.filter((user) => String(user.telegramChatId || '').trim());
+        const unlinkedTelegramStaff = telegramStaff
+            .filter((user) => !String(user.telegramChatId || '').trim())
+            .sort((a, b) => String(a.name || a.email || '').localeCompare(String(b.name || b.email || '')));
+        const telegramPromptEnabled = telegramPromptSettings?.enabled !== false;
+        const unlinkedList = unlinkedTelegramStaff.length
+            ? `<ul class="telegram-admin-unlinked-list">${unlinkedTelegramStaff.map((user) => `<li><span>${safeHtml(user.name || user.email || 'Unnamed staff')}</span><span>${safeHtml(user.email || '')}</span></li>`).join('')}</ul>`
+            : '<p class="telegram-admin-empty">All active staff accounts are linked.</p>';
+        const telegramControlHtml = `
+            <div class="telegram-admin-summary">
+                <div><strong>${linkedTelegramStaff.length}</strong><span>Linked</span></div>
+                <div><strong>${unlinkedTelegramStaff.length}</strong><span>Not linked</span></div>
+                <div><strong>${telegramStaff.length}</strong><span>Staff accounts</span></div>
+            </div>
+            <p class="telegram-admin-note">The login popout explains the three personal reminders: check-in at 9:15am, checkout at 6pm and a final checkout follow-up at 8pm. It appears only for unlinked staff, at most once per login session.</p>
+            <div class="telegram-admin-controls">
+                <span class="telegram-admin-status ${telegramPromptEnabled ? 'is-enabled' : 'is-disabled'}">Prompts ${telegramPromptEnabled ? 'on' : 'off'}</span>
+                <button type="button" class="action-btn ${telegramPromptEnabled ? 'secondary' : ''}" data-ts-action="telegram-prompt-toggle" data-enabled="${!telegramPromptEnabled}">${telegramPromptEnabled ? 'Turn prompts off' : 'Turn prompts on'}</button>
+                <button type="button" class="action-btn secondary" data-ts-action="telegram-prompt-preview">Preview popout</button>
+            </div>
+            <details class="telegram-admin-unlinked"><summary>View unlinked staff (${unlinkedTelegramStaff.length})</summary>${unlinkedList}</details>
+        `;
+        pushCard({
+            id: 'telegram-link-control',
+            title: 'Telegram Staff Links',
+            className: 'admin-section-card',
+            accentClass: 'admin-card-accent-blue',
+            compactHtml: telegramControlHtml,
+            expandedHtml: telegramControlHtml
         });
     }
 

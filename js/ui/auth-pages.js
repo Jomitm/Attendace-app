@@ -15,31 +15,30 @@ export function renderLogin() {
     } catch { /* ignore */ }
     return `
         <div class="auth-page-shell">
-            <div class="card auth-card" style="width: 100%; max-width: 400px; text-align: center;">
-                <div class="logo-circle" style="width: 60px; height: 60px; margin: 0 auto 1.5rem auto;">
-                    <img src="https://ui-avatars.com/api/?name=CRWI&background=random" alt="Logo">
+            <div class="card auth-card">
+                <div class="auth-brand-lockup">
+                    <div class="auth-brand-mark" aria-hidden="true"><i class="fa-solid fa-calendar-check"></i></div>
+                    <span class="auth-brand-name">CRWI <span>STAFF PORTAL</span></span>
                 </div>
-                <h2 class="auth-stagger" style="margin-bottom: 0.5rem;">CRWI Attendance</h2>
+                <h2 class="auth-stagger">Attendance</h2>
                 ${noticeHtml}
-                <p class="text-muted auth-stagger" style="margin-bottom: 2rem;">Please sign in to continue</p>
+                <p class="text-muted auth-stagger auth-intro">Sign in to continue to your workspace.</p>
                 
-                <form id="login-form" style="display: flex; flex-direction: column; gap: 1rem; text-align: left;">
+                <form id="login-form" class="auth-form">
                     <div class="auth-stagger">
-                        <label style="font-size: 0.9rem; font-weight: 500; margin-bottom: 0.5rem; display: block;">Login ID / Email</label>
-                        <input type="text" name="username" placeholder="Enter Login ID" required style="width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem;">
+                        <label for="login-username">Login ID or email</label>
+                        <input id="login-username" type="text" name="username" placeholder="Enter your login ID" autocomplete="username" required>
                     </div>
                     <div class="auth-stagger password-field-wrap">
-                        <label style="font-size: 0.9rem; font-weight: 500; margin-bottom: 0.5rem; display: block;">Password</label>
-                        <input type="password" name="password" placeholder="Enter Password" autocomplete="current-password" required style="width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 0.5rem;">
+                        <label for="login-password">Password</label>
+                        <input id="login-password" type="password" name="password" placeholder="Enter your password" autocomplete="current-password" required>
                         <button type="button" class="password-toggle" onclick="window.app_togglePasswordVisibility(this)" aria-label="Show password" title="Show password"><i class="fa-solid fa-eye"></i></button>
                     </div>
                     
-                    <button type="submit" class="action-btn auth-stagger" style="margin-top: 1rem; width: 100%;">Sign In</button>
+                    <button type="submit" class="action-btn auth-submit auth-stagger">Sign in</button>
                 </form>
                 
-                <p style="margin-top: 2rem; font-size: 0.85rem; color: #6b7280;">
-                    Contact Admin for login credentials.
-                </p>
+                <p class="auth-support-note">Need access? Contact your administrator.</p>
             </div>
         </div>
      `;

@@ -2250,3 +2250,65 @@
     resize: vertical;
     box-sizing: border-box;
 }
+.plan-editor-field-hint { margin: -.22rem 0 .4rem; color: #718096; font-size: .7rem; line-height: 1.4; }
+.plan-editor-task-field > label { display: block; margin: 0 0 .42rem; color: #2f3f55; font-size: .82rem; font-weight: 700; }
+.plan-editor-task-field .plan-editor-field-hint { margin: .35rem 0 0; }
+
+.plan-editor-guide {
+    display: flex;
+    align-items: flex-start;
+    gap: .8rem;
+    padding: .9rem 1rem;
+    border: 1px solid #dfe7f0;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #f5f8fc, #fff);
+    color: #26364d;
+}
+.plan-editor-guide-icon {
+    display: grid;
+    flex: 0 0 36px;
+    width: 36px;
+    height: 36px;
+    place-items: center;
+    border-radius: 11px;
+    background: #e8eff9;
+    color: #3f63a8;
+}
+.plan-editor-guide strong { display: block; margin: .05rem 0 .2rem; font-size: .86rem; }
+.plan-editor-guide p { margin: 0; color: #64748b; font-size: .78rem; line-height: 1.45; }
+.plan-editor-readiness {
+    display: grid;
+    gap: .65rem;
+    padding: .85rem 1rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    background: #fff;
+}
+.plan-editor-readiness-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: .3rem .7rem; }
+.plan-editor-readiness-head > div { display: flex; align-items: baseline; gap: .55rem; }
+.plan-editor-readiness-head strong { color: #26364d; font-size: .82rem; }
+.plan-editor-readiness-count { color: #64748b; font-size: .74rem; font-weight: 650; }
+.plan-editor-readiness-hint { color: #64748b; font-size: .72rem; }
+.plan-editor-readiness-meter { height: 5px; overflow: hidden; border-radius: 99px; background: #edf1f6; }
+.plan-editor-readiness-meter > span { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #3f63a8, #6081bb); transition: width .2s ease; }
+.plan-editor-readiness-items { display: flex; flex-wrap: wrap; gap: .4rem; }
+.plan-editor-readiness-items > span { display: inline-flex; align-items: center; gap: .32rem; padding: .32rem .52rem; border: 1px solid #e5eaf1; border-radius: 999px; background: #f8fafc; color: #65748a; font-size: .7rem; font-weight: 650; }
+.plan-editor-readiness-items > span.is-complete { border-color: #d5e7dc; background: #eff7f1; color: #337354; }
+.plan-editor-readiness-items > span.is-complete i { color: #337354; }
+[data-theme="dark"] .plan-editor-guide,
+[data-theme="dark"] .plan-editor-readiness { border-color: #3a4a5e; background: #1d2b3c; color: #e7edf4; }
+[data-theme="dark"] .plan-editor-guide-icon { background: #253650; color: #9bb4d8; }
+[data-theme="dark"] .plan-editor-guide p,
+[data-theme="dark"] .plan-editor-readiness-count,
+[data-theme="dark"] .plan-editor-readiness-hint { color: #b2bfce; }
+[data-theme="dark"] .plan-editor-readiness-head strong { color: #e7edf4; }
+[data-theme="dark"] .plan-editor-task-field > label { color: #e7edf4; }
+[data-theme="dark"] .plan-editor-field-hint { color: #b2bfce; }
+[data-theme="dark"] .plan-editor-readiness-meter { background: #344355; }
+[data-theme="dark"] .plan-editor-readiness-items > span { border-color: #3a4a5e; background: #202e3e; color: #b2bfce; }
+[data-theme="dark"] .plan-editor-readiness-items > span.is-complete { border-color: #355440; background: #20372f; color: #9cc8aa; }
+@media (max-width: 600px) {
+    .plan-editor-guide,.plan-editor-readiness { padding: .75rem; }
+    .plan-editor-readiness-items { gap: .32rem; }
+    .plan-editor-readiness-items > span { font-size: .66rem; }
+}

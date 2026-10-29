@@ -72,11 +72,57 @@ export class Auth {
         return window.AppFirebaseAuth || (typeof firebase !== 'undefined' ? firebase.auth() : null);
     }
 
+    async _waitForFirebaseUser(auth = this._getFirebaseAuth()) {
+        if (!auth) return null;
+        if (auth.currentUser) return auth.currentUser;
+        if (typeof auth.onAuthStateChanged !== 'function') return null;
+
+        return new Promise((resolve) => {
+            let unsubscribe = null;
+            let settled = false;
+            const finish = (user) => {
+                if (settled) return;
+                settled = true;
+                if (typeof unsubscribe === 'function') unsubscribe();
+                resolve(user || null);
+            };
+            try {
+                unsubscribe = auth.onAuthStateChanged(finish, (error) => {
+                    console.warn('Firebase auth state could not be restored:', error);
+                    finish(null);
+                });
+                if (settled && typeof unsubscribe === 'function') unsubscribe();
+            } catch (error) {
+                console.warn('Firebase auth state could not be restored:', error);
+                finish(null);
+            }
+        });
+    }
+
     async init() {
         await AppDB.init();
 
         const storedId = localStorage.getItem(this.sessionKey);
         if (storedId) {
+            // Firebase restores its persisted auth state asynchronously. Wait
+            // for that first state before reading a profile from Firestore;
+            // the cached app session alone is not database authorization.
+            const firebaseAuth = this._getFirebaseAuth();
+            const firebaseUser = await this._waitForFirebaseUser(firebaseAuth);
+            if (!firebaseUser || String(firebaseUser.uid || '') !== String(storedId)) {
+                if (firebaseUser && typeof firebaseAuth?.signOut === 'function') {
+                    try { await firebaseAuth.signOut(); } catch { /* ignore stale auth cleanup */ }
+                }
+                this.currentUser = null;
+                this.localToken = null;
+                this.stopHeartbeat();
+                this.stopCurrentUserSync();
+                this._clearSessionExpiry();
+                localStorage.removeItem(this.sessionKey);
+                localStorage.removeItem(this.deviceTokenKey);
+                return;
+            }
+
             this.currentUser = await AppDB.get('users', storedId);
             if (this.currentUser) {
                 this.localToken = localStorage.getItem(this.deviceTokenKey) || null;
@@ -550,6 +596,7 @@ export class Auth {
             try { await this._releaseDeviceSession(sessionId, localToken); }
             catch (err) { console.warn('Failed to release device session on logout:', err); }
         }
+        window.AppActivity?.stopCommandListener?.();
         // Sign out from Firebase Auth
         const auth = this._getFirebaseAuth();
         if (auth) {
@@ -580,6 +627,7 @@ export class Auth {
                 console.warn('Failed to release expired device session:', err);
             });
         }
+        window.AppActivity?.stopCommandListener?.();
         // Sign out from Firebase Auth
         const auth = this._getFirebaseAuth();
         if (auth) {

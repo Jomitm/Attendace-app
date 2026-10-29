@@ -1732,10 +1732,12 @@ export function renderStatsCard(title, subtitle, statsObj, statType = '') {
         ? `<span class="dashboard-penalty-badge">Penalty Applies</span>`
         : '';
     const dataAttr = statType ? ` data-stats-type="${safeHtml(statType)}"` : '';
+    const periodLabel = statType === 'yearly' ? 'YEARLY OVERVIEW' : 'MONTHLY OVERVIEW';
     return `
         <div class="card dashboard-stats-card" ${dataAttr} role="button" tabindex="0" aria-label="Open ${safeHtml(title)} details">
             <div class="dashboard-stats-card-head">
                 <div>
+                    <span class="dashboard-stats-period-label">${periodLabel}</span>
                     <h4 class="dashboard-stats-card-title">${safeHtml(title)}</h4>
                     <span class="dashboard-stats-card-subtitle">${safeHtml(subtitle)}</span>
                 </div>
@@ -1753,6 +1755,7 @@ export function renderStatsCard(title, subtitle, statsObj, statType = '') {
                  </div>
             </div>
 
+            <div class="dashboard-breakdown-heading"><span>Attendance breakdown</span><span>BY STATUS</span></div>
             <div class="dashboard-breakdown-grid">
                 ${renderBreakdown(statsObj.breakdown)}
             </div>

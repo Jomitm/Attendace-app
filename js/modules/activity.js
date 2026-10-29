@@ -16,13 +16,19 @@ export class ActivityMonitor {
 
         this.handleActivity = this.handleActivity.bind(this);
         this.tick = this.tick.bind(this);
-
-        // Start listener immediately if DB is ready
-        if (AppDB) this.initCommandListener();
+        this.handleUserSync = () => this.initCommandListener();
+        if (typeof window !== 'undefined') {
+            window.addEventListener('app:user-sync', this.handleUserSync);
+        }
     }
 
     initCommandListener() {
         if (this.commandListener) return; // Already running
+
+        // system_commands is admin-only in Firestore. Do not create a denied
+        // listener while signed out or for staff and permission-scoped admins.
+        const user = AppAuth.getUser();
+        if (!user?.isAdmin) return;
 
         if (AppDB && AppDB.listen) {
             console.log("Activity Monitor: Initializing System Command Listener...");
@@ -51,6 +57,11 @@ export class ActivityMonitor {
                 }
             });
         }
+    }
+
+    stopCommandListener() {
+        if (typeof this.commandListener === 'function') this.commandListener();
+        this.commandListener = null;
     }
 
     async performSilentAudit(slot) {
