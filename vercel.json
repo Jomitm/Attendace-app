@@ -95,19 +95,11 @@
             "schedule": "30 2 * * 1-6"
         },
         {
-            "path": "/api/telegram-scheduler?task=forgot_checkin",
-            "schedule": "0 4 * * 1-6"
-        },
-        {
-            "path": "/api/telegram-scheduler?task=jomit_team_10am",
+            "path": "/api/telegram-scheduler?task=team_digest_10am",
             "schedule": "30 4 * * 1-6"
         },
         {
-            "path": "/api/telegram-scheduler?task=forgot_checkout",
-            "schedule": "30 12 * * 1-6"
-        },
-        {
-            "path": "/api/telegram-scheduler?task=jomit_team_6pm",
+            "path": "/api/telegram-scheduler?task=team_digest_6pm",
             "schedule": "30 12 * * 1-6"
         }
     ]
