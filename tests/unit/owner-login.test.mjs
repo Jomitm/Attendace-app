@@ -111,7 +111,7 @@ describe('owner-only login', () => {
         assert.ok(result && result.serverError);
     });
 
-    it('allows the owner to add a second device and schedules the older session for 10 PM', async () => {
+    it('signs out the owner previous device when signing in here', async () => {
         firestoreUsers.set('users/u_jomit', {
             activeSessionToken: 'tok_jomit',
             activeSessionStartedAt: Date.now() - 1000
@@ -126,11 +126,9 @@ describe('owner-only login', () => {
         assert.notEqual(AppAuth.localToken, 'tok_jomit', 'the second device gets its own token');
         assert.equal(AppAuth.currentUser.id, 'u_jomit');
         const sessions = firestoreUsers.get('users/u_jomit').activeSessions;
-        assert.equal(sessions.length, 2);
-        assert.equal(sessions[0].token, 'tok_jomit');
-        assert.ok(sessions[0].logoutAt > Date.now());
-        assert.equal(sessions[1].token, AppAuth.localToken);
-        assert.equal(sessions[1].logoutAt, null);
+        assert.equal(sessions.length, 1);
+        assert.equal(sessions[0].token, AppAuth.localToken);
+        assert.equal(sessions[0].logoutAt, null);
     });
 
     it('establishes a token for the owner on first login', async () => {

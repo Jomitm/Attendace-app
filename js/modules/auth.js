@@ -246,7 +246,7 @@ export class Auth {
         try {
             registered = isLocalTestingHost()
                 ? { ok: true, sessions: user.activeSessions || [], session: { token, signedInAt: Date.now(), logoutAt: null } }
-                : await this._registerDeviceSession(user, token);
+                : await this._registerDeviceSession(user, token, { replaceExisting: true });
         } catch (err) {
             console.error('Failed to register device session:', err);
             const auth = this._getFirebaseAuth();
@@ -276,7 +276,7 @@ export class Auth {
         return this._establishSession(user);
     }
 
-    async _registerDeviceSession(user, token) {
+    async _registerDeviceSession(user, token, { replaceExisting = false } = {}) {
         const firestore = window.AppFirestore || AppDB.db;
         if (!firestore?.runTransaction || !user?.id || !token) {
             throw new Error('Firestore session storage is unavailable.');
@@ -308,6 +308,11 @@ export class Auth {
             if (existing?.logoutAt && existing.logoutAt <= now) return { ok: false, expired: true };
             sessions = sessions.filter((session) => session.token === token || !session.logoutAt || session.logoutAt > now);
 
+            // An explicit sign-in is a user-requested takeover: replace every
+            // older device session immediately. init() omits this option so a
+            // page refresh keeps the already-established session intact.
+            if (replaceExisting) sessions = sessions.filter((session) => session.token === token);
+
             let current = sessions.find((session) => session.token === token) || null;
             if (!current) {
                 const latestStart = sessions.reduce((max, session) => Math.max(max, session.signedInAt), 0);
@@ -316,9 +321,8 @@ export class Auth {
             }
 
             sessions.sort((a, b) => a.signedInAt - b.signedInAt || a.token.localeCompare(b.token));
-            // A new login replaces the oldest device once the account reaches
-            // its two-device limit. Its user document listener will observe
-            // the missing token and sign that device out.
+            // Keep refresh-driven registration bounded even if stale records
+            // from older app versions remain in the document.
             if (sessions.length > MAX_DEVICE_SESSIONS) {
                 sessions.splice(0, sessions.length - MAX_DEVICE_SESSIONS);
             }

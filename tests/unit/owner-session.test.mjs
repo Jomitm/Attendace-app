@@ -73,7 +73,7 @@ function mockFetch(user) {
     };
 }
 
-describe('two-device session registration', () => {
+describe('device session registration', () => {
     it('does not register or release a device session on localhost', async () => {
         window.location.hostname = 'localhost';
         firestoreUsers.set('users/u_alice', {
@@ -93,7 +93,7 @@ describe('two-device session registration', () => {
         assert.equal(firestoreUsers.get('users/u_alice').activeSessions, undefined);
     });
 
-    it('allows a normal user to keep the old session until the 10 PM cutoff', async () => {
+    it('signs out the previous device when a normal user signs in here', async () => {
         firestoreUsers.set('users/u_alice', {
             activeSessionToken: 'tok_alice',
             activeSessionStartedAt: Date.now() - 1000
@@ -107,14 +107,12 @@ describe('two-device session registration', () => {
         const result = await AppAuth.login('alice', 'pass');
         assert.equal(result, true);
         const sessions = firestoreUsers.get('users/u_alice').activeSessions;
-        assert.equal(sessions.length, 2);
-        assert.equal(sessions[0].token, 'tok_alice');
-        assert.ok(sessions[0].logoutAt > Date.now());
-        assert.equal(sessions[1].token, AppAuth.localToken);
-        assert.equal(sessions[1].logoutAt, null);
+        assert.equal(sessions.length, 1);
+        assert.equal(sessions[0].token, AppAuth.localToken);
+        assert.equal(sessions[0].logoutAt, null);
     });
 
-    it('applies the same independent-device behavior to the owner account', async () => {
+    it('applies the same sign-out-previous-device behavior to the owner account', async () => {
         firestoreUsers.set('users/u_jomit', {
             activeSessionToken: 'tok_jomit',
             activeSessionStartedAt: Date.now() - 1000
@@ -129,7 +127,7 @@ describe('two-device session registration', () => {
         assert.equal(result, true, 'owner should log in without a takeover prompt');
         assert.notEqual(AppAuth.localToken, 'tok_jomit', 'the owner device receives its own token');
         assert.equal(AppAuth.currentUser.id, 'u_jomit');
-        assert.equal(firestoreUsers.get('users/u_jomit').activeSessions.length, 2);
+        assert.equal(firestoreUsers.get('users/u_jomit').activeSessions.length, 1);
     });
 
     it('the owner logging in for the first time still creates a token', async () => {
@@ -144,7 +142,7 @@ describe('two-device session registration', () => {
         assert.equal(savedUser.activeSessions[0].token, AppAuth.localToken);
     });
 
-    it('signs out the oldest device when a third device logs in', async () => {
+    it('replaces all previous devices when a new device signs in', async () => {
         firestoreUsers.set('users/u_alice', {
             activeSessions: [
                 { token: 'older-device', signedInAt: Date.now() - 2000, logoutAt: Date.now() + 100000 },
@@ -156,10 +154,9 @@ describe('two-device session registration', () => {
         const result = await AppAuth.login('alice', 'pass');
         assert.equal(result, true);
         const sessions = firestoreUsers.get('users/u_alice').activeSessions;
-        assert.equal(sessions.length, 2);
-        assert.deepEqual(sessions.map((session) => session.token), ['newer-device', AppAuth.localToken]);
-        assert.equal(sessions[0].logoutAt > Date.now(), true);
-        assert.equal(sessions[1].logoutAt, null);
+        assert.equal(sessions.length, 1);
+        assert.deepEqual(sessions.map((session) => session.token), [AppAuth.localToken]);
+        assert.equal(sessions[0].logoutAt, null);
         assert.equal(AppAuth.currentUser.id, 'u_alice');
     });
 });
