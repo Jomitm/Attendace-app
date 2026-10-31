@@ -1,3 +1,4 @@
+import { beginPageUpdate, refreshPage } from './utils/page-updates.js';
 import { AppConfig } from './config.js';
 import './modules/auth.js';
 import './modules/db.js';
@@ -8,6 +9,7 @@ import './modules/budget-heads.js';
 import './modules/system-dialog.js';
 import { escapeHtml as app_escapeHtml, escapeJsSingleQuote as app_escapeJsSingleQuote, escapeDialogHtml } from './utils/html-escape.js';
 import { getLocalISO } from './utils/date-helpers.js';
+import { selectAttendanceLog } from './utils/attendance-sheet.js';
 import { staffProfileSnapshot, saveStaffAccountChanges } from './utils/staff-account-edit.js';
 import { computeDayLoad, SPAN_HOURS_PER_DAY, diffDaysStr, addDaysStr, parseDurationPhrase } from './utils/span-planning.js';
 import AppUI from './ui.js';
@@ -897,7 +899,7 @@ const handleUserSyncEvent = (ev) => {
         try {
             const page = document.getElementById('page-content');
             if (page) {
-                page.innerHTML = await AppUI.renderDashboard();
+                await refreshPage(() => AppUI.renderDashboard({ preserveView: true }), { root: page, route: 'dashboard' });
                 if (window.setupDashboardEvents) window.setupDashboardEvents();
             }
             if (shouldShowCrossDeviceToast()) window.app_showSyncToast('Status updated from another device.');
@@ -1047,7 +1049,7 @@ window.app_submitEvent = async (e) => {
         document.getElementById('event-modal')?.remove();
         // Refresh Dashboard
         const contentArea = document.getElementById('page-content');
-        contentArea.innerHTML = await AppUI.renderDashboard();
+        await refreshPage(() => AppUI.renderDashboard({ preserveView: true }), { root: contentArea, route: 'dashboard' });
         setupDashboardEvents();
     } catch (err) {
         alert("Error: " + err.message);
@@ -1161,7 +1163,9 @@ async function init() {
 }
 
 // Router
-async function router() {
+async function router(options = {}) {
+    const refreshOnly = options?.refresh === true;
+    const routeRequest = beginPageUpdate();
     const user = window.AppAuth.getUser();
     const rawHash = window.location.hash.slice(1) || 'dashboard';
     const isDashboardSectionRoute = rawHash.startsWith('dashboard-section/');
@@ -1229,7 +1233,7 @@ async function router() {
     }
     app_toggleImpersonationBanner();
     // Clear mobile specific states on route change
-    toggleMobileSidebar(false);
+    if (!refreshOnly) toggleMobileSidebar(false);
 
     if (sidebar) sidebar.style.display = '';
     if (mobileHeader) mobileHeader.style.display = '';
@@ -1292,7 +1296,7 @@ async function router() {
         }
 
         // Hide all open modals (except checkout-modal) on route change
-        if (modalContainer) {
+        if (modalContainer && !refreshOnly) {
             modalContainer.querySelectorAll('.modal-overlay:not(.gm-hidden)').forEach((m) => {
                 if (m.id !== 'checkout-modal') {
                     m.style.display = 'none';
@@ -1302,11 +1306,12 @@ async function router() {
         }
 
         // Show skeleton loading state immediately
-        if (contentArea) {
+        if (contentArea && !refreshOnly) {
             const { showPageSkeleton } = await import('./ui/page-skeletons.js');
             const skeleton = hash === 'dashboard'
                 ? (await import('./ui/dashboard-skeletons.js')).renderDashboardSkeletons()
                 : showPageSkeleton(hash);
+            if (!routeRequest?.current()) return;
             if (skeleton) {
                 contentArea.innerHTML = skeleton;
             } else {
@@ -1315,84 +1320,85 @@ async function router() {
         }
 
         if (hash === 'dashboard') {
-            contentArea.innerHTML = await AppUI.renderDashboard();
+            if (!await refreshPage(() => AppUI.renderDashboard({ preserveView: refreshOnly }), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
             setupDashboardEvents();
         } else if (hash === 'dashboard-section') {
-            contentArea.innerHTML = await AppUI.renderDashboardSectionPage(dashboardSectionKey || 'worklog');
+            if (!await refreshPage(() => AppUI.renderDashboardSectionPage(dashboardSectionKey || 'worklog'), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
             if (window.AppUI?.initDashboardSectionPage) {
                 window.AppUI.initDashboardSectionPage(dashboardSectionKey || 'worklog');
             }
         } else if (hash === 'team-activities') {
-            contentArea.innerHTML = await AppUI.renderTeamActivitiesPage();
+            if (!await refreshPage(() => AppUI.renderTeamActivitiesPage(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
             if (window.app_initTeamActivities) {
                 await window.app_initTeamActivities();
             }
         } else if (hash === 'staff-directory') {
-            contentArea.innerHTML = await AppUI.renderStaffDirectoryPage();
+            if (!await refreshPage(() => AppUI.renderStaffDirectoryPage(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
         } else if (hash === 'policies') {
             if (window.AppPolicies && typeof window.AppPolicies.render === 'function') {
-                contentArea.innerHTML = await window.AppPolicies.render();
+                if (!await refreshPage(() => window.AppPolicies.render(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
             } else {
                 contentArea.innerHTML = `<div style="padding:1rem; color:#b91c1c;">Policies module failed to load.</div>`;
             }
         } else if (hash === 'annual-plan') {
-            contentArea.innerHTML = await AppUI.renderAnnualPlan();
+            if (!await refreshPage(() => AppUI.renderAnnualPlan(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
         } else if (hash === 'birthday-calendar') {
             if (!window.app_canManageBirthdays(user)) {
                 window.location.hash = 'dashboard';
                 return;
             }
-            contentArea.innerHTML = await AppUI.renderBirthdayCalendar();
+            if (!await refreshPage(() => AppUI.renderBirthdayCalendar(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
         } else if (hash === 'timesheet') {
-            contentArea.innerHTML = await AppUI.renderTimesheet();
+            if (!await refreshPage(() => AppUI.renderTimesheet(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
         } else if (hash === 'profile') {
-            contentArea.innerHTML = await AppUI.renderProfile();
+            if (!await refreshPage(() => AppUI.renderProfile(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
         } else if (hash === 'salary') {
             if (!window.app_hasPerm('reports', 'view', user)) {
                 window.location.hash = 'dashboard';
                 return;
             }
-            contentArea.innerHTML = await AppUI.renderSalaryProcessing ? await AppUI.renderSalaryProcessing() : await AppUI.renderSalary();
+            if (!await refreshPage(() => AppUI.renderSalaryProcessing ? AppUI.renderSalaryProcessing() : AppUI.renderSalary(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
         } else if (hash === 'policy-test') {
             if (!window.app_hasPerm('policies', 'view', user)) {
                 window.location.hash = 'dashboard';
                 return;
             }
-            contentArea.innerHTML = await AppUI.renderPolicyTest();
+            if (!await refreshPage(() => AppUI.renderPolicyTest(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
         } else if (hash === 'master-sheet') {
-            const canViewAttendance = window.app_hasPerm('attendance', 'view', user) || window.app_canManageAttendanceSheet(user);
+            const canViewAttendance = !!user; // The sheet limits staff without team permission to their own records.
             if (!canViewAttendance) {
                 window.location.hash = 'dashboard';
                 return;
             }
-            contentArea.innerHTML = await AppUI.renderMasterSheet();
+            if (!await refreshPage(() => AppUI.renderMasterSheet(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
         } else if (hash === 'minutes') {
-            contentArea.innerHTML = await AppUI.renderMinutes();
+            if (!await refreshPage(() => AppUI.renderMinutes(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
             startMinutesRealtimeListener();
         } else if (hash === 'letter-pad') {
             if (!window.app_canAccessLetterPad(user)) {
                 window.location.hash = 'dashboard';
                 return;
             }
-            contentArea.innerHTML = await AppUI.renderLetterPad();
+            if (!await refreshPage(() => AppUI.renderLetterPad(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
         } else if (hash === 'admin') {
             if (!window.app_canSeeAdminPanel(user)) {
                 window.location.hash = 'dashboard';
                 return;
             }
-            contentArea.innerHTML = await AppUI.renderAdmin();
+            if (!await refreshPage(() => AppUI.renderAdmin(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
             window.AppAnalytics.initAdminCharts();
             startAdminRealtimeListener();
         } else if (hash === 'kanban') {
-            contentArea.innerHTML = await AppUI.renderKanbanBoard();
+            if (!await refreshPage(() => AppUI.renderKanbanBoard(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
             await AppUI.initKanbanBoard();
             if (typeof AppUI.startKanbanRealtimeListener === 'function') {
                 AppUI.startKanbanRealtimeListener();
             }
         } else if (hash === 'ai-center') {
-            contentArea.innerHTML = await AppUI.renderAICenter();
+            if (!await refreshPage(() => AppUI.renderAICenter(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
             await AppUI.initAICenter();
         }
+        if (!routeRequest?.current()) return;
         void window.app_checkMissedTaskPrompt?.('login');
         void window.app_checkTelegramLinkPrompt?.('login');
         await window.app_syncBirthdayReminders?.();
@@ -1405,7 +1411,7 @@ async function router() {
         await window.app_maybeOpenBirthdayPopup?.();
     } catch (e) {
         console.error("Render Error:", e);
-        contentArea.innerHTML = `<div style="text-align:center; color:red; padding:2rem;">Error loading page: ${e.message}</div>`;
+        if (routeRequest?.current()) contentArea.innerHTML = `<div style="text-align:center; color:red; padding:2rem;">Error loading page: ${e.message}</div>`;
     }
 }
 
@@ -1530,6 +1536,10 @@ function startAdminRealtimeListener() {
     const refreshAdminUI = async () => {
         const currentHash = window.location.hash.slice(1);
         if (currentHash !== 'admin') return;
+        if (window.app_refreshAdminPage) {
+            await window.app_refreshAdminPage();
+            return;
+        }
 
         const openModal = document.querySelector('.modal-overlay[style*="display: flex"], .modal[style*="display: flex"]');
         if (!openModal) {
@@ -1540,7 +1550,7 @@ function startAdminRealtimeListener() {
                 const startDate = document.getElementById('audit-start')?.value;
                 const endDate = document.getElementById('audit-end')?.value;
 
-                contentArea.innerHTML = await AppUI.renderAdmin(startDate, endDate);
+                await refreshPage(() => AppUI.renderAdmin(startDate, endDate), { root: contentArea, route: 'admin' });
                 if (window.AppAnalytics) window.AppAnalytics.initAdminCharts();
             }
         } else {
@@ -1585,39 +1595,40 @@ function startMinutesRealtimeListener() {
         minutesListenerUnsubscribe = null;
     }
 
+    let stopped = false;
+    const flush = async () => {
+        minutesRealtimeDebounceTimer = null;
+        if (stopped || !minutesRealtimePending) return;
+        if ((window.location.hash.slice(1) || 'dashboard') !== 'minutes') {
+            minutesRealtimePending = false;
+            return;
+        }
+        if (document.getElementById('minute-detail-modal') || window.AppMinutes?.isMinutesDirtyState) {
+            // Unchanged polls are suppressed; retain the change until editing ends.
+            minutesRealtimeDebounceTimer = setTimeout(flush, 1000);
+            return;
+        }
+        minutesRealtimePending = false;
+        try { await refreshPage(() => AppUI.renderMinutes(), { route: 'minutes' }); }
+        catch (error) { console.warn('Minutes refresh failed:', error); }
+    };
     const debouncedRefresh = () => {
+        if (stopped) return;
         minutesRealtimePending = true;
         if (minutesRealtimeDebounceTimer) clearTimeout(minutesRealtimeDebounceTimer);
-        minutesRealtimeDebounceTimer = setTimeout(async () => {
-            minutesRealtimeDebounceTimer = null;
-            if (!minutesRealtimePending) return;
-            minutesRealtimePending = false;
-
-            const currentHash = window.location.hash.slice(1) || 'dashboard';
-            if (currentHash !== 'minutes') return;
-            if (document.getElementById('minute-detail-modal')) return;
-
-            if (typeof window.AppMinutes !== 'undefined' && window.AppMinutes.isMinutesDirtyState) {
-                return;
-            }
-
-            const page = document.getElementById('page-content');
-            if (!page) return;
-            page.innerHTML = await AppUI.renderMinutes();
-        }, 300);
+        minutesRealtimeDebounceTimer = setTimeout(flush, 300);
     };
-
     const flags = (AppConfig && AppConfig.READ_OPT_FLAGS) || {};
-    if (flags.FF_READ_OPT_TARGETED_REALTIME && window.AppDB.listenQuery) {
-        minutesListenerUnsubscribe = window.AppDB.listenQuery(
-            'minutes',
-            [],
-            { orderBy: [{ field: 'date', direction: 'desc' }], limit: 150 },
-            debouncedRefresh
-        );
-    } else {
-        minutesListenerUnsubscribe = window.AppDB.listen('minutes', debouncedRefresh);
-    }
+    const unsubscribe = flags.FF_READ_OPT_TARGETED_REALTIME && window.AppDB.listenQuery
+        ? window.AppDB.listenQuery('minutes', [], { orderBy: [{ field: 'date', direction: 'desc' }], limit: 150 }, debouncedRefresh)
+        : window.AppDB.listen('minutes', debouncedRefresh);
+    minutesListenerUnsubscribe = () => {
+        stopped = true;
+        minutesRealtimePending = false;
+        if (minutesRealtimeDebounceTimer) clearTimeout(minutesRealtimeDebounceTimer);
+        minutesRealtimeDebounceTimer = null;
+        if (typeof unsubscribe === 'function') unsubscribe();
+    };
 }
 
 // --- Event Handlers ---
@@ -3842,7 +3853,7 @@ window.app_handleTagResponse = async (planId, taskIndex, response, notifIdx) => 
                 }
                 const contentArea = document.getElementById('page-content');
                 if (contentArea) {
-                    contentArea.innerHTML = await AppUI.renderDashboard();
+                    await refreshPage(() => AppUI.renderDashboard({ preserveView: true }), { root: contentArea, route: 'dashboard' });
                     if (window.setupDashboardEvents) window.setupDashboardEvents();
                 }
                 alert(`You have ${response} the request.`);
@@ -3918,7 +3929,7 @@ window.app_handleTagResponse = async (planId, taskIndex, response, notifIdx) => 
         }
         const contentArea = document.getElementById('page-content');
         if (contentArea) {
-            contentArea.innerHTML = await AppUI.renderDashboard();
+            await refreshPage(() => AppUI.renderDashboard({ preserveView: true }), { root: contentArea, route: 'dashboard' });
             if (window.setupDashboardEvents) window.setupDashboardEvents();
         }
 
@@ -3935,13 +3946,8 @@ window.app_changeCalMonth = (delta) => {
     if (newMonth < 0) { window.app_calYear--; newMonth = 11; }
     if (newMonth > 11) { window.app_calYear++; newMonth = 0; }
     window.app_calMonth = newMonth;
-    // Refresh Dashboard
-    AppUI.renderDashboard().then(async html => {
-        const contentArea = document.getElementById('page-content');
-        contentArea.innerHTML = html;
-        // Re-setup dashboard specific events (like attendance button)
-        setupDashboardEvents();
-    });
+    void refreshPage(() => AppUI.renderDashboard({ preserveView: true }), { route: 'dashboard', after: setupDashboardEvents })
+        .catch(error => console.warn('Calendar refresh failed:', error));
 };
 
 window.app_exportCalendar = async () => {
@@ -3970,6 +3976,7 @@ window.app_newMeeting = async () => {
         date: new Date().toISOString().split('T')[0],
         minutes: '',
         author: user.name,
+        createdById: user.id,
         timestamp: new Date().toISOString()
     };
 
@@ -3977,13 +3984,13 @@ window.app_newMeeting = async () => {
     window._selectedMeetingId = newMeeting.id;
 
     const contentArea = document.getElementById('page-content');
-    contentArea.innerHTML = await AppUI.renderMinutes();
+    await refreshPage(() => AppUI.renderMinutes(), { root: contentArea, route: 'minutes' });
 };
 
 window.app_selectMeeting = async (id) => {
     window._selectedMeetingId = id;
     const contentArea = document.getElementById('page-content');
-    contentArea.innerHTML = await AppUI.renderMinutes();
+    await refreshPage(() => AppUI.renderMinutes(), { root: contentArea, route: 'minutes' });
 };
 
 window.app_saveMeeting = async () => {
@@ -4010,7 +4017,7 @@ window.app_saveMeeting = async () => {
     await window.AppDB.put('meetings', meeting);
 
     const contentArea = document.getElementById('page-content');
-    contentArea.innerHTML = await AppUI.renderMinutes();
+    await refreshPage(() => AppUI.renderMinutes(), { root: contentArea, route: 'minutes' });
 
     alert('Meeting minutes saved successfully!');
 };
@@ -4022,7 +4029,7 @@ window.app_deleteMeeting = async (id) => {
     window._selectedMeetingId = null;
 
     const contentArea = document.getElementById('page-content');
-    contentArea.innerHTML = await AppUI.renderMinutes();
+    await refreshPage(() => AppUI.renderMinutes(), { root: contentArea, route: 'minutes' });
 };
 
 
@@ -4362,6 +4369,19 @@ window.app_delegateTask = async function (planId, taskIndex) {
 window.app_delegateTo = async function (planId, taskIndex, userId, options = {}) {
     const delegateOptions = options && typeof options === 'object' ? options : {};
     try {
+        if (window.AppFirebaseAuth?.currentUser?.getIdToken) {
+            const result = await fetch('/api/staff-task-response', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await window.AppFirebaseAuth.currentUser.getIdToken()}` },
+                body: JSON.stringify({ action: 'delegate', planId, taskIndex, targetUserId: userId })
+            });
+            const data = await result.json();
+            if (!result.ok) throw new Error(data.error || 'Could not delegate the task.');
+            ['work_plans', 'users'].forEach(collection => window.AppDB.invalidateCollectionCache(collection));
+            window.AppStore?.invalidatePlans?.();
+            if (!delegateOptions.silent) alert('Task delegated successfully.');
+            if (delegateOptions.skipDashboardRefresh !== true) await refreshDashboardAfterAttendance();
+            return;
+        }
         const plan = await window.AppDB.get('work_plans', planId);
         if (!plan || !plan.plans || !plan.plans[taskIndex]) {
             alert('Task not found.');
@@ -5467,7 +5487,7 @@ async function handleManualLog(e) {
     await window.AppAttendance.addManualLog(logData);
     alert('Log added successfully!');
     document.getElementById('log-modal').style.display = 'none';
-    contentArea.innerHTML = await AppUI.renderTimesheet();
+    await refreshPage(() => AppUI.renderTimesheet(), { root: contentArea, route: 'timesheet' });
 }
 
 async function handleAddExternalStaffContact(formData) {
@@ -5500,7 +5520,7 @@ async function handleAddExternalStaffContact(formData) {
         document.getElementById('add-user-modal').style.display = 'none';
         alert('External contact added to the birthday calendar.');
         const contentArea = document.getElementById('page-content');
-        if (contentArea) contentArea.innerHTML = await AppUI.renderAdmin();
+        if (contentArea) await refreshPage(() => AppUI.renderAdmin(), { root: contentArea, route: 'admin' });
     } catch (err) {
         alert(`Error adding external contact: ${err.message}`);
     }
@@ -5582,7 +5602,7 @@ async function handleAddUser(e) {
         document.getElementById('add-user-modal').style.display = 'none';
 
         const contentArea = document.getElementById('page-content');
-        if (contentArea) contentArea.innerHTML = await AppUI.renderAdmin();
+        if (contentArea) await refreshPage(() => AppUI.renderAdmin(), { root: contentArea, route: 'admin' });
     } catch (err) {
         alert('Error creating user: ' + err.message);
     }
@@ -5740,7 +5760,7 @@ window.app_submitEditUser = async (e) => {
             if (contentArea) {
                 // Small delay to let DB settle
                 setTimeout(async () => {
-                    contentArea.innerHTML = await AppUI.renderAdmin();
+                    await refreshPage(() => AppUI.renderAdmin(), { root: contentArea, route: 'admin' });
                     if (window.AppAnalytics) await window.AppAnalytics.initAdminCharts();
                 }, 50);
             }
@@ -5817,8 +5837,7 @@ async function refreshDashboardAfterAttendance() {
     const contentArea = document.getElementById('page-content');
     if (!contentArea) return;
     try {
-        contentArea.innerHTML = await AppUI.renderDashboard();
-        setupDashboardEvents();
+        await refreshPage(() => AppUI.renderDashboard({ preserveView: true }), { root: contentArea, route: 'dashboard', after: setupDashboardEvents });
     } catch (err) {
         console.error('Dashboard refresh after attendance failed:', err);
         if (typeof window.app_showSyncToast === 'function') {
@@ -5829,7 +5848,7 @@ async function refreshDashboardAfterAttendance() {
 window.app_refreshDashboard = refreshDashboardAfterAttendance;
 
 window.app_refreshCurrentPage = async function () {
-    await router();
+    await router({ refresh: true });
 };
 
 window.app_openTeamActivities = async function () {
@@ -6235,7 +6254,7 @@ window.app_openStaffThread = async (userId) => {
     }
     const contentArea = document.getElementById('page-content');
     if (contentArea) {
-        contentArea.innerHTML = await AppUI.renderStaffDirectoryPage();
+        await refreshPage(() => AppUI.renderStaffDirectoryPage(), { root: contentArea, route: 'staff-directory' });
     }
     if (window.app_updateStaffNavIndicator) {
         await window.app_updateStaffNavIndicator();
@@ -6275,7 +6294,7 @@ window.app_sendStaffText = async (e) => {
     if (messageModal) messageModal.remove();
     const contentArea = document.getElementById('page-content');
     if (contentArea) {
-        contentArea.innerHTML = await AppUI.renderStaffDirectoryPage();
+        await refreshPage(() => AppUI.renderStaffDirectoryPage(), { root: contentArea, route: 'staff-directory' });
     }
     if (window.app_updateStaffNavIndicator) {
         await window.app_updateStaffNavIndicator();
@@ -6319,7 +6338,7 @@ window.app_sendStaffTask = async (e) => {
     if (taskModal) taskModal.remove();
     const contentArea = document.getElementById('page-content');
     if (contentArea) {
-        contentArea.innerHTML = await AppUI.renderStaffDirectoryPage();
+        await refreshPage(() => AppUI.renderStaffDirectoryPage(), { root: contentArea, route: 'staff-directory' });
     }
     if (window.app_updateStaffNavIndicator) {
         await window.app_updateStaffNavIndicator();
@@ -6399,6 +6418,19 @@ window.app_respondStaffTask = async (messageId, response) => {
         reason = (await window.appPrompt('Optional: add a rejection reason', '', { title: 'Reject Task', confirmText: 'Submit Reason' })) || '';
     }
     msg.status = response;
+    if (window.AppFirebaseAuth?.currentUser?.getIdToken) {
+        const result = await fetch('/api/staff-task-response', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await window.AppFirebaseAuth.currentUser.getIdToken()}` },
+            body: JSON.stringify({ messageId, response, reason })
+        });
+        const data = await result.json();
+        if (!result.ok) { alert(data.error || 'Could not save the task response.'); return; }
+        ['staff_messages', 'work_plans', 'users'].forEach(collection => window.AppDB.invalidateCollectionCache(collection));
+        const content = document.getElementById('page-content');
+        if (content) await refreshPage(() => AppUI.renderStaffDirectoryPage(), { root: content, route: 'staff-directory' });
+        await window.app_updateStaffNavIndicator?.();
+        return;
+    }
     msg.respondedAt = new Date().toISOString();
     if (reason) msg.rejectReason = reason;
     if (!msg.history) msg.history = [];
@@ -6448,7 +6480,7 @@ window.app_respondStaffTask = async (messageId, response) => {
     }
     const contentArea = document.getElementById('page-content');
     if (contentArea) {
-        contentArea.innerHTML = await AppUI.renderStaffDirectoryPage();
+        await refreshPage(() => AppUI.renderStaffDirectoryPage(), { root: contentArea, route: 'staff-directory' });
     }
     if (window.app_updateStaffNavIndicator) {
         await window.app_updateStaffNavIndicator();
@@ -6516,7 +6548,7 @@ window.app_handleTagDecision = async (notifId, response) => {
 
         const contentArea = document.getElementById('page-content');
         if (contentArea) {
-            contentArea.innerHTML = await AppUI.renderDashboard();
+            await refreshPage(() => AppUI.renderDashboard({ preserveView: true }), { root: contentArea, route: 'dashboard' });
             if (window.setupDashboardEvents) window.setupDashboardEvents();
         }
     } catch (err) {
@@ -6630,7 +6662,7 @@ window.app_reviewMinuteAccessFromNotification = async (notifIndex, notifId, deci
             await window.AppAuth.updateUser(adminUser);
         }
 
-        contentArea.innerHTML = await AppUI.renderDashboard();
+        await refreshPage(() => AppUI.renderDashboard({ preserveView: true }), { root: contentArea, route: 'dashboard' });
         if (window.setupDashboardEvents) window.setupDashboardEvents();
         if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
     } catch (err) {
@@ -6734,7 +6766,7 @@ window.app_reviewMissedCheckoutReasonFromNotification = async (notifIndex, notif
             await window.AppDB.put('users', staffUser);
         }
 
-        contentArea.innerHTML = await AppUI.renderDashboard();
+        await refreshPage(() => AppUI.renderDashboard({ preserveView: true }), { root: contentArea, route: 'dashboard' });
         if (window.setupDashboardEvents) window.setupDashboardEvents();
         if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
 
@@ -6826,7 +6858,7 @@ window.app_undoMissedCheckoutReview = async (notifId) => {
         if (typeof window.app_refreshAdminPage === 'function') {
             await window.app_refreshAdminPage();
         } else if (contentArea) {
-            contentArea.innerHTML = await AppUI.renderDashboard();
+            await refreshPage(() => AppUI.renderDashboard({ preserveView: true }), { root: contentArea, route: 'dashboard' });
             if (window.setupDashboardEvents) window.setupDashboardEvents();
         }
 
@@ -6852,7 +6884,7 @@ document.addEventListener('dismiss-notification', async (e) => {
         await window.AppAuth.updateUser(user);
         const hash = window.location.hash.slice(1) || 'dashboard';
         if (hash === 'dashboard') {
-            contentArea.innerHTML = await AppUI.renderDashboard();
+            await refreshPage(() => AppUI.renderDashboard({ preserveView: true }), { root: contentArea, route: 'dashboard' });
             if (window.setupDashboardEvents) window.setupDashboardEvents();
         }
         if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
@@ -6864,7 +6896,7 @@ document.addEventListener('dismiss-notification', async (e) => {
         await window.AppAuth.updateUser(user);
         const hash = window.location.hash.slice(1) || 'dashboard';
         if (hash === 'dashboard') {
-            contentArea.innerHTML = await AppUI.renderDashboard();
+            await refreshPage(() => AppUI.renderDashboard({ preserveView: true }), { root: contentArea, route: 'dashboard' });
             if (window.setupDashboardEvents) window.setupDashboardEvents();
         }
         if (window.app_refreshNotificationBell) await window.app_refreshNotificationBell();
@@ -6880,7 +6912,7 @@ document.addEventListener('dismiss-tag-history', async (e) => {
     if (removeIndex < 0) return;
     user.tagHistory.splice(removeIndex, 1);
     await window.AppAuth.updateUser(user);
-    contentArea.innerHTML = await AppUI.renderDashboard();
+    await refreshPage(() => AppUI.renderDashboard({ preserveView: true }), { root: contentArea, route: 'dashboard' });
     if (window.setupDashboardEvents) window.setupDashboardEvents();
 });
 
@@ -7014,7 +7046,7 @@ window.app_unlinkTelegram = async () => {
         if (window.AppAuth?.refreshCurrentUserFromDB) await window.AppAuth.refreshCurrentUserFromDB();
         window.app_showSyncToast('Telegram disconnected.');
         const contentArea = document.getElementById('page-content');
-        if (contentArea && window.location.hash === '#profile') contentArea.innerHTML = await window.AppUI.renderProfile();
+        if (contentArea && window.location.hash === '#profile') await refreshPage(() => window.AppUI.renderProfile(), { root: contentArea, route: 'profile' });
         if (typeof window.app_closeModal === 'function') window.app_closeModal();
         else document.querySelector('.modal-overlay')?.remove();
     } catch (err) {
@@ -7313,7 +7345,7 @@ window.app_quickAddTask = async (userId) => {
         alert('Task added successfully.');
         const contentArea = document.getElementById('page-content');
         if (contentArea) {
-            contentArea.innerHTML = await AppUI.renderDashboard();
+            await refreshPage(() => AppUI.renderDashboard({ preserveView: true }), { root: contentArea, route: 'dashboard' });
             if (window.setupDashboardEvents) window.setupDashboardEvents();
         }
         if (window.app_updateStaffNavIndicator) {
@@ -7533,7 +7565,7 @@ const app_refreshAfterLeaveAction = async () => {
         return;
     }
     if (contentArea) {
-        contentArea.innerHTML = await AppUI.renderDashboard();
+        await refreshPage(() => AppUI.renderDashboard({ preserveView: true }), { root: contentArea, route: 'dashboard' });
         setupDashboardEvents();
     }
 };
@@ -7617,7 +7649,7 @@ window.app_addLeaveComment = async (leaveId) => {
         // Refresh Dashboard
         const contentArea = document.getElementById('page-content');
         if (contentArea) {
-            contentArea.innerHTML = await AppUI.renderDashboard();
+            await refreshPage(() => AppUI.renderDashboard({ preserveView: true }), { root: contentArea, route: 'dashboard' });
             setupDashboardEvents();
         }
     } catch (err) {
@@ -7732,28 +7764,14 @@ window.app_refreshMasterSheet = async () => {
     if (contentArea) {
         const m = document.getElementById('sheet-month')?.value;
         const y = document.getElementById('sheet-year')?.value;
-        contentArea.innerHTML = await AppUI.renderMasterSheet(m, y);
+        await refreshPage(() => AppUI.renderMasterSheet(m, y), { root: contentArea, route: 'master-sheet' });
     }
 };
 
 window.app_exportMasterSheet = async () => {
-    if (!window.app_canManageAttendanceSheet()) {
-        alert("You do not have permission for this action.");
-        return;
-    }
-    const month = parseInt(document.getElementById('sheet-month').value);
-    const year = parseInt(document.getElementById('sheet-year').value);
-    const users = await window.AppDB.getAll('users');
-
-    // Filtered Query for Logs (Optimization)
-    const startDateStr = `${year}-${String(month + 1).padStart(2, '0')}-01`;
-    const endDateStr = `${year}-${String(month + 1).padStart(2, '0')}-31`;
-    const logs = await window.AppDB.query('attendance', 'date', '>=', startDateStr);
-    const filteredLogs = logs.filter(l => l.date <= endDateStr);
-
-    await window.AppReports.exportMasterSheetCSV(month, year, users, filteredLogs);
+    const { exportCurrentAttendanceSheet } = await import('./ui/master-sheet.js');
+    exportCurrentAttendanceSheet();
 };
-
 window.app_openCellOverride = async (userId, dateStr) => {
     if (!window.app_canManageAttendanceSheet()) {
         alert("You do not have permission for this action.");
@@ -7761,29 +7779,7 @@ window.app_openCellOverride = async (userId, dateStr) => {
     }
     const user = (await window.AppDB.getAll('users')).find(u => u.id === userId);
     const logs = await window.AppDB.getAll('attendance');
-    const isAttendanceEligibleLog = (log) => {
-        if (Object.prototype.hasOwnProperty.call(log || {}, 'attendanceEligible')) {
-            return log.attendanceEligible === true;
-        }
-        const src = String(log?.entrySource || '');
-        if (src === 'staff_manual_work') return false;
-        if (src === 'admin_override' || src === 'checkin_checkout') return true;
-        if (log?.isManualOverride) return true;
-        if (log?.location === 'Office (Manual)' || log?.location === 'Office (Override)') return true;
-        const hasSystemSignals =
-            typeof log?.activityScore !== 'undefined' ||
-            typeof log?.locationMismatched !== 'undefined' ||
-            typeof log?.autoCheckout !== 'undefined' ||
-            !!log?.checkOutLocation ||
-            typeof log?.outLat !== 'undefined' ||
-            typeof log?.outLng !== 'undefined';
-        if (hasSystemSignals) return true;
-        const type = String(log?.type || '');
-        return type.includes('Leave') || log?.location === 'On Leave';
-    };
-    const existingLog = logs
-        .filter(l => (l.userId === userId || l.user_id === userId) && l.date === dateStr && isAttendanceEligibleLog(l))
-        .sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0];
+    const existingLog = selectAttendanceLog(logs, userId, dateStr);
 
     const baseOverrideTypes = [
         'Present',
@@ -8296,17 +8292,17 @@ window.app_runAttendancePolicyMigration = async () => {
         const contentArea = document.getElementById('page-content');
         if (!contentArea) return;
         if (hash === 'policy-test') {
-            contentArea.innerHTML = await AppUI.renderPolicyTest();
+            await refreshPage(() => AppUI.renderPolicyTest(), { root: contentArea, route: 'policy-test' });
         } else if (hash === 'dashboard') {
-            contentArea.innerHTML = await AppUI.renderDashboard();
+            await refreshPage(() => AppUI.renderDashboard({ preserveView: true }), { root: contentArea, route: 'dashboard' });
             if (window.setupDashboardEvents) window.setupDashboardEvents();
         } else if (hash === 'salary') {
-            contentArea.innerHTML = await AppUI.renderSalaryProcessing();
+            await refreshPage(() => AppUI.renderSalaryProcessing(), { root: contentArea, route: 'salary' });
             if (window.app_recalculateAllSalaries) {
                 window.app_recalculateAllSalaries();
             }
         } else if (hash === 'timesheet') {
-            contentArea.innerHTML = await AppUI.renderTimesheet();
+            await refreshPage(() => AppUI.renderTimesheet(), { root: contentArea, route: 'timesheet' });
         }
     } catch (err) {
         console.error("Attendance migration failed:", err);
@@ -8408,7 +8404,7 @@ window.app_syncLeaveCategoriesFromAttendance = async (options = {}) => {
         // Refresh the policies page so updated categories show in balance cards
         const contentArea = document.getElementById('page-content');
         if (contentArea) {
-            contentArea.innerHTML = await window.AppPolicies.render();
+            await refreshPage(() => window.AppPolicies.render(), { root: contentArea, route: 'policies' });
         }
     }
 
@@ -8438,7 +8434,7 @@ window.app_deleteUser = async (userId) => {
             // Refresh Admin View
             const contentArea = document.getElementById('page-content');
             if (contentArea) {
-                contentArea.innerHTML = await AppUI.renderAdmin();
+                await refreshPage(() => AppUI.renderAdmin(), { root: contentArea, route: 'admin' });
             }
         } catch (err) {
             alert('Failed to delete user: ' + err.message);
@@ -8701,7 +8697,7 @@ window.app_saveAllSalaries = async () => {
         alert('All records and TDS details saved successfully!');
         // Refresh view to ensure calculations sync with any base salary changes
         const contentArea = document.getElementById('page-content');
-        contentArea.innerHTML = await AppUI.renderSalaryProcessing();
+        await refreshPage(() => AppUI.renderSalaryProcessing(), { root: contentArea, route: 'salary' });
     } catch (err) {
         console.error("Salary Save Error:", err);
         alert('Failed to save records: ' + err.message);
@@ -8975,7 +8971,7 @@ window.app_editTaskStatus = async function (planId, taskIndex, newStatus) {
 
         // Refresh dashboard
         const contentArea = document.getElementById('page-content');
-        contentArea.innerHTML = await AppUI.renderDashboard();
+        await refreshPage(() => AppUI.renderDashboard({ preserveView: true }), { root: contentArea, route: 'dashboard' });
         alert(`Task status updated to: ${newStatus}`);
     } catch (err) {
         console.error('Failed to update task status:', err);
@@ -8998,7 +8994,7 @@ window.app_reassignTask = async function (planId, taskIndex, newUserId) {
 
         // Refresh dashboard
         const contentArea = document.getElementById('page-content');
-        contentArea.innerHTML = await AppUI.renderDashboard();
+        await refreshPage(() => AppUI.renderDashboard({ preserveView: true }), { root: contentArea, route: 'dashboard' });
         alert('Task reassigned successfully!');
     } catch (err) {
         console.error('Failed to reassign task:', err);
@@ -9115,7 +9111,7 @@ window.app_recalculateRatings = async function () {
 
         // Refresh dashboard
         const contentArea = document.getElementById('page-content');
-        contentArea.innerHTML = await AppUI.renderDashboard();
+        await refreshPage(() => AppUI.renderDashboard({ preserveView: true }), { root: contentArea, route: 'dashboard' });
     } catch (err) {
         console.error('Failed to recalculate ratings:', err);
         alert('Failed to recalculate ratings. Please try again.');
@@ -9149,7 +9145,7 @@ window.app_applyAuditFilter = async () => {
     const end = document.getElementById('audit-end')?.value;
     const contentArea = document.getElementById('page-content');
     if (contentArea) {
-        contentArea.innerHTML = await AppUI.renderAdmin(start, end);
+        await refreshPage(() => AppUI.renderAdmin(start, end), { root: contentArea, route: 'admin' });
         if (window.AppAnalytics) window.AppAnalytics.initAdminCharts();
     }
 };
@@ -9932,7 +9928,7 @@ window.app_jumpToAnnualToday = () => {
 window.app_renderAnnualPlanPage = async () => {
     const contentArea = document.getElementById('page-content');
     if (!contentArea) return;
-    contentArea.innerHTML = await AppUI.renderAnnualPlan();
+    await refreshPage(() => AppUI.renderAnnualPlan(), { root: contentArea, route: 'annual-plan' });
 };
 
 window.app_setAnnualStaffFilter = (value) => {
@@ -9953,7 +9949,7 @@ window.app_setAnnualListSort = (value) => {
 window.app_renderTimesheetPage = async () => {
     const contentArea = document.getElementById('page-content');
     if (!contentArea) return;
-    contentArea.innerHTML = await AppUI.renderTimesheet();
+    await refreshPage(() => AppUI.renderTimesheet(), { root: contentArea, route: 'timesheet' });
 };
 
 window.app_setTimesheetView = (mode) => {
@@ -10111,3 +10107,8 @@ import('./ui/ai-float.js').then(m => m.mountAiFloating?.()).catch(e => console.w
 init();
 
 console.log("App.js Loaded & Globals Ready");
+
+window.addEventListener('app:staff-employment-changed', () => {
+    if (!window.AppAuth?.getUser?.() || String(location.hash).startsWith('#admin')) return;
+    window.app_refreshCurrentPage().catch(error => console.error('Staff list refresh failed:', error));
+});

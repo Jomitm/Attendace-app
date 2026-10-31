@@ -34,10 +34,11 @@ test.describe("CRWI Attendance smoke", () => {
     expect(consoleErrors, `Console errors:\n${consoleErrors.join("\n")}`).toEqual([]);
   });
 
-  test("renders main shell elements for unauthenticated users", async ({ page }) => {
+  test("shows sign-in without authenticated navigation", async ({ page }) => {
     await page.goto("/index.html", { waitUntil: "domcontentloaded" });
 
-    await expect(page.locator(".sidebar")).toBeVisible();
+    await expect(page.locator("#login-form input[name='username']")).toBeVisible();
+    await expect(page.locator(".sidebar")).toBeHidden();
     await expect(page.locator(".mobile-header")).toBeHidden();
     await expect(page.locator(".mobile-nav")).toBeHidden();
     await expect(page.locator("#login-form input[name='username']")).toBeVisible();

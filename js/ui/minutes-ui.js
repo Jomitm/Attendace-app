@@ -1,3 +1,4 @@
+import { refreshPage } from '../utils/page-updates.js';
 /**
  * Minutes UI Component
  * Handles rendering of meeting minutes, action items, and approval workflows.
@@ -1776,7 +1777,7 @@ function initMinutesHandlers() {
     window.app_refreshMinutesView = async () => {
         const page = document.getElementById('page-content');
         if (page) {
-            page.innerHTML = await renderMinutes();
+            await refreshPage(() => renderMinutes(), { root: page, route: 'minutes' });
             // filter is applied inside renderMinutes via setTimeout; nothing more needed
         }
     };

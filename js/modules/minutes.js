@@ -5,6 +5,19 @@
 
 const COLLECTION = 'minutes';
 
+async function submitMinuteAction(id, action, fields = {}) {
+    const firebaseUser = window.AppFirebaseAuth?.currentUser;
+    if (!firebaseUser?.getIdToken) return false;
+    const response = await fetch('/api/minutes-action', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await firebaseUser.getIdToken()}` },
+        body: JSON.stringify({ id, action, ...fields })
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Could not save the minutes action.');
+    window.AppDB.invalidateCollectionCache?.('minutes');
+    return true;
+}
+
 function getCurrentUser() {
     const user = window.AppAuth.getUser();
     if (!user || !user.id) throw new Error('User not authenticated');
@@ -157,6 +170,7 @@ export async function updateMinute(id, updates, auditAction, options = {}) {
  * Request access to minutes
  */
 export async function requestAccess(id) {
+    if (await submitMinuteAction(id, 'request-access')) return true;
     try {
         const user = getCurrentUser();
         const existing = await (window.AppDB
@@ -188,6 +202,7 @@ export async function requestAccess(id) {
  * Handle access request
  */
 export async function handleAccessRequest(id, userId, status) {
+    if (await submitMinuteAction(id, 'review-access', { userId, status })) return true;
     try {
         const user = getCurrentUser();
         const existing = await (window.AppDB
@@ -227,6 +242,7 @@ export async function handleAccessRequest(id, userId, status) {
  * Update Action Item Status
  */
 export async function updateActionItemStatus(id, taskIndex, status) {
+    if (await submitMinuteAction(id, 'task-status', { taskIndex, status })) return true;
     try {
         const user = getCurrentUser();
         const existing = await (window.AppDB
@@ -263,6 +279,7 @@ export async function updateActionItemStatus(id, taskIndex, status) {
  * Approve meeting minutes
  */
 export async function approveMinute(id) {
+    if (await submitMinuteAction(id, 'approve')) return true;
     try {
         const user = getCurrentUser();
         const existing = await (window.AppDB

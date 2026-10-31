@@ -1,3 +1,4 @@
+import { refreshPage as updatePage } from '../utils/page-updates.js';
 import { Document, Packer, Paragraph, TextRun, ImageRun, Header, Footer, AlignmentType, convertMillimetersToTwip } from 'docx';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -308,7 +309,7 @@ const saveProfile = async (profile) => {
 const refreshPage = async () => {
     const page = document.getElementById('page-content');
     if (!page) return;
-    page.innerHTML = await renderLetterPad();
+    await updatePage(() => renderLetterPad(), { root: page, route: 'letter-pad' });
 };
 
 const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {

@@ -16,6 +16,10 @@ import aiBriefing from './_ai-briefing.js';
 import aiInsights from './_ai-insights.js';
 import authLogin from './_auth-login.js';
 import authSetPassword from './_auth-set-password.js';
+import staffEmployment from './_staff-employment.js';
+import staffData from './_staff-data.js';
+import minutesAction from './_minutes-action.js';
+import staffTaskResponse from './_staff-task-response.js';
 import calendarFeed from './_calendar-feed.js';
 import calendarToken from './_calendar-token.js';
 import feastProxy from './_feast-proxy.js';
@@ -31,6 +35,10 @@ export const ROUTES = {
     'ai-insights': aiInsights,
     'auth-login': authLogin,
     'auth-set-password': authSetPassword,
+    'staff-employment': staffEmployment,
+    'staff-data': staffData,
+    'minutes-action': minutesAction,
+    'staff-task-response': staffTaskResponse,
     'calendar-feed': calendarFeed,
     'calendar-token': calendarToken,
     'feast-proxy': feastProxy,

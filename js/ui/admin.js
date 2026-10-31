@@ -1,3 +1,6 @@
+import { refreshPage, patchContent } from '../utils/page-updates.js';
+import { staffEmploymentControls, staffEmploymentRow, employmentBadge, employmentActions, bindStaffEmployment } from './admin-staff-employment.js';
+import { isFormerStaff, canManageStaff } from '../utils/staff-employment.js';
 /**
  * Admin Panel Component
  * Handles rendering of the administrative dashboard, performance trends, and staff management.
@@ -310,6 +313,8 @@ if (typeof window !== 'undefined') {
 }
 
 export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
+    bindStaffEmployment();
+    const readFailures = [];
     let allUsers = [];
     let allLeaves = [];
     let pendingLeaves = [];
@@ -331,8 +336,8 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
 
         const results = await Promise.allSettled([
             window.AppDB.getCached
-                ? window.AppDB.getCached(window.AppDB.getCacheKey('adminUsers', 'users', {}), (AppConfig?.READ_CACHE_TTLS?.users || 60000), () => window.AppDB.getAll('users'))
-                : window.AppDB.getAll('users'),
+                ? window.AppDB.getCached(window.AppDB.getCacheKey('adminUsers', 'users', {}), (AppConfig?.READ_CACHE_TTLS?.users || 60000), () => window.AppDB.getAll('users', { includeFormer: canManageStaff(window.AppAuth?.getUser?.()) }))
+                : window.AppDB.getAll('users', { includeFormer: canManageStaff(window.AppAuth?.getUser?.()) }),
             window.AppAnalytics.getSystemPerformance(),
             window.AppDB.queryMany
                 ? window.AppDB.queryMany('location_audits', [], { orderBy: [{ field: 'timestamp', direction: 'desc' }], limit: 300 }).catch(() => window.AppDB.getAll('location_audits'))
@@ -375,6 +380,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
             const result = results[idx];
             if (result && result.status === 'fulfilled') return result.value;
             if (result && result.status === 'rejected') {
+                readFailures.push(label.replaceAll('_', ' '));
                 console.warn(`Admin data fetch failed for ${label}:`, result.reason);
             }
             return fallback;
@@ -426,12 +432,13 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
             : [];
     } catch (e) {
         console.error('Failed to fetch admin data', e);
+        readFailures.push('admin overview');
     }
 
     const activeCount = allUsers.filter(u => u.status === 'in').length;
-    const adminCount = allUsers.filter(u => u.role === 'Administrator' || u.isAdmin === true).length;
+    const adminCount = allUsers.filter(u => !isFormerStaff(u) && (u.role === 'Administrator' || u.isAdmin === true)).length;
     const birthdayManagedCount = allUsers.filter(u => Number(u.birthMonth || 0) >= 1 && Number(u.birthDay || 0) >= 1).length;
-    const upcomingBirthdayUsers = [...allUsers]
+    const upcomingBirthdayUsers = allUsers.filter(u => !isFormerStaff(u))
         .filter(u => Number(u.birthMonth || 0) >= 1)
         .sort((a, b) => {
             const aKey = `${String(Number(a.birthMonth || 99)).padStart(2, '0')}-${String(Number(a.birthDay || 99)).padStart(2, '0')}-${String(a.name || '').toLowerCase()}`;
@@ -706,32 +713,35 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
                 ${window.app_hasPerm('users', 'admin') ? `<button type="button" class="action-btn" data-ts-action="show-modal" data-target="add-user-modal"><i class="fa-solid fa-user-plus"></i> Add Staff</button>` : ''}
             </div>
         </div>
+        ${staffEmploymentControls(allUsers)}
         <div class="table-container ${isExpanded ? 'admin-table-expanded' : ''} mobile-table-card admin-staff-table-wrap">
             <table class="admin-staff-table">
                 <thead>
-                    <tr><th>Staff Member</th><th>Status</th><th>In / Out</th><th>Role / Dept</th><th>Actions</th></tr>
+                    <tr><th>Staff Member</th><th>Employment</th><th>Check-in status</th><th>In / Out</th><th>Role / Dept</th><th>Actions</th></tr>
                 </thead>
                 <tbody>
                     ${allUsers.map(u => {
-        const isLive = u.lastSeen && (Date.now() - u.lastSeen < 120000);
+        const isLive = !isFormerStaff(u) && u.lastSeen && (Date.now() - u.lastSeen < 120000);
         return `
-                        <tr>
+                        <tr ${staffEmploymentRow(u)}>
                             <td>
                                 <div class="admin-user-cell">
-                                    <img src="${u.avatar}" class="admin-user-avatar">
+                                    ${u.avatar ? `<img src="${safeHtml(u.avatar)}" class="admin-user-avatar" alt="">` : `<span class="admin-user-avatar staff-avatar-fallback" aria-hidden="true">${safeHtml(String(u.name || '?').charAt(0).toUpperCase())}</span>`}
                                     <div>
                                         <div class="admin-user-name-row">${safeHtml(u.name)} ${isLive ? '<span class="admin-user-live-tag">LIVE</span>' : ''}</div>
                                         <div class="admin-user-id">${safeHtml(u.username)}</div>
                                     </div>
                                 </div>
                             </td>
+                            <td>${employmentBadge(u)}</td>
                             <td><span class="status-badge ${u.status === 'in' ? 'in' : 'out'}">${u.status?.toUpperCase()}</span></td>
                             <td>${u.lastCheckIn ? new Date(u.lastCheckIn).toLocaleTimeString() : '--'} / ${u.lastCheckOut ? new Date(u.lastCheckOut).toLocaleTimeString() : '--'}</td>
                             <td>${safeHtml(u.role)} / ${safeHtml(u.dept || '--')}</td>
                             <td>
                                 <div class="admin-row-actions">
-                                    <button type="button" data-ts-action="view-logs" data-user-id="${u.id}" class="admin-icon-btn"><i class="fa-solid fa-list-check"></i></button>
-                                    ${isOwnerViewer ? `<button type="button" data-ts-action="impersonate-user" data-user-id="${u.id}" class="admin-icon-btn" title="Login as this user"><i class="fa-solid fa-arrow-right-to-bracket"></i></button>` : ''}
+                                    ${!isFormerStaff(u) ? `<button type="button" data-ts-action="view-logs" data-user-id="${u.id}" class="admin-icon-btn"><i class="fa-solid fa-list-check"></i></button>` : ''}
+                                    ${employmentActions(u)}
+                                    ${isOwnerViewer && !isFormerStaff(u) ? `<button type="button" data-ts-action="impersonate-user" data-user-id="${u.id}" class="admin-icon-btn" title="Login as this user"><i class="fa-solid fa-arrow-right-to-bracket"></i></button>` : ''}
                                     ${window.app_hasPerm('users', 'admin') ? `<button type="button" data-ts-action="edit-user" data-user-id="${u.id}" class="admin-icon-btn"><i class="fa-solid fa-pen"></i></button>` : ''}
                                 </div>
                             </td>
@@ -1149,7 +1159,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
     }
 
     if (window.app_hasPerm('users', 'admin')) {
-        const telegramStaff = allUsers.filter((user) => user
+        const telegramStaff = allUsers.filter((user) => user && !isFormerStaff(user)
             && user.status !== 'archived'
             && user.isAdmin !== true
             && String(user.role || '').toLowerCase() !== 'administrator');
@@ -1296,7 +1306,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
     }
 
     window._adminCardTemplates = cardTemplates;
-    window._adminCardModeState = {};
+    window._adminCardModeState ||= {};
 
     // UI Handlers
     window.app_applyAuditFilter = async (startDate = '', endDate = '') => {
@@ -1304,27 +1314,21 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
         const end = String(endDate || '').trim() || document.getElementById('audit-end')?.value || document.getElementById('audit-end-max')?.value;
         const contentArea = document.getElementById('page-content');
         window.app_closeAdminCardMaximize?.();
-        if (contentArea) contentArea.innerHTML = await renderAdmin(start, end);
+        if (contentArea) await refreshPage(() => renderAdmin(start, end), { root: contentArea, route: 'admin' });
     };
 
     window.app_refreshAdminPage = async (opts = {}) => {
         const start = document.getElementById('audit-start')?.value || document.getElementById('audit-start-max')?.value || auditStartDate;
         const end = document.getElementById('audit-end')?.value || document.getElementById('audit-end-max')?.value || auditEndDate;
         const contentArea = document.getElementById('page-content');
-        const requestedCardId = String(opts?.preserveCardId || '').trim();
-        const activeCardId = requestedCardId || (window._adminMaxCardId ? String(window._adminMaxCardId) : '');
-        let activeCardMode = '';
-        if (requestedCardId) {
-            const currentCardEl = document.querySelector(`.dashboard-admin-view .admin-card-compact[data-admin-card="${requestedCardId}"]`);
-            activeCardMode = String(opts?.preserveMode || currentCardEl?.dataset?.adminCardMode || 'original');
-        } else if (activeCardId) {
-            activeCardMode = String((window._adminCardModeState || {})[activeCardId] || 'tile');
-        }
-        if (contentArea) contentArea.innerHTML = await renderAdmin(start, end);
-        if (activeCardId && activeCardMode && typeof window.app_toggleAdminCardMode === 'function') {
-            setTimeout(() => {
-                window.app_toggleAdminCardMode(activeCardId, activeCardMode);
-            }, 0);
+        const activeCardId = String(window._adminMaxCardId || '');
+        if (contentArea && await refreshPage(() => renderAdmin(start, end), { root: contentArea, route: 'admin' })) {
+            const body = document.getElementById(ADMIN_MAX_BODY_ID)?.querySelector('.admin-max-card-content');
+            const template = window._adminCardTemplates?.[activeCardId];
+            if (body && template && window._adminMaxCardId === activeCardId &&
+                (!opts.preserveCardId || opts.preserveCardId === activeCardId)) {
+                patchContent(body, template.expandedHtml || template.originalHtml || '');
+            }
         }
     };
 
@@ -1711,6 +1715,7 @@ export async function renderAdmin(auditStartDate = null, auditEndDate = null) {
 
     return `
         <div class="dashboard-grid dashboard-admin-view admin-grid-compact">
+            ${readFailures.length ? `<div class="card full-width" role="alert">Some admin data could not be loaded: ${safeHtml(readFailures.join(', '))}. Refresh to retry; empty sections may be incomplete.</div>` : ''}
             ${cards.join('')}
         </div>`;
 }

@@ -356,6 +356,8 @@ export class Analytics {
         }
         const src = String(log?.entrySource || '');
         if (src === 'staff_manual_work') return false;
+        // Approved WFH requests generate records without checkout/device signals.
+        if (log?.leaveGenerated === true && log?.leaveRequestId) return true;
         if (src === 'admin_override' || src === 'checkin_checkout') return true;
         if (log?.isManualOverride) return true;
         if (log?.location === 'Office (Manual)' || log?.location === 'Office (Override)') return true;

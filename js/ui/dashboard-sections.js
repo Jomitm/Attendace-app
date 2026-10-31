@@ -1,4 +1,5 @@
 import { safeHtml } from './helpers.js';
+import { refreshPage } from '../utils/page-updates.js';
 import { AppConfig } from '../config.js';
 import { renderLeaveHistory, renderLeaveRequests, renderPlannedTasksCard, renderStatsCard } from './dashboard.js';
 import { renderStaffDirectoryPage } from './staff-directory.js';
@@ -540,9 +541,9 @@ const rerenderSectionIfOpen = async (sectionKey) => {
     if (!hashSection || hashSection !== sectionKey) return;
     const page = document.getElementById('page-content');
     if (!page) return;
-    page.innerHTML = '<div class="loading-spinner"></div>';
-    page.innerHTML = await renderDashboardSectionPage(sectionKey);
-    initDashboardSectionPage(sectionKey);
+    await refreshPage(() => renderDashboardSectionPage(sectionKey), {
+        root: page, route: `dashboard-section/${sectionKey}`, after: () => initDashboardSectionPage(sectionKey)
+    });
 };
 
 export function initDashboardSectionPage() {

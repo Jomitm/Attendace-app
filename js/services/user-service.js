@@ -2,6 +2,7 @@
 // Centralized user data access with caching.
 
 const COLLECTION = 'users';
+import { isFormerStaff } from '../utils/staff-employment.js';
 
 function _db() {
     return window.AppDB;
@@ -57,7 +58,7 @@ export class UserService {
      */
     async getActiveStaff(opts = {}) {
         const cfg = _cfg();
-        return this.getFiltered(u => !cfg?.isDemoUser?.(u) && u.status !== 'inactive', opts);
+        return this.getFiltered(u => !cfg?.isDemoUser?.(u) && !isFormerStaff(u), opts);
     }
 
     /**

@@ -1542,7 +1542,8 @@ export class Calendar {
         const event = {
             id: 'ev_' + Date.now(),
             ...eventData,
-            createdOn: new Date().toISOString()
+            createdOn: new Date().toISOString(),
+            createdById: window.AppAuth?.getUser?.()?.id || ''
         };
         return await this.db.add('events', event);
     }

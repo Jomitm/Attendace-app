@@ -1,3 +1,4 @@
+import { refreshPage } from '../utils/page-updates.js';
 /**
  * Annual Plan Component
  * Handles rendering of the yearly NGO planning view (Grid and List modes).
@@ -55,7 +56,7 @@ export async function renderAnnualPlan() {
             window.app_annualStaffFilter = String(value || '').trim();
             const contentArea = document.getElementById('page-content');
             if (!contentArea) return;
-            contentArea.innerHTML = await renderAnnualPlan();
+            await refreshPage(() => renderAnnualPlan(), { root: contentArea, route: 'annual-plan' });
         };
     }
     if (typeof window.app_toggleAnnualView !== 'function') {
@@ -63,7 +64,7 @@ export async function renderAnnualPlan() {
             window.app_annualViewMode = mode;
             const contentArea = document.getElementById('page-content');
             if (!contentArea) return;
-            contentArea.innerHTML = await renderAnnualPlan();
+            await refreshPage(() => renderAnnualPlan(), { root: contentArea, route: 'annual-plan' });
         };
     }
     if (typeof window.app_setAnnualListSearch !== 'function') {
@@ -71,7 +72,7 @@ export async function renderAnnualPlan() {
             window.app_annualListSearch = String(value || '').trim();
             const contentArea = document.getElementById('page-content');
             if (!contentArea) return;
-            contentArea.innerHTML = await renderAnnualPlan();
+            await refreshPage(() => renderAnnualPlan(), { root: contentArea, route: 'annual-plan' });
         };
     }
     if (typeof window.app_setAnnualListSort !== 'function') {
@@ -79,7 +80,7 @@ export async function renderAnnualPlan() {
             window.app_annualListSort = String(value || 'date-asc').trim();
             const contentArea = document.getElementById('page-content');
             if (!contentArea) return;
-            contentArea.innerHTML = await renderAnnualPlan();
+            await refreshPage(() => renderAnnualPlan(), { root: contentArea, route: 'annual-plan' });
         };
     }
 

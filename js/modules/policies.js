@@ -1,4 +1,5 @@
 import { AppLeaves } from './leaves.js';
+import { refreshPage } from '../utils/page-updates.js';
 import { AppAuth } from './auth.js';
 import { AppDB } from './db.js';
 import { AppAttendance } from './attendance.js';
@@ -315,7 +316,8 @@ export const AppPolicies = {
         const canManageHolidays = this.canManageHolidays(user);
         if (yearLabel && container) {
             yearLabel.textContent = this.currentYear;
-            container.innerHTML = await this.renderHolidayTable(this.currentYear, canManageHolidays);
+            const year = this.currentYear;
+            await refreshPage(() => this.renderHolidayTable(year, canManageHolidays), { root: container, route: 'policies' });
         }
     },
 

@@ -1,5 +1,6 @@
 import { AppDB } from './db.js';
 import { AppConfig } from '../config.js';
+import { isFormerStaff } from '../utils/staff-employment.js';
 
 const MAX_DEVICE_SESSIONS = 2;
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
@@ -124,7 +125,18 @@ export class Auth {
                 return;
             }
 
-            this.currentUser = await AppDB.get('users', storedId);
+            try { this.currentUser = await AppDB.get('users', storedId); }
+            catch (error) {
+                if (String(error?.code || '').includes('permission-denied')) {
+                    await this.forceLogout('Your account access has changed. Please contact the administrator.', { force: true });
+                    return;
+                }
+                throw error;
+            }
+            if (isFormerStaff(this.currentUser)) {
+                await this.forceLogout('Your staff account is no longer active. Please contact the administrator.', { force: true });
+                return;
+            }
             if (this.currentUser) {
                 this.localToken = localStorage.getItem(this.deviceTokenKey) || null;
                 if (!this.localToken) {
@@ -238,6 +250,7 @@ export class Auth {
     }
 
     async _establishSession(user, _isOwner = false) {
+        if (isFormerStaff(user)) return { serverError: 'This staff account is no longer active. Please contact the administrator.' };
         // Interactive sign-in must get a fresh token. Reusing a saved token
         // can strand a device on a session that was already removed or expired.
         // Page refreshes retain the current token through init(), not here.
@@ -288,6 +301,7 @@ export class Auth {
             const snapshot = await transaction.get(ref);
             if (!snapshot.exists) throw new Error('The user record no longer exists.');
             const data = snapshot.data() || {};
+            if (isFormerStaff(data)) return { ok: false, inactive: true };
             let sessions = Array.isArray(data.activeSessions)
                 ? data.activeSessions.map(normalizeSession).filter(Boolean)
                 : [];
@@ -385,6 +399,10 @@ export class Auth {
     }
 
     _validateUserSession(user) {
+        if (isFormerStaff(user)) {
+            this.forceLogout('Your staff account is no longer active. Please contact the administrator.', { force: true });
+            return false;
+        }
         const token = localStorage.getItem(this.deviceTokenKey) || this.localToken;
         if (!token) {
             this.forceLogout('Your saved sign-in could not be verified. Please sign in again.');
@@ -663,12 +681,12 @@ export class Auth {
         window.location.reload();
     }
 
-    async forceLogout(message = 'Your session was ended.') {
+    async forceLogout(message = 'Your session was ended.', { force = false } = {}) {
         if (this.isForceLoggingOut) return;
         const sessionId = localStorage.getItem(this.sessionKey);
         const tabToken = this.localToken;
         const sharedToken = localStorage.getItem(this.deviceTokenKey);
-        if (sessionId && sessionId === String(this.currentUser?.id || sessionId)
+        if (!force && sessionId && sessionId === String(this.currentUser?.id || sessionId)
             && tabToken && sharedToken && sharedToken !== tabToken) {
             this.isForceLoggingOut = true;
             // A different tab may already have completed a fresh sign-in. Do
@@ -842,6 +860,7 @@ export class Auth {
 
     startCurrentUserSync() {
         this.stopCurrentUserSync();
+        AppDB.startEmploymentRoster?.();
 
         const sessionId = localStorage.getItem(this.sessionKey);
         if (!sessionId || !window.AppFirestore) return;
@@ -862,6 +881,7 @@ export class Auth {
                     window.dispatchEvent(new CustomEvent('app:user-sync', { detail: latestUser }));
                 }, (err) => {
                     console.warn("Current user realtime sync failed:", err);
+                    if (String(err?.code || '').includes('permission-denied')) this.forceLogout('Your account access has changed. Please sign in again or contact the administrator.', { force: true });
                 });
         } catch (err) {
             console.warn("Failed to start current user sync:", err);
@@ -869,6 +889,7 @@ export class Auth {
     }
 
     stopCurrentUserSync() {
+        AppDB.stopEmploymentRoster?.();
         if (typeof this.userDocUnsubscribe === 'function') {
             this.userDocUnsubscribe();
         }

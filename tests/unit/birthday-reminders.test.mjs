@@ -3,6 +3,7 @@ import test from 'node:test';
 
 globalThis.window = {};
 globalThis.document = {
+    createElement() { return {}; },
     addEventListener() {},
     getElementById() { return null; },
     querySelectorAll() { return []; }

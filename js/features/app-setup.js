@@ -258,8 +258,8 @@ const app_updateNavigationSections = (user = window.AppAuth?.getUser()) => {
     const canSeeDashboard = window.app_hasPerm('dashboard', 'view', user);
     const _canSeeLeaves = window.app_hasPerm('leaves', 'view', user);
     const canSeeUsers = window.app_hasPerm('users', 'view', user);
-    // Attendance/master-sheet visibility can be overridden by the 'show hidden sheets' toggle
-    const canSeeAttendance = window.app_hasPerm('attendance', 'view', user) || overrideShowHiddenSheets;
+    // All signed-in staff have a personal attendance view; team access is checked by the sheet.
+    const canSeeAttendance = !!user;
     const canSeeReports = window.app_hasPerm('reports', 'view', user) || overrideShowHiddenSheets;
     const canSeePoliciesAdmin = window.app_hasPerm('policies', 'view', user) || overrideShowHiddenSheets;
     const canSeeAdmin = window.app_canSeeAdminPanel(user) || overrideShowHiddenSheets;

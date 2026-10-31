@@ -1,3 +1,4 @@
+const { isFormerStaff } = require('./_staff-employment-core.js');
 const crypto = require('crypto');
 const { getDb } = require('./_firebase-admin');
 const { authenticateRequest } = require('./_api-auth');
@@ -89,7 +90,7 @@ module.exports = async (req, res) => {
         const db = getDb();
         if (db) {
             const userDoc = await db.collection('users').doc(userId).get();
-            if (!userDoc.exists) {
+            if (!userDoc.exists || isFormerStaff(userDoc.data())) {
                 res.statusCode = 403;
                 res.setHeader('Content-Type', 'application/json; charset=utf-8');
                 res.end(JSON.stringify({ ok: false, error: 'User not found' }));

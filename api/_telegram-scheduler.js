@@ -1,3 +1,4 @@
+const { isFormerStaff } = require('./_staff-employment-core.js');
 const crypto = require('crypto');
 const { getDb } = require('./_firebase-admin');
 const { OAuth2Client } = require('google-auth-library');
@@ -70,11 +71,11 @@ function escapeHtml(value) {
 }
 
 function isStaffAccount(user) {
-    return user.status !== 'archived' && user.isAdmin !== true && user.role !== 'Administrator';
+    return !isFormerStaff(user) && user.status !== 'archived' && user.isAdmin !== true && user.role !== 'Administrator';
 }
 
 function isReportAdmin(user) {
-    return user.isAdmin === true || user.role === 'Administrator' || user.permissions?.reports === 'admin';
+    return !isFormerStaff(user) && (user.isAdmin === true || user.role === 'Administrator' || user.permissions?.reports === 'admin');
 }
 
 function getLocalISO(offsetHours = 5.5) {
@@ -241,6 +242,7 @@ async function weeklyLeaderboard(db, token) {
     for (const uid of userIds) {
         const userDoc = await db.collection('users').doc(uid).get();
         if (userDoc.exists) {
+            if (isFormerStaff(userDoc.data())) { delete stats[uid]; continue; }
             stats[uid].name = userDoc.data().name || uid;
         }
     }

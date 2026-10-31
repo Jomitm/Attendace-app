@@ -1,3 +1,4 @@
+import { refreshPage } from '../utils/page-updates.js';
 // Birthday feature: editors, calendar, reminders, sync.
 // Extracted verbatim from js/app.js during the decomposition refactor.
 // Helpers are exported because the work-plan code in app.js also calls them.
@@ -234,7 +235,7 @@ window.app_submitBirthdayMonthForm = async (event, month) => {
 
         event.target.reset();
         const page = document.getElementById('page-content');
-        if (page) page.innerHTML = await AppUI.renderBirthdayCalendar();
+        if (page) await refreshPage(() => AppUI.renderBirthdayCalendar(), { root: page, route: 'birthday-calendar' });
         window.app_showSyncToast(`Birthday updated for ${existing.name || 'staff member'}.`);
     } catch (err) {
         alert(`Failed to save birthday details: ${err.message}`);
@@ -385,7 +386,7 @@ window.app_submitBirthdayDetails = async (event) => {
         window.app_showSyncToast(`Birthday details saved for ${existing.name || config.label.toLowerCase()}.`);
         if ((window.location.hash.slice(1) || 'dashboard') === 'birthday-calendar') {
             const page = document.getElementById('page-content');
-            if (page) page.innerHTML = await AppUI.renderBirthdayCalendar();
+            if (page) await refreshPage(() => AppUI.renderBirthdayCalendar(), { root: page, route: 'birthday-calendar' });
         } else if (window.app_refreshAdminPage) {
             await window.app_refreshAdminPage();
         }
@@ -467,7 +468,7 @@ window.app_submitExternalBirthdayPerson = async (event) => {
         document.getElementById('birthday-external-modal')?.remove();
         const page = document.getElementById('page-content');
         if (page && (window.location.hash.slice(1) || 'dashboard') === 'birthday-calendar') {
-            page.innerHTML = await AppUI.renderBirthdayCalendar();
+            await refreshPage(() => AppUI.renderBirthdayCalendar(), { root: page, route: 'birthday-calendar' });
         }
         window.app_showSyncToast(`Birthday person saved for ${name}.`);
     } catch (err) {
@@ -478,7 +479,7 @@ window.app_submitExternalBirthdayPerson = async (event) => {
 window.app_refreshBirthdayCalendar = async () => {
     if ((window.location.hash.slice(1) || 'dashboard') !== 'birthday-calendar') return;
     const page = document.getElementById('page-content');
-    if (page) page.innerHTML = await AppUI.renderBirthdayCalendar();
+    if (page) await refreshPage(() => AppUI.renderBirthdayCalendar(), { root: page, route: 'birthday-calendar' });
 };
 
 window.app_setBirthdayCalendarView = async (view) => {

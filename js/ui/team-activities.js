@@ -9,6 +9,7 @@ import { applyTeamActivitiesBulkShift, buildTeamActivitiesBulkShiftPlan } from '
 
 const DEFAULT_PAGE_SIZE = 50;
 const SEARCH_DEBOUNCE_MS = 250;
+const pendingTaskActions = new Set();
 
 function getDefaultRange() {
     const end = new Date();
@@ -446,7 +447,7 @@ function renderTable(state) {
                         </button>
                     ` : ''}
                     ${canComplete ? `
-                        <button class="team-activities-row-btn success" data-action="complete" data-plan-id="${safeHtml(row.planId)}" data-task-index="${row.taskIndex}" data-user-id="${safeHtml(row.userId)}" onclick="window.app_teamActivitiesCompleteTask(this)">
+                        <button class="team-activities-row-btn success" data-action="complete" data-plan-id="${safeHtml(row.planId)}" data-task-index="${row.taskIndex}" data-user-id="${safeHtml(row.userId)}">
                             <i class="fa-solid fa-check"></i> Complete
                         </button>
                     ` : ''}
@@ -614,7 +615,7 @@ function renderGroupedTable(state) {
                             <i class="fa-solid fa-eye"></i> View
                         </button>
                         ${canComplete ? `
-                            <button class="team-activities-row-btn success" data-action="complete" data-plan-id="${safeHtml(row.planId)}" data-task-index="${row.taskIndex}" data-user-id="${safeHtml(row.userId)}" onclick="window.app_teamActivitiesCompleteTask(this)">
+                            <button class="team-activities-row-btn success" data-action="complete" data-plan-id="${safeHtml(row.planId)}" data-task-index="${row.taskIndex}" data-user-id="${safeHtml(row.userId)}">
                                 <i class="fa-solid fa-check"></i> Complete
                             </button>
                         ` : ''}
@@ -798,6 +799,7 @@ function extendRangeByWeeks(state, weeks = 1) {
 
 async function refreshData() {
     const state = getTeamActivitiesState();
+    const request = state.refreshVersion = (state.refreshVersion || 0) + 1;
     const loading = document.getElementById('team-activities-loading');
     let fetchSucceeded = false;
     if (loading) loading.style.display = 'block';
@@ -810,6 +812,7 @@ async function refreshData() {
             scope: 'work',
             sideEffects: false
         });
+        if (request !== state.refreshVersion) return;
         state.data = normalizeActivityRows(rows);
         fetchSucceeded = true;
         state.overdueRows = (state.data || []).filter(row => String(row.status || '').toLowerCase() === 'overdue');
@@ -821,13 +824,12 @@ async function refreshData() {
         window.app_teamActivitiesOverdueRows = state.overdueRows;
         window.app_teamActivitiesOverdueCount = state.overdueCount;
         state.lastRefreshed = Date.now();
-        state.page = 1;
-        state.selectedKeys = [];
     } catch (err) {
         console.error('Team Activities fetch failed', err);
     } finally {
-        if (loading) loading.style.display = 'none';
+        if (loading && request === state.refreshVersion) loading.style.display = 'none';
     }
+    if (request !== state.refreshVersion) return;
     updateUI();
     if (fetchSucceeded) focusConfiguredTask();
 }
@@ -1318,6 +1320,8 @@ if (typeof window !== 'undefined') {
         const dashboardAction = options?.dashboardAction === true;
         const originalButtonHtml = btn?.innerHTML || '';
         const originalDisabled = !!btn?.disabled;
+        let actionKey;
+        let claimed = false;
         try {
             const currentUser = window.AppAuth?.getUser ? window.AppAuth.getUser() : null;
             const currentUserId = currentUser?.id || null;
@@ -1330,6 +1334,10 @@ if (typeof window !== 'undefined') {
                 return;
             }
             if (!planId || !Number.isInteger(taskIndex) || !window.AppCalendar?.updateTaskStatus) return;
+            actionKey = `${planId}:${taskIndex}`;
+            if (pendingTaskActions.has(actionKey)) return;
+            pendingTaskActions.add(actionKey);
+            claimed = true;
             const comment = (typeof window.app_promptOptionalComment === 'function')
                 ? await window.app_promptOptionalComment('Add a note for completing this task?', 'Completion note (optional)')
                 : '';
@@ -1367,7 +1375,9 @@ if (typeof window !== 'undefined') {
             } else {
                 showInlineActionToast(btn, 'Marked completed');
             }
-            setTimeout(() => refreshData(), 400);
+            if (!dashboardAction) setTimeout(() => {
+                if (document.getElementById('team-activities-table-wrap')) void refreshData();
+            }, 400);
             if (window.app_showSyncToast) {
                 window.app_showSyncToast('Task marked as completed.');
             }
@@ -1385,7 +1395,8 @@ if (typeof window !== 'undefined') {
             console.error('Complete task failed', err);
             alert('Failed to complete task.');
         } finally {
-            if (btn?.isConnected) {
+            if (claimed) pendingTaskActions.delete(actionKey);
+            if (claimed && btn?.isConnected) {
                 btn.disabled = originalDisabled;
                 btn.innerHTML = originalButtonHtml;
             }

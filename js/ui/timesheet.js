@@ -1,3 +1,4 @@
+import { refreshPage } from '../utils/page-updates.js';
 /**
  * Timesheet Component
  * Handles rendering of the user's personal timesheet, calendar view, and manual logs.
@@ -43,7 +44,7 @@ export async function renderTimesheet() {
         window.app_setTimesheetView = async (mode) => {
             window.app_timesheetViewMode = mode === 'calendar' ? 'calendar' : 'list';
             const contentArea = document.getElementById('page-content');
-            if (contentArea) contentArea.innerHTML = await renderTimesheet();
+            if (contentArea) await refreshPage(() => renderTimesheet(), { root: contentArea, route: 'timesheet' });
         };
     }
     if (typeof window.app_changeTimesheetMonth !== 'function') {
@@ -56,7 +57,7 @@ export async function renderTimesheet() {
             window.app_timesheetMonth = d.getMonth();
             window.app_timesheetYear = d.getFullYear();
             const contentArea = document.getElementById('page-content');
-            if (contentArea) contentArea.innerHTML = await renderTimesheet();
+            if (contentArea) await refreshPage(() => renderTimesheet(), { root: contentArea, route: 'timesheet' });
         };
     }
     if (typeof window.app_jumpTimesheetToday !== 'function') {
@@ -65,7 +66,7 @@ export async function renderTimesheet() {
             window.app_timesheetMonth = now.getMonth();
             window.app_timesheetYear = now.getFullYear();
             const contentArea = document.getElementById('page-content');
-            if (contentArea) contentArea.innerHTML = await renderTimesheet();
+            if (contentArea) await refreshPage(() => renderTimesheet(), { root: contentArea, route: 'timesheet' });
         };
     }
 
@@ -130,7 +131,7 @@ export async function renderTimesheet() {
         if (newDesc !== null) {
             await window.AppAttendance.updateLog(logId, { workDescription: newDesc });
             const contentArea = document.getElementById('page-content');
-            if (contentArea) contentArea.innerHTML = await renderTimesheet();
+            if (contentArea) await refreshPage(() => renderTimesheet(), { root: contentArea, route: 'timesheet' });
         }
     };
 
