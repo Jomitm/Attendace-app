@@ -1516,7 +1516,9 @@ export class Calendar {
             if (cached && cached.expiresAt > Date.now()) {
                 return cached.value;
             }
-            const allPlans = await this.db.getAll('work_plans');
+            const allPlans = date
+                ? await this.db.getDayPlansByDate(date)
+                : await this.db.getAll('work_plans');
             const value = allPlans.filter(p =>
                 (!date || p.date === date) &&
                 p.plans &&

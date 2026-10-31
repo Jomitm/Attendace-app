@@ -601,6 +601,9 @@ export class Attendance {
             validationStatus: String(options.validationStatus || 'compliant'),
             validationErrors: Array.isArray(options.validationErrors) ? options.validationErrors : [],
             taskUpdatesSubmittedAt: options.taskUpdatesSubmittedAt || null,
+            tomorrowGoal: String(options.tomorrowGoal || ''),
+            tomorrowGoalDate: String(options.tomorrowGoalDate || ''),
+            tomorrowBudgetHeadId: String(options.tomorrowBudgetHeadId || 'UNALLOCATED'),
             entrySource: 'checkin_checkout',
             attendanceEligible: true,
             synced: false

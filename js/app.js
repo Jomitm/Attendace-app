@@ -5335,26 +5335,16 @@ window.app_submitCheckOut = async function (event) {
             form.tomorrowBudgetHeadId?.value || budgetHeadId
         );
 
-        // 1. Save tomorrow's goal if provided
-        if (tomorrowGoal) {
-            const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
-            await window.AppCalendar.addWorkPlanTask(tomorrow, window.AppAuth.getUser().id, tomorrowGoal, [], {
-                budgetHeadId: tomorrowBudgetHeadId
-            });
-            console.log("Tomorrow's goal saved:", tomorrowGoal);
-        }
-
-        // 2. Save extra time justification entries as completed tasks for today
-        if (extraTimeEntries.length > 0) {
-            const todayStr = new Date().toISOString().split('T')[0];
-            for (const entry of extraTimeEntries) {
-                await window.AppCalendar.addWorkPlanTask(todayStr, window.AppAuth.getUser().id, entry, [], {
-                    status: 'completed',
-                    budgetHeadId: budgetHeadId
-                });
-            }
-            console.log("Extra time tasks saved:", extraTimeEntries.length);
-        }
+        // Keep optional work in the attendance record for recovery if its
+        // separate task save fails. It must not block recording check-out.
+        const checkoutDate = new Date();
+        const todayStr = getLocalISO(checkoutDate);
+        const tomorrowDate = new Date(checkoutDate);
+        tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+        const tomorrow = getLocalISO(tomorrowDate);
+        checkOutOptions.tomorrowGoal = tomorrowGoal;
+        checkOutOptions.tomorrowGoalDate = tomorrow;
+        checkOutOptions.tomorrowBudgetHeadId = tomorrowBudgetHeadId;
 
         const checkOutResult = await window.AppAttendance.checkOut(
             description,
@@ -5396,21 +5386,38 @@ window.app_submitCheckOut = async function (event) {
         if (checkoutModal) checkoutModal.style.display = 'none';
         app_resetCheckoutLocationSession();
 
-        if (taskUpdates.length > 0) {
-            try {
-                await window.app_applyCheckoutTaskUpdates(taskUpdates);
-            } catch (taskErr) {
-                console.error('Checkout task side-effects failed after successful checkout:', taskErr);
-                if (window.app_showSyncToast) {
-                    window.app_showSyncToast(`Checked out, but some task updates need review: ${taskErr.message || taskErr}`);
-                } else {
-                    alert(`Checked out, but some task updates need review: ${taskErr.message || taskErr}`);
-                }
+        // Refresh the saved attendance immediately while optional work saves.
+        const refreshSavedAttendance = () => refreshDashboardAfterAttendance().catch((refreshError) => {
+            console.error('Dashboard refresh failed after successful checkout:', refreshError);
+            window.app_showSyncToast?.('Checked out successfully. Reload to refresh the dashboard.');
+        });
+        const dashboardRefresh = refreshSavedAttendance();
+        try {
+            if (tomorrowGoal) {
+                await window.AppCalendar.addWorkPlanTask(tomorrow, activeUser.id, tomorrowGoal, [], {
+                    budgetHeadId: tomorrowBudgetHeadId
+                });
             }
+            for (const entry of extraTimeEntries) {
+                await window.AppCalendar.addWorkPlanTask(todayStr, activeUser.id, entry, [], {
+                    status: 'completed',
+                    budgetHeadId
+                });
+            }
+            if (taskUpdates.length > 0) {
+                await window.app_applyCheckoutTaskUpdates(taskUpdates);
+            }
+        } catch (taskErr) {
+            console.error('Checkout task side-effects failed after successful checkout:', taskErr);
+            const message = `Checked out, but some task updates need review: ${taskErr.message || taskErr}`;
+            if (window.app_showSyncToast) window.app_showSyncToast(message);
+            else alert(message);
         }
 
-        // Refresh
-        await refreshDashboardAfterAttendance();
+        await dashboardRefresh;
+        if (tomorrowGoal || extraTimeEntries.length > 0 || taskUpdates.length > 0) {
+            await refreshSavedAttendance();
+        }
     } catch (err) {
         const errorMsg = err?.message || (typeof err === 'string' ? err : 'Unknown error');
         alert("Check-out failed: " + errorMsg);

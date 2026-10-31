@@ -612,7 +612,22 @@ export class Database {
     async putWorkPlan(item) {
         const docId = String(item.id);
         const ref = this.db.collection('work_plans').doc(docId);
-        const oldSnapshot = await ref.get();
+        const writerId = String(window.AppFirebaseAuth?.currentUser?.uid || window.AppAuth?.getUser?.()?.id || '').trim();
+        let oldSnapshot;
+        try {
+            oldSnapshot = await ref.get();
+        } catch (error) {
+            // The history rules cannot authorize resource.data for a document
+            // that does not exist yet. Confirm absence through the protected
+            // read API, only for the signed-in owner's canonical personal plan.
+            const isOwnPersonalPlan = writerId && String(item.userId) === writerId
+                && /^\d{4}-\d{2}-\d{2}$/.test(String(item.date || ''))
+                && docId === `plan_${writerId}_${item.date}`;
+            if (!this.isPermissionDenied(error) || !isOwnPersonalPlan || !this.shouldUseStaffReadGateway('work_plans')) throw error;
+            const existing = await this.readStaffData('work_plans', { id: docId }, { source: 'server' });
+            if (existing.length) throw error;
+            oldSnapshot = { exists: false };
+        }
         const oldPlan = oldSnapshot.exists ? oldSnapshot.data() || {} : {};
         // A hidden former-staff task is a display placeholder, never a deletion.
         const preservedPlans = (Array.isArray(item.plans) ? item.plans : []).map((task, index) =>
@@ -626,13 +641,16 @@ export class Database {
             return retainedTags.length ? { ...task, tags: [...(task.tags || []), ...retainedTags] } : task;
         });
         const safeInput = { ...item, plans: [...(Array.isArray(item.plans) ? item.plans : [])] };
-        const writerId = String(window.AppFirebaseAuth?.currentUser?.uid || window.AppAuth?.getUser?.()?.id || '').trim();
         const ownerId = String(oldPlan.userId === 'annual_shared' ? oldPlan.createdById : oldPlan.userId || item.userId || '').trim();
         const writerOwnsPlan = Boolean(writerId && writerId === ownerId);
-        if (!String(safeInput.createdById || '').trim()) {
-            const existingCreatorId = String(oldPlan.createdById || '').trim();
-            if (existingCreatorId) safeInput.createdById = existingCreatorId;
-            else if (writerOwnsPlan) safeInput.createdById = writerId;
+        // Editing a plan must preserve its original creator. Staff may edit
+        // their own admin-created plan, but rules forbid changing attribution.
+        const existingCreatorId = String(oldPlan.createdById || '').trim();
+        if (existingCreatorId) {
+            safeInput.createdById = existingCreatorId;
+            if (oldPlan.createdByName !== undefined) safeInput.createdByName = oldPlan.createdByName;
+        } else if (writerOwnsPlan) {
+            safeInput.createdById = writerId;
         }
         // A collaborator cannot see an owner's private task bodies. Preserve
         // those references when they save edits to the public tasks in a plan.
