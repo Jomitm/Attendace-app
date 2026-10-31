@@ -3135,6 +3135,7 @@ function clearTeamActivityController(el) {
     if (state.intervalId) clearInterval(state.intervalId);
     if (state.pauseTimeoutId) clearTimeout(state.pauseTimeoutId);
     if (state.resumeTimeoutId) clearTimeout(state.resumeTimeoutId);
+    state.visibilityObserver?.disconnect();
     el.removeEventListener('mouseenter', state.onMouseEnter);
     el.removeEventListener('mouseleave', state.onMouseLeave);
     el.removeEventListener('touchstart', state.onTouchStart);
@@ -3171,7 +3172,8 @@ function createAutoScrollController(el, config, registry) {
         }, waitMs);
     };
     const tick = () => {
-        if (state.isPausedByUser || state.isWaitingAtEdge || !el.isConnected) return;
+        if (!el.isConnected) { clearAutoScrollController(el, registry); return; }
+        if (document.hidden || state.isVisible === false || state.isPausedByUser || state.isWaitingAtEdge) return;
         const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
         if (maxScroll <= 0) {
             state.stallTicks = 0;
@@ -3212,6 +3214,13 @@ function createAutoScrollController(el, config, registry) {
     el.addEventListener('touchstart', state.onTouchStart, { passive: true });
     el.addEventListener('touchend', state.onTouchEnd, { passive: true });
     el.addEventListener('touchcancel', state.onTouchCancel, { passive: true });
+    if (typeof IntersectionObserver === 'function') {
+        state.isVisible = false;
+        state.visibilityObserver = new IntersectionObserver(entries => {
+            state.isVisible = entries.some(entry => entry.isIntersecting);
+        });
+        state.visibilityObserver.observe(el);
+    }
     state.intervalId = setInterval(tick, TICK_MS);
     registry.controllers.set(el, state);
     registry.elements.add(el);
@@ -3224,6 +3233,7 @@ function clearAutoScrollController(el, registry) {
     if (state.intervalId) clearInterval(state.intervalId);
     if (state.pauseTimeoutId) clearTimeout(state.pauseTimeoutId);
     if (state.resumeTimeoutId) clearTimeout(state.resumeTimeoutId);
+    state.visibilityObserver?.disconnect();
     el.removeEventListener('mouseenter', state.onMouseEnter);
     el.removeEventListener('mouseleave', state.onMouseLeave);
     el.removeEventListener('touchstart', state.onTouchStart);
