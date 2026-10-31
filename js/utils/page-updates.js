@@ -4,10 +4,24 @@ import morphdom from 'morphdom';
 let navigationVersion = 0;
 const requests = new WeakMap();
 const dirty = new WeakSet();
+// Track the containers actually scrolled instead of reading layout state
+// from every descendant whenever background data refreshes a large page.
+const scrolledElements = new Set();
+let scrollQuietUntil = 0;
 const routeKey = () => String(window.location.hash || '#dashboard').replace(/^#/, '') || 'dashboard';
 const viewerKey = () => String(window.AppAuth?.getUser?.()?.id || '');
-if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('hashchange', () => { navigationVersion++; });
+if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('hashchange', () => { navigationVersion++; scrolledElements.clear(); });
 if (typeof document !== 'undefined') {
+    const deferWhileScrolling = () => { scrollQuietUntil = Date.now() + 150; };
+    document.addEventListener('wheel', deferWhileScrolling, { capture: true, passive: true });
+    document.addEventListener('touchmove', deferWhileScrolling, { capture: true, passive: true });
+    document.addEventListener('keydown', event => {
+        if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)
+            && !event.target?.matches?.('input,textarea,select,[contenteditable="true"]')) deferWhileScrolling();
+    });
+    document.addEventListener('scroll', event => {
+        if (event.target?.nodeType === 1) scrolledElements.add(event.target);
+    }, { capture: true, passive: true });
     const remember = event => { if (event.target?.matches?.('input,textarea,select,[contenteditable="true"]')) dirty.add(event.target); };
     document.addEventListener('input', remember);
     document.addEventListener('change', remember);
@@ -66,13 +80,21 @@ export function patchContent(root, html) {
     target.innerHTML = html;
     const viewport = { left: window.scrollX, top: window.scrollY };
     const active = document.activeElement;
-    const scroll = [root, ...root.querySelectorAll('*')].filter(el => el.scrollTop || el.scrollLeft)
-        .map(el => [el, el.scrollTop, el.scrollLeft]);
+    const scroll = [];
+    for (const el of new Set([root, ...scrolledElements])) {
+        if (!el.isConnected) { scrolledElements.delete(el); continue; }
+        if (el !== root && !root.contains(el)) continue;
+        const top = el.scrollTop, left = el.scrollLeft;
+        if (top || left) scroll.push([el, top, left]);
+    }
     morphdom(root, target, {
         childrenOnly: true, getNodeKey: nodeKey, onBeforeElUpdated: preserveLocalState,
         onBeforeNodeDiscarded: node => !node.matches?.('.dashboard-card-mode-controls')
     });
-    for (const [el, top, left] of scroll) if (el.isConnected) { el.scrollTop = top; el.scrollLeft = left; }
+    for (const [el, top, left] of scroll) if (el.isConnected) {
+        if (el.scrollTop !== top) el.scrollTop = top;
+        if (el.scrollLeft !== left) el.scrollLeft = left;
+    }
     if (active?.isConnected && document.activeElement !== active && active !== document.body) active.focus({ preventScroll: true });
     if (window.scrollX !== viewport.left || window.scrollY !== viewport.top) window.scrollTo({ ...viewport, behavior: 'instant' });
 }
@@ -83,6 +105,14 @@ export async function refreshPage(render, { root = document.getElementById('page
     if (!request?.current()) return false;
     const html = await render();
     if (!request.current()) return false;
+    // Network work can finish during a wheel gesture. Commit the expensive
+    // DOM update once scrolling pauses, rather than interrupting that gesture.
+    if (!navigation) {
+        while (request.current() && Date.now() < scrollQuietUntil) {
+            await new Promise(resolve => setTimeout(resolve, Math.min(150, scrollQuietUntil - Date.now())));
+        }
+        if (!request.current()) return false;
+    }
     if (navigation) root.innerHTML = html;
     else patchContent(root, html);
     if (after) await after();

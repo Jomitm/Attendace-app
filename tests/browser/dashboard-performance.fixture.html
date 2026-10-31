@@ -1,0 +1,12 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Local dashboard performance fixture</title>
+<link rel="stylesheet" href="/css/main.css"><link rel="stylesheet" href="/css/dashboard-modern.css"><link rel="stylesheet" href="/css/ui-foundation.css">
+<style>body{display:block!important;padding:20px}#page-content{width:1200px;margin:auto}.sample-list{height:180px;overflow:auto}.sample-row{height:34px;display:flex;gap:12px}.sample-card{padding:12px;margin:16px;border:1px solid #ddd;background:white}.offscreen{margin-top:1600px}</style>
+</head><body><main id="page-content"></main><script type="module">
+import {patchContent,refreshPage} from '/js/utils/page-updates.js';
+window.patchContent=patchContent;
+window.refreshPage=refreshPage;
+const row=i=>`<div class="sample-row"><span>Task ${i}</span><span>Sample staff</span><span>In progress</span><button>Details</button><small>Local sample</small></div>`;
+window.fixtureHTML=Array.from({length:24},(_,card)=>`<section id="sample-${card}" class="sample-card ${card?'offscreen':''}"><h3>Work list ${card}</h3><div id="list-${card}" class="sample-list dashboard-worklog-list">${Array.from({length:45},(_,i)=>row(i)).join('')}</div><input value="Sample draft"></section>`).join('');
+document.querySelector('main').innerHTML=window.fixtureHTML;
+window.fixtureReady=true;
+</script></body></html>

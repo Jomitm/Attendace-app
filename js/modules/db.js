@@ -215,15 +215,24 @@ export class Database {
     async getCached(cacheKey, ttlMs, fetchFn) {
         const now = Date.now();
         const entry = this.cache.get(cacheKey);
+        if (entry?.pending) return entry.pending;
         if (entry && entry.expiresAt > now) {
             return entry.value;
         }
-        const value = await fetchFn();
-        this.cache.set(cacheKey, {
-            value,
-            expiresAt: now + Math.max(0, Number(ttlMs) || 0)
+        const loading = { pending: null, expiresAt: 0 };
+        const pending = Promise.resolve().then(fetchFn).then(value => {
+            // Invalidation during a request must not resurrect its old data.
+            if (this.cache.get(cacheKey) === loading) {
+                this.cache.set(cacheKey, { value, expiresAt: Date.now() + Math.max(0, Number(ttlMs) || 0) });
+            }
+            return value;
+        }, error => {
+            if (this.cache.get(cacheKey) === loading) this.cache.delete(cacheKey);
+            throw error;
         });
-        return value;
+        loading.pending = pending;
+        this.cache.set(cacheKey, loading);
+        return pending;
     }
 
     async getOrGenerateSummary(summaryKey, generatorFn, ttlMs) {
