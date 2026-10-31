@@ -1,0 +1,44 @@
+{
+  "evidence": "Production methods executed using empty or synthetic records; counts, not live latency",
+  "monthlyAndYearly": {
+    "logicalAttendanceCalls": 4,
+    "uniqueQueryShapes": 2,
+    "ownerFilteredCalls": 4,
+    "queries": [
+      [
+        {
+          "field": "user_id",
+          "operator": "==",
+          "value": "sample-staff"
+        }
+      ],
+      [
+        {
+          "field": "userId",
+          "operator": "==",
+          "value": "sample-staff"
+        }
+      ]
+    ]
+  },
+  "threeProtectedReadRequests": {
+    "tokenVerifications": 3,
+    "profileReads": 3,
+    "rosterReads": 3,
+    "requestedCollectionReads": 3
+  },
+  "emptyDateRange": [
+    "range query",
+    "whole attendance collection"
+  ],
+  "fourteenMissingPlanDocuments": {
+    "groupedQueries": 2,
+    "individualReads": 14
+  },
+  "gatewayTelemetry": {
+    "actualFixtureFetches": 1,
+    "trackedGetAll": 0,
+    "trackedQueryMany": 0,
+    "trackedDocuments": 0
+  }
+}

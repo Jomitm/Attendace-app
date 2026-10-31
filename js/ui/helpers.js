@@ -17,6 +17,19 @@ export function safeAttr(value) {
     return safeHtml(value);
 }
 
+// Preserve supported uploaded images and ordinary web/relative URLs while
+// keeping executable URL schemes out of href/src attributes.
+export function safeContentUrl(value, { image = false } = {}) {
+    const raw = String(value ?? '').trim();
+    if (!raw || [...raw].some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)) return '';
+    if (image && /^data:image\/(?:png|jpe?g|gif|webp|avif|bmp|svg\+xml);(?:base64,|utf8,|charset=utf-8,)/i.test(raw)) return raw;
+    try {
+        const parsed = new URL(raw, 'https://staff.crwi.org.in/');
+        if (['http:', 'https:'].includes(parsed.protocol) || (!image && ['mailto:', 'tel:'].includes(parsed.protocol))) return raw;
+    } catch { /* Invalid URL: render its text without an active destination. */ }
+    return '';
+}
+
 export function safeJsStr(value) {
     return String(value ?? '')
         .replace(/\\/g, '\\\\')

@@ -17,6 +17,14 @@ const LIMIT_ENV = 'AI_DAILY_QUESTION_LIMIT';
 const DEFAULT_LIMIT = 5;
 const EXEMPT_MODES = new Set(['tool_plan', 'classify', 'performance']);
 
+// Streaming dispatch is generic chat. Never let an exempt operation select
+// that branch while retaining its quota exemption.
+export function validateAiOperation(body = {}) {
+    if (body?.question !== undefined && body.question !== null && typeof body.question !== 'string') return 'Question must be text';
+    if (body?.stream && EXEMPT_MODES.has(body.mode)) return 'Streaming is only supported for chat requests';
+    return null;
+}
+
 // Configured limit. Env wins when it's a positive integer; anything else
 // (missing, 0, -3, "abc") falls back to the default.
 export function quotaLimit(env = process.env) {
@@ -27,6 +35,7 @@ export function quotaLimit(env = process.env) {
 // True only for requests that answer a user-typed chat question.
 export function isQuotaRequest(body = {}) {
     const { mode, question } = body || {};
+    if (body?.stream) return typeof question === 'string' && question.trim() !== '';
     if (mode && EXEMPT_MODES.has(mode)) return false;
     return typeof question === 'string' && question.trim() !== '';
 }

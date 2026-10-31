@@ -10,9 +10,10 @@
 // timeout, retries). Falls back to a rule-based summary when AI is unavailable.
 
 import { getAdmin, getDb } from './_firebase-admin.js';
+import { authenticateRequest, sendAuthError } from './_api-auth.js';
 import { callAI, callAIStream, planToolAction, trimMetrics, classifyTaskBatch, generatePerformanceFallback } from './_ai-provider.js';
 import { validatePerfSnapshot } from './_perf-snapshot.js';
-import { quotaLimit, isQuotaRequest, quotaDocId, nextUtcMidnight, quotaMessage, quotaContext } from './_ai-quota.js';
+import { quotaLimit, isQuotaRequest, validateAiOperation, quotaDocId, nextUtcMidnight, quotaMessage, quotaContext } from './_ai-quota.js';
 
 function providersAvailable() {
     return Boolean(process.env.OPENROUTER_API_KEY || process.env.XAI_API_KEY);
@@ -54,27 +55,20 @@ export default async function handler(req, res) {
     }
 
     // ── Auth: verify Firebase ID token ──
-    let authUid = null;
-    const admin = getAdmin();
-    if (!admin) return res.status(500).json({ error: 'Server configuration error' });
-    try {
-        const header = req.headers.authorization || '';
-        const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-        if (!token) return res.status(401).json({ error: 'Missing auth token' });
-        const decoded = await admin.auth().verifyIdToken(token);
-        authUid = decoded.uid;
-    } catch (err) {
-        console.warn('ai-insights auth failed:', err?.message || err);
-        return res.status(401).json({ error: 'Invalid auth token' });
-    }
+    const auth = await authenticateRequest(req);
+    if (!auth.ok) return sendAuthError(res, auth);
+    const authUid = auth.user.uid;
+    const admin = auth.admin || getAdmin();
 
     try {
         const { question, history, mode, tasks, stream, text } = req.body || {};
+        const operationError = validateAiOperation(req.body);
+        if (operationError) return res.status(400).json({ error: operationError });
         let metrics = req.body && req.body.metrics;
 
         // ── Daily chat-question quota (per user, UTC day — api/_ai-quota.js) ──
         const limit = quotaLimit();
-        const chargeable = isQuotaRequest({ mode, question });
+        const chargeable = isQuotaRequest({ mode, question, stream });
         let quotaUsed = null;
         if (chargeable || mode === 'tool_plan') {
             quotaUsed = await readQuota(authUid);

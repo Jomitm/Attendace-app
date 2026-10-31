@@ -21,14 +21,15 @@ import {
     renderStaffDirectory
 } from './ui/dashboard.js';
 
-import { renderStaffDirectoryPage } from './ui/staff-directory.js';
-import { renderProfile } from './ui/profile.js';
-import { renderMinutes } from './ui/minutes-ui.js';
+// Route-only pages load on demand; every routed render call awaits the result.
+const lazyPage = (load, key) => (...args) => load().then(mod => mod[key](...args));
+const renderStaffDirectoryPage = lazyPage(() => import('./ui/staff-directory.js'), 'renderStaffDirectoryPage');
+const renderProfile = lazyPage(() => import('./ui/profile.js'), 'renderProfile');
+const renderMinutes = lazyPage(() => import('./ui/minutes-ui.js'), 'renderMinutes');
 
 // Bundle shrink: these pages are routed lazily, so each becomes its own chunk
 // instead of inflating the main bundle. Every call site already awaits them,
 // which makes the returned promise transparent.
-const lazyPage = (load, key) => (...args) => load().then(mod => mod[key](...args));
 const renderAnnualPlan = lazyPage(() => import('./ui/annual-plan.js'), 'renderAnnualPlan');
 const renderTimesheet = lazyPage(() => import('./ui/timesheet.js'), 'renderTimesheet');
 const renderMasterSheet = lazyPage(() => import('./ui/master-sheet.js'), 'renderMasterSheet');
@@ -40,13 +41,22 @@ import { renderCheckInModal, renderCheckoutModal } from './ui/attendance-modals.
 import { renderLogin, renderOwnerLogin, renderOwnerPasswordSetup } from './ui/auth-pages.js';
 import { renderModals } from './ui/global-modals.js';
 import { renderYearlyPlan } from './ui/team-schedule.js';
-import { renderTeamActivitiesPage } from './ui/team-activities.js';
-import { renderDashboardSectionPage, initDashboardSectionPage } from './ui/dashboard-sections.js';
+const renderTeamActivitiesPage = lazyPage(() => import('./ui/team-activities.js'), 'renderTeamActivitiesPage');
+const renderDashboardSectionPage = lazyPage(() => import('./ui/dashboard-sections.js'), 'renderDashboardSectionPage');
+const initDashboardSectionPage = lazyPage(() => import('./ui/dashboard-sections.js'), 'initDashboardSectionPage');
 const renderLetterPad = lazyPage(() => import('./ui/letter-pad.js'), 'renderLetterPad');
-import { renderJourneyReflectionCard } from './ui/journey-reflection.js';
-import { initDashboardLayout, toggleEditMode, applyDashboardLayout, isEditModeActive } from './ui/dashboard-layout.js';
-import { renderKanbanBoard, initKanbanBoard, startKanbanRealtimeListener, stopKanbanRealtimeListener } from './ui/kanban-board.js';
-import { renderViewToggle, initViewToggle, ensureViewToggleCSS } from './ui/view-toggle.js';
+const renderJourneyReflectionCard = lazyPage(() => import('./ui/journey-reflection.js'), 'renderJourneyReflectionCard');
+const initDashboardLayout = lazyPage(() => import('./ui/dashboard-layout.js'), 'initDashboardLayout');
+const toggleEditMode = lazyPage(() => import('./ui/dashboard-layout.js'), 'toggleEditMode');
+const applyDashboardLayout = lazyPage(() => import('./ui/dashboard-layout.js'), 'applyDashboardLayout');
+const isEditModeActive = lazyPage(() => import('./ui/dashboard-layout.js'), 'isEditModeActive');
+const renderKanbanBoard = lazyPage(() => import('./ui/kanban-board.js'), 'renderKanbanBoard');
+const initKanbanBoard = lazyPage(() => import('./ui/kanban-board.js'), 'initKanbanBoard');
+const startKanbanRealtimeListener = lazyPage(() => import('./ui/kanban-board.js'), 'startKanbanRealtimeListener');
+const stopKanbanRealtimeListener = lazyPage(() => import('./ui/kanban-board.js'), 'stopKanbanRealtimeListener');
+const renderViewToggle = lazyPage(() => import('./ui/view-toggle.js'), 'renderViewToggle');
+const initViewToggle = lazyPage(() => import('./ui/view-toggle.js'), 'initViewToggle');
+const ensureViewToggleCSS = lazyPage(() => import('./ui/view-toggle.js'), 'ensureViewToggleCSS');
 const renderAICenter = lazyPage(() => import('./ui/ai-center.js'), 'renderAICenter');
 const initAICenter = lazyPage(() => import('./ui/ai-center.js'), 'initAICenter');
 

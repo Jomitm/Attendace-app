@@ -204,8 +204,4 @@
     white-space: nowrap;
   }
 
-  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-countdown,
-  .modern-dashboard .dashboard-checkin-card .dashboard-checkin-overtime {
-    display: none !important;
-  }
 }

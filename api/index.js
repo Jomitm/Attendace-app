@@ -20,6 +20,7 @@ import staffEmployment from './_staff-employment.js';
 import staffData from './_staff-data.js';
 import minutesAction from './_minutes-action.js';
 import staffTaskResponse from './_staff-task-response.js';
+import programmes from './_programmes.js';
 import calendarFeed from './_calendar-feed.js';
 import calendarToken from './_calendar-token.js';
 import feastProxy from './_feast-proxy.js';
@@ -39,6 +40,7 @@ export const ROUTES = {
     'staff-data': staffData,
     'minutes-action': minutesAction,
     'staff-task-response': staffTaskResponse,
+    'programmes': programmes,
     'calendar-feed': calendarFeed,
     'calendar-token': calendarToken,
     'feast-proxy': feastProxy,

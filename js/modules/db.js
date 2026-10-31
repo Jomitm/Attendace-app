@@ -33,6 +33,49 @@ export class Database {
                 'birthday_people', 'hero_selections', 'daily_summaries', 'events'].includes(collection);
     }
 
+    queueStaffRead(viewer, token, query) {
+        // Collect reads started in the same turn, without retaining credentials
+        // or authority across requests. Single reads keep the existing protocol.
+        this.staffReadQueue ||= [];
+        return new Promise((resolve, reject) => {
+            this.staffReadQueue.push({ viewer, token, query, resolve, reject });
+            if (this.staffReadFlushScheduled) return;
+            this.staffReadFlushScheduled = true;
+            setTimeout(() => {
+                this.staffReadFlushScheduled = false;
+                const pending = this.staffReadQueue.splice(0);
+                const groups = [];
+                for (const entry of pending) {
+                    let group = groups.find(rows => rows.length < 8 && rows[0].viewer.uid === entry.viewer.uid && rows[0].token === entry.token);
+                    if (!group) groups.push(group = []);
+                    group.push(entry);
+                }
+                for (const group of groups) void (async () => {
+                    try {
+                        const first = group[0];
+                        if (window.AppFirebaseAuth?.currentUser?.uid !== first.viewer.uid) throw new Error('The signed-in account changed. Please refresh.');
+                        const response = await fetch('/api/staff-data', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${first.token}` },
+                            body: JSON.stringify(group.length === 1 ? first.query : { queries: group.map(entry => entry.query) }),
+                            signal: AbortSignal.timeout(60000)
+                        });
+                        const result = await response.json();
+                        if (!response.ok) throw new Error(result.error || 'Could not load staff records.');
+                        if (window.AppFirebaseAuth?.currentUser?.uid !== first.viewer.uid) throw new Error('The signed-in account changed. Please refresh.');
+                        const results = group.length === 1 ? [result] : result.results;
+                        if (!Array.isArray(results) || results.length !== group.length) throw new Error('Invalid staff response. Please retry.');
+                        if (results.some(row => !row || (!row.error && !Array.isArray(row.data)))) throw new Error('Invalid staff response. Please retry.');
+                        group.forEach((entry, index) => {
+                            const row = results[index];
+                            if (row.error) entry.reject(new Error(row.error));
+                            else entry.resolve(row);
+                        });
+                    } catch (error) { group.forEach(entry => entry.reject(error)); }
+                })();
+            }, 0);
+        });
+    }
+
     async readStaffData(collection, query = {}, options = {}) {
         const viewer = window.AppFirebaseAuth.currentUser;
         const includeFormer = options.includeFormer === true && this.inEmploymentAdminArea();
@@ -43,13 +86,8 @@ export class Database {
             let cursor;
             const requestedLimit = Number(options.limit) > 0 ? Number(options.limit) : Infinity;
             for (let page = 0; page < 100; page++) {
-                const response = await fetch('/api/staff-data', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                    body: JSON.stringify({ collection, ...query, includeFormer, cursor, orderBy: options.orderBy || [], pageSize: Math.min(400, requestedLimit - rows.length) })
-                });
-                const result = await response.json();
+                const result = await this.queueStaffRead(viewer, token, { collection, ...query, includeFormer, cursor, orderBy: options.orderBy || [], pageSize: Math.min(400, requestedLimit - rows.length) });
                 if (window.AppFirebaseAuth?.currentUser?.uid !== viewer.uid) throw new Error('The signed-in account changed. Please refresh.');
-                if (!response.ok) throw new Error(result.error || 'Could not load staff records.');
                 rows.push(...result.data);
                 cursor = result.nextCursor;
                 if (!cursor || rows.length >= requestedLimit) return collection === 'work_plans' ? this.hydrateWorkPlans(rows.slice(0, requestedLimit)) : rows.slice(0, requestedLimit);

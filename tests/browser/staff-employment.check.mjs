@@ -1,0 +1,73 @@
+// Local UI checks. Start Vite on BASE_URL (default :3017). All records and API writes are fixtures.
+import { chromium } from 'playwright';
+import assert from 'node:assert/strict';
+import { mkdirSync } from 'node:fs';
+const base=process.env.BASE_URL || 'http://127.0.0.1:3017';
+const browser=await chromium.launch({headless:true});
+const page=await browser.newPage({viewport:{width:1280,height:850}});
+const errors=[];page.on('pageerror',error=>errors.push(error.message));
+const fixture=`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/css/main.css"><style>*,*::before,*::after{animation:none!important;transition:none!important}</style></head><body><main id="page-content" style="padding:20px"></main><script type="module">
+import { renderAdmin } from '/js/ui/admin.js';
+window.fixtureUsers=[{id:'admin',name:'Admin',username:'admin',isAdmin:true,status:'out',avatar:''},{id:'staff',name:'Anita George',username:'anita',dept:'Finance',status:'out',avatar:''},{id:'former',name:'Former colleague',username:'former',dept:'Programmes',employmentStatus:'former',employmentEndedAt:'2026-09-30',status:'out',avatar:''}];
+window.fixtureCurrent=window.fixtureUsers[0];
+window.AppAuth={getUser:()=>window.fixtureCurrent};
+window.AppFirebaseAuth={currentUser:{getIdToken:async()=>'fixture-token'}};
+window.AppDB={getAll:async(name,opts={})=>{
+ if(name==='users')return window.fixtureUsers;
+ if(name==='attendance')return [{id:'att',user_id:'former',date:'2026-09-29',type:'Present',checkIn:'09:00',checkOut:'17:00'}];
+ if(name==='work_plans')return [{id:'old-plan',userId:'former',date:'2026-09-29',plans:[{task:'Complete handover',status:'pending'}]}];
+ return [];
+},queryMany:async()=>[],get:async(name,id)=>name==='users'?window.fixtureUsers.find(u=>u.id===id):name==='staff_employment'?{reason:'Resigned',note:'Handover recorded'}:null,cache:new Map()};
+window.AppAnalytics={getSystemPerformance:async()=>({}),getAllStaffActivities:async()=>[],memo:new Map()};
+window.AppLeaves={getAllLeaves:async()=>[],getPendingLeaves:async()=>[]};
+window.app_hasPerm=()=>true;window.app_isAdminUser=()=>true;window.app_canManageBirthdays=()=>false;window.app_canAdminBirthdays=()=>false;window.app_canCustomizeDashboard=()=>false;
+window.app_getTelegramPromptEnabled=()=>false;
+window.renderFixture=async()=>{await renderAdmin();document.getElementById('page-content').innerHTML='<section class="card"><h2>Staff Management</h2>'+window._adminCardTemplates['staff-management'].expandedHtml+'</section>';window.app_refreshAdminPage=window.renderFixture;};
+await window.renderFixture();
+</script></body></html>`;
+try{
+ await page.route('**/__employment_fixture',route=>route.fulfill({contentType:'text/html',body:fixture}));
+ const requests=[];
+ await page.route('**/api/staff-employment',async route=>{
+  const body=route.request().postDataJSON();requests.push(body);assert.equal(route.request().headers().authorization,'Bearer fixture-token');
+  await page.evaluate(body=>{const user=window.fixtureUsers.find(u=>u.id===body.userId);user.employmentStatus=body.action==='archive'?'former':'active';user.employmentEndedAt=body.action==='archive'?body.lastWorkingDate:null;},body);
+  await route.fulfill({json:{success:true,warning:''}});
+ });
+ await page.goto(base+'/__employment_fixture#admin');
+ await page.getByRole('heading',{name:'Staff Management',exact:true}).waitFor();
+ const shown=()=>page.locator('[data-staff-employment-row]:visible');
+ assert.equal(await shown().count(),2,'Active staff are the default');
+ assert.equal(await page.locator('[data-user-id="admin"][data-ts-action="staff-employment-change"]').isDisabled(),true);
+ await page.locator('[data-staff-employment-filter]').selectOption('former');
+ assert.equal(await shown().count(),1);
+ await page.locator('[data-staff-employment-search]').fill('nobody');assert.equal(await shown().count(),0);
+ await page.locator('[data-staff-employment-search]').fill('');
+ await page.locator('[data-ts-action="staff-employment-history"][data-user-id="former"]').click();
+ await page.getByRole('dialog').getByText('Complete handover',{exact:false}).waitFor();
+ assert.match(await page.getByRole('dialog').textContent(),/Handover recorded/);
+ assert.equal(await page.getByRole('dialog').getByRole('button',{name:'Reassign',exact:true}).count(),1);
+ await page.getByRole('dialog').getByRole('button',{name:'Close',exact:true}).click();
+ await page.locator('[data-staff-employment-filter]').selectOption('active');
+ await page.locator('[data-ts-action="staff-employment-change"][data-user-id="staff"]').click();
+ await page.getByRole('dialog').locator('[name="lastWorkingDate"]').fill('2026-10-29');
+ await page.getByRole('dialog').locator('[name="reason"]').selectOption('Resigned');
+ await page.getByRole('dialog').locator('[name="note"]').fill('Handover complete');
+ await page.getByRole('dialog').getByRole('button',{name:'Mark as former staff',exact:true}).click();
+ await page.waitForFunction(()=>window.fixtureUsers.find(u=>u.id==='staff').employmentStatus==='former');
+ await page.getByRole('dialog').waitFor({state:'detached'});
+ await page.locator('[data-staff-employment-filter]').waitFor();
+ assert.equal(requests[0].note,'Handover complete');
+ assert.equal(await page.locator('[data-staff-employment-filter]').inputValue(),'former');
+ assert.equal(await shown().count(),2);
+ mkdirSync('test-results/staff-employment',{recursive:true});
+ await page.screenshot({path:'test-results/staff-employment/admin-former-staff.png',fullPage:true});
+ await page.locator('[data-ts-action="staff-employment-change"][data-user-id="staff"]').click();
+ await page.getByRole('dialog').getByRole('button',{name:'Restore to active staff',exact:true}).click();
+ await page.waitForFunction(()=>window.fixtureUsers.find(u=>u.id==='staff').employmentStatus==='active');
+ await page.getByRole('dialog').waitFor({state:'detached'});
+ assert.equal(requests[1].action,'restore');
+ await page.setViewportSize({width:390,height:844});
+ await page.screenshot({path:'test-results/staff-employment/mobile.png',fullPage:true});
+ assert.deepEqual(errors,[]);
+ console.log('PASS: actual admin staff card, active/former search filters, self-protection, admin history, unfinished tasks, archive/restore forms and authenticated API payloads using fixtures.');
+}finally{await browser.close();}

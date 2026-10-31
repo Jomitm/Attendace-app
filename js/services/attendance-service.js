@@ -51,15 +51,10 @@ export class AttendanceService {
         if (!db) return [];
 
         if (db.queryMany) {
-            try {
-                const result = await db.queryMany(COLLECTION, [
-                    { field: 'date', operator: '>=', value: fromDate },
-                    { field: 'date', operator: '<=', value: toDate }
-                ], { source: 'server' });
-                if (result.length > 0) return result;
-            } catch {
-                // fall through to getAll
-            }
+            return (db.queryManyStrict || db.queryMany).call(db, COLLECTION, [
+                { field: 'date', operator: '>=', value: fromDate },
+                { field: 'date', operator: '<=', value: toDate }
+            ], { source: 'server' });
         }
 
         const all = await this.getAll(opts);
@@ -74,13 +69,9 @@ export class AttendanceService {
         if (!db) return [];
 
         if (db.queryMany) {
-            try {
-                const result = await db.queryMany(COLLECTION, [
-                    { field: 'date', operator: '==', value: date }
-                ]);
-                if (result.length > 0) return result;
-                // fall through to getAll
-            } catch { /* fall through */ }
+            return (db.queryManyStrict || db.queryMany).call(db, COLLECTION, [
+                { field: 'date', operator: '==', value: date }
+            ]);
         }
 
         const all = await this.getAll(opts);

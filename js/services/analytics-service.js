@@ -77,7 +77,30 @@ export class AnalyticsService {
                     return date >= start && date <= end;
                 }));
             }
-            return db.hydrateWorkPlans ? db.hydrateWorkPlans(plans) : plans;
+            // Gateway reads already hydrate authorized private tasks.
+            return db.hydrateWorkPlans && !db.shouldUseStaffReadGateway?.('work_plans') ? db.hydrateWorkPlans(plans) : plans;
+        });
+    }
+
+    /** Get one staff member's plans in a date window for the dashboard's initial task card. */
+    async getUserWorkPlansByDateRange(userId, startDate, endDate) {
+        const db = _db();
+        const owner = String(userId || '').trim();
+        const start = String(startDate || '').trim();
+        const end = String(endDate || '').trim();
+        if (!db || !owner || !/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || start > end) return [];
+        const ttl = (_cfg()?.READ_CACHE_TTLS?.workPlansAllReadMs) || 300000;
+        const cacheKey = db.getCacheKey('svc_analytics_userWorkPlansRange', 'work_plans', { owner, start, end });
+        return db.getCached(cacheKey, ttl, async () => {
+            const filters = [
+                { field: 'userId', operator: '==', value: owner },
+                { field: 'date', operator: '>=', value: start },
+                { field: 'date', operator: '<=', value: end }
+            ];
+            const plans = db.queryManyStrict
+                ? await db.queryManyStrict('work_plans', filters)
+                : await db.getAll('work_plans').then(rows => (rows || []).filter(row => row.userId === owner && row.date >= start && row.date <= end));
+            return db.hydrateWorkPlans && !db.shouldUseStaffReadGateway?.('work_plans') ? db.hydrateWorkPlans(plans) : plans;
         });
     }
 

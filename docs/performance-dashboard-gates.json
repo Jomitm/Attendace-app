@@ -1,0 +1,30 @@
+{
+  "evidence": "Production dashboard/calendar code with synthetic 1200ms dependencies and sample records; no live account or database",
+  "results": [
+    {
+      "scenario": "baseline",
+      "injectedDelayMs": 0,
+      "renderReturnMs": 8
+    },
+    {
+      "scenario": "yearly",
+      "injectedDelayMs": 1200,
+      "renderReturnMs": 9
+    },
+    {
+      "scenario": "minutes",
+      "injectedDelayMs": 1200,
+      "renderReturnMs": 6
+    },
+    {
+      "scenario": "programmes",
+      "injectedDelayMs": 1200,
+      "renderReturnMs": 7
+    },
+    {
+      "scenario": "background-summary",
+      "injectedDelayMs": 1200,
+      "renderReturnMs": 6
+    }
+  ]
+}

@@ -8,6 +8,7 @@
 import { safeHtml, safeUrl, formatLabeledInsight } from './helpers.js';
 import { runDailyPerformanceAI, getTodaysCachedNarrative, getTodaysCachedAiScore, refreshPerformanceAI, verifyPerformanceData } from '../modules/ai-performance-coach.js';
 import { PERF_PERIODS } from '../utils/performance-periods.js';
+import { ensureChartJs } from '../utils/external-libraries.js';
 export { PERF_PERIODS };
 
 // ─── Radar Chart (Chart.js global) ─────────────────────────────
@@ -15,9 +16,17 @@ let _radarInstance = null;
 
 function renderRadarChart(dimensions) {
     // Defer to next tick so DOM is ready
-    setTimeout(() => {
+    setTimeout(async () => {
         const canvas = document.getElementById('perf-radar-canvas');
-        if (!canvas || !window.Chart) return;
+        if (!canvas) return;
+        const details = canvas.closest('details');
+        if (details && !details.open) {
+            details.addEventListener('toggle', () => { if (details.open) renderRadarChart(dimensions); }, { once: true });
+            return;
+        }
+        try { await ensureChartJs(); }
+        catch (error) { console.warn('[Staff performance] Chart unavailable:', error); return; }
+        if (!canvas.isConnected || !window.Chart) return;
 
         if (_radarInstance) { _radarInstance.destroy(); _radarInstance = null; }
 
@@ -110,7 +119,7 @@ function trendHtml(trend) {
     return `
         <div class="perf-trend-section">
             <div class="perf-trend-header">
-                <span class="perf-trend-title">📈 Weekly Trend</span>
+                <span class="perf-trend-title">📈 Trend across displayed weeks (first → latest)</span>
                 <span class="perf-trend-badge ${arrowClass}">${arrow} (${diff >= 0 ? '+' : ''}${diff})</span>
             </div>
             <div class="perf-trend-chart">${bars}</div>
@@ -281,12 +290,14 @@ export function renderStaffPerformance(perfData, options = {}) {
                 <div class="perf-team-tabs">${personalPerfTabsHtml(periodKey)}</div>
             </div>
 
+            <div class="perf-summary">
+                <div class="perf-score-row">${scoreRingHtml(composite)}</div>
+                <p>Formula score for this period. The AI assessment is separate; open the analysis for its explanation and your category scores.</p>
+            </div>
+            <details class="perf-analysis"><summary>View full performance analysis & coaching</summary>
             <div class="perf-main-layout">
                 <!-- Left: formula ring + AI score share one row (no extra space), then Radar -->
                 <div class="perf-left">
-                    <div class="perf-score-row">
-                        ${scoreRingHtml(composite)}
-                    </div>
                     <div class="perf-radar-wrap">
                         <canvas id="perf-radar-canvas"></canvas>
                     </div>
@@ -307,6 +318,7 @@ export function renderStaffPerformance(perfData, options = {}) {
             </div>
             ${dataCheckHtml(perfData)}
             ${aiCoachPlaceholderHtml(periodKey, composite)}
+            </details>
         </div>`;
 }
 

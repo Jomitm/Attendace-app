@@ -1736,7 +1736,9 @@ export async function quickAddPersonalPlan(date = null, targetUserId = null) {
                 await AppCalendar.setWorkPlan(selectedDate, nextPlans, assigneeId, { planScope: 'personal' });
                 if (window.AppStore?.invalidatePlans) window.AppStore.invalidatePlans();
                 removeOverlay(overlay);
-                if (typeof window.app_refreshCurrentPage === 'function') {
+                if (typeof window.app_refreshDashboardPlannedTasks === 'function') {
+                    await window.app_refreshDashboardPlannedTasks();
+                } else if (typeof window.app_refreshCurrentPage === 'function') {
                     await window.app_refreshCurrentPage();
                 } else if (typeof window.app_refreshDashboard === 'function') {
                     await window.app_refreshDashboard();

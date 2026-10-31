@@ -4,6 +4,7 @@
 import { safeHtml, formatLabeledInsight, postStream, pcGateHtml, quotaNoticeHtml } from './helpers.js';
 import { parseAddTaskIntent, parseCompleteIntent, executeAddTask, executeCompleteTask, fetchToolPlan, executeToolPlan } from '../modules/ai-actions.js';
 import { getHistory, addExchange, clearChat, sanitizeForServer } from '../modules/ai-chat-memory.js';
+import { ensureChartJs } from '../utils/external-libraries.js';
 
 const AI_CENTER_ID = 'ai-center-container';
 const AI_QUESTION_ID = 'ai-question-input';
@@ -395,6 +396,7 @@ async function loadSnapshotCharts() {
 
         for (const c of _aiCharts) try{c.destroy();}catch{}
         _aiCharts = [];
+        await ensureChartJs();
         if (typeof window.Chart === 'undefined') { console.warn('[AICenter] Chart.js not loaded'); return; }
         const attEl = document.getElementById('ai-center-att-chart');
         const taskEl = document.getElementById('ai-center-task-chart');

@@ -70,6 +70,12 @@ export function visibleStaffRows(collection, rows, users, viewer, includeFormer 
             visible = visible.filter(row => row.staffEmploymentSignature === signature);
         }
     }
+    // Admin SDK reads must retain the participant/owner restrictions of the
+    // direct Firestore rules, even for active-staff records.
+    if (!canManageStaff(viewer)) {
+        if (collection === 'staff_messages') visible = visible.filter(row => row.fromId === viewer.id || row.toId === viewer.id);
+        if (collection === 'location_audits') visible = visible.filter(row => (row.user_id || row.userId || row.staffId || row.ownerId || row.createdById || row.createdBy) === viewer.id);
+    }
     if (collection === 'minutes') visible = visible.map(row => {
         const detailsAllowed = historyAllowed || row.createdBy === viewer.id || viewer.isAdmin || ['admin', 'view'].includes(viewer.permissions?.minutes)
             || (row.allowedViewers || []).includes(viewer.id) || (row.attendeeIds || []).includes(viewer.id)
@@ -91,42 +97,62 @@ export function visibleStaffRows(collection, rows, users, viewer, includeFormer 
     return visible;
 }
 
+// A batch is one authenticated operation. Roster data is shared only inside
+// this request; deactivation and permission checks are never cached across requests.
 export default async function handler(req, res) {
     res.setHeader?.('Cache-Control', 'private, no-store');
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-    let query;
-    try { query = validateStaffRead(req.body); } catch (error) { return res.status(400).json({ error: error.message }); }
+    const batched = Array.isArray(req.body?.queries);
+    let queries;
+    try {
+        if (batched && (req.body.queries.length < 1 || req.body.queries.length > 8)) throw new Error('Invalid staff query batch.');
+        queries = (batched ? req.body.queries : [req.body]).map(validateStaffRead);
+    } catch (error) { return res.status(400).json({ error: error.message }); }
     const auth = await authenticateRequest(req);
     if (!auth.ok) return sendAuthError(res, auth);
     const viewer = { ...auth.user, id: auth.user.uid };
-    if (query.includeFormer && !canManageStaff(viewer)) return res.status(403).json({ error: 'Administrator access is required for former-staff history.' });
-    if (['salaries', 'user_private'].includes(query.collection) && viewer.isAdmin !== true && viewer.permissions?.reports !== 'admin') return res.status(403).json({ error: 'Payroll access is required.' });
     try {
         const db = getDb();
         const roster = await db.collection('users').get();
         const users = roster.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-        let rows, nextCursor = null;
-        if (query.id) {
-            const doc = await db.collection(query.collection).doc(query.id).get();
-            rows = doc.exists ? [{ ...doc.data(), id: doc.id }] : [];
-        } else {
-            let ref = db.collection(query.collection);
-            for (const filter of query.filters) ref = ref.where(filter.field, filter.operator, filter.value);
-            for (const order of query.orderBy) ref = ref.orderBy(order.field, order.direction || 'asc');
-            if (query.cursor) {
-                let cursorId;
-                try { cursorId = decodeStaffCursor(query.cursor, query, viewer.id); }
-                catch { return res.status(409).json({ error: 'The result expired or changed. Refresh and try again.' }); }
-                const cursor = await db.collection(query.collection).doc(cursorId).get();
-                if (!cursor.exists) return res.status(409).json({ error: 'The result changed. Refresh and try again.' });
-                ref = ref.startAfter(cursor);
+        const read = async (query) => {
+            if (query.includeFormer && !canManageStaff(viewer)) return { status: 403, error: 'Administrator access is required for former-staff history.' };
+            if (['salaries', 'user_private'].includes(query.collection) && viewer.isAdmin !== true && viewer.permissions?.reports !== 'admin') return { status: 403, error: 'Payroll access is required.' };
+            try {
+                let rows, nextCursor = null;
+                if (query.collection === 'users' && query.id) {
+                    rows = users.filter(user => user.id === query.id);
+                } else if (query.id) {
+                    const doc = await db.collection(query.collection).doc(query.id).get();
+                    rows = doc.exists ? [{ ...doc.data(), id: doc.id }] : [];
+                } else {
+                    let ref = db.collection(query.collection);
+                    for (const filter of query.filters) ref = ref.where(filter.field, filter.operator, filter.value);
+                    for (const order of query.orderBy) ref = ref.orderBy(order.field, order.direction || 'asc');
+                    if (query.cursor) {
+                        let cursorId;
+                        try { cursorId = decodeStaffCursor(query.cursor, query, viewer.id); }
+                        catch { return { status: 409, error: 'The result expired or changed. Refresh and try again.' }; }
+                        const cursor = await db.collection(query.collection).doc(cursorId).get();
+                        if (!cursor.exists) return { status: 409, error: 'The result changed. Refresh and try again.' };
+                        ref = ref.startAfter(cursor);
+                    }
+                    // An unfiltered roster query can reuse the snapshot already read.
+                    const snapshot = query.collection === 'users' && !query.filters.length && !query.orderBy.length && !query.cursor
+                        ? { docs: roster.docs.slice(0, query.pageSize) } : await ref.limit(query.pageSize).get();
+                    rows = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+                    if (snapshot.docs.length === query.pageSize) nextCursor = encodeStaffCursor(snapshot.docs.at(-1).id, query, viewer.id);
+                }
+                return { data: visibleStaffRows(query.collection, rows, users, viewer, query.includeFormer), nextCursor };
+            } catch (error) {
+                console.error('Protected staff read failed:', query.collection, error.code || error.message);
+                return { status: 503, error: 'Staff records could not be loaded. Please retry or narrow the selected period.' };
             }
-            const snapshot = await ref.limit(query.pageSize).get();
-            rows = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-            if (snapshot.docs.length === query.pageSize) nextCursor = encodeStaffCursor(snapshot.docs.at(-1).id, query, viewer.id);
-        }
-        const data = visibleStaffRows(query.collection, rows, users, viewer, query.includeFormer);
-        return res.status(200).json({ data, nextCursor });
+        };
+        const results = await Promise.all(queries.map(read));
+        if (batched) return res.status(200).json({ results });
+        const result = results[0];
+        return res.status(result.status || 200).json(result);
     } catch (error) {
         console.error('Protected staff read failed:', error.code || error.message);
         return res.status(503).json({ error: 'Staff records could not be loaded. Please retry or narrow the selected period.' });

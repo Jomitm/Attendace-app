@@ -30,6 +30,13 @@ if (typeof document !== 'undefined') {
     });
 }
 
+// Read-only guard for section hydration; unlike beginPageUpdate this does not
+// invalidate the router's outstanding commit of the initial HTML.
+export function capturePageContext() {
+    const route = routeKey(), viewer = viewerKey(), navigation = navigationVersion;
+    return { current: () => routeKey() === route && viewerKey() === viewer && navigationVersion === navigation };
+}
+
 export function beginPageUpdate(root = document.getElementById('page-content')) {
     if (!root) return null;
     const version = (requests.get(root) || 0) + 1;
@@ -74,7 +81,7 @@ function preserveLocalState(from, to) {
     return true;
 }
 
-export function patchContent(root, html) {
+export function patchContent(root, html, { preserveSelectors = [] } = {}) {
     if (!root || typeof html !== 'string') return;
     const target = root.cloneNode(false);
     target.innerHTML = html;
@@ -88,7 +95,8 @@ export function patchContent(root, html) {
         if (top || left) scroll.push([el, top, left]);
     }
     morphdom(root, target, {
-        childrenOnly: true, getNodeKey: nodeKey, onBeforeElUpdated: preserveLocalState,
+        childrenOnly: true, getNodeKey: nodeKey,
+        onBeforeElUpdated: (from, to) => preserveSelectors.some(selector => from.matches(selector)) ? false : preserveLocalState(from, to),
         onBeforeNodeDiscarded: node => !node.matches?.('.dashboard-card-mode-controls')
     });
     for (const [el, top, left] of scroll) if (el.isConnected) {

@@ -8,7 +8,7 @@ import { refreshPage } from '../utils/page-updates.js';
  *  - Handlers registered once (initMinutesHandlers) not on every render
  *  - Toast notifications replace every alert() / confirm()
  *  - Async buttons show loading state; never leave UI frozen
- *  - sanitizeMinutesHtml walker fixed: moved children are re-walked
+ *  - sanitizeMinutesHtml sanitizes descendants before unwrapping elements
  *  - parseMinuteDate used consistently (no raw `new Date(dateString)`)
  *  - getMinuteSearchText does single allUsers.find() per user
  *  - filterMinutes visible-count split between list/calendar correctly
@@ -20,6 +20,7 @@ import { refreshPage } from '../utils/page-updates.js';
  */
 
 import { safeHtml, safeAttr } from './helpers.js';
+import { onAction } from '../utils/action-router.js';
 import { renderYearlyPlan } from './team-schedule.js';
 
 // ---------------------------------------------------------------------------
@@ -146,7 +147,7 @@ function monthKeyToDate(key) {
 }
 
 // ---------------------------------------------------------------------------
-// HTML sanitiser  (fixed: re-walk moved children)
+// HTML sanitiser  (sanitize descendants before promotion)
 // ---------------------------------------------------------------------------
 
 function sanitizeMinutesHtml(rawHtml = '') {
@@ -167,13 +168,14 @@ function sanitizeMinutesHtml(rawHtml = '') {
 
             if (!ALLOWED_TAGS.has(child.tagName)) {
                 // unwrap: move children before the disallowed element
+                // Sanitize the children before promotion. Walking each promoted
+                // node afterward misses that node's own tag and attributes.
+                walk(child);
                 const moved = Array.from(child.childNodes);
                 moved.forEach((c) => node.insertBefore(c, child));
                 if (child.parentNode === node) {
                     node.removeChild(child);
                 }
-                // re-walk moved children so nested disallowed tags are caught
-                moved.forEach((c) => walk(c));
                 return;
             }
 
@@ -1345,7 +1347,7 @@ function renderMinuteCard(m, currentUser) {
                     <i class="fa-solid fa-shield-halved" style="margin-right:0.5rem;"></i>
                     Access Restricted
                     <button class="mini-btn" style="margin-top:0.75rem; width:100%; border-color:#991b1b; color:#991b1b;"
-                        onclick="event.stopPropagation(); window.app_requestMinuteAccess('${m.id}')">
+                        data-ts-action="minutes-request" data-minute-id="${safeAttr(m.id)}">
                         Request View Access
                     </button>
                 </div>`;
@@ -1355,7 +1357,7 @@ function renderMinuteCard(m, currentUser) {
     return `
         <div class="minute-card-modern ${hasAccess ? 'clickable' : ''}"
              data-search-text="${safeAttr(getMinuteSearchText(m))}"
-             ${hasAccess ? `onclick="window.app_openMinuteDetails('${m.id}')"` : ''}>
+             ${hasAccess ? `data-ts-action="minutes-open" data-minute-id="${safeAttr(m.id)}"` : ''}>
             <div class="card-date-badge">${formatMinuteDate(m.date)}</div>
             <div class="minute-card-status">${statusBadge}</div>
             <h4 class="card-title-modern">${safeHtml(m.title)}</h4>
@@ -1424,14 +1426,14 @@ function renderCalendarView(sortedMinutes, currentUser, monthKey) {
             const reqStatus = getMinuteRequestStatus(m, currentUser.id);
             const restrictedBtn = !hasAccess
                 ? `<button class="minutes-calendar-restricted"
-                       onclick="event.stopPropagation(); window.app_requestMinuteAccess('${m.id}')">
+                       data-ts-action="minutes-request" data-minute-id="${safeAttr(m.id)}">
                        ${reqStatus === 'pending' ? 'Access Pending' : reqStatus === 'rejected' ? 'Access Denied' : 'Request Access'}
                    </button>`
                 : '';
             return `
                 <div class="minutes-calendar-entry ${hasAccess ? 'clickable' : ''}"
                      data-search-text="${safeAttr(getMinuteSearchText(m))}"
-                     ${hasAccess ? `onclick="window.app_openMinuteDetails('${m.id}')"` : ''}>
+                     ${hasAccess ? `data-ts-action="minutes-open" data-minute-id="${safeAttr(m.id)}"` : ''}>
                     <div class="minutes-calendar-entry-title">${safeHtml(m.title)}</div>
                     <div class="minutes-calendar-entry-meta">
                         <span>${m.attendeeIds?.length || 0} attendees</span>
@@ -1602,20 +1604,20 @@ function buildDetailModalHtml(m, allUsers, currentUser) {
         const isAssignedToMe = a.assignedTo === currentUser.id;
         return `
             <div class="detail-action-item">
-                <div class="action-status-dot ${a.status || 'pending'}"></div>
+                <div class="action-status-dot ${safeAttr(a.status || 'pending')}"></div>
                 <div class="action-main">
                     <strong>${safeHtml(a.task)}</strong>
                     <span class="action-meta">
-                        Assigned: ${safeHtml(assignee?.name || 'Unassigned')} | Due: ${a.dueDate || 'N/A'}
+                        Assigned: ${safeHtml(assignee?.name || 'Unassigned')} | Due: ${safeHtml(a.dueDate || 'N/A')}
                     </span>
                 </div>
                 ${isAssignedToMe && a.status !== 'completed' ? `
                     <div class="action-btns">
                         ${a.status === 'pending'
-                            ? `<button class="mini-btn" onclick="window.app_handleActionItemStatus('${m.id}',${idx},'accepted')">Accept</button>`
+                            ? `<button class="mini-btn" data-ts-action="minutes-task-status" data-minute-id="${safeAttr(m.id)}" data-task-index="${idx}" data-status="accepted">Accept</button>`
                             : ''}
                         <button class="mini-btn success"
-                                onclick="window.app_handleActionItemStatus('${m.id}',${idx},'completed')">Complete</button>
+                                data-ts-action="minutes-task-status" data-minute-id="${safeAttr(m.id)}" data-task-index="${idx}" data-status="completed">Complete</button>
                     </div>
                 ` : ''}
             </div>
@@ -1629,9 +1631,9 @@ function buildDetailModalHtml(m, allUsers, currentUser) {
                 <span>${safeHtml(r.userName)}</span>
                 <div class="req-btns">
                     <button class="mini-btn success"
-                            onclick="window.app_handleAccessDecision('${m.id}','${r.userId}','approved')">Approve</button>
+                            data-ts-action="minutes-access-decision" data-minute-id="${safeAttr(m.id)}" data-user-id="${safeAttr(r.userId)}" data-status="approved">Approve</button>
                     <button class="mini-btn danger"
-                            onclick="window.app_handleAccessDecision('${m.id}','${r.userId}','rejected')">Deny</button>
+                            data-ts-action="minutes-access-decision" data-minute-id="${safeAttr(m.id)}" data-user-id="${safeAttr(r.userId)}" data-status="rejected">Deny</button>
                 </div>
             </div>
         `).join('');
@@ -1714,7 +1716,7 @@ function buildDetailModalHtml(m, allUsers, currentUser) {
                                 ${isAttendee && !hasApproved && !m.locked ? `
                                     <button class="action-btn wide"
                                             id="btn-approve-minute"
-                                            onclick="window.app_handleMinuteApproval('${m.id}')"
+                                            data-ts-action="minutes-approve" data-minute-id="${safeAttr(m.id)}"
                                             style="margin-top:1rem;">
                                         Approve Minutes
                                     </button>
@@ -1736,9 +1738,9 @@ function buildDetailModalHtml(m, allUsers, currentUser) {
                     <button class="action-btn secondary"
                             onclick="document.getElementById('minute-detail-modal').remove()">Close</button>
                     ${canEdit ? `<button class="action-btn" id="btn-save-minute-edits"
-                                         onclick="window.app_saveMinuteEdits('${m.id}')">Save Changes</button>` : ''}
+                                         data-ts-action="minutes-save" data-minute-id="${safeAttr(m.id)}">Save Changes</button>` : ''}
                     ${(isOwner || isAdmin) ? `<button class="action-btn danger" id="btn-delete-minute"
-                                                      onclick="window.app_deleteMinute('${m.id}')">Delete</button>` : ''}
+                                                      data-ts-action="minutes-delete" data-minute-id="${safeAttr(m.id)}">Delete</button>` : ''}
                 </div>
             </div>
         </div>
@@ -1752,6 +1754,18 @@ function buildDetailModalHtml(m, allUsers, currentUser) {
 function initMinutesHandlers() {
     if (_state.handlersRegistered) return;
     _state.handlersRegistered = true;
+    const action = (name, handler) => onAction(name, (el, event) => {
+        event.stopPropagation();
+        return handler(el.dataset);
+    });
+    action('minutes-open', data => window.app_openMinuteDetails(data.minuteId));
+    action('minutes-request', data => window.app_requestMinuteAccess(data.minuteId));
+    action('minutes-task-status', data => window.app_handleActionItemStatus(data.minuteId, Number(data.taskIndex), data.status));
+    action('minutes-access-decision', data => window.app_handleAccessDecision(data.minuteId, data.userId, data.status));
+    action('minutes-approve', data => window.app_handleMinuteApproval(data.minuteId));
+    action('minutes-save', data => window.app_saveMinuteEdits(data.minuteId));
+    action('minutes-delete', data => window.app_deleteMinute(data.minuteId));
+    action('minutes-remove-attendee', data => window.app_removeAttendee(data.userId));
 
     // ── Form toggle ──────────────────────────────────────────────────────────
     window.app_toggleNewMinuteForm = () => {
@@ -1816,7 +1830,7 @@ function initMinutesHandlers() {
             return `
                 <div class="chip-modern">
                     <span>${safeHtml(user?.name || user?.username || 'Unknown')}</span>
-                    <i class="fa-solid fa-circle-xmark" onclick="window.app_removeAttendee('${id}')"></i>
+                    <i class="fa-solid fa-circle-xmark" data-ts-action="minutes-remove-attendee" data-user-id="${safeAttr(id)}"></i>
                 </div>
             `;
         }).join('');

@@ -3,13 +3,20 @@
  * Handles rendering of the full-page staff thread, messages, and tasks.
  */
 
-import { safeHtml } from './helpers.js';
+import { safeHtml, safeAttr, safeContentUrl } from './helpers.js';
+import { onAction } from '../utils/action-router.js';
 import { AppConfig } from '../config.js';
 
 /**
  * Render the Staff Directory Page
  */
 export async function renderStaffDirectoryPage() {
+    if (typeof document !== 'undefined') {
+        onAction('staff-open-thread', el => window.app_openStaffThread(el.dataset.staffId));
+        onAction('staff-send-message', el => window.app_openStaffMessageModal(el.dataset.staffId, el.dataset.staffName));
+        onAction('staff-send-task', el => window.app_openStaffTaskModal(el.dataset.staffId, el.dataset.staffName));
+        onAction('staff-respond-task', el => window.app_respondStaffTask(el.dataset.messageId, el.dataset.response));
+    }
     const currentUser = window.AppAuth.getUser();
 
     // Fetch data (using cache where possible)
@@ -29,10 +36,10 @@ export async function renderStaffDirectoryPage() {
 
     const selected = allUsers.find(u => u.id === window.app_staffThreadId);
 
-    const linkify = (text) => safeHtml(text).replace(
-        /(https?:\/\/[^\s]+)/g,
-        '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
-    );
+    const linkify = text => String(text || '').split(/(https?:\/\/[^\s]+)/g).map(part =>
+        /^https?:\/\//i.test(part)
+            ? `<a href="${safeAttr(safeContentUrl(part))}" target="_blank" rel="noopener noreferrer">${safeHtml(part)}</a>`
+            : safeHtml(part)).join('');
 
     const conversation = messages
         .filter(m => (m.fromId === currentUser.id && m.toId === window.app_staffThreadId)
@@ -53,9 +60,9 @@ export async function renderStaffDirectoryPage() {
         const unread = unreadByUser[u.id] || 0;
         const isActive = u.id === window.app_staffThreadId;
         return `
-            <button class="staff-directory-item ${isActive ? 'active' : ''}" onclick="window.app_openStaffThread('${u.id}')">
+            <button class="staff-directory-item ${isActive ? 'active' : ''}" data-ts-action="staff-open-thread" data-staff-id="${safeAttr(u.id)}">
                 <div class="staff-directory-avatar">
-                    <img src="${u.avatar}" alt="${safeHtml(u.name)}">
+                    <img src="${safeAttr(safeContentUrl(u.avatar, { image: true }))}" alt="${safeHtml(u.name)}">
                 </div>
                 <div class="staff-directory-info">
                     <div class="staff-directory-name">${safeHtml(u.name)}</div>
@@ -70,7 +77,7 @@ export async function renderStaffDirectoryPage() {
         <div class="staff-message ${m.fromId === currentUser.id ? 'outgoing' : 'incoming'}">
             <div class="staff-message-meta">${safeHtml(m.fromName)} • ${new Date(m.createdAt).toLocaleString()}</div>
             <div class="staff-message-body">${linkify(m.message || '')}</div>
-            ${m.link ? `<div class="staff-message-link"><a href="${m.link}" target="_blank" rel="noopener noreferrer">${m.link}</a></div>` : ''}
+            ${m.link ? `<div class="staff-message-link"><a href="${safeAttr(safeContentUrl(m.link))}" target="_blank" rel="noopener noreferrer">${safeHtml(m.link)}</a></div>` : ''}
         </div>
     `).join('') : '<div class="staff-message-empty">No messages yet.</div>') : '<div class="staff-message-empty">Select a staff member to view messages.</div>';
 
@@ -79,15 +86,15 @@ export async function renderStaffDirectoryPage() {
             <div class="staff-task-head">
                 <div>
                     <div class="staff-task-title">${safeHtml(m.title || 'Task')}</div>
-                    <div class="staff-task-meta">From ${safeHtml(m.fromName)} • Due ${m.dueDate || 'No date'}</div>
+                    <div class="staff-task-meta">From ${safeHtml(m.fromName)} • Due ${safeHtml(m.dueDate || 'No date')}</div>
                 </div>
-                <span class="staff-task-status ${m.status || 'pending'}">${(m.status || 'pending').toUpperCase()}</span>
+                <span class="staff-task-status ${safeAttr(m.status || 'pending')}">${safeHtml(String(m.status || 'pending').toUpperCase())}</span>
             </div>
             <div class="staff-task-desc">${safeHtml(m.description || '')}</div>
             ${m.status === 'pending' && m.toId === currentUser.id ? `
                 <div class="staff-task-actions">
-                    <button onclick="window.app_respondStaffTask('${m.id}', 'approved')" class="staff-task-btn approve">Approve</button>
-                    <button onclick="window.app_respondStaffTask('${m.id}', 'rejected')" class="staff-task-btn reject">Reject</button>
+                    <button data-ts-action="staff-respond-task" data-message-id="${safeAttr(m.id)}" data-response="approved" class="staff-task-btn approve">Approve</button>
+                    <button data-ts-action="staff-respond-task" data-message-id="${safeAttr(m.id)}" data-response="rejected" class="staff-task-btn reject">Reject</button>
                 </div>
             ` : ''}
             ${m.rejectReason ? `<div class="staff-task-reason">Reason: ${safeHtml(m.rejectReason)}</div>` : ''}
@@ -112,10 +119,10 @@ export async function renderStaffDirectoryPage() {
                         <span>${selected ? safeHtml(selected.role || 'Staff') : ''}</span>
                     </div>
                     <div class="staff-thread-actions">
-                        <button class="staff-thread-action-btn" ${selected ? '' : 'disabled'} onclick="window.app_openStaffMessageModal('${selected ? selected.id : ''}', '${selected ? safeHtml(selected.name) : ''}')">
+                        <button class="staff-thread-action-btn" ${selected ? '' : 'disabled'} data-ts-action="staff-send-message" data-staff-id="${safeAttr(selected?.id || '')}" data-staff-name="${safeAttr(selected?.name || '')}">
                             <i class="fa-solid fa-message"></i> Send Message
                         </button>
-                        <button class="staff-thread-action-btn secondary" ${selected ? '' : 'disabled'} onclick="window.app_openStaffTaskModal('${selected ? selected.id : ''}', '${selected ? safeHtml(selected.name) : ''}')">
+                        <button class="staff-thread-action-btn secondary" ${selected ? '' : 'disabled'} data-ts-action="staff-send-task" data-staff-id="${safeAttr(selected?.id || '')}" data-staff-name="${safeAttr(selected?.name || '')}">
                             <i class="fa-solid fa-list-check"></i> Send Task
                         </button>
                     </div>

@@ -29,10 +29,28 @@
     ],
     "functions": {
         "api/index.js": {
-            "maxDuration": 60
+            "maxDuration": 60,
+            "includeFiles": "{api/_hero-ranking-worker.cjs,api/_hero-select-core.js,js/**,node_modules/morphdom/**}"
         }
     },
     "rewrites": [
+        { "source": "/api/programmes", "destination": "/api/index?route=programmes" },
+        {
+            "source": "/api/staff-task-response",
+            "destination": "/api/index?route=staff-task-response"
+        },
+        {
+            "source": "/api/minutes-action",
+            "destination": "/api/index?route=minutes-action"
+        },
+        {
+            "source": "/api/staff-data",
+            "destination": "/api/index?route=staff-data"
+        },
+        {
+            "source": "/api/staff-employment",
+            "destination": "/api/index?route=staff-employment"
+        },
         {
             "source": "/api/staff-task-response",
             "destination": "/api/index?route=staff-task-response"

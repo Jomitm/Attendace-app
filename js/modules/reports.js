@@ -1,6 +1,8 @@
 import { buildAttendanceSheet, attendanceSheetCSV } from '../utils/attendance-sheet.js';
+import { programmeInRange } from '../utils/programmes.js';
 import { AppDB } from './db.js';
 import { isTaskVisibleToViewer, getCurrentViewerId, getWorkPlanOwnerId } from '../utils/task-visibility.js';
+import { ensureXlsx } from '../utils/external-libraries.js';
 
 export class Reports {
     constructor() {
@@ -255,6 +257,11 @@ export class Reports {
                     }
                 });
 
+                (plans.programmes || []).filter(row => programmeInRange(row, dateStr, dateStr)).forEach(row => {
+                    flattenedData.push({ date: dateStr, category: 'Programme', subject: row.title,
+                        details: [row.allDay ? 'All day' : `${row.startTime}–${row.endTime} IST`, row.venue, row.description].filter(Boolean).join(' · '),
+                        staff: row.audience === 'all' ? 'All staff' : 'Selected participants' });
+                });
                 // 3. Check Work Plans
                 plans.workPlans.forEach(p => {
                     if (p.date === dateStr) {
@@ -326,12 +333,9 @@ export class Reports {
         }
     }
 
-    exportTeamActivitiesXLSX(rows, meta = {}) {
+    async exportTeamActivitiesXLSX(rows, meta = {}) {
         try {
-            if (typeof window === 'undefined' || !window.XLSX) {
-                alert('Excel export library not loaded.');
-                return false;
-            }
+            await ensureXlsx();
             const dataRows = (rows || []).map(r => ([
                 r.date || '',
                 r.staffName || '',

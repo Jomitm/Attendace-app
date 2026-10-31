@@ -3,7 +3,7 @@
 // api/index.js).
 //
 // The deterministic ranking (js/modules/analytics.js) owns eligibility; this
-// endpoint only picks a winner from the eligible candidates it is given and
+// endpoint rebuilds eligible candidates from trusted records before selecting and
 // remembers the pick per ranking period so every device agrees.
 //
 // Fallback contract: whenever the AI is unavailable (no key, provider chain
@@ -12,11 +12,13 @@
 // next load retries. Stored picks are only ever validated AI picks.
 //
 // Security: requires a valid Firebase ID token (Authorization: Bearer <idToken>).
-// Local dev (Vite plugin) skips this because the dev endpoint is same-origin.
+// Local dev uses this same authenticated handler and trusted ranking boundary.
 
-import { getAdmin, getDb } from './_firebase-admin.js';
+import { getDb } from './_firebase-admin.js';
+import { authenticateRequest, sendAuthError } from './_api-auth.js';
+import { currentHeroPeriod, loadTrustedHeroCandidates } from './_hero-ranking.js';
 import { callAI } from './_ai-provider.js';
-import { buildHeroPeriodKey, heroSelectionDocId, parseHeroAiResponse, sanitizeCandidates } from './_hero-select-core.js';
+import { buildHeroPeriodKey, heroSelectionDocId, parseHeroAiResponse } from './_hero-select-core.js';
 
 // Origins allowed to POST (custom domain + deployment domains). APP_ORIGIN
 // extends this list (comma-separated) so a misconfigured env can never lock
@@ -62,35 +64,21 @@ export default async function handler(req, res) {
         return res.status(403).json({ error: 'Origin not allowed' });
     }
 
-    // ── Auth: verify Firebase ID token ──
-    const admin = getAdmin();
-    if (!admin) return res.status(500).json({ error: 'Server configuration error' });
-    try {
-        const header = req.headers.authorization || '';
-        const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-        if (!token) return res.status(401).json({ error: 'Missing auth token' });
-        await admin.auth().verifyIdToken(token);
-    } catch (err) {
-        console.warn('hero-select auth failed:', err?.message || err);
-        return res.status(401).json({ error: 'Invalid auth token' });
-    }
+    const auth = await authenticateRequest(req);
+    if (!auth.ok) return sendAuthError(res, auth);
 
     try {
         const rawLen = Number(req.headers['content-length']) || 0;
         if (rawLen > MAX_BODY_BYTES) {
             return res.status(413).json({ error: 'Payload too large' });
         }
-        const { periodKey, startDate, endDate, candidates } = req.body || {};
+        const { periodKey, startDate, endDate } = req.body || {};
         const period = String(periodKey || '').trim() || buildHeroPeriodKey(startDate, endDate);
         if (!period || !PERIOD_RE.test(period)) {
             return res.status(400).json({ error: 'Invalid period key' });
         }
-        const sanitized = sanitizeCandidates(candidates);
-        if (!sanitized.length) {
-            // Nothing eligible → the client's normal path already yields no hero.
-            return res.status(200).json({ pick: null, source: 'no_candidates' });
-        }
-        const allowIds = sanitized.map((c) => c.id);
+        const currentPeriod = currentHeroPeriod();
+        if (period !== currentPeriod.periodKey) return res.status(200).json({ pick: null, source: 'period_changed' });
         const docId = heroSelectionDocId(period);
 
         const db = getDb();
@@ -104,7 +92,9 @@ export default async function handler(req, res) {
         } catch (err) {
             console.warn('hero-select store read failed:', err?.message || err);
         }
-        if (stored && allowIds.includes(String(stored.userId))) {
+        // Existing selections remain stable. Browsers still check current
+        // eligibility before displaying the stored pick.
+        if (stored) {
             return res.status(200).json({
                 pick: {
                     userId: String(stored.userId),
@@ -120,6 +110,11 @@ export default async function handler(req, res) {
         if (!providersAvailable()) {
             return res.status(200).json({ pick: null, source: 'unavailable' });
         }
+        const trusted = await loadTrustedHeroCandidates(db, currentPeriod);
+        if (trusted.periodKey !== period) return res.status(200).json({ pick: null, source: 'period_changed' });
+        const sanitized = trusted.candidates;
+        if (!sanitized.length) return res.status(200).json({ pick: null, source: 'no_candidates' });
+        const allowIds = sanitized.map(candidate => candidate.id);
         const ai = await callAI({ metrics: { periodKey: period, candidates: sanitized }, mode: 'hero' });
         const parsed = ai?.insight ? parseHeroAiResponse(ai.insight, allowIds) : null;
         if (!parsed) {
@@ -136,18 +131,22 @@ export default async function handler(req, res) {
             pickedBy: 'ai',
             createdAt: new Date().toISOString()
         };
+        let persisted;
         try {
-            await db.runTransaction(async (tx) => {
+            persisted = await db.runTransaction(async (tx) => {
                 const existing = await tx.get(ref);
-                if (!existing.exists) tx.set(ref, record);
+                if (existing.exists) return existing.data();
+                tx.set(ref, record);
+                return record;
             });
         } catch (err) {
             console.warn('hero-select store write failed:', err?.message || err);
+            return res.status(200).json({ pick: null, source: 'error' });
         }
 
         return res.status(200).json({
-            pick: { userId: record.userId, rationale: record.rationale, by: 'ai', model: record.model },
-            source: 'ai'
+            pick: { userId: persisted.userId, rationale: persisted.rationale, by: 'ai', model: persisted.model },
+            source: persisted === record ? 'ai' : 'stored'
         });
     } catch (err) {
         console.error('hero-select error:', err);

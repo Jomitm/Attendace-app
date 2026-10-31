@@ -274,6 +274,15 @@ module.exports = async (req, res) => {
         const calName = `CRWI - ${userName}`;
         const vtimezone = 'BEGIN:VTIMEZONE\r\nTZID:Asia/Kolkata\r\nBEGIN:STANDARD\r\nDTSTART:19700101T000000\r\nTZOFFSETFROM:+0530\r\nTZOFFSETTO:+0530\r\nTZNAME:IST\r\nEND:STANDARD\r\nEND:VTIMEZONE';
 
+        const { canViewProgramme, programmeInRange, programmeCalendarEntry, addProgrammeDays } = await import('../js/utils/programmes.js');
+        const programmeSnapshot = await db.collection('programmes').where('endDate', '>=', startDate)
+            .where('endDate', '<=', addProgrammeDays(endDate, 366)).limit(1001).get();
+        if (programmeSnapshot.docs.length > 1000) throw new Error('Too many programmes for calendar export.');
+        const programmeViewer = { ...(usersSnap.data?.() || {}), uid: userId };
+        for (const doc of programmeSnapshot.docs) {
+            const row = { ...doc.data(), id: doc.id };
+            if (canViewProgramme(row, programmeViewer) && programmeInRange(row, startDate, endDate)) events.push(programmeCalendarEntry(row));
+        }
         const eventBlocks = events.map(ev => buildEvent(ev)).filter(Boolean);
 
         const calLines = [

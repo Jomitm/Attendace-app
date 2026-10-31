@@ -4,6 +4,7 @@ import { isTaskVisibleToViewer, getCurrentViewerId, getWorkPlanOwnerId } from '.
 import { buildPerformanceWindows } from '../utils/perf-windows.js';
 import { isRequiredWorkingDay, countRequiredWorkingDays } from '../utils/working-days.js';
 import { buildHeroEvidenceDigest } from '../utils/hero-digest.js';
+import { ensureChartJs } from '../utils/external-libraries.js';
 
 // Truncating by recency alone can exclude all completed tasks (recent entries
 // are usually still in-progress), leaving the dashboard's Team Activity
@@ -152,13 +153,25 @@ export class Analytics {
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     }
 
-    async getAttendanceInRange(startDate, endDate, cacheSuffix = '') {
+    async getAttendanceInRange(startDate, endDate, cacheSuffix = '', userId = '') {
         const ttl = this.getTtls().attendanceSummary || 30000;
         const startIso = typeof startDate === 'string' ? startDate : this.toLocalDateKey(startDate);
         const endIso = typeof endDate === 'string' ? endDate : this.toLocalDateKey(endDate);
-        const key = `analytics:attendance:${startIso}:${endIso}:${cacheSuffix}`;
+        const key = `analytics:attendance:${startIso}:${endIso}:${cacheSuffix}:${userId}`;
         return this.memoize(key, ttl, async () => {
             if (this.db.queryMany) {
+                if (userId) {
+                    // Equality queries use existing single-field indexes. Preserve both
+                    // historical owner spellings without scanning everybody's history.
+                    const groups = await Promise.all(['user_id', 'userId'].map(field => this.db.queryMany('attendance', [
+                        { field, operator: '==', value: userId }
+                    ])));
+                    const unique = new Map();
+                    groups.flat().forEach(log => {
+                        if ((log.user_id === userId || log.userId === userId) && log.date >= startIso && log.date <= endIso) unique.set(log.id || JSON.stringify(log), log);
+                    });
+                    return [...unique.values()];
+                }
                 return this.db.queryMany('attendance', [
                     { field: 'date', operator: '>=', value: startIso },
                     { field: 'date', operator: '<=', value: endIso }
@@ -184,10 +197,16 @@ export class Analytics {
         const end = new Date();
         const start = new Date();
         start.setDate(start.getDate() - 7);
-        const [logs, allUsers] = await Promise.all([
+        const [logs, allUsers, chartLibrary] = await Promise.all([
             this.getAttendanceInRange(start, end, 'adminChart'),
-            this.getUsersCached()
+            this.getUsersCached(),
+            ensureChartJs().catch(error => ({ error }))
         ]);
+
+        if (chartLibrary?.error || !window.Chart) {
+            canvas.parentNode.innerHTML = '<div style="color:#6b7280;text-align:center;padding:1rem">Chart is temporarily unavailable.</div>';
+            return;
+        }
 
         // 2. Process Data (Last 7 Days)
         const stats = this.processLast7Days(logs, allUsers);
@@ -598,7 +617,7 @@ export class Analytics {
         const today = new Date();
         const start = new Date(today.getFullYear(), today.getMonth(), 1);
         const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-        const logs = await this.getAttendanceInRange(start, end, `monthly:${userId}`);
+        const logs = await this.getAttendanceInRange(start, end, `monthly:${userId}`, userId);
         const userLogs = logs.filter(l => l.userId === userId || l.user_id === userId);
         return this.calculateStatsForLogs(userLogs);
     }
@@ -908,21 +927,8 @@ export class Analytics {
     async getUserYearlyStats(userId) {
         const { start, end, label } = this.getFinancialYearDates();
 
-        // Fetch in monthly chunks for better Firestore performance
-        const monthChunks = [];
-        const chunkStart = new Date(start);
-        while (chunkStart <= end) {
-            const monthEnd = new Date(chunkStart.getFullYear(), chunkStart.getMonth() + 1, 0);
-            const chunkEnd = monthEnd < end ? monthEnd : new Date(end);
-            monthChunks.push({ start: new Date(chunkStart), end: chunkEnd });
-            chunkStart.setMonth(chunkStart.getMonth() + 1);
-            chunkStart.setDate(1);
-        }
         const chunkKey = `${start.toISOString().split('T')[0]}_${end.toISOString().split('T')[0]}`;
-        const allLogs = await Promise.all(
-            monthChunks.map((chunk, i) => this.getAttendanceInRange(chunk.start, chunk.end, `yearly:${userId}:${chunkKey}:${i}`))
-        );
-        const logs = allLogs.flat();
+        const logs = await this.getAttendanceInRange(start, end, `yearly:${userId}:${chunkKey}`, userId);
         const userLogs = logs.filter(l => l.userId === userId || l.user_id === userId);
 
         const breakdown = {

@@ -28,6 +28,7 @@ const EXPECTED_ROUTES = [
     'staff-data',
     'minutes-action',
     'staff-task-response',
+    'programmes',
     'calendar-feed',
     'calendar-token',
     'feast-proxy',

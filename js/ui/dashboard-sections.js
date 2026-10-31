@@ -1,6 +1,8 @@
 import { safeHtml } from './helpers.js';
 import { refreshPage } from '../utils/page-updates.js';
 import { AppConfig } from '../config.js';
+import { selectDashboardActivities } from '../utils/dashboard-activities.js';
+import { renderProgrammeAgenda } from './programmes.js';
 import { renderLeaveHistory, renderLeaveRequests, renderPlannedTasksCard, renderStatsCard } from './dashboard.js';
 import { renderStaffDirectoryPage } from './staff-directory.js';
 
@@ -253,7 +255,7 @@ const buildSectionShell = ({ sectionKey, title, from, to, bodyHtml, resetLabel =
             <div class="dashboard-section-head">
                 <div>
                     <h2>${safeHtml(title)}</h2>
-                    <p>Weekly-first data loading. Expand only when needed.</p>
+                    <p>Explore records for the selected dates.</p>
                 </div>
                 <button class="action-btn secondary" type="button" onclick="window.app_backToDashboard()">
                     <i class="fa-solid fa-arrow-left"></i> Back to Dashboard
@@ -335,9 +337,12 @@ const renderTeamActivitySection = async (from, to) => {
         startIso: from,
         endIso: to,
         scope: 'all',
-        sideEffects: true
+        sideEffects: false
     });
-    const list = (rows || []).slice(0, 150).map((row) => `
+    const context = getSectionState().activityContext;
+    const selected = context ? selectDashboardActivities(rows, context.view, window.AppAuth?.getUser?.()?.id) : rows || [];
+    const visible = selected.filter(row => inRange(row.date, from, to));
+    const list = visible.slice(0, 150).map((row) => `
         <tr>
             <td>${safeHtml(row.date || '--')}</td>
             <td>${safeHtml(row.staffName || row.userName || '--')}</td>
@@ -347,7 +352,7 @@ const renderTeamActivitySection = async (from, to) => {
         </tr>
     `).join('');
     return {
-        title: 'Team Activity',
+        title: context?.view === 'my' ? 'My Activity History' : 'Team Activity',
         html: `
             <div class="card">
                 <div class="dashboard-section-inline-actions">
@@ -364,9 +369,10 @@ const renderTeamActivitySection = async (from, to) => {
 };
 
 const renderTeamScheduleSection = async (from, to) => {
-    const [plans, leaves] = await Promise.all([
+    const [plans, leaves, calendar] = await Promise.all([
         getWorkPlansForRange(from, to),
-        getLeavesForRange(from, to)
+        getLeavesForRange(from, to),
+        window.AppCalendar.getPlans()
     ]);
     const planRows = (plans || []).slice(0, 120).map((row) => `
         <tr>
@@ -390,12 +396,13 @@ const renderTeamScheduleSection = async (from, to) => {
     return {
         title: 'Team Schedule',
         html: `
+            <div class="card">${renderProgrammeAgenda(calendar)}</div>
             <div class="card">
                 <div class="dashboard-section-inline-actions" style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; flex-wrap:wrap;">
                     <h4 style="margin:0;">Planned Work</h4>
                     <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-                        <button type="button" class="action-btn secondary" onclick="window.app_quickAddPersonalPlan?.()" title="Add Personal Plan">Add Personal Plan</button>
-                        <button type="button" class="action-btn secondary" onclick="window.app_quickEditPersonalPlan?.()" title="Edit Personal Plan">Edit Personal Plan</button>
+                        <button type="button" class="action-btn secondary" onclick="window.app_openDayPlan?.(window.AppCalendar?.getTodayKey?.())" title="Open day planner">Add Personal Plan</button>
+                        <button type="button" class="action-btn secondary" onclick="window.app_openDayPlan?.(window.AppCalendar?.getTodayKey?.())" title="Open day planner">Edit Personal Plan</button>
                     </div>
                 </div>
                 <div class="dashboard-schedule-summary" aria-label="Schedule summary">
@@ -550,10 +557,19 @@ export function initDashboardSectionPage() {
     if (window.__dashboardSectionGlobalsBound) return;
     window.__dashboardSectionGlobalsBound = true;
 
-    window.app_openDashboardSection = function (sectionKey) {
+    window.app_openDashboardSection = function (sectionKey, options = {}) {
         const safeSection = SUPPORTED_SECTIONS.has(String(sectionKey || '').trim())
             ? String(sectionKey).trim()
             : 'worklog';
+        if (safeSection === 'team-activity') {
+            const state = getSectionState();
+            state.activityContext = options.dashboardActivity ? { view: window.app_staffActivityState?.activityViewMode || 'my' } : null;
+            const month = String(window.app_staffActivityState?.selectedMonth || '');
+            if (options.dashboardActivity && /^\d{4}-\d{2}$/.test(month)) {
+                const [year, monthNumber] = month.split('-').map(Number);
+                setRangeForSection(safeSection, month + '-01', new Date(Date.UTC(year, monthNumber, 0, 12)).toISOString().slice(0, 10));
+            }
+        }
         if (window.location.hash === `#${SECTION_ROUTE_PREFIX}${safeSection}`) {
             void rerenderSectionIfOpen(safeSection);
             return;

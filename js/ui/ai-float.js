@@ -2,6 +2,7 @@
 import { safeHtml, formatLabeledInsight, postStream, pcGateHtml, shouldShowFabBadge, quotaNoticeHtml } from './helpers.js';
 import { parseAddTaskIntent, parseCompleteIntent, executeAddTask, executeCompleteTask, fetchToolPlan, executeToolPlan } from '../modules/ai-actions.js';
 import { getHistory, addExchange, clearChat, sanitizeForServer } from '../modules/ai-chat-memory.js';
+import { ensureChartJs } from '../utils/external-libraries.js';
 
 let _mounted = false;
 let _panelEl = null;
@@ -230,6 +231,7 @@ async function _renderPanelContent() {
 
     // Render charts
     _destroyCharts();
+    await ensureChartJs().catch(error => console.warn('[AI assistant] Chart unavailable:', error));
     const hasChart = typeof window.Chart !== 'undefined';
     if (hasChart) {
       const attCtx = body.querySelector('#ai-chart-att');

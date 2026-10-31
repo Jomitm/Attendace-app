@@ -1,0 +1,49 @@
+{
+  "score": 3,
+  "scope": "Employment lifecycle, server-filtered staff reads and collaboration ownership",
+  "summary": "Former-staff history is limited to current staff administrators. Shared active-staff reads use an authenticated gateway; direct collection reads and cross-staff edits are restricted. Emulator and fixture checks cover normal collaboration flows.",
+  "findings": [
+    {
+      "check": "Authority Source",
+      "severity": "major",
+      "issue": "Cached administrator/HR claims and stale permission mirrors could retain grants after profile changes.",
+      "recommendation": "Implemented: authorize from the current staff profile in Firestore rules and protected server APIs.",
+      "resolved": true
+    },
+    {
+      "check": "The Update Bypass",
+      "severity": "major",
+      "issue": "Direct client employment and credential changes could bypass lifecycle or password endpoints.",
+      "recommendation": "Implemented: server-only update fields, active-only client account creation, create/update profile validators, and blocked legacy-inactive transitions.",
+      "resolved": true
+    },
+    {
+      "check": "Identity-Level Security",
+      "severity": "major",
+      "issue": "Employment notes and employment audit entries require distinct read/write controls.",
+      "recommendation": "Implemented: current full/users admins can read notes, server-only note writes, and immutable server-written employment audit entries.",
+      "resolved": true
+    },
+    {
+      "check": "Business Logic vs. Rules",
+      "severity": "moderate",
+      "issue": "Shared collection queries include historical records. Database-confidential former-staff archives cannot be enforced merely by hiding rows in the client.",
+      "recommendation": "Implemented authenticated paginated gateway plus direct-read rules. All active staff remain visible to active staff; former and orphan personal history require a current administrator.",
+      "resolved": true
+    },
+    {
+      "check": "Field-Level vs. Identity-Level Security",
+      "severity": "major",
+      "issue": "Other legacy collaboration collections permit broad authenticated writes; this targeted employment change does not certify their ownership controls.",
+      "recommendation": "Implemented owner/field rules, authenticated minutes and task handoff endpoints, private-parent validation, and admin-only shared-ranking writes.",
+      "resolved": true
+    },
+    {
+      "check": "Resource Exhaustion/DoS",
+      "severity": "minor",
+      "issue": "Unrelated legacy documents and arrays have no comprehensive app-wide size constraints.",
+      "recommendation": "Introduce collection-specific validators with migration-compatible limits in a separate compatibility-tested pass.",
+      "resolved": false
+    }
+  ]
+}

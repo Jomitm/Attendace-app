@@ -213,8 +213,12 @@ const resolveDashboardTargetUserId = (user) => {
     return canViewStaff && selected && selected !== currentUser.id ? selected : currentUser.id;
 };
 
-async function loadAllReflections() {
+async function loadAllReflections({ userId = '', from = '', to = '' } = {}) {
     const localReflections = readLocalReflections();
+    if (userId && AppDB?.queryManyStrict) {
+        const rows = await AppDB.queryManyStrict(JOURNEY_REFLECTION_COLLECTION, [{ field: 'userId', operator: '==', value: userId }]);
+        return mergeReflectionRows(localReflections, rows).filter(row => row.userId === userId && (!from || row.date >= from) && (!to || row.date <= to));
+    }
     if (!AppDB?.getAll) return localReflections;
 
     try {
@@ -399,7 +403,7 @@ async function buildDashboardState({
     const ownerId = normalizeText(targetUserId || resolveDashboardTargetUserId(currentUser) || currentUser?.id || '');
     const todayKey = normalizeDateKey(dateKey) || getDateKeys().todayKey;
     const weekRange = getWeekRange(todayKey);
-    const allReflections = await loadAllReflections();
+    const allReflections = await loadAllReflections({ userId: ownerId, from: weekRange.startKey, to: weekRange.endKey });
     const ownerReflections = filterUserReflections(allReflections, ownerId);
     const todayReflection = ownerReflections.find((row) => row.date === todayKey) || null;
     const weeklySummary = getWeeklySummary(ownerReflections, weekRange.startKey, weekRange.endKey, todayKey);

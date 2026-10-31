@@ -1,0 +1,2893 @@
+{
+  "generatedAt": "2026-10-31T08:24:36.100Z",
+  "scope": [
+    "js",
+    "api",
+    "css",
+    "index.html",
+    "dist/.vite/manifest.json"
+  ],
+  "excludes": [
+    "OmniRoute",
+    "node_modules",
+    "demonstration HTML pages"
+  ],
+  "totals": {
+    "files": 149,
+    "bytes": 3676204,
+    "eagerModules": 83,
+    "wholeCollectionReadSites": 153,
+    "intervalSites": 13,
+    "stylesheetLinks": 16
+  },
+  "eagerModules": [
+    "js/app.js",
+    "js/config.js",
+    "js/features/app-setup.js",
+    "js/features/birthdays.js",
+    "js/features/hover-help.js",
+    "js/features/missed-task-prompt.js",
+    "js/features/modals-carryforward.js",
+    "js/features/notifications.js",
+    "js/features/telegram-link-prompt.js",
+    "js/modules/activity.js",
+    "js/modules/admin-policies.js",
+    "js/modules/analytics.js",
+    "js/modules/attendance.js",
+    "js/modules/auth.js",
+    "js/modules/budget-heads.js",
+    "js/modules/calendar.js",
+    "js/modules/checkout-task-updates.js",
+    "js/modules/day-plan.js",
+    "js/modules/db.js",
+    "js/modules/feasts.js",
+    "js/modules/firebase-config.js",
+    "js/modules/journey-reflection.js",
+    "js/modules/leaves.js",
+    "js/modules/minutes.js",
+    "js/modules/permissions.js",
+    "js/modules/policies.js",
+    "js/modules/rating.js",
+    "js/modules/reports.js",
+    "js/modules/simulation.js",
+    "js/modules/system-dialog.js",
+    "js/modules/task-classification-learning.js",
+    "js/modules/tour.js",
+    "js/modules/widget.js",
+    "js/services/analytics-service.js",
+    "js/services/attendance-service.js",
+    "js/services/event-service.js",
+    "js/services/leave-service.js",
+    "js/services/metrics-service.js",
+    "js/services/minutes-service.js",
+    "js/services/programme-service.js",
+    "js/services/settings-service.js",
+    "js/services/user-service.js",
+    "js/ui.js",
+    "js/ui/attendance-modals.js",
+    "js/ui/auth-pages.js",
+    "js/ui/checkout-form.js",
+    "js/ui/common.js",
+    "js/ui/dashboard-card-mode.js",
+    "js/ui/dashboard-layout.js",
+    "js/ui/dashboard-sections.js",
+    "js/ui/dashboard.js",
+    "js/ui/global-modals.js",
+    "js/ui/helpers.js",
+    "js/ui/journey-reflection.js",
+    "js/ui/kanban-board.js",
+    "js/ui/minutes-ui.js",
+    "js/ui/profile.js",
+    "js/ui/programmes.js",
+    "js/ui/site-announcement.js",
+    "js/ui/staff-directory.js",
+    "js/ui/team-activities.js",
+    "js/ui/team-schedule.js",
+    "js/ui/view-toggle.js",
+    "js/utils/action-router.js",
+    "js/utils/attendance-sheet.js",
+    "js/utils/dashboard-activities.js",
+    "js/utils/date-helpers.js",
+    "js/utils/hero-digest.js",
+    "js/utils/html-escape.js",
+    "js/utils/page-updates.js",
+    "js/utils/perf-windows.js",
+    "js/utils/performance-periods.js",
+    "js/utils/private-work-plans.js",
+    "js/utils/programmes.js",
+    "js/utils/span-planning.js",
+    "js/utils/staff-account-edit.js",
+    "js/utils/staff-employment.js",
+    "js/utils/task-provenance.js",
+    "js/utils/task-status.js",
+    "js/utils/task-visibility.js",
+    "js/utils/team-activities-bulk-shift.js",
+    "js/utils/telegram.js",
+    "js/utils/working-days.js"
+  ],
+  "parserScripts": [
+    {
+      "url": "https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js",
+      "parserBlocking": true
+    },
+    {
+      "url": "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js",
+      "parserBlocking": true
+    },
+    {
+      "url": "https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js",
+      "parserBlocking": true
+    },
+    {
+      "url": "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js",
+      "parserBlocking": true
+    },
+    {
+      "url": "https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js",
+      "parserBlocking": true
+    },
+    {
+      "url": "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js",
+      "parserBlocking": true
+    },
+    {
+      "url": "js/app.js?v=20261029-missed-task-prompt",
+      "parserBlocking": false
+    }
+  ],
+  "chunks": [
+    {
+      "key": "index.html",
+      "file": "assets/main-Cxl_D0kZ.js",
+      "entry": true,
+      "bytes": 1229108,
+      "gzipBytes": 317705,
+      "imports": [],
+      "dynamicImports": [
+        "js/ui/admin-late-notification.js",
+        "js/ui/staff-performance.js",
+        "js/utils/ical.js",
+        "js/utils/ical.js",
+        "js/ui/annual-plan.js",
+        "js/ui/timesheet.js",
+        "js/ui/master-sheet.js",
+        "js/ui/admin.js",
+        "js/ui/birthday-calendar.js",
+        "js/ui/payroll.js",
+        "js/ui/payroll.js",
+        "_letter-pad-DuEpwjj0.js",
+        "js/ui/ai-center.js",
+        "js/ui/ai-center.js",
+        "js/ui/page-skeletons.js",
+        "js/ui/dashboard-skeletons.js",
+        "js/ui/master-sheet.js",
+        "js/ui/ai-float.js"
+      ]
+    },
+    {
+      "key": "_letter-pad-DuEpwjj0.js",
+      "file": "assets/letter-pad-DuEpwjj0.js",
+      "entry": false,
+      "bytes": 996083,
+      "gzipBytes": 289481,
+      "imports": [
+        "index.html"
+      ],
+      "dynamicImports": [
+        "node_modules/dompurify/dist/purify.es.mjs",
+        "node_modules/canvg/lib/index.es.js"
+      ]
+    },
+    {
+      "key": "node_modules/canvg/lib/index.es.js",
+      "file": "assets/index.es-DxAPa4Ig.js",
+      "entry": false,
+      "bytes": 159022,
+      "gzipBytes": 53105,
+      "imports": [
+        "_letter-pad-DuEpwjj0.js",
+        "index.html"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "key": "js/ui/admin.js",
+      "file": "assets/admin-CqYWNXBY.js",
+      "entry": false,
+      "bytes": 76832,
+      "gzipBytes": 18873,
+      "imports": [
+        "index.html",
+        "js/ui/admin-late-notification.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "key": "js/ui/ai-center.js",
+      "file": "assets/ai-center-CnuQVmbz.js",
+      "entry": false,
+      "bytes": 34491,
+      "gzipBytes": 9023,
+      "imports": [
+        "index.html",
+        "_ai-chat-memory-niqJGq4l.js",
+        "_ai-performance-coach-CRwpHJfb.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "key": "node_modules/dompurify/dist/purify.es.mjs",
+      "file": "assets/purify.es-4eNOHKSq.js",
+      "entry": false,
+      "bytes": 28741,
+      "gzipBytes": 11017,
+      "imports": [],
+      "dynamicImports": []
+    },
+    {
+      "key": "js/ui/ai-float.js",
+      "file": "assets/ai-float-BCpwdSc0.js",
+      "entry": false,
+      "bytes": 26422,
+      "gzipBytes": 7686,
+      "imports": [
+        "index.html",
+        "_ai-chat-memory-niqJGq4l.js",
+        "_ai-performance-coach-CRwpHJfb.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "key": "js/ui/birthday-calendar.js",
+      "file": "assets/birthday-calendar-D3vDwdr_.js",
+      "entry": false,
+      "bytes": 23992,
+      "gzipBytes": 6175,
+      "imports": [
+        "index.html"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "key": "js/ui/staff-performance.js",
+      "file": "assets/staff-performance-DE8SGJji.js",
+      "entry": false,
+      "bytes": 21556,
+      "gzipBytes": 6557,
+      "imports": [
+        "index.html",
+        "_ai-performance-coach-CRwpHJfb.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "key": "js/ui/annual-plan.js",
+      "file": "assets/annual-plan-y244YG0v.js",
+      "entry": false,
+      "bytes": 19108,
+      "gzipBytes": 5264,
+      "imports": [
+        "index.html"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "key": "js/ui/timesheet.js",
+      "file": "assets/timesheet-Dj-H62IA.js",
+      "entry": false,
+      "bytes": 15830,
+      "gzipBytes": 4172,
+      "imports": [
+        "index.html"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "key": "_ai-performance-coach-CRwpHJfb.js",
+      "file": "assets/ai-performance-coach-CRwpHJfb.js",
+      "entry": false,
+      "bytes": 12341,
+      "gzipBytes": 4992,
+      "imports": [
+        "index.html"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "key": "js/ui/page-skeletons.js",
+      "file": "assets/page-skeletons-B3a0iXrm.js",
+      "entry": false,
+      "bytes": 11900,
+      "gzipBytes": 2231,
+      "imports": [],
+      "dynamicImports": []
+    },
+    {
+      "key": "_ai-chat-memory-niqJGq4l.js",
+      "file": "assets/ai-chat-memory-niqJGq4l.js",
+      "entry": false,
+      "bytes": 11504,
+      "gzipBytes": 4130,
+      "imports": [
+        "index.html",
+        "_ai-performance-coach-CRwpHJfb.js"
+      ],
+      "dynamicImports": [
+        "index.html"
+      ]
+    },
+    {
+      "key": "js/ui/master-sheet.js",
+      "file": "assets/master-sheet-W2PnZAIc.js",
+      "entry": false,
+      "bytes": 10770,
+      "gzipBytes": 4156,
+      "imports": [
+        "index.html"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "key": "js/ui/payroll.js",
+      "file": "assets/payroll-CWs_MTNs.js",
+      "entry": false,
+      "bytes": 9622,
+      "gzipBytes": 2654,
+      "imports": [
+        "index.html"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "key": "js/ui/dashboard-skeletons.js",
+      "file": "assets/dashboard-skeletons-DdhX3PkZ.js",
+      "entry": false,
+      "bytes": 6638,
+      "gzipBytes": 1556,
+      "imports": [],
+      "dynamicImports": []
+    },
+    {
+      "key": "js/ui/admin-late-notification.js",
+      "file": "assets/admin-late-notification-Bq4s0Oml.js",
+      "entry": false,
+      "bytes": 3550,
+      "gzipBytes": 1398,
+      "imports": [
+        "index.html"
+      ],
+      "dynamicImports": [
+        "js/ui/admin.js",
+        "js/ui/admin.js"
+      ]
+    },
+    {
+      "key": "js/utils/ical.js",
+      "file": "assets/ical-DpcE1aol.js",
+      "entry": false,
+      "bytes": 2690,
+      "gzipBytes": 1264,
+      "imports": [],
+      "dynamicImports": []
+    },
+    {
+      "key": "manifest.json",
+      "file": "assets/manifest--3V0WaPv.json",
+      "entry": false,
+      "bytes": 899,
+      "gzipBytes": 405,
+      "imports": [],
+      "dynamicImports": []
+    }
+  ],
+  "inventory": [
+    {
+      "file": "js/agentation-setup.js",
+      "bytes": 1374,
+      "lines": 40,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": [
+        "react",
+        "react-dom/client",
+        "agentation"
+      ]
+    },
+    {
+      "file": "js/app.js",
+      "bytes": 495218,
+      "lines": 10125,
+      "wholeCollectionReads": [
+        493,
+        575,
+        731,
+        1067,
+        2475,
+        4193,
+        4356,
+        4399,
+        4509,
+        4961,
+        6048,
+        7790,
+        7791,
+        8052,
+        8341,
+        8345,
+        9168,
+        9224,
+        9488,
+        9559,
+        9631,
+        9737,
+        9766,
+        9784
+      ],
+      "rangeQueries": [
+        3281
+      ],
+      "intervals": [
+        325,
+        367,
+        1691,
+        1990
+      ],
+      "listeners": [
+        1565,
+        1573,
+        1580,
+        1583,
+        1624,
+        1625
+      ],
+      "fetches": [
+        283,
+        4375,
+        4452,
+        6432,
+        7130,
+        7188,
+        7236,
+        7302
+      ],
+      "localImports": [
+        "js/utils/page-updates.js",
+        "js/config.js",
+        "js/ui/programmes.js",
+        "js/modules/auth.js",
+        "js/modules/db.js",
+        "js/modules/attendance.js",
+        "js/modules/permissions.js",
+        "js/modules/budget-heads.js",
+        "js/modules/budget-heads.js",
+        "js/modules/system-dialog.js",
+        "js/utils/html-escape.js",
+        "js/utils/date-helpers.js",
+        "js/utils/attendance-sheet.js",
+        "js/utils/staff-account-edit.js",
+        "js/utils/span-planning.js",
+        "js/ui.js",
+        "js/utils/telegram.js",
+        "js/modules/calendar.js",
+        "js/modules/checkout-task-updates.js",
+        "js/modules/activity.js",
+        "js/modules/tour.js",
+        "js/modules/analytics.js",
+        "js/modules/reports.js",
+        "js/modules/leaves.js",
+        "js/modules/rating.js",
+        "js/modules/simulation.js",
+        "js/modules/minutes.js",
+        "js/modules/policies.js",
+        "js/modules/admin-policies.js",
+        "js/modules/day-plan.js",
+        "js/modules/task-classification-learning.js",
+        "js/modules/widget.js",
+        "js/ui/site-announcement.js",
+        "js/services/user-service.js",
+        "js/services/attendance-service.js",
+        "js/services/leave-service.js",
+        "js/services/analytics-service.js",
+        "js/services/settings-service.js",
+        "js/services/minutes-service.js",
+        "js/services/event-service.js",
+        "js/services/metrics-service.js",
+        "js/features/birthdays.js",
+        "js/features/hover-help.js",
+        "js/features/missed-task-prompt.js",
+        "js/features/telegram-link-prompt.js",
+        "js/features/app-setup.js",
+        "js/features/notifications.js",
+        "js/features/modals-carryforward.js"
+      ],
+      "dynamicImports": [
+        "./ui/page-skeletons.js",
+        "./ui/dashboard-skeletons.js",
+        "./ui/master-sheet.js",
+        "./modules/calendar.js",
+        "./ui/ai-float.js"
+      ]
+    },
+    {
+      "file": "js/config.js",
+      "bytes": 10390,
+      "lines": 242,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/features/app-setup.js",
+      "bytes": 21016,
+      "lines": 526,
+      "wholeCollectionReads": [
+        364
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/utils/html-escape.js",
+        "js/ui.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/features/birthdays.js",
+      "bytes": 32140,
+      "lines": 628,
+      "wholeCollectionReads": [
+        530,
+        531
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/utils/page-updates.js",
+        "js/utils/html-escape.js",
+        "js/ui.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/features/hover-help.js",
+      "bytes": 19889,
+      "lines": 470,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/utils/html-escape.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/features/missed-task-prompt.js",
+      "bytes": 7188,
+      "lines": 163,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/utils/task-status.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/features/modals-carryforward.js",
+      "bytes": 13186,
+      "lines": 247,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/utils/html-escape.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/features/notifications.js",
+      "bytes": 26624,
+      "lines": 566,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/utils/html-escape.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/features/telegram-link-prompt.js",
+      "bytes": 10086,
+      "lines": 162,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/activity.js",
+      "bytes": 7258,
+      "lines": 203,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [
+        133
+      ],
+      "listeners": [
+        35
+      ],
+      "fetches": [],
+      "localImports": [
+        "js/modules/db.js",
+        "js/modules/auth.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/admin-policies.js",
+      "bytes": 30275,
+      "lines": 405,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/ui/helpers.js",
+        "js/utils/page-updates.js",
+        "js/modules/leaves.js",
+        "js/modules/auth.js",
+        "js/config.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/ai-actions.js",
+      "bytes": 18525,
+      "lines": 408,
+      "wholeCollectionReads": [
+        73,
+        340,
+        375
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [
+        22
+      ],
+      "localImports": [
+        "js/modules/ai-performance-coach.js"
+      ],
+      "dynamicImports": [
+        "./calendar.js"
+      ]
+    },
+    {
+      "file": "js/modules/ai-chat-memory.js",
+      "bytes": 2752,
+      "lines": 83,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/ai-performance-coach.js",
+      "bytes": 30152,
+      "lines": 592,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [
+        105
+      ],
+      "localImports": [
+        "js/config.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/analytics.js",
+      "bytes": 167978,
+      "lines": 3186,
+      "wholeCollectionReads": [
+        143,
+        145,
+        168,
+        629,
+        1248,
+        2536,
+        2759
+      ],
+      "rangeQueries": [
+        162,
+        624,
+        1244,
+        2529,
+        2755
+      ],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [
+        2061
+      ],
+      "localImports": [
+        "js/modules/db.js",
+        "js/config.js",
+        "js/utils/task-visibility.js",
+        "js/utils/perf-windows.js",
+        "js/utils/working-days.js",
+        "js/utils/hero-digest.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/attendance.js",
+      "bytes": 50867,
+      "lines": 1026,
+      "wholeCollectionReads": [
+        354,
+        832
+      ],
+      "rangeQueries": [
+        545,
+        766
+      ],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [
+        360
+      ],
+      "localImports": [
+        "js/modules/auth.js",
+        "js/modules/db.js",
+        "js/config.js",
+        "js/utils/telegram.js",
+        "js/utils/date-helpers.js"
+      ],
+      "dynamicImports": [
+        "../ui/admin-late-notification.js"
+      ]
+    },
+    {
+      "file": "js/modules/auth.js",
+      "bytes": 40749,
+      "lines": 902,
+      "wholeCollectionReads": [
+        238,
+        563
+      ],
+      "rangeQueries": [],
+      "intervals": [
+        849
+      ],
+      "listeners": [
+        872
+      ],
+      "fetches": [
+        188,
+        508,
+        596
+      ],
+      "localImports": [
+        "js/modules/db.js",
+        "js/config.js",
+        "js/utils/staff-employment.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/budget-heads.js",
+      "bytes": 5393,
+      "lines": 134,
+      "wholeCollectionReads": [
+        26
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/calendar.js",
+      "bytes": 77433,
+      "lines": 1736,
+      "wholeCollectionReads": [
+        157,
+        158,
+        171,
+        172,
+        596,
+        597,
+        608,
+        609,
+        908,
+        1456,
+        1480,
+        1525
+      ],
+      "rangeQueries": [
+        106,
+        155,
+        169,
+        411,
+        416,
+        422,
+        599,
+        1066,
+        1118,
+        1148
+      ],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/modules/db.js",
+        "js/config.js",
+        "js/modules/auth.js",
+        "js/modules/rating.js",
+        "js/services/programme-service.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/checkout-task-updates.js",
+      "bytes": 4318,
+      "lines": 91,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/dashboard-customization.js",
+      "bytes": 2388,
+      "lines": 75,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/config.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/day-plan.js",
+      "bytes": 120233,
+      "lines": 2543,
+      "wholeCollectionReads": [
+        114,
+        116
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/modules/auth.js",
+        "js/modules/db.js",
+        "js/modules/calendar.js",
+        "js/config.js",
+        "js/utils/task-visibility.js",
+        "js/utils/task-provenance.js",
+        "js/modules/task-classification-learning.js",
+        "js/utils/span-planning.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/db.js",
+      "bytes": 59070,
+      "lines": 1190,
+      "wholeCollectionReads": [
+        137,
+        324,
+        325,
+        954,
+        1020
+      ],
+      "rangeQueries": [
+        143,
+        146,
+        306,
+        316,
+        989,
+        1078
+      ],
+      "intervals": [
+        82,
+        104
+      ],
+      "listeners": [
+        103,
+        108,
+        1095,
+        1109,
+        1116,
+        1129,
+        1133,
+        1136
+      ],
+      "fetches": [
+        46
+      ],
+      "localImports": [
+        "js/utils/staff-employment.js",
+        "js/config.js",
+        "js/modules/firebase-config.js",
+        "js/utils/private-work-plans.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/feasts.js",
+      "bytes": 6356,
+      "lines": 184,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [
+        109,
+        134
+      ],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/firebase-config.js",
+      "bytes": 1387,
+      "lines": 32,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/journey-reflection.js",
+      "bytes": 19021,
+      "lines": 521,
+      "wholeCollectionReads": [
+        226
+      ],
+      "rangeQueries": [
+        467
+      ],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/modules/db.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/leaves.js",
+      "bytes": 29807,
+      "lines": 619,
+      "wholeCollectionReads": [
+        214,
+        243,
+        264,
+        271,
+        283,
+        291,
+        458
+      ],
+      "rangeQueries": [
+        204,
+        231,
+        259,
+        453
+      ],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/modules/db.js",
+        "js/config.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/minutes.js",
+      "bytes": 12556,
+      "lines": 376,
+      "wholeCollectionReads": [
+        70
+      ],
+      "rangeQueries": [
+        63
+      ],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [
+        11
+      ],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/permissions.js",
+      "bytes": 3105,
+      "lines": 88,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/policies.js",
+      "bytes": 24959,
+      "lines": 475,
+      "wholeCollectionReads": [
+        59
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/modules/leaves.js",
+        "js/utils/page-updates.js",
+        "js/modules/auth.js",
+        "js/modules/db.js",
+        "js/modules/attendance.js",
+        "js/modules/admin-policies.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/rating.js",
+      "bytes": 12816,
+      "lines": 363,
+      "wholeCollectionReads": [
+        150,
+        287,
+        313
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/modules/db.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/reports.js",
+      "bytes": 21332,
+      "lines": 428,
+      "wholeCollectionReads": [
+        70,
+        71,
+        370,
+        371
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/utils/attendance-sheet.js",
+        "js/utils/programmes.js",
+        "js/modules/db.js",
+        "js/utils/task-visibility.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/simulation.js",
+      "bytes": 7565,
+      "lines": 200,
+      "wholeCollectionReads": [
+        66,
+        91,
+        113,
+        122,
+        131
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/modules/db.js",
+        "js/config.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/system-dialog.js",
+      "bytes": 5431,
+      "lines": 121,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/utils/html-escape.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/task-classification-learning.js",
+      "bytes": 10111,
+      "lines": 282,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/modules/db.js",
+        "js/modules/auth.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/TaskClassificationSystem.js",
+      "bytes": 5480,
+      "lines": 150,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/modules/db.js",
+        "js/config.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/tour.js",
+      "bytes": 8589,
+      "lines": 237,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/modules/widget.js",
+      "bytes": 18117,
+      "lines": 363,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [
+        69
+      ],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/services/analytics-service.js",
+      "bytes": 4782,
+      "lines": 144,
+      "wholeCollectionReads": [
+        21,
+        43,
+        54,
+        75,
+        90,
+        109,
+        118,
+        127,
+        138
+      ],
+      "rangeQueries": [
+        70,
+        102
+      ],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/services/attendance-service.js",
+      "bytes": 3664,
+      "lines": 130,
+      "wholeCollectionReads": [
+        26,
+        31,
+        35,
+        42,
+        65,
+        86,
+        114
+      ],
+      "rangeQueries": [
+        55,
+        78
+      ],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/services/event-service.js",
+      "bytes": 4657,
+      "lines": 171,
+      "wholeCollectionReads": [
+        134,
+        144,
+        154,
+        164
+      ],
+      "rangeQueries": [
+        127
+      ],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/services/leave-service.js",
+      "bytes": 2408,
+      "lines": 93,
+      "wholeCollectionReads": [
+        26,
+        38,
+        40,
+        47,
+        55
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/services/metrics-service.js",
+      "bytes": 40905,
+      "lines": 852,
+      "wholeCollectionReads": [
+        190,
+        212,
+        275,
+        498
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/services/minutes-service.js",
+      "bytes": 1571,
+      "lines": 67,
+      "wholeCollectionReads": [
+        22,
+        26,
+        33
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/services/programme-service.js",
+      "bytes": 2218,
+      "lines": 36,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [
+        7
+      ],
+      "localImports": [
+        "js/utils/programmes.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/services/settings-service.js",
+      "bytes": 2386,
+      "lines": 96,
+      "wholeCollectionReads": [
+        15,
+        33,
+        42,
+        51,
+        60,
+        71,
+        81
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/services/user-service.js",
+      "bytes": 2781,
+      "lines": 109,
+      "wholeCollectionReads": [
+        28,
+        34,
+        36,
+        52,
+        75,
+        85
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/utils/staff-employment.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/admin-late-notification.js",
+      "bytes": 5170,
+      "lines": 136,
+      "wholeCollectionReads": [
+        55
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/utils/page-updates.js",
+        "js/ui/helpers.js",
+        "js/utils/action-router.js"
+      ],
+      "dynamicImports": [
+        "./admin.js",
+        "./admin.js"
+      ]
+    },
+    {
+      "file": "js/ui/admin-staff-employment.js",
+      "bytes": 10883,
+      "lines": 128,
+      "wholeCollectionReads": [
+        97
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [
+        75
+      ],
+      "localImports": [
+        "js/ui/helpers.js",
+        "js/utils/action-router.js",
+        "js/utils/staff-employment.js",
+        "js/utils/attendance-sheet.js",
+        "css/admin-staff-employment.css"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/admin.js",
+      "bytes": 102554,
+      "lines": 1723,
+      "wholeCollectionReads": [
+        339,
+        340,
+        343,
+        344,
+        345,
+        348,
+        349,
+        350,
+        357,
+        360,
+        376,
+        1345
+      ],
+      "rangeQueries": [
+        343,
+        348,
+        356
+      ],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/utils/page-updates.js",
+        "js/ui/admin-staff-employment.js",
+        "js/utils/staff-employment.js",
+        "js/ui/helpers.js",
+        "js/config.js",
+        "js/ui/site-announcement.js",
+        "js/ui/admin-late-notification.js",
+        "js/utils/action-router.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/ai-center.js",
+      "bytes": 49456,
+      "lines": 758,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [
+        218
+      ],
+      "localImports": [
+        "js/ui/helpers.js",
+        "js/modules/ai-actions.js",
+        "js/modules/ai-chat-memory.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/ai-float.js",
+      "bytes": 38556,
+      "lines": 686,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [
+        652
+      ],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/ui/helpers.js",
+        "js/modules/ai-actions.js",
+        "js/modules/ai-chat-memory.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/annual-plan.js",
+      "bytes": 31002,
+      "lines": 539,
+      "wholeCollectionReads": [
+        91
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/utils/page-updates.js",
+        "js/ui/helpers.js",
+        "js/utils/task-visibility.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/attendance-modals.js",
+      "bytes": 293,
+      "lines": 13,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/auth-pages.js",
+      "bytes": 9596,
+      "lines": 148,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/birthday-calendar.js",
+      "bytes": 28661,
+      "lines": 420,
+      "wholeCollectionReads": [
+        146
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/ui/helpers.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/checkin-checkout-modals.js",
+      "bytes": 3052,
+      "lines": 72,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/ui/helpers.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/checkout-form.js",
+      "bytes": 10967,
+      "lines": 178,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/common.js",
+      "bytes": 2630,
+      "lines": 79,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/utils/task-status.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/dashboard-card-mode.js",
+      "bytes": 8000,
+      "lines": 178,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/dashboard-layout.js",
+      "bytes": 18865,
+      "lines": 495,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/dashboard-sections.js",
+      "bytes": 26084,
+      "lines": 610,
+      "wholeCollectionReads": [
+        460
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/ui/helpers.js",
+        "js/utils/page-updates.js",
+        "js/config.js",
+        "js/utils/dashboard-activities.js",
+        "js/ui/programmes.js",
+        "js/ui/dashboard.js",
+        "js/ui/staff-directory.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/dashboard-skeletons.js",
+      "bytes": 7515,
+      "lines": 157,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/dashboard.js",
+      "bytes": 218792,
+      "lines": 3877,
+      "wholeCollectionReads": [
+        2447
+      ],
+      "rangeQueries": [],
+      "intervals": [
+        3231
+      ],
+      "listeners": [],
+      "fetches": [
+        2869
+      ],
+      "localImports": [
+        "js/utils/page-updates.js",
+        "js/ui/helpers.js",
+        "js/ui/common.js",
+        "js/utils/task-status.js",
+        "js/utils/dashboard-activities.js",
+        "js/utils/task-visibility.js",
+        "js/ui/team-schedule.js",
+        "js/ui/journey-reflection.js",
+        "js/utils/performance-periods.js",
+        "js/config.js",
+        "js/ui/dashboard-card-mode.js",
+        "js/utils/action-router.js",
+        "js/modules/feasts.js"
+      ],
+      "dynamicImports": [
+        "./staff-performance.js",
+        "../utils/ical.js"
+      ]
+    },
+    {
+      "file": "js/ui/global-modals.js",
+      "bytes": 36073,
+      "lines": 516,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/ui/checkout-form.js",
+        "js/utils/action-router.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/helpers.js",
+      "bytes": 6325,
+      "lines": 160,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [
+        46
+      ],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/journey-reflection.js",
+      "bytes": 19255,
+      "lines": 480,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [
+        313
+      ],
+      "fetches": [],
+      "localImports": [
+        "js/ui/helpers.js",
+        "js/modules/journey-reflection.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/kanban-board.js",
+      "bytes": 38782,
+      "lines": 903,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [
+        712
+      ],
+      "fetches": [],
+      "localImports": [
+        "js/ui/helpers.js",
+        "js/utils/task-status.js",
+        "js/ui/view-toggle.js",
+        "js/config.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/letter-pad.js",
+      "bytes": 91106,
+      "lines": 1811,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [
+        708
+      ],
+      "localImports": [
+        "js/utils/page-updates.js",
+        "js/ui/helpers.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/master-sheet.js",
+      "bytes": 15047,
+      "lines": 177,
+      "wholeCollectionReads": [
+        84
+      ],
+      "rangeQueries": [
+        80,
+        81
+      ],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/ui/helpers.js",
+        "js/utils/page-updates.js",
+        "js/modules/permissions.js",
+        "js/utils/attendance-sheet.js",
+        "css/attendance-sheet.css"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/minutes-ui.js",
+      "bytes": 95616,
+      "lines": 2197,
+      "wholeCollectionReads": [
+        2064,
+        2122
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/utils/page-updates.js",
+        "js/ui/helpers.js",
+        "js/ui/team-schedule.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/page-skeletons.js",
+      "bytes": 17060,
+      "lines": 395,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/payroll.js",
+      "bytes": 12340,
+      "lines": 185,
+      "wholeCollectionReads": [
+        14
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/ui/helpers.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/profile.js",
+      "bytes": 18400,
+      "lines": 295,
+      "wholeCollectionReads": [
+        16
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/utils/page-updates.js",
+        "js/ui/helpers.js",
+        "js/config.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/programmes.js",
+      "bytes": 14916,
+      "lines": 155,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [
+        140
+      ],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/ui/helpers.js",
+        "js/utils/action-router.js",
+        "js/utils/programmes.js",
+        "js/services/programme-service.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/site-announcement.js",
+      "bytes": 19120,
+      "lines": 452,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [
+        343
+      ],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/ui/helpers.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/staff-directory.js",
+      "bytes": 7052,
+      "lines": 142,
+      "wholeCollectionReads": [
+        16
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/ui/helpers.js",
+        "js/config.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/staff-performance.js",
+      "bytes": 36970,
+      "lines": 709,
+      "wholeCollectionReads": [
+        696
+      ],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/ui/helpers.js",
+        "js/modules/ai-performance-coach.js",
+        "js/utils/performance-periods.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/team-activities.js",
+      "bytes": 91756,
+      "lines": 1867,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/ui/helpers.js",
+        "js/utils/task-status.js",
+        "js/utils/team-activities-bulk-shift.js"
+      ],
+      "dynamicImports": [
+        "../utils/ical.js"
+      ]
+    },
+    {
+      "file": "js/ui/team-schedule.js",
+      "bytes": 7508,
+      "lines": 156,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/utils/action-router.js",
+        "js/ui/programmes.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/timesheet.js",
+      "bytes": 21976,
+      "lines": 363,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/utils/page-updates.js",
+        "js/ui/helpers.js",
+        "js/config.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui/view-toggle.js",
+      "bytes": 3368,
+      "lines": 105,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/ui.js",
+      "bytes": 5480,
+      "lines": 164,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/ui/dashboard.js",
+        "js/ui/staff-directory.js",
+        "js/ui/profile.js",
+        "js/ui/minutes-ui.js",
+        "js/ui/attendance-modals.js",
+        "js/ui/auth-pages.js",
+        "js/ui/global-modals.js",
+        "js/ui/team-schedule.js",
+        "js/ui/team-activities.js",
+        "js/ui/dashboard-sections.js",
+        "js/ui/journey-reflection.js",
+        "js/ui/dashboard-layout.js",
+        "js/ui/kanban-board.js",
+        "js/ui/view-toggle.js"
+      ],
+      "dynamicImports": [
+        "./ui/annual-plan.js",
+        "./ui/timesheet.js",
+        "./ui/master-sheet.js",
+        "./ui/admin.js",
+        "./ui/birthday-calendar.js",
+        "./ui/payroll.js",
+        "./ui/payroll.js",
+        "./ui/letter-pad.js",
+        "./ui/ai-center.js",
+        "./ui/ai-center.js"
+      ]
+    },
+    {
+      "file": "js/utils/action-router.js",
+      "bytes": 1404,
+      "lines": 47,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/utils/action-router.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/utils/attendance-sheet.js",
+      "bytes": 7295,
+      "lines": 105,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/modules/analytics.js",
+        "js/modules/attendance.js",
+        "js/config.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/utils/dashboard-activities.js",
+      "bytes": 2483,
+      "lines": 41,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/utils/date-helpers.js",
+      "bytes": 2369,
+      "lines": 64,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/utils/hero-digest.js",
+      "bytes": 7437,
+      "lines": 182,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/utils/html-escape.js",
+      "bytes": 1242,
+      "lines": 47,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/utils/ical.js",
+      "bytes": 6505,
+      "lines": 199,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/utils/page-updates.js",
+      "bytes": 6567,
+      "lines": 121,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/utils/perf-windows.js",
+      "bytes": 6268,
+      "lines": 152,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/utils/performance-periods.js",
+      "bytes": 347,
+      "lines": 7,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/utils/private-work-plans.js",
+      "bytes": 3998,
+      "lines": 79,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/utils/programmes.js",
+      "bytes": 5296,
+      "lines": 83,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/utils/span-planning.js",
+      "bytes": 11636,
+      "lines": 280,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/utils/working-days.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/utils/staff-account-edit.js",
+      "bytes": 1405,
+      "lines": 30,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/utils/staff-employment.js",
+      "bytes": 2673,
+      "lines": 42,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/utils/task-provenance.js",
+      "bytes": 2583,
+      "lines": 53,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/utils/task-status.js",
+      "bytes": 2909,
+      "lines": 69,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/utils/task-visibility.js",
+      "bytes": 2763,
+      "lines": 72,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/utils/team-activities-bulk-shift.js",
+      "bytes": 15291,
+      "lines": 396,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "js/utils/task-status.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/utils/telegram.js",
+      "bytes": 2089,
+      "lines": 57,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [
+        13
+      ],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "js/utils/working-days.js",
+      "bytes": 2925,
+      "lines": 76,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/index.js",
+      "bytes": 4670,
+      "lines": 121,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "api/_ai-briefing.js",
+        "api/_ai-insights.js",
+        "api/_auth-login.js",
+        "api/_auth-set-password.js",
+        "api/_staff-employment.js",
+        "api/_staff-data.js",
+        "api/_minutes-action.js",
+        "api/_staff-task-response.js",
+        "api/_programmes.js",
+        "api/_calendar-feed.js",
+        "api/_calendar-token.js",
+        "api/_feast-proxy.js",
+        "api/_hero-select.js",
+        "api/_telegram-generate-link.js",
+        "api/_telegram-register-webhook.js",
+        "api/_telegram-scheduler.js",
+        "api/_telegram-send.js",
+        "api/_telegram-webhook.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/_ai-briefing.js",
+      "bytes": 6885,
+      "lines": 125,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "api/_staff-employment-core.js",
+        "api/_firebase-admin.js"
+      ],
+      "dynamicImports": [
+        "./_ai-provider.js",
+        "./_telegram-send.js"
+      ]
+    },
+    {
+      "file": "api/_ai-insights.js",
+      "bytes": 11630,
+      "lines": 259,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "api/_firebase-admin.js",
+        "api/_ai-provider.js",
+        "api/_perf-snapshot.js",
+        "api/_ai-quota.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/_ai-provider.cjs",
+      "bytes": 34173,
+      "lines": 587,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [
+        143,
+        320,
+        462,
+        544
+      ],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/_ai-provider.js",
+      "bytes": 35047,
+      "lines": 607,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [
+        148,
+        339,
+        415,
+        495
+      ],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/_ai-quota.js",
+      "bytes": 2790,
+      "lines": 60,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/_api-auth.js",
+      "bytes": 2337,
+      "lines": 55,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/_auth-login.js",
+      "bytes": 7189,
+      "lines": 177,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [
+        37
+      ],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/_auth-set-password.js",
+      "bytes": 4581,
+      "lines": 102,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/_calendar-feed.js",
+      "bytes": 13650,
+      "lines": 327,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": [
+        "../js/utils/programmes.js"
+      ]
+    },
+    {
+      "file": "api/_calendar-token.js",
+      "bytes": 5057,
+      "lines": 135,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/_feast-proxy.js",
+      "bytes": 1171,
+      "lines": 35,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [
+        11
+      ],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/_firebase-admin.js",
+      "bytes": 791,
+      "lines": 37,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/_hero-select-core.js",
+      "bytes": 5579,
+      "lines": 128,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/_hero-select.js",
+      "bytes": 6823,
+      "lines": 158,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "api/_firebase-admin.js",
+        "api/_ai-provider.js",
+        "api/_hero-select-core.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/_minutes-action.js",
+      "bytes": 4831,
+      "lines": 63,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/_perf-snapshot.js",
+      "bytes": 1994,
+      "lines": 56,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/_programmes.js",
+      "bytes": 5091,
+      "lines": 65,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": [
+        "../js/utils/programmes.js"
+      ]
+    },
+    {
+      "file": "api/_staff-data.js",
+      "bytes": 9923,
+      "lines": 135,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [
+        "api/_firebase-admin.js",
+        "api/_api-auth.js",
+        "js/utils/staff-employment.js"
+      ],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/_staff-employment-core.js",
+      "bytes": 1545,
+      "lines": 20,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/_staff-employment.js",
+      "bytes": 4942,
+      "lines": 76,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/_staff-task-response.js",
+      "bytes": 9844,
+      "lines": 110,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/_telegram-generate-link.js",
+      "bytes": 3135,
+      "lines": 93,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/_telegram-register-webhook.js",
+      "bytes": 3606,
+      "lines": 101,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [
+        83
+      ],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/_telegram-scheduler.js",
+      "bytes": 24773,
+      "lines": 540,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [
+        54
+      ],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/_telegram-send.js",
+      "bytes": 8908,
+      "lines": 164,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [
+        25
+      ],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "api/_telegram-webhook.js",
+      "bytes": 22616,
+      "lines": 599,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [
+        26,
+        438
+      ],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "css/admin-staff-employment.css",
+      "bytes": 1931,
+      "lines": 16,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "css/ai-center-float.css",
+      "bytes": 16311,
+      "lines": 449,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "css/attendance-sheet.css",
+      "bytes": 5168,
+      "lines": 46,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "css/checkin-checkout.css",
+      "bytes": 3220,
+      "lines": 171,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "css/checkout-form.css",
+      "bytes": 34777,
+      "lines": 1544,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "css/dashboard-checkin-compact.css",
+      "bytes": 5818,
+      "lines": 208,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "css/dashboard-mobile.css",
+      "bytes": 3971,
+      "lines": 138,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "css/dashboard-modern.css",
+      "bytes": 109286,
+      "lines": 4052,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "css/dashboard-workday.css",
+      "bytes": 12863,
+      "lines": 98,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "css/day-plan.css",
+      "bytes": 58660,
+      "lines": 2315,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "css/journey-reflection.css",
+      "bytes": 12894,
+      "lines": 556,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "css/kanban.css",
+      "bytes": 22473,
+      "lines": 1010,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "css/main.css",
+      "bytes": 314254,
+      "lines": 13415,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "css/site-announcement.css",
+      "bytes": 8592,
+      "lines": 413,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "css/tour.css",
+      "bytes": 2339,
+      "lines": 115,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "css/ui-foundation.css",
+      "bytes": 85348,
+      "lines": 3208,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    },
+    {
+      "file": "css/widget.css",
+      "bytes": 2501,
+      "lines": 116,
+      "wholeCollectionReads": [],
+      "rangeQueries": [],
+      "intervals": [],
+      "listeners": [],
+      "fetches": [],
+      "localImports": [],
+      "dynamicImports": []
+    }
+  ]
+}

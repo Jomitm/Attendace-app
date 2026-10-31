@@ -1,0 +1,117 @@
+/* Presentation only. Keep the existing widget IDs, actions and saved-layout hooks. */
+.dashboard-staff-view .dashboard-feast-strip{padding:0 14px;margin:0;min-height:0;border-radius:10px;overflow:hidden;box-shadow:none}
+.dashboard-feast-strip>summary{display:flex;align-items:center;gap:10px;min-height:44px;cursor:pointer;list-style:none}
+.dashboard-feast-strip>summary::-webkit-details-marker{display:none}
+.dashboard-staff-view .dashboard-feast-strip .dashboard-feast-widget-label{margin:0;font-size:.68rem;white-space:nowrap}
+.dashboard-staff-view .dashboard-feast-strip>summary>i{position:static;font-size:1rem;opacity:.75;flex-shrink:0;width:auto;height:auto;background:none;color:inherit;border-radius:0}
+.dashboard-feast-strip>summary>strong{font-size:.8rem;line-height:1.4;flex:1;min-width:0;font-weight:600}
+.dashboard-feast-chevron{margin-left:auto;transition:transform .15s}.dashboard-feast-strip[open] .dashboard-feast-chevron{transform:rotate(180deg)}
+.dashboard-feast-details{display:flex;align-items:center;gap:12px;padding:0 0 12px 26px}
+.dashboard-feast-details>img{max-width:64px;max-height:64px;object-fit:cover;border-radius:8px}
+@media(max-width:600px){.dashboard-feast-strip>summary{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;gap:8px;padding:6px 0}.dashboard-feast-strip>summary>strong{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.dashboard-feast-strip>summary>.dashboard-feast-chevron{margin-left:0}}
+.dashboard-staff-view.modern-dashboard .dashboard-hero-card{padding:16px 20px;min-height:0}
+.dashboard-staff-view .dashboard-hero-title{font-size:clamp(1.35rem,2vw,1.8rem)}
+.dashboard-staff-view .dashboard-hero-orb{opacity:.25}
+.dashboard-staff-view .dashboard-refresh-link{color:var(--primary-color,#365faf)!important;opacity:1}
+.dashboard-staff-view .dashboard-primary-row{display:flex;flex-direction:column;gap:16px;align-items:stretch}
+.dashboard-staff-view .dashboard-primary-row>.dashboard-primary-col{width:100%;max-width:none;flex:initial}
+.dashboard-staff-view .dashboard-checkin-card{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 20px;min-height:0;padding:18px 20px;text-align:left}
+.dashboard-staff-view .dashboard-checkin-head{margin:0;justify-content:flex-start}
+.dashboard-staff-view .dashboard-checkin-timer-wrap{margin:0;padding:0;align-items:flex-end;justify-content:center}
+.dashboard-staff-view .dashboard-checkin-card .clock-ring{display:none}
+.dashboard-staff-view .dashboard-checkin-card .timer-display{font-size:1.8rem;line-height:1.3;letter-spacing:1px}
+.dashboard-staff-view .dashboard-checkin-countdown{grid-column:1/-1;margin:0}
+/* The attendance timer owns visibility; legacy compact-card rules must not hide its active state. */
+.dashboard-staff-view .dashboard-checkin-card #countdown-container[style*="display: block"],.dashboard-staff-view .dashboard-checkin-card #overtime-container[style*="display: block"]{display:block!important}
+.dashboard-staff-view .dashboard-checkin-action-row{justify-content:flex-start;margin:0}
+.dashboard-staff-view .dashboard-checkin-location{margin:0;align-self:center;font-size:.7rem}
+.dashboard-staff-view .dashboard-checkin-overtime{grid-column:1/-1}
+.dashboard-staff-view.modern-dashboard .dashboard-checkin-card{grid-template-areas:"identity timer" "countdown countdown" "actions location";grid-template-columns:minmax(0,1fr) minmax(0,1fr);height:auto!important}
+.dashboard-staff-view.modern-dashboard .dashboard-checkin-card>.dashboard-checkin-head{grid-area:identity}
+.dashboard-staff-view.modern-dashboard .dashboard-checkin-card>.dashboard-checkin-timer-wrap{grid-area:timer}
+.dashboard-staff-view.modern-dashboard .dashboard-checkin-card>.dashboard-checkin-countdown,.dashboard-staff-view.modern-dashboard .dashboard-checkin-card>.dashboard-checkin-overtime{grid-area:countdown}
+.dashboard-staff-view.modern-dashboard .dashboard-checkin-card>.dashboard-checkin-action-row{grid-area:actions;justify-content:flex-start}
+.dashboard-staff-view.modern-dashboard .dashboard-checkin-card>.dashboard-checkin-location{grid-area:location}
+.dashboard-staff-view .modern-bento-sidebar>.dashboard-team-schedule-card{margin-bottom:16px}
+.dashboard-staff-view .dashboard-team-schedule-card::after,.dashboard-staff-view .dashboard-team-activity-card::after{content:none;animation:none;transform:none}
+.dashboard-staff-view .dashboard-worklog-card .dashboard-worklog-head{padding:12px 16px;margin:0}
+.dashboard-staff-view .dashboard-planned-task-item{padding:9px 12px;margin:0;border-radius:0;border-width:0 0 1px;min-height:50px;box-shadow:none}
+.dashboard-staff-view .dashboard-planned-task-list{gap:0;padding:0 10px 8px;max-height:none}
+.dashboard-staff-view .dashboard-planned-task-title{font-size:.82rem!important;line-height:1.45!important;font-weight:600;overflow-wrap:anywhere}
+.dashboard-staff-view .dashboard-planned-task-meta{font-size:.7rem;gap:6px;margin-top:3px}
+.dashboard-staff-view .dashboard-task-date,.dashboard-staff-view .dashboard-task-scope{display:none}
+.dashboard-staff-view .dashboard-planned-task-item{display:flex;flex-direction:column;align-items:stretch;position:relative}
+.dashboard-staff-view .dashboard-planned-task-actions{display:none;position:static;flex-direction:row;flex-wrap:wrap;gap:6px;margin-top:8px;opacity:1;visibility:visible;pointer-events:auto;transform:none;transition:none}
+.dashboard-staff-view .dashboard-planned-task-item:is(:hover,:focus-within,.is-action-open) .dashboard-planned-task-actions{display:flex}
+.dashboard-staff-view.modern-dashboard .dashboard-worklog-card .dashboard-planned-task-item{border-radius:0!important;padding:9px 12px!important;margin:0!important;border:0!important;border-bottom:1px solid var(--border-color,#e3e9ee)!important;min-height:50px}
+.dashboard-staff-view.modern-dashboard .dashboard-worklog-card .dashboard-planned-task-list{max-height:none!important;overflow:visible!important}
+.dashboard-staff-view .dashboard-planned-task-btn{min-height:36px}
+.dashboard-staff-view .dashboard-hero-stats-card [class*="label"]{word-break:normal;overflow-wrap:normal}
+.dashboard-staff-view.modern-dashboard .dashboard-hero-stats-card .hero-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.dashboard-staff-view.modern-dashboard .dashboard-hero-stats-card .hero-metric{display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0;padding:8px}
+.dashboard-staff-view.modern-dashboard .dashboard-hero-stats-card .hero-metric-label{font-size:.68rem!important;white-space:normal;line-height:1.4;letter-spacing:0;word-break:normal;overflow-wrap:normal}
+.dashboard-staff-view.modern-dashboard .dashboard-hero-stats-card .hero-metric-value{font-size:.95rem!important}
+.dashboard-staff-view .dashboard-planned-task-item::after{content:'⋯';position:absolute;top:9px;right:12px;color:var(--text-muted,#627286);font-size:1.1rem;line-height:1}
+.dashboard-staff-view .dashboard-planned-task-title{padding-right:24px}
+.dashboard-staff-view .dashboard-team-activity-col-list{max-height:none!important;overflow:visible!important}
+.dashboard-staff-view .dashboard-team-activity-list{max-height:none!important;overflow:visible!important}
+.dashboard-recent-activity{list-style:none;margin:0;padding:0}
+.dashboard-recent-activity li{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--border-color,#e3e9ee)}
+.dashboard-recent-activity li:last-child{border-bottom:0}
+.dashboard-recent-marker{flex:0 0 24px;text-align:center;color:var(--primary-color,#365faf);background:var(--bg-secondary,#edf3fa);border-radius:50%;line-height:24px}
+.dashboard-recent-activity li>div{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.dashboard-recent-activity strong{font-size:.78rem}.dashboard-recent-activity span:not(.dashboard-recent-marker){font-size:.76rem;color:var(--text-muted,#627286);overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.dashboard-recent-activity small{font-size:.68rem;color:var(--text-muted,#627286);max-width:85px;text-align:right;flex-shrink:0}
+.dashboard-activity-preview-note{display:block;font-size:.72rem;color:var(--text-muted,#627286);padding:10px}
+.dashboard-activity-history-link{display:inline-block;margin-top:8px;align-self:flex-start}
+.dashboard-staff-view .perf-summary{display:flex;gap:20px;align-items:center;padding:16px 20px}
+.dashboard-staff-view .perf-summary p{font-size:.82rem;color:var(--text-muted,#627286);max-width:420px;line-height:1.6}
+.dashboard-staff-view .perf-analysis>summary{cursor:pointer;min-height:44px;padding:12px 18px;color:var(--primary-color,#365faf);font-size:.8rem;border-top:1px solid var(--border-color,#e3e9ee)}
+.dashboard-staff-view .dashboard-stats-card .dashboard-breakdown-grid{grid-template-columns:1fr 1fr}
+.dashboard-stats-more{display:none}
+.dashboard-staff-view .dashboard-stats-card .dashboard-breakdown-heading,.dashboard-staff-view .dashboard-stats-card .dashboard-breakdown-grid{display:none}
+.dashboard-staff-view .dashboard-stats-more{display:block;color:var(--primary-color,#365faf);font-size:.75rem;padding-top:12px}
+.programme-agenda{padding:14px 0;border-block:1px solid var(--border-color,#e3e9ee);margin:12px 0}
+.programme-heading{display:flex;gap:8px;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.programme-heading h4{margin:0;font-size:.9rem}.programme-heading span{font-size:.68rem;color:var(--text-muted,#627286)}
+.programme-link{border:0;border-radius:6px;background:transparent;color:var(--primary-color,#365faf);padding:7px;min-height:36px;font-size:.73rem;cursor:pointer;white-space:normal}
+.programme-link:hover{background:var(--bg-secondary,#edf2fa)}
+.dashboard-staff-view.modern-dashboard .dashboard-team-schedule-card{padding:12px}
+.dashboard-staff-view .dashboard-team-schedule-card .ts-card-head{margin-bottom:6px}
+.dashboard-staff-view .dashboard-team-schedule-card .ts-card-head>span{display:none}
+.dashboard-staff-view .dashboard-team-schedule-card .ts-header-row{gap:6px;padding-bottom:5px;margin-bottom:5px}
+.dashboard-staff-view .dashboard-team-schedule-card .programme-agenda{padding:7px 0;margin:6px 0}
+.dashboard-staff-view .dashboard-team-schedule-card .programme-heading{gap:4px;margin-bottom:2px}
+.dashboard-staff-view .dashboard-team-schedule-card .programme-heading h4{font-size:.8rem}
+.dashboard-staff-view .dashboard-team-schedule-card .programme-link{padding:4px;min-height:30px;font-size:.7rem}
+.programme-carousel{position:relative;padding:3px 26px 16px}
+.programme-carousel-slide{display:flex;align-items:center;gap:8px;min-height:54px}
+.programme-carousel-slide[hidden]{display:none!important}
+.programme-carousel .programme-date{width:32px}.programme-carousel .programme-date strong{font-size:1rem;line-height:1.5}
+.programme-carousel-title{border:0;background:transparent;padding:0;color:inherit;font:inherit;font-size:.78rem;font-weight:600;line-height:1.4;text-align:left;cursor:pointer;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.programme-carousel-title:hover{text-decoration:underline}.programme-carousel-title:focus-visible,.programme-carousel-arrow:focus-visible{outline:2px solid var(--primary-color,#365faf);outline-offset:2px}
+.programme-carousel-arrow{position:absolute;top:12px;width:26px;height:32px;padding:0;border:0;border-radius:7px;background:var(--bg-secondary,#f0f4fa);color:var(--text-muted,#627286);font-size:1.5rem;line-height:1;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .15s}
+.programme-carousel-prev{left:0}.programme-carousel-next{right:0}
+.programme-agenda:hover .programme-carousel-arrow,.programme-agenda:focus-within .programme-carousel-arrow{opacity:.7;pointer-events:auto}
+.programme-carousel-arrow:hover,.programme-carousel-arrow:focus-visible{opacity:1!important}
+.programme-carousel-count{position:absolute;right:28px;bottom:0;color:var(--text-muted,#627286);font-size:.62rem}
+@media(hover:none),(pointer:coarse){.programme-carousel{padding-inline:44px}.programme-carousel-arrow{opacity:.7;pointer-events:auto;width:40px;height:44px;top:6px}.dashboard-staff-view .dashboard-team-schedule-card .programme-link{min-height:44px}}
+.programme-agenda-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border-color,#e3e9ee)}
+.programme-agenda-row:last-child{border-bottom:0}
+.programme-date{flex-shrink:0;width:40px;border:1px solid var(--border-color,#dbe4ee);border-radius:7px;text-align:center;background:var(--bg-secondary,#f3f6fa);overflow:hidden}
+.programme-date small{display:block;font-size:.6rem;letter-spacing:1px;text-transform:uppercase;padding:3px;background:var(--bg-tertiary,#e8eef6)}
+.programme-date strong{font-size:1.2rem;line-height:1.6}
+.programme-agenda-copy{flex:1;min-width:0}.programme-agenda-copy strong{display:block;font-size:.78rem;line-height:1.4;overflow-wrap:anywhere}.programme-agenda-copy span{display:block;font-size:.68rem;margin-top:3px;color:var(--text-muted,#627286)}
+.programme-error,.programme-empty{font-size:.78rem;line-height:1.5;color:var(--text-muted,#627286)}
+.programme-modal{display:flex!important;align-items:center;justify-content:center;z-index:12000;padding:16px}
+.programme-dialog{width:min(620px,100%);max-height:90dvh;overflow:auto;padding:22px;background:var(--card-bg,#fff);color:var(--text-color,#23354b);border-radius:14px}
+.programme-dialog header{display:flex;align-items:center;justify-content:space-between;gap:12px}.programme-dialog header h3{margin:0}
+.programme-modal-content{margin-top:16px}.programme-dialog label{display:block;font-size:.82rem;margin:10px 0}
+.programme-dialog input:not([type="checkbox"]),.programme-dialog select,.programme-dialog textarea{width:100%;padding:10px;border:1px solid var(--border-color,#b7c4d3);border-radius:7px;font:inherit;color:inherit;background:var(--input-bg,#fff);margin-top:5px}
+.programme-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.programme-checkbox{display:flex!important;align-items:center;gap:8px}.programme-checkbox input{width:18px;height:18px}
+.programme-dialog fieldset{max-height:180px;overflow:auto;border:1px solid var(--border-color,#dce4ec);border-radius:8px;font-size:.8rem}
+.programme-form-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}.programme-description{white-space:pre-wrap;overflow-wrap:anywhere}.programme-detail-date{font-weight:600}
+#programme-form-error{color:#b42318;font-size:.8rem}.programme-dialog [hidden]{display:none!important}
+.programme-link:focus-visible,.programme-dialog :is(input,button,textarea,select,a):focus-visible{outline:3px solid #c68b1d;outline-offset:3px}
+@media(max-width:767px){.dashboard-staff-view .dashboard-checkin-card{padding:16px;gap:12px}.dashboard-staff-view .dashboard-checkin-location{grid-column:1/-1}.dashboard-staff-view .perf-summary{gap:12px;padding:14px}.programme-form-grid{grid-template-columns:1fr}.programme-dialog{padding:16px}.dashboard-staff-view .modern-bento-sidebar{width:100%}}
+@media(max-width:400px){.dashboard-staff-view.modern-dashboard .dashboard-checkin-card{grid-template-columns:1fr;grid-template-areas:"identity" "timer" "countdown" "actions" "location"}.dashboard-staff-view .dashboard-checkin-timer-wrap{align-items:flex-start}.programme-agenda-row{gap:7px}}

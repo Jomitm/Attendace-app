@@ -2,6 +2,7 @@ import { AppDB } from './db.js';
 import { AppConfig } from '../config.js';
 import { AppAuth } from './auth.js';
 import { AppRating } from './rating.js';
+import { getCalendarProgrammes } from '../services/programme-service.js';
 
 /**
  * Calendar Module
@@ -19,7 +20,7 @@ export class Calendar {
         if (typeof window !== 'undefined' && window.addEventListener && !window.__calendarCacheBound) {
             window.addEventListener('app:db-write', (event) => {
                 const collection = String(event?.detail?.collection || '');
-                if (['work_plans', 'leaves', 'events', 'users'].includes(collection)) {
+                if (['work_plans', 'leaves', 'events', 'users', 'programmes'].includes(collection)) {
                     this._plansCache.clear();
                     this._collaborationsCache.clear();
                 }
@@ -581,21 +582,48 @@ export class Calendar {
     /**
      * Get all plans (approved leaves, company events, and work plans)
      */
-    async getPlans() {
+    async getPlans({ dashboard = false } = {}) {
         try {
             const now = new Date();
-            const start = new Date(now.getFullYear(), now.getMonth() - 2, 1).toISOString().split('T')[0];
-            const end = new Date(now.getFullYear(), now.getMonth() + 3, 0).toISOString().split('T')[0];
-            const cacheKey = `calendarPlans:${start}:${end}`;
+            const selectedYear = Number.isInteger(window.app_calYear) ? window.app_calYear : now.getFullYear();
+            const selectedMonth = Number.isInteger(window.app_calMonth) ? window.app_calMonth : now.getMonth();
+            const monthEnd = new Date(selectedYear, selectedMonth + 1, 0);
+            const startDate = dashboard ? new Date(selectedYear, selectedMonth, -59)
+                : new Date(now.getFullYear(), now.getMonth() - 2, 1);
+            const endDate = dashboard ? monthEnd
+                : new Date(now.getFullYear(), now.getMonth() + 3, 0);
+            const toDateKey = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+            const start = toDateKey(startDate);
+            const end = toDateKey(endDate);
+            const agendaStart = toDateKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30));
+            const agendaEnd = toDateKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 30));
+            const cacheKey = `calendarPlans:${dashboard ? 'dashboard:' : ''}${start}:${end}:${selectedYear}:${selectedMonth}`;
             const cached = this._plansCache.get(cacheKey);
             if (cached && cached.expiresAt > Date.now()) {
                 return cached.value;
             }
-            const [leaves, events, workPlans, users] = await Promise.all([
-                this.db.getAll('leaves'),
-                this.db.getAll('events').catch(() => []),
-                this.db.queryMany
-                    ? this.db.queryMany('work_plans', [
+            const queryRange = (collection, filters) => {
+                const query = this.db.queryManyStrict || this.db.queryMany;
+                return query ? query.call(this.db, collection, filters) : [];
+            };
+            const [leaves, events, workPlans, users, programmeResult] = await Promise.all([
+                dashboard && (this.db.queryManyStrict || this.db.queryMany)
+                    ? queryRange('leaves', [{ field: 'endDate', operator: '>=', value: start }]).catch((err) => {
+                        console.warn('getPlans leaves range query failed:', err);
+                        return [];
+                    })
+                    : this.db.getAll('leaves'),
+                dashboard && (this.db.queryManyStrict || this.db.queryMany)
+                    ? queryRange('events', [
+                        { field: 'date', operator: '>=', value: start },
+                        { field: 'date', operator: '<=', value: end }
+                    ]).catch((err) => {
+                        console.warn('getPlans events range query failed:', err);
+                        return [];
+                    })
+                    : this.db.getAll('events').catch(() => []),
+                (this.db.queryManyStrict || this.db.queryMany)
+                    ? queryRange('work_plans', [
                         { field: 'date', operator: '>=', value: start },
                         { field: 'date', operator: '<=', value: end }
                     ]).catch((err) => {
@@ -605,7 +633,9 @@ export class Calendar {
                     : [],
                 this.db.getCached
                     ? this.db.getCached(this.db.getCacheKey('calendarUsers', 'users', {}), (AppConfig?.READ_CACHE_TTLS?.users || 60000), () => this.db.getAll('users')).catch(() => [])
-                    : this.db.getAll('users').catch(() => [])
+                    : this.db.getAll('users').catch(() => []),
+                getCalendarProgrammes(dashboard ? agendaStart : start, dashboard ? agendaEnd : end)
+                    .then(rows => ({ rows, error: '' })).catch(error => ({ rows: [], error: error.message }))
             ]);
 
             // Map User IDs to Names for Leaves
@@ -613,7 +643,7 @@ export class Calendar {
             users.forEach(u => { userMap[u.id] = u.name; });
 
             const enrichedLeaves = (leaves || [])
-                .filter(l => l.status === 'Approved')
+                .filter(l => l.status === 'Approved' && (!dashboard || (String(l.startDate || '') <= end && String(l.endDate || '') >= start)))
                 .map(l => ({
                     ...l,
                     userName: l.userName || userMap[l.userId] || 'Staff'
@@ -641,6 +671,8 @@ export class Calendar {
                 .filter((plan) => plan.plans.length > 0);
 
             const result = {
+                programmes: programmeResult.rows,
+                programmeError: programmeResult.error,
                 leaves: enrichedLeaves,
                 events: dedupedEvents,
                 workPlans: normalizedWorkPlans
@@ -652,8 +684,13 @@ export class Calendar {
             return result;
         } catch (err) {
             console.error("Failed to fetch calendar plans:", err);
-            return { leaves: [], events: [], workPlans: [] };
+            return { leaves: [], events: [], workPlans: [], programmes: [], programmeError: 'Calendar and programmes could not be loaded. Please retry.' };
         }
+    }
+
+    /** Load only the dashboard calendar window; other calendar pages retain the full loader. */
+    async getDashboardPlans() {
+        return this.getPlans({ dashboard: true });
     }
 
     /**

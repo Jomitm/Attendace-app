@@ -54,6 +54,9 @@ module.exports = async function handler(req, res) {
 
         const userDoc = auth.user.uid === userId ? actorSnap : await db.collection('users').doc(userId).get();
         if (!userDoc.exists) return res.status(404).json({ error: 'User not found' });
+        if (auth.user.uid !== userId && userDoc.data()?.isAdmin === true && actorSnap.data()?.isAdmin !== true) {
+            return res.status(403).json({ error: 'Only a global administrator can reset another administrator’s password' });
+        }
 
         // Update Firebase Auth password
         try {

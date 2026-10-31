@@ -48,6 +48,18 @@ test('users manager can reset staff passwords without global admin', async () =>
     profiles.set('admin', { permissions: { users: 'admin' } });
     assert.equal((await post({ userId: 'staff', newPassword: 'new-password' })).statusCode, 200);
 });
+
+test('scoped users managers cannot reset global administrators, including migration fallback', async () => {
+    profiles.set('manager', { permissions: { users: 'admin' }, isAdmin: false });
+    claims = { uid: 'manager' };
+    for (const missing of [false, true]) {
+        authMissing = missing;
+        assert.equal((await post({ userId: 'admin', newPassword: 'chosen-password' })).statusCode, 403);
+        assert.equal(changes.length, 0);
+        assert.equal(created.length, 0);
+        assert.equal(firestoreWrites.length, 0);
+    }
+});
 test('revoked admin privileges cannot be recovered using a stale token claim', async () => {
     profiles.set('admin', { isAdmin: false });
     claims.isAdmin = true;

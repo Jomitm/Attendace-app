@@ -1,5 +1,7 @@
 import { beginPageUpdate, refreshPage } from './utils/page-updates.js';
+import { rememberDashboardPreview, readDashboardPreview } from './utils/dashboard-preview.js';
 import { AppConfig } from './config.js';
+import { programmeDayEvents, startProgrammeUpdates } from './ui/programmes.js';
 import './modules/auth.js';
 import './modules/db.js';
 import './modules/attendance.js';
@@ -415,6 +417,21 @@ const contentArea = document.getElementById('page-content');
 const sidebar = document.querySelector('.sidebar');
 const mobileHeader = document.querySelector('.mobile-header');
 const mobileNav = document.querySelector('.mobile-nav');
+const routeViewCache = new Map();
+const ROUTE_VIEW_CACHE_LIMIT = 6;
+let mountedRouteViewKey = '';
+let routeViewCacheScope = '';
+
+function cacheMountedRouteView() {
+    if (!mountedRouteViewKey || !contentArea?.childNodes.length) return;
+    const fragment = document.createDocumentFragment();
+    while (contentArea.firstChild) fragment.append(contentArea.firstChild);
+    routeViewCache.delete(mountedRouteViewKey);
+    routeViewCache.set(mountedRouteViewKey, { fragment, scrollY: window.scrollY });
+    mountedRouteViewKey = '';
+    while (routeViewCache.size > ROUTE_VIEW_CACHE_LIMIT) routeViewCache.delete(routeViewCache.keys().next().value);
+}
+
 // --- UI Helpers ---
 window.app_showAttendanceNotice = (message) => {
     if (!message) return;
@@ -1115,21 +1132,18 @@ async function init() {
     document.addEventListener('visibilitychange', pingForVisibleUpdate);
     window.addEventListener('focus', pingForFocusedUpdate);
     window.addEventListener('online', pingForFocusedUpdate);
+    let signedInStartupUser = null;
     try {
         await window.AppAuth.init();
         initAppSetup();
         const initialUser = window.AppAuth.getUser();
+        signedInStartupUser = initialUser;
         if (initialUser) {
             lastSyncedAttendanceStatus = initialUser.status || 'out';
             startReleaseSignalListener();
             startRoutineUpdateChecks();
             window.AppSiteAnnouncement?.start?.();
         }
-        if (initialUser) {
-            await app_migrateLegacyWorkPlanSchema();
-            await window.app_refreshBudgetHeadsCache();
-        }
-
         // system_commands is restricted to Firebase admins; staff should not
         // subscribe to this collection at app startup.
         if (initialUser?.isAdmin && window.AppActivity) window.AppActivity.initCommandListener();
@@ -1150,10 +1164,21 @@ async function init() {
     try { if (typeof window.app_initSectionToggle === 'function') window.app_initSectionToggle(); } catch (err) { void err; }
 
     window.addEventListener('hashchange', router);
-    if (window.AppUI?.initDashboardSectionPage) {
-        window.AppUI.initDashboardSectionPage();
-    }
     router();
+
+    // Legacy data migration and budget catalog setup are maintenance work. Let
+    // the first route render before reading collections or initializing caches.
+    if (signedInStartupUser) {
+        const prepareSignedInCaches = () => {
+            void (async () => {
+                await Promise.all([
+                    app_migrateLegacyWorkPlanSchema(),
+                    window.app_refreshBudgetHeadsCache()
+                ]);
+            })().catch(error => console.warn('Background startup preparation failed:', error));
+        };
+        window.setTimeout(prepareSignedInCaches, 500);
+    }
 
     // Trigger Tour if applicable
     const currentUser = window.AppAuth.getUser();
@@ -1165,6 +1190,7 @@ async function init() {
 // Router
 async function router(options = {}) {
     const refreshOnly = options?.refresh === true;
+    rememberDashboardPreview(contentArea);
     const routeRequest = beginPageUpdate();
     const user = window.AppAuth.getUser();
     const rawHash = window.location.hash.slice(1) || 'dashboard';
@@ -1189,6 +1215,9 @@ async function router(options = {}) {
 
     // AUTH GUARD
     if (!user) {
+        routeViewCache.clear();
+        mountedRouteViewKey = '';
+        routeViewCacheScope = '';
         stopReleaseSignalListener();
         stopRoutineUpdateChecks();
         window.AppSiteAnnouncement?.stop?.();
@@ -1230,6 +1259,25 @@ async function router(options = {}) {
     if (rawHash === 'owner') {
         window.location.hash = 'dashboard';
         return;
+    }
+    const cacheScope = JSON.stringify([user.id, user.role || '', user.isAdmin === true, user.permissions || {}]);
+    if (routeViewCacheScope && routeViewCacheScope !== cacheScope) {
+        routeViewCache.clear();
+        mountedRouteViewKey = '';
+    }
+    routeViewCacheScope = cacheScope;
+    const routeViewKey = `${cacheScope}:${rawHash}`;
+    let hasCachedRouteView = false;
+    if (!refreshOnly && mountedRouteViewKey !== routeViewKey) {
+        cacheMountedRouteView();
+        const cached = routeViewCache.get(routeViewKey);
+        if (cached) {
+            routeViewCache.delete(routeViewKey);
+            contentArea?.replaceChildren(cached.fragment);
+            hasCachedRouteView = true;
+            mountedRouteViewKey = routeViewKey;
+            window.setTimeout(() => window.scrollTo({ top: cached.scrollY, behavior: 'instant' }), 0);
+        }
     }
     app_toggleImpersonationBanner();
     // Clear mobile specific states on route change
@@ -1306,99 +1354,102 @@ async function router(options = {}) {
         }
 
         // Show skeleton loading state immediately
-        if (contentArea && !refreshOnly) {
+        if (contentArea && !refreshOnly && !hasCachedRouteView) {
             const { showPageSkeleton } = await import('./ui/page-skeletons.js');
+            const dashboardPreview = hash === 'dashboard' ? readDashboardPreview() : '';
             const skeleton = hash === 'dashboard'
-                ? (await import('./ui/dashboard-skeletons.js')).renderDashboardSkeletons()
+                ? dashboardPreview || (await import('./ui/dashboard-skeletons.js')).renderDashboardSkeletons()
                 : showPageSkeleton(hash);
             if (!routeRequest?.current()) return;
             if (skeleton) {
                 contentArea.innerHTML = skeleton;
+                if (dashboardPreview) setupDashboardEvents();
             } else {
                 contentArea.innerHTML = '<div class="loading-spinner"></div>';
             }
         }
 
         if (hash === 'dashboard') {
-            if (!await refreshPage(() => AppUI.renderDashboard({ preserveView: refreshOnly }), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
+            if (!await refreshPage(() => AppUI.renderDashboard({ preserveView: refreshOnly }), { root: contentArea, token: routeRequest, navigation: !refreshOnly && !hasCachedRouteView })) return;
             setupDashboardEvents();
         } else if (hash === 'dashboard-section') {
-            if (!await refreshPage(() => AppUI.renderDashboardSectionPage(dashboardSectionKey || 'worklog'), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
+            if (!await refreshPage(() => AppUI.renderDashboardSectionPage(dashboardSectionKey || 'worklog'), { root: contentArea, token: routeRequest, navigation: !refreshOnly && !hasCachedRouteView })) return;
             if (window.AppUI?.initDashboardSectionPage) {
                 window.AppUI.initDashboardSectionPage(dashboardSectionKey || 'worklog');
             }
         } else if (hash === 'team-activities') {
-            if (!await refreshPage(() => AppUI.renderTeamActivitiesPage(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
+            if (!await refreshPage(() => AppUI.renderTeamActivitiesPage(), { root: contentArea, token: routeRequest, navigation: !refreshOnly && !hasCachedRouteView })) return;
             if (window.app_initTeamActivities) {
                 await window.app_initTeamActivities();
             }
         } else if (hash === 'staff-directory') {
-            if (!await refreshPage(() => AppUI.renderStaffDirectoryPage(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
+            if (!await refreshPage(() => AppUI.renderStaffDirectoryPage(), { root: contentArea, token: routeRequest, navigation: !refreshOnly && !hasCachedRouteView })) return;
         } else if (hash === 'policies') {
             if (window.AppPolicies && typeof window.AppPolicies.render === 'function') {
-                if (!await refreshPage(() => window.AppPolicies.render(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
+                if (!await refreshPage(() => window.AppPolicies.render(), { root: contentArea, token: routeRequest, navigation: !refreshOnly && !hasCachedRouteView })) return;
             } else {
                 contentArea.innerHTML = `<div style="padding:1rem; color:#b91c1c;">Policies module failed to load.</div>`;
             }
         } else if (hash === 'annual-plan') {
-            if (!await refreshPage(() => AppUI.renderAnnualPlan(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
+            if (!await refreshPage(() => AppUI.renderAnnualPlan(), { root: contentArea, token: routeRequest, navigation: !refreshOnly && !hasCachedRouteView })) return;
         } else if (hash === 'birthday-calendar') {
             if (!window.app_canManageBirthdays(user)) {
                 window.location.hash = 'dashboard';
                 return;
             }
-            if (!await refreshPage(() => AppUI.renderBirthdayCalendar(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
+            if (!await refreshPage(() => AppUI.renderBirthdayCalendar(), { root: contentArea, token: routeRequest, navigation: !refreshOnly && !hasCachedRouteView })) return;
         } else if (hash === 'timesheet') {
-            if (!await refreshPage(() => AppUI.renderTimesheet(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
+            if (!await refreshPage(() => AppUI.renderTimesheet(), { root: contentArea, token: routeRequest, navigation: !refreshOnly && !hasCachedRouteView })) return;
         } else if (hash === 'profile') {
-            if (!await refreshPage(() => AppUI.renderProfile(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
+            if (!await refreshPage(() => AppUI.renderProfile(), { root: contentArea, token: routeRequest, navigation: !refreshOnly && !hasCachedRouteView })) return;
         } else if (hash === 'salary') {
             if (!window.app_hasPerm('reports', 'view', user)) {
                 window.location.hash = 'dashboard';
                 return;
             }
-            if (!await refreshPage(() => AppUI.renderSalaryProcessing ? AppUI.renderSalaryProcessing() : AppUI.renderSalary(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
+            if (!await refreshPage(() => AppUI.renderSalaryProcessing ? AppUI.renderSalaryProcessing() : AppUI.renderSalary(), { root: contentArea, token: routeRequest, navigation: !refreshOnly && !hasCachedRouteView })) return;
         } else if (hash === 'policy-test') {
             if (!window.app_hasPerm('policies', 'view', user)) {
                 window.location.hash = 'dashboard';
                 return;
             }
-            if (!await refreshPage(() => AppUI.renderPolicyTest(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
+            if (!await refreshPage(() => AppUI.renderPolicyTest(), { root: contentArea, token: routeRequest, navigation: !refreshOnly && !hasCachedRouteView })) return;
         } else if (hash === 'master-sheet') {
             const canViewAttendance = !!user; // The sheet limits staff without team permission to their own records.
             if (!canViewAttendance) {
                 window.location.hash = 'dashboard';
                 return;
             }
-            if (!await refreshPage(() => AppUI.renderMasterSheet(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
+            if (!await refreshPage(() => AppUI.renderMasterSheet(), { root: contentArea, token: routeRequest, navigation: !refreshOnly && !hasCachedRouteView })) return;
         } else if (hash === 'minutes') {
-            if (!await refreshPage(() => AppUI.renderMinutes(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
+            if (!await refreshPage(() => AppUI.renderMinutes(), { root: contentArea, token: routeRequest, navigation: !refreshOnly && !hasCachedRouteView })) return;
             startMinutesRealtimeListener();
         } else if (hash === 'letter-pad') {
             if (!window.app_canAccessLetterPad(user)) {
                 window.location.hash = 'dashboard';
                 return;
             }
-            if (!await refreshPage(() => AppUI.renderLetterPad(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
+            if (!await refreshPage(() => AppUI.renderLetterPad(), { root: contentArea, token: routeRequest, navigation: !refreshOnly && !hasCachedRouteView })) return;
         } else if (hash === 'admin') {
             if (!window.app_canSeeAdminPanel(user)) {
                 window.location.hash = 'dashboard';
                 return;
             }
-            if (!await refreshPage(() => AppUI.renderAdmin(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
+            if (!await refreshPage(() => AppUI.renderAdmin(), { root: contentArea, token: routeRequest, navigation: !refreshOnly && !hasCachedRouteView })) return;
             window.AppAnalytics.initAdminCharts();
             startAdminRealtimeListener();
         } else if (hash === 'kanban') {
-            if (!await refreshPage(() => AppUI.renderKanbanBoard(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
+            if (!await refreshPage(() => AppUI.renderKanbanBoard(), { root: contentArea, token: routeRequest, navigation: !refreshOnly && !hasCachedRouteView })) return;
             await AppUI.initKanbanBoard();
             if (typeof AppUI.startKanbanRealtimeListener === 'function') {
                 AppUI.startKanbanRealtimeListener();
             }
         } else if (hash === 'ai-center') {
-            if (!await refreshPage(() => AppUI.renderAICenter(), { root: contentArea, token: routeRequest, navigation: !refreshOnly })) return;
+            if (!await refreshPage(() => AppUI.renderAICenter(), { root: contentArea, token: routeRequest, navigation: !refreshOnly && !hasCachedRouteView })) return;
             await AppUI.initAICenter();
         }
         if (!routeRequest?.current()) return;
+        if (!refreshOnly) mountedRouteViewKey = routeViewKey;
         void window.app_checkMissedTaskPrompt?.('login');
         void window.app_checkTelegramLinkPrompt?.('login');
         await window.app_syncBirthdayReminders?.();
@@ -2157,6 +2208,7 @@ window.app_getDayEvents = (dateStr, plans, opts = {}) => {
     (plans.events || []).forEach(e => {
         if (e.date === dateStr) evs.push({ title: e.title, type: e.type || 'event', date: dateStr });
     });
+    evs.push(...programmeDayEvents(dateStr, plans.programmes || []));
     (plans.workPlans || []).forEach(p => {
         if (p.date > dateStr) return;
         const tasks = Array.isArray(p.plans) ? p.plans : [];
@@ -5803,6 +5855,7 @@ window.addEventListener('resize', updateDashboardViewport);
 
 function setupDashboardEvents() {
     updateDashboardViewport();
+    startProgrammeUpdates();
     const btn = document.getElementById('attendance-btn');
     const readOnly = !!window.app_dashboardReadOnly;
     const targetUser = window.app_dashboardTargetUser || null;

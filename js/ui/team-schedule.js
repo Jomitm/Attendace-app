@@ -4,6 +4,8 @@
  */
 
 import { onAction } from '../utils/action-router.js';
+import { renderProgrammeAgenda } from './programmes.js';
+let selectedPlanDate = '';
 
 export const renderYearlyPlan = (plans) => {
     const today = new Date();
@@ -21,6 +23,7 @@ export const renderYearlyPlan = (plans) => {
 
     const year = window.app_calYear;
     const month = window.app_calMonth;
+    if (selectedPlanDate && !selectedPlanDate.startsWith(`${year}-${String(month + 1).padStart(2, '0')}-`)) selectedPlanDate = '';
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
     const firstDay = new Date(year, month, 1).getDay();
@@ -32,7 +35,7 @@ export const renderYearlyPlan = (plans) => {
         const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
         const evs = typeof window.app_getDayEvents === 'function' ? window.app_getDayEvents(dStr, plans) : [];
         const hasLeave = evs.some(e => e.type === 'leave');
-        const hasEvent = evs.some(e => e.type === 'event');
+        const hasEvent = evs.some(e => e.type === 'event' || e.type === 'programme');
         const hasWork = evs.some(e => e.type === 'work');
         const isToday = d === today.getDate() && month === today.getMonth() && year === today.getFullYear();
 
@@ -67,8 +70,8 @@ export const renderYearlyPlan = (plans) => {
     // Register button actions with shared router (once).
     if (!window._tsActionRegistered) {
         window._tsActionRegistered = true;
-        onAction('add-plan', () => window.app_quickAddPersonalPlan?.());
-        onAction('edit-plan', () => window.app_quickEditPersonalPlan?.());
+        onAction('add-plan', el => window.app_openDayPlan?.(el.dataset.date || selectedPlanDate || window.AppCalendar?.getTodayKey?.(), window.AppAuth?.getUser?.()?.id));
+        onAction('edit-plan', el => window.app_openDayPlan?.(el.dataset.date || selectedPlanDate || window.AppCalendar?.getTodayKey?.(), window.AppAuth?.getUser?.()?.id));
         onAction('add-holiday', () => window.app_openEventModal?.());
         onAction('prev-month', () => window.app_changeCalMonth?.(-1));
         onAction('next-month', () => window.app_changeCalMonth?.(1));
@@ -76,7 +79,7 @@ export const renderYearlyPlan = (plans) => {
         // Day cell click + prefetch listeners (not data-ts-action)
         document.addEventListener('click', (e) => {
             const day = e.target.closest('.cal-day[data-date]');
-            if (day) window.app_openDayPlan?.(day.dataset.date);
+            if (day) { selectedPlanDate = day.dataset.date; window.app_openDayPlan?.(day.dataset.date); }
         });
         document.addEventListener('mouseover', (e) => {
             const day = e.target.closest('.cal-day[data-date]');
@@ -128,6 +131,8 @@ export const renderYearlyPlan = (plans) => {
                 </div>
             </div>
 
+            ${renderProgrammeAgenda(plans)}
+
             <div class="ts-cal-grid">
                 <div class="ts-weekday">S</div>
                 <div class="ts-weekday">M</div>
@@ -148,3 +153,31 @@ export const renderYearlyPlan = (plans) => {
         </div>
     `;
 };
+
+/** Refresh only the calendar card after programme data changes. */
+export async function refreshTeamSchedule() {
+    const currentCard = document.querySelector('.dashboard-team-schedule-card');
+    if (!currentCard || !window.AppCalendar?.getPlans) return false;
+    const currentAgenda = currentCard.querySelector('.programme-agenda');
+    if (!currentAgenda) return false;
+
+    const route = window.location.hash;
+    const plans = await (window.AppCalendar.getDashboardPlans?.() || window.AppCalendar.getPlans());
+    if (!currentCard.isConnected || window.location.hash !== route) return false;
+
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = renderProgrammeAgenda(plans);
+    const updatedAgenda = wrapper.firstElementChild;
+    if (!updatedAgenda) return false;
+    currentAgenda.replaceWith(updatedAgenda);
+    window._currentPlans = plans;
+    currentCard.querySelectorAll('.cal-day[data-date]').forEach(day => {
+        const events = window.app_getDayEvents?.(day.dataset.date, plans) || [];
+        day.dataset.hasEvent = String(events.some(event => event.type === 'event' || event.type === 'programme'));
+    });
+    return true;
+}
+
+if (typeof window !== 'undefined') {
+    window.app_refreshTeamSchedule = refreshTeamSchedule;
+}

@@ -17,11 +17,6 @@
     <!-- Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
-    <!-- Charts -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <!-- Excel Export -->
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-
     <!-- Styles -->
     <!-- Styles -->
     <!-- Styles -->
@@ -38,6 +33,7 @@
     <link rel="stylesheet" href="css/kanban.css?v=20260816-kanban-v1">
     <link rel="stylesheet" href="css/ai-center-float.css?v=20261001-ai-pc-gate">
     <link rel="stylesheet" href="css/ui-foundation.css?v=20261029-missed-task-prompt">
+    <link rel="stylesheet" href="css/dashboard-workday.css">
 
     <!-- PWA -->
     <link rel="manifest" href="manifest.json">
@@ -78,19 +74,26 @@
             Promise.resolve().then(async () => {
                 try {
                     const cleanupTasks = [];
+                    let clearedStaleShell = false;
                     if ('serviceWorker' in navigator) {
                         cleanupTasks.push(
-                            navigator.serviceWorker.getRegistrations().then((regs) => Promise.all(regs.map((reg) => reg.unregister())))
+                            navigator.serviceWorker.getRegistrations().then((regs) => {
+                                clearedStaleShell ||= regs.length > 0;
+                                return Promise.all(regs.map((reg) => reg.unregister()));
+                            })
                         );
                     }
                     if ('caches' in window) {
                         cleanupTasks.push(
-                            caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+                            caches.keys().then((keys) => {
+                                clearedStaleShell ||= keys.length > 0;
+                                return Promise.all(keys.map((key) => caches.delete(key)));
+                            })
                         );
                     }
                     await Promise.all(cleanupTasks);
                     localStorage.setItem('__app_local_sw_cleanup_done__', '1');
-                    window.location.reload();
+                    if (clearedStaleShell) window.location.reload();
                 } catch (cleanupErr) {
                     console.warn('Local dev service worker cleanup failed:', cleanupErr);
                 }

@@ -5,9 +5,8 @@ import { resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 // Same pure quota rules the production function uses (api/_ai-insights.js).
-import { quotaLimit, isQuotaRequest, nextUtcMidnight, quotaMessage, quotaContext } from './api/_ai-quota.js';
+import { quotaLimit, isQuotaRequest, validateAiOperation, nextUtcMidnight, quotaMessage, quotaContext } from './api/_ai-quota.js';
 // Same pure hero-selection rules the production function uses (api/hero-select.js).
-import { parseHeroAiResponse, sanitizeCandidates } from './api/_hero-select-core.js';
 
 const require = createRequire(import.meta.url);
 const { readBuildMeta } = require('./scripts/build-meta.cjs');
@@ -206,6 +205,7 @@ function createStaffDataDevPlugin() {
                     req.localDevRequest = true;
                     const apiResponse = {
                         statusCode: 200,
+                        setHeader(name, value) { res.setHeader(name, value); },
                         status(code) {
                             this.statusCode = code;
                             return this;
@@ -309,6 +309,29 @@ function createStaffTaskResponseDevPlugin() {
     };
 }
 
+function createProgrammesDevPlugin() {
+    return { name: 'programmes-dev', configureServer(server) {
+        server.middlewares.use('/api/programmes', async (req, res) => {
+            try {
+                const body = await readBody(req);
+                const apiResponse = { statusCode: 200,
+                    setHeader(name, value) { res.setHeader(name, value); },
+                    status(code) { this.statusCode = code; return this; },
+                    json(payload) { sendJson(res, this.statusCode, payload); return this; }
+                };
+                const handlerPath = require.resolve('./api/_programmes.js');
+                delete require.cache[handlerPath];
+                // Use Vite's invalidated module graph for shared rules, rather than
+                // Node's permanent ESM cache, so localhost follows source edits.
+                const programmeRules = await server.ssrLoadModule('/js/utils/programmes.js');
+                await require(handlerPath)(Object.assign(req, { body }), apiResponse, { programmeRules });
+            } catch (error) {
+                sendJson(res, error instanceof SyntaxError ? 400 : 500, { error: 'Programme service unavailable.' });
+            }
+        });
+    } };
+}
+
 function createFeastDevPlugin() {
     let cachedIcal = null;
     let cacheTime = 0;
@@ -376,6 +399,8 @@ function createAiInsightsDevPlugin() {
                 try {
                     const body = await readBody(req);
                     const { question, history, mode, tasks, stream, text } = body;
+                    const operationError = validateAiOperation(body);
+                    if (operationError) return sendJson(res, 400, { error: operationError });
                     let metrics = body.metrics;
 
                     // ── Daily chat-question quota (dev mirror) ──
@@ -383,7 +408,7 @@ function createAiInsightsDevPlugin() {
                     const day = new Date().toISOString().slice(0, 10);
                     if (day !== usageDay) { usage = new Map(); usageDay = day; }
                     const quotaKey = `${req.ip || req.socket?.remoteAddress || 'local'}_${day}`;
-                    const chargeable = isQuotaRequest({ mode, question });
+                    const chargeable = isQuotaRequest({ mode, question, stream });
                     const charge = () => usage.set(quotaKey, (usage.get(quotaKey) || 0) + 1);
                     let quotaUsed = null;
                     if (chargeable || mode === 'tool_plan') {
@@ -488,54 +513,29 @@ function createAiInsightsDevPlugin() {
 }
 
 // Local dev plugin for /api/hero-select — same shared provider and validation
-// as production (api/hero-select.js). Skips Firebase auth (dev fallback login
-// has no Firebase user) and keeps picks in memory per period instead of the
-// Firestore `hero_selections` collection.
+// as production (api/_hero-select.js), including current account checks and
+// authoritative inputs. A local fallback without Firebase identity retains
+// its normal deterministic ranking instead of creating untrusted AI picks.
 function createHeroSelectDevPlugin() {
-    const selections = new Map();
     return {
         name: 'hero-select-dev',
         configureServer(server) {
             server.middlewares.use('/api/hero-select', async (req, res) => {
-                if (req.method === 'OPTIONS') {
-                    res.setHeader('Access-Control-Allow-Origin', '*');
-                    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-                    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-                    return res.status(200).end();
-                }
-                if (req.method !== 'POST') {
-                    return sendJson(res, 405, { error: 'Method not allowed' });
-                }
+                // Use the production authority boundary and ranking engine locally.
+                // No browser-supplied candidate list can create shared selections.
                 try {
                     const body = await readBody(req);
-                    const periodKey = String(body?.periodKey || '').trim();
-                    if (!/^\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}$/.test(periodKey)) {
-                        return sendJson(res, 400, { error: 'Invalid period key' });
-                    }
-                    const candidates = sanitizeCandidates(body?.candidates);
-                    if (!candidates.length) {
-                        return sendJson(res, 200, { pick: null, source: 'no_candidates' });
-                    }
-                    const allowIds = candidates.map((c) => c.id);
-
-                    const stored = selections.get(periodKey);
-                    if (stored && allowIds.includes(stored.userId)) {
-                        return sendJson(res, 200, { pick: stored, source: 'stored' });
-                    }
-
-                    if (!(process.env.OPENROUTER_API_KEY || process.env.XAI_API_KEY)) {
-                        return sendJson(res, 200, { pick: null, source: 'unavailable' });
-                    }
-                    const ai = await callAI({ metrics: { periodKey, candidates }, mode: 'hero' });
-                    const parsed = ai?.insight ? parseHeroAiResponse(ai.insight, allowIds) : null;
-                    if (!parsed) {
-                        return sendJson(res, 200, { pick: null, source: ai ? 'invalid_answer' : 'ai_unavailable' });
-                    }
-                    const pick = { userId: parsed.userId, rationale: parsed.rationale, by: 'ai', model: String(ai?.model || '') };
-                    selections.set(periodKey, pick);
-                    return sendJson(res, 200, { pick, source: 'ai' });
-                } catch (err) {
-                    console.error('[hero-select-dev] error:', err);
+                    const { default: handler } = await import('./api/_hero-select.js');
+                    const apiResponse = {
+                        statusCode: 200,
+                        setHeader: (name, value) => res.setHeader(name, value),
+                        status(code) { this.statusCode = code; return this; },
+                        json(payload) { return sendJson(res, this.statusCode, payload); },
+                        end() { res.statusCode = this.statusCode; return res.end(); }
+                    };
+                    return await handler(Object.assign(req, { body }), apiResponse);
+                } catch (error) {
+                    console.error('[hero-select-dev] error:', error.message);
                     return sendJson(res, 200, { pick: null, source: 'error' });
                 }
             });
@@ -565,7 +565,7 @@ export default defineConfig({
             }
         } catch { /* no .env file, that's fine */ }
 
-        return [createAuthLoginDevPlugin(), createAuthSetPasswordDevPlugin(), createStaffEmploymentDevPlugin(), createStaffDataDevPlugin(), createMinutesActionDevPlugin(), createStaffTaskResponseDevPlugin(), createFeastDevPlugin(), createAiInsightsDevPlugin(), createHeroSelectDevPlugin()];
+        return [createAuthLoginDevPlugin(), createAuthSetPasswordDevPlugin(), createStaffEmploymentDevPlugin(), createStaffDataDevPlugin(), createMinutesActionDevPlugin(), createStaffTaskResponseDevPlugin(), createProgrammesDevPlugin(), createFeastDevPlugin(), createAiInsightsDevPlugin(), createHeroSelectDevPlugin()];
     })(),
     define: {
         __APP_BUILD_META__: JSON.stringify(buildMeta)

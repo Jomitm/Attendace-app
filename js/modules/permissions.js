@@ -22,7 +22,7 @@ export function canSeeAdminPanel(user = getCurrentUser()) {
     // If they have ANY specific admin level permission, they can enter the admin panel
     if (user.permissions) {
         return Object.entries(user.permissions).some(([module, level]) => {
-            return !['birthday', 'letterPad'].includes(module) && level === 'admin';
+            return !['birthday', 'letterPad', 'programmes'].includes(module) && level === 'admin';
         });
     }
     return false;

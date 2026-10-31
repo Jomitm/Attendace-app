@@ -94,7 +94,7 @@ async function getLinkedUsers(db) {
     snap.forEach(doc => {
         const data = doc.data();
         if (data.telegramChatId && isStaffAccount(data)) {
-            users.push({ id: doc.id, ...data });
+            users.push({ ...data, id: doc.id });
         }
     });
     return users;
@@ -419,7 +419,7 @@ async function teamDigest(db, token, slot) {
     const reportRecipients = new Map();
     usersSnap.forEach(doc => {
         const u = doc.data();
-        if (isStaffAccount(u)) allStaff.push({ id: doc.id, ...u });
+        if (isStaffAccount(u)) allStaff.push({ ...u, id: doc.id });
         if (isReportAdmin(u) && u.telegramChatId) reportRecipients.set(String(u.telegramChatId), 'admin');
     });
     const groupChatId = String(process.env.TELEGRAM_CHAT_ID || '').trim();

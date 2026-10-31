@@ -1,0 +1,1707 @@
+{
+  "evidence": "Local empty-profile Chromium measurements; signed-in Firebase/dashboard timing is not included",
+  "results": [
+    {
+      "base": "http://127.0.0.1:3000/",
+      "run": "cold",
+      "shellMs": 1579,
+      "error": null,
+      "failed": [
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://fonts.gstatic.com/s/sora/v17/xMQ9uFFYT72X5wkB_18qmnndmSdSnh2BAfO5mnuyOo1lfiQwV6-x.woff2",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://fonts.gstatic.com/s/manrope/v23/xn7gYHE41ni1AdIRggexSg.woff2",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-regular-400.woff2",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-solid-900.woff2",
+          "reason": "net::ERR_ABORTED"
+        }
+      ],
+      "navigation": [
+        {
+          "responseEnd": 30.600000000093132,
+          "domContentLoaded": 972.3999999999069,
+          "load": 976.8999999999069
+        }
+      ],
+      "resources": [
+        {
+          "resource": "http://127.0.0.1:3000/@vite/client",
+          "duration": 12,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "https://fonts.googleapis.com/css2",
+          "duration": 0,
+          "bytes": 839,
+          "initiator": "link"
+        },
+        {
+          "resource": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css",
+          "duration": 0,
+          "bytes": 18752,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/main.css",
+          "duration": 0,
+          "bytes": 314254,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/site-announcement.css",
+          "duration": 0,
+          "bytes": 8592,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/checkin-checkout.css",
+          "duration": 11,
+          "bytes": 0,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/checkout-form.css",
+          "duration": 0,
+          "bytes": 34777,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/tour.css",
+          "duration": 11,
+          "bytes": 0,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/widget.css",
+          "duration": 15,
+          "bytes": 0,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/journey-reflection.css",
+          "duration": 0,
+          "bytes": 12894,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/day-plan.css",
+          "duration": 0,
+          "bytes": 58660,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/dashboard-modern.css",
+          "duration": 0,
+          "bytes": 109286,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/dashboard-checkin-compact.css",
+          "duration": 0,
+          "bytes": 5818,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/kanban.css",
+          "duration": 0,
+          "bytes": 22473,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/ai-center-float.css",
+          "duration": 0,
+          "bytes": 16311,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/ui-foundation.css",
+          "duration": 0,
+          "bytes": 85348,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/dashboard-workday.css",
+          "duration": 14,
+          "bytes": 0,
+          "initiator": "link"
+        },
+        {
+          "resource": "https://ui-avatars.com/api/",
+          "duration": 0,
+          "bytes": 0,
+          "initiator": "img"
+        },
+        {
+          "resource": "https://ui-avatars.com/api/",
+          "duration": 0,
+          "bytes": 0,
+          "initiator": "img"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js",
+          "duration": 0,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js",
+          "duration": 89,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js",
+          "duration": 65,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js",
+          "duration": 99,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/app.js",
+          "duration": 26,
+          "bytes": 2852364,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/node_modules/vite/dist/client/env.mjs",
+          "duration": 3,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/page-updates.js",
+          "duration": 68,
+          "bytes": 37401,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/dashboard-preview.js",
+          "duration": 71,
+          "bytes": 10378,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/config.js",
+          "duration": 74,
+          "bytes": 58193,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/programmes.js",
+          "duration": 84,
+          "bytes": 92258,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/auth.js",
+          "duration": 118,
+          "bytes": 237884,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/db.js",
+          "duration": 134,
+          "bytes": 357676,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/attendance.js",
+          "duration": 141,
+          "bytes": 298330,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/permissions.js",
+          "duration": 118,
+          "bytes": 16268,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/budget-heads.js",
+          "duration": 119,
+          "bytes": 30112,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/system-dialog.js",
+          "duration": 127,
+          "bytes": 31387,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/html-escape.js",
+          "duration": 141,
+          "bytes": 7385,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/date-helpers.js",
+          "duration": 141,
+          "bytes": 13432,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/attendance-sheet.js",
+          "duration": 164,
+          "bytes": 43857,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/staff-account-edit.js",
+          "duration": 164,
+          "bytes": 7700,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/span-planning.js",
+          "duration": 166,
+          "bytes": 64347,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui.js",
+          "duration": 167,
+          "bytes": 32012,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/telegram.js",
+          "duration": 167,
+          "bytes": 10400,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/calendar.js",
+          "duration": 233,
+          "bytes": 476053,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/checkout-task-updates.js",
+          "duration": 231,
+          "bytes": 23865,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/activity.js",
+          "duration": 234,
+          "bytes": 42969,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/tour.js",
+          "duration": 238,
+          "bytes": 53924,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/analytics.js",
+          "duration": 295,
+          "bytes": 995911,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/reports.js",
+          "duration": 300,
+          "bytes": 133635,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/leaves.js",
+          "duration": 319,
+          "bytes": 178369,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/rating.js",
+          "duration": 322,
+          "bytes": 80177,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/simulation.js",
+          "duration": 326,
+          "bytes": 45323,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/minutes.js",
+          "duration": 331,
+          "bytes": 71951,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/policies.js",
+          "duration": 338,
+          "bytes": 159129,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/admin-policies.js",
+          "duration": 346,
+          "bytes": 173681,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/day-plan.js",
+          "duration": 385,
+          "bytes": 679343,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/task-classification-learning.js",
+          "duration": 387,
+          "bytes": 56030,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/widget.js",
+          "duration": 396,
+          "bytes": 105660,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/site-announcement.js",
+          "duration": 406,
+          "bytes": 109160,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/services/user-service.js",
+          "duration": 408,
+          "bytes": 16349,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/services/attendance-service.js",
+          "duration": 410,
+          "bytes": 19702,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/services/leave-service.js",
+          "duration": 410,
+          "bytes": 14003,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/services/analytics-service.js",
+          "duration": 413,
+          "bytes": 37048,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/services/settings-service.js",
+          "duration": 414,
+          "bytes": 14269,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/services/minutes-service.js",
+          "duration": 416,
+          "bytes": 9150,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/services/event-service.js",
+          "duration": 417,
+          "bytes": 28060,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/services/metrics-service.js",
+          "duration": 434,
+          "bytes": 243988,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/features/birthdays.js",
+          "duration": 445,
+          "bytes": 180006,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/features/hover-help.js",
+          "duration": 452,
+          "bytes": 107297,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/features/missed-task-prompt.js",
+          "duration": 457,
+          "bytes": 41352,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/features/telegram-link-prompt.js",
+          "duration": 461,
+          "bytes": 53501,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/features/app-setup.js",
+          "duration": 467,
+          "bytes": 109305,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/features/notifications.js",
+          "duration": 477,
+          "bytes": 150940,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/features/modals-carryforward.js",
+          "duration": 485,
+          "bytes": 77034,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/node_modules/.vite/deps/morphdom.js",
+          "duration": 424,
+          "bytes": 17772,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/helpers.js",
+          "duration": 367,
+          "bytes": 41118,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/action-router.js",
+          "duration": 368,
+          "bytes": 7671,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/programmes.js",
+          "duration": 370,
+          "bytes": 29175,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/services/programme-service.js",
+          "duration": 372,
+          "bytes": 11422,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/staff-employment.js",
+          "duration": 325,
+          "bytes": 14508,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/dashboard.js",
+          "duration": 388,
+          "bytes": 1294396,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/attendance-modals.js",
+          "duration": 377,
+          "bytes": 1673,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/auth-pages.js",
+          "duration": 381,
+          "bytes": 57631,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/global-modals.js",
+          "duration": 409,
+          "bytes": 226602,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/team-schedule.js",
+          "duration": 412,
+          "bytes": 52797,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/working-days.js",
+          "duration": 407,
+          "bytes": 16160,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/firebase-config.js",
+          "duration": 408,
+          "bytes": 6818,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/private-work-plans.js",
+          "duration": 418,
+          "bytes": 22137,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/task-visibility.js",
+          "duration": 317,
+          "bytes": 15370,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/external-libraries.js",
+          "duration": 319,
+          "bytes": 12893,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/perf-windows.js",
+          "duration": 299,
+          "bytes": 35535,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/hero-digest.js",
+          "duration": 313,
+          "bytes": 42116,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/task-provenance.js",
+          "duration": 226,
+          "bytes": 13854,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/task-status.js",
+          "duration": 168,
+          "bytes": 15776,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/checkin-checkout-modals.js",
+          "duration": 54,
+          "bytes": 19069,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/common.js",
+          "duration": 26,
+          "bytes": 15918,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/dashboard-activities.js",
+          "duration": 27,
+          "bytes": 13878,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/performance-periods.js",
+          "duration": 28,
+          "bytes": 2006,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/dashboard-card-mode.js",
+          "duration": 33,
+          "bytes": 41299,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/feasts.js",
+          "duration": 36,
+          "bytes": 35667,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/checkout-form.js",
+          "duration": 39,
+          "bytes": 68098,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/ai-float.js",
+          "duration": 16,
+          "bytes": 217395,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/kanban-board.js",
+          "duration": 19,
+          "bytes": 231665,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/ai-actions.js",
+          "duration": 12,
+          "bytes": 101364,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/ai-chat-memory.js",
+          "duration": 16,
+          "bytes": 14983,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/view-toggle.js",
+          "duration": 14,
+          "bytes": 20255,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/ai-performance-coach.js",
+          "duration": 15,
+          "bytes": 163636,
+          "initiator": "script"
+        }
+      ],
+      "longTasks": [
+        {
+          "startTime": 911,
+          "duration": 67
+        }
+      ],
+      "loginVisible": true
+    },
+    {
+      "base": "http://127.0.0.1:3000/",
+      "run": "warm",
+      "shellMs": 353,
+      "error": null,
+      "failed": [
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://fonts.gstatic.com/s/sora/v17/xMQ9uFFYT72X5wkB_18qmnndmSdSnh2BAfO5mnuyOo1lfiQwV6-x.woff2",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://fonts.gstatic.com/s/manrope/v23/xn7gYHE41ni1AdIRggexSg.woff2",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-regular-400.woff2",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-solid-900.woff2",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://firestore.googleapis.com/google.firestore.v1.Firestore/Listen/channel",
+          "reason": "net::ERR_ABORTED"
+        }
+      ],
+      "navigation": [
+        {
+          "responseEnd": 15.899999999906868,
+          "domContentLoaded": 247.19999999995343,
+          "load": 249
+        }
+      ],
+      "resources": [
+        {
+          "resource": "http://127.0.0.1:3000/@vite/client",
+          "duration": 2,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "https://fonts.googleapis.com/css2",
+          "duration": 0,
+          "bytes": 839,
+          "initiator": "link"
+        },
+        {
+          "resource": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css",
+          "duration": 0,
+          "bytes": 18752,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/main.css",
+          "duration": 0,
+          "bytes": 314254,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/site-announcement.css",
+          "duration": 0,
+          "bytes": 8592,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/checkin-checkout.css",
+          "duration": 3,
+          "bytes": 0,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/checkout-form.css",
+          "duration": 0,
+          "bytes": 34777,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/tour.css",
+          "duration": 3,
+          "bytes": 0,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/widget.css",
+          "duration": 4,
+          "bytes": 0,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/journey-reflection.css",
+          "duration": 0,
+          "bytes": 12894,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/day-plan.css",
+          "duration": 0,
+          "bytes": 58660,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/dashboard-modern.css",
+          "duration": 0,
+          "bytes": 109286,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/dashboard-checkin-compact.css",
+          "duration": 0,
+          "bytes": 5818,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/kanban.css",
+          "duration": 0,
+          "bytes": 22473,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/ai-center-float.css",
+          "duration": 0,
+          "bytes": 16311,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/ui-foundation.css",
+          "duration": 0,
+          "bytes": 85348,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/css/dashboard-workday.css",
+          "duration": 5,
+          "bytes": 0,
+          "initiator": "link"
+        },
+        {
+          "resource": "https://ui-avatars.com/api/",
+          "duration": 0,
+          "bytes": 0,
+          "initiator": "img"
+        },
+        {
+          "resource": "https://ui-avatars.com/api/",
+          "duration": 0,
+          "bytes": 0,
+          "initiator": "img"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js",
+          "duration": 0,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js",
+          "duration": 0,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js",
+          "duration": 0,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js",
+          "duration": 0,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/app.js",
+          "duration": 0,
+          "bytes": 2852364,
+          "initiator": "script"
+        },
+        {
+          "resource": "https://fonts.gstatic.com/s/manrope/v23/xn7gYHE41ni1AdIRggexSg.woff2",
+          "duration": 0,
+          "bytes": 24532,
+          "initiator": "css"
+        },
+        {
+          "resource": "https://fonts.gstatic.com/s/sora/v17/xMQ9uFFYT72X5wkB_18qmnndmSdSnh2BAfO5mnuyOo1lfiQwV6-x.woff2",
+          "duration": 0,
+          "bytes": 25284,
+          "initiator": "css"
+        },
+        {
+          "resource": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-regular-400.woff2",
+          "duration": 0,
+          "bytes": 24948,
+          "initiator": "css"
+        },
+        {
+          "resource": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-solid-900.woff2",
+          "duration": 0,
+          "bytes": 150124,
+          "initiator": "css"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/node_modules/vite/dist/client/env.mjs",
+          "duration": 3,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/page-updates.js",
+          "duration": 3,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/dashboard-preview.js",
+          "duration": 5,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/config.js",
+          "duration": 6,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/programmes.js",
+          "duration": 7,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/auth.js",
+          "duration": 10,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/db.js",
+          "duration": 12,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/attendance.js",
+          "duration": 13,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/permissions.js",
+          "duration": 15,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/budget-heads.js",
+          "duration": 18,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/system-dialog.js",
+          "duration": 19,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/html-escape.js",
+          "duration": 20,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/date-helpers.js",
+          "duration": 21,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/attendance-sheet.js",
+          "duration": 23,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/staff-account-edit.js",
+          "duration": 22,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/span-planning.js",
+          "duration": 29,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui.js",
+          "duration": 31,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/telegram.js",
+          "duration": 28,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/calendar.js",
+          "duration": 29,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/checkout-task-updates.js",
+          "duration": 32,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/activity.js",
+          "duration": 31,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/tour.js",
+          "duration": 36,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/analytics.js",
+          "duration": 37,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/reports.js",
+          "duration": 37,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/leaves.js",
+          "duration": 39,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/rating.js",
+          "duration": 39,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/simulation.js",
+          "duration": 42,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/minutes.js",
+          "duration": 47,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/policies.js",
+          "duration": 47,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/admin-policies.js",
+          "duration": 47,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/day-plan.js",
+          "duration": 48,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/task-classification-learning.js",
+          "duration": 48,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/widget.js",
+          "duration": 49,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/site-announcement.js",
+          "duration": 51,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/services/user-service.js",
+          "duration": 52,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/services/attendance-service.js",
+          "duration": 53,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/services/leave-service.js",
+          "duration": 53,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/services/analytics-service.js",
+          "duration": 54,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/services/settings-service.js",
+          "duration": 55,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/services/minutes-service.js",
+          "duration": 58,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/services/event-service.js",
+          "duration": 58,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/services/metrics-service.js",
+          "duration": 59,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/features/birthdays.js",
+          "duration": 59,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/features/hover-help.js",
+          "duration": 59,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/features/missed-task-prompt.js",
+          "duration": 60,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/features/telegram-link-prompt.js",
+          "duration": 61,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/features/app-setup.js",
+          "duration": 62,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/features/notifications.js",
+          "duration": 62,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/features/modals-carryforward.js",
+          "duration": 63,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/node_modules/.vite/deps/morphdom.js",
+          "duration": 0,
+          "bytes": 17772,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/helpers.js",
+          "duration": 33,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/action-router.js",
+          "duration": 34,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/programmes.js",
+          "duration": 35,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/services/programme-service.js",
+          "duration": 36,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/staff-employment.js",
+          "duration": 21,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/firebase-config.js",
+          "duration": 18,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/private-work-plans.js",
+          "duration": 19,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/working-days.js",
+          "duration": 6,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/dashboard.js",
+          "duration": 3,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/attendance-modals.js",
+          "duration": 4,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/auth-pages.js",
+          "duration": 5,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/global-modals.js",
+          "duration": 8,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/team-schedule.js",
+          "duration": 9,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/task-visibility.js",
+          "duration": 5,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/perf-windows.js",
+          "duration": 7,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/hero-digest.js",
+          "duration": 7,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/external-libraries.js",
+          "duration": 9,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/task-provenance.js",
+          "duration": 8,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/task-status.js",
+          "duration": 7,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/common.js",
+          "duration": 7,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/dashboard-activities.js",
+          "duration": 10,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/utils/performance-periods.js",
+          "duration": 11,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/dashboard-card-mode.js",
+          "duration": 12,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/feasts.js",
+          "duration": 13,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/checkin-checkout-modals.js",
+          "duration": 15,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/checkout-form.js",
+          "duration": 15,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/ai-float.js",
+          "duration": 2,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/kanban-board.js",
+          "duration": 3,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/ai-actions.js",
+          "duration": 5,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/ai-chat-memory.js",
+          "duration": 6,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/ui/view-toggle.js",
+          "duration": 5,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3000/js/modules/ai-performance-coach.js",
+          "duration": 2,
+          "bytes": 0,
+          "initiator": "script"
+        }
+      ],
+      "longTasks": [],
+      "loginVisible": true
+    },
+    {
+      "base": "http://127.0.0.1:3048/",
+      "run": "cold",
+      "shellMs": 744,
+      "error": null,
+      "failed": [
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-solid-900.woff2",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://fonts.gstatic.com/s/sora/v17/xMQ9uFFYT72X5wkB_18qmnndmSdSnh2BAfO5mnuyOo1lfiQwV6-x.woff2",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-regular-400.woff2",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://fonts.gstatic.com/s/manrope/v23/xn7gYHE41ni1AdIRggexSg.woff2",
+          "reason": "net::ERR_ABORTED"
+        }
+      ],
+      "navigation": [
+        {
+          "responseEnd": 11,
+          "domContentLoaded": 261.80000000004657,
+          "load": 268.89999999990687
+        }
+      ],
+      "resources": [
+        {
+          "resource": "https://fonts.googleapis.com/css2",
+          "duration": 0,
+          "bytes": 839,
+          "initiator": "link"
+        },
+        {
+          "resource": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css",
+          "duration": 0,
+          "bytes": 18752,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3048/assets/main-Db7NMCxw.js",
+          "duration": 15,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3048/assets/main-BLm2tI6-.css",
+          "duration": 12,
+          "bytes": 0,
+          "initiator": "link"
+        },
+        {
+          "resource": "https://ui-avatars.com/api/",
+          "duration": 0,
+          "bytes": 0,
+          "initiator": "img"
+        },
+        {
+          "resource": "https://ui-avatars.com/api/",
+          "duration": 0,
+          "bytes": 0,
+          "initiator": "img"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js",
+          "duration": 0,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js",
+          "duration": 99,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js",
+          "duration": 82,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js",
+          "duration": 117,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3048/assets/ai-float-BgYPeN3n.js",
+          "duration": 11,
+          "bytes": 7714,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3048/assets/ai-chat-memory-CE4rbFRn.js",
+          "duration": 11,
+          "bytes": 4131,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3048/assets/ai-performance-coach-BUQzqn5v.js",
+          "duration": 11,
+          "bytes": 4992,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3048/assets/kanban-board-CeOPNUkt.js",
+          "duration": 6,
+          "bytes": 6488,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3048/assets/view-toggle-DcFSB_W0.js",
+          "duration": 5,
+          "bytes": 900,
+          "initiator": "script"
+        }
+      ],
+      "longTasks": [
+        {
+          "startTime": 191.30000000004657,
+          "duration": 74
+        }
+      ],
+      "loginVisible": true
+    },
+    {
+      "base": "http://127.0.0.1:3048/",
+      "run": "warm",
+      "shellMs": 139,
+      "error": null,
+      "failed": [
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-solid-900.woff2",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://fonts.gstatic.com/s/sora/v17/xMQ9uFFYT72X5wkB_18qmnndmSdSnh2BAfO5mnuyOo1lfiQwV6-x.woff2",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-regular-400.woff2",
+          "reason": "net::ERR_ABORTED"
+        },
+        {
+          "resource": "https://fonts.gstatic.com/s/manrope/v23/xn7gYHE41ni1AdIRggexSg.woff2",
+          "reason": "net::ERR_ABORTED"
+        }
+      ],
+      "navigation": [
+        {
+          "responseEnd": 7.699999999953434,
+          "domContentLoaded": 95.10000000009313,
+          "load": 98.80000000004657
+        }
+      ],
+      "resources": [
+        {
+          "resource": "https://fonts.googleapis.com/css2",
+          "duration": 0,
+          "bytes": 839,
+          "initiator": "link"
+        },
+        {
+          "resource": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css",
+          "duration": 0,
+          "bytes": 18752,
+          "initiator": "link"
+        },
+        {
+          "resource": "http://127.0.0.1:3048/assets/main-Db7NMCxw.js",
+          "duration": 4,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3048/assets/main-BLm2tI6-.css",
+          "duration": 6,
+          "bytes": 0,
+          "initiator": "link"
+        },
+        {
+          "resource": "https://ui-avatars.com/api/",
+          "duration": 0,
+          "bytes": 0,
+          "initiator": "img"
+        },
+        {
+          "resource": "https://ui-avatars.com/api/",
+          "duration": 0,
+          "bytes": 0,
+          "initiator": "img"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js",
+          "duration": 0,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js",
+          "duration": 0,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js",
+          "duration": 0,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js",
+          "duration": 0,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "https://fonts.gstatic.com/s/manrope/v23/xn7gYHE41ni1AdIRggexSg.woff2",
+          "duration": 0,
+          "bytes": 24532,
+          "initiator": "css"
+        },
+        {
+          "resource": "https://fonts.gstatic.com/s/sora/v17/xMQ9uFFYT72X5wkB_18qmnndmSdSnh2BAfO5mnuyOo1lfiQwV6-x.woff2",
+          "duration": 0,
+          "bytes": 25284,
+          "initiator": "css"
+        },
+        {
+          "resource": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-regular-400.woff2",
+          "duration": 0,
+          "bytes": 24948,
+          "initiator": "css"
+        },
+        {
+          "resource": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-solid-900.woff2",
+          "duration": 0,
+          "bytes": 150124,
+          "initiator": "css"
+        },
+        {
+          "resource": "http://127.0.0.1:3048/assets/ai-float-BgYPeN3n.js",
+          "duration": 7,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3048/assets/ai-chat-memory-CE4rbFRn.js",
+          "duration": 8,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3048/assets/ai-performance-coach-BUQzqn5v.js",
+          "duration": 9,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3048/assets/kanban-board-CeOPNUkt.js",
+          "duration": 6,
+          "bytes": 0,
+          "initiator": "script"
+        },
+        {
+          "resource": "http://127.0.0.1:3048/assets/view-toggle-DcFSB_W0.js",
+          "duration": 6,
+          "bytes": 0,
+          "initiator": "script"
+        }
+      ],
+      "longTasks": [],
+      "loginVisible": true
+    }
+  ]
+}

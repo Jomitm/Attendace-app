@@ -110,7 +110,7 @@ async function resolveLinkToken(db, token) {
 async function findUserByChatId(db, chatId) {
     const snap = await db.collection('users').where('telegramChatId', '==', String(chatId)).limit(1).get();
     if (snap.empty || isFormerStaff(snap.docs[0].data())) return null;
-    return { id: snap.docs[0].id, ...snap.docs[0].data() };
+    return { ...snap.docs[0].data(), id: snap.docs[0].id };
 }
 
 async function handleCheckIn(db, user) {

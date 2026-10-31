@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { quotaLimit, isQuotaRequest, quotaDocId, nextUtcMidnight, quotaMessage, quotaContext } =
+const { quotaLimit, isQuotaRequest, validateAiOperation, quotaDocId, nextUtcMidnight, quotaMessage, quotaContext } =
     await import('../../api/_ai-quota.js');
 
 test('quotaDocId keys a user to a UTC day', () => {
@@ -43,6 +43,20 @@ test('only chat questions are chargeable', () => {
     assert.equal(isQuotaRequest({ question: '   ' }), false, 'blank string');
     assert.equal(isQuotaRequest({ metrics: { today: '2026-10-01' } }), false, 'no question');
     assert.equal(isQuotaRequest({}), false, 'empty body');
+});
+
+test('conflicting exempt modes cannot select uncharged generic streaming chat', () => {
+    for (const mode of ['classify', 'performance', 'tool_plan']) {
+        assert.ok(validateAiOperation({ mode, stream: true, question: 'Question' }));
+        assert.ok(validateAiOperation({ mode, stream: 'true' }));
+        assert.equal(isQuotaRequest({ mode, stream: true, question: 'Question' }), true);
+        assert.equal(validateAiOperation({ mode, stream: false }), null);
+        assert.equal(isQuotaRequest({ mode, question: 'Question' }), false);
+    }
+    assert.equal(validateAiOperation({ stream: true, question: 'Chat' }), null);
+    assert.equal(isQuotaRequest({ stream: true, question: 'Chat' }), true);
+    assert.equal(isQuotaRequest({ metrics: {}, question: null }), false);
+    for (const question of [['Question'], { text: 'Question' }, true, 42]) assert.ok(validateAiOperation({ question }));
 });
 
 test('nextUtcMidnight rolls to the following UTC date', () => {

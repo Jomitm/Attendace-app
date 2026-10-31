@@ -1,0 +1,59 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dashboard regression fixture · local sample data</title>
+<link rel="stylesheet" href="/css/main.css"><link rel="stylesheet" href="/css/dashboard-modern.css"><link rel="stylesheet" href="/css/dashboard-checkin-compact.css"><link rel="stylesheet" href="/css/ui-foundation.css"><link rel="stylesheet" href="/css/dashboard-workday.css">
+<style>body{display:block!important;padding:20px;background:#f3f6f8;color:#24354a}#page-content{max-width:1300px;margin:auto;padding:0!important;width:auto!important}.fixture-label{font:12px 'Segoe UI',sans-serif;color:#76550d;margin:0 auto 15px;max-width:1300px}button,input,select,textarea{font:inherit}</style></head><body><p class="fixture-label">LOCAL REGRESSION FIXTURE · Illustrative data · No connection to Firebase</p><main id="page-content"></main><script type="module">
+import { programmeToday, addProgrammeDays } from '/js/utils/programmes.js';
+const role=new URLSearchParams(location.search).get('role')||'limited';
+const user={id:'staff',name:'Jomit Mathew',role:'Employee',permissions:role==='staff'?{}:{dashboard:role==='admin'?'admin':'view'},isAdmin:role==='admin',status:'in',notifications:[],rating:5};
+const today=programmeToday();const participant={id:'other',name:'Another staff member',role:'Employee',permissions:{}};
+const feastDate=new Date();const feastKey=[feastDate.getFullYear(),String(feastDate.getMonth()+1).padStart(2,'0'),String(feastDate.getDate()).padStart(2,'0')].join('-');sessionStorage.setItem('feast_in:'+feastKey,JSON.stringify({name:'Today’s liturgical celebration',season:'Ordinary Time',rank:null}));
+const tasks=[{task:'Prepare the CRWI salary list',status:'in-process',subPlans:['Prepare','Review']},{task:'Process the GRC payment list',status:'in-process'},{task:'Check payment history for Sr. Tina',status:'in-process'},{task:'Review the pending salary increments',status:'in-process'},{task:'Attend the Goa research online meeting',status:'in-process'},{task:'Plan regular expenses for the next five months',status:'in-process'}];
+const workPlans=[{id:'plan_staff_'+today,date:today,userId:'staff',userName:user.name,plans:tasks}];
+let programmes=[{id:'demo-programme',title:'Weekly programme review',startDate:addProgrammeDays(today,3),endDate:addProgrammeDays(today,3),allDay:false,startTime:'10:00',endTime:'11:00',venue:'CRWI office',description:'Review the upcoming programme together.',coordinatorId:'staff',audience:'all',participantIds:[],status:'scheduled',createdById:'staff',updatedAt:'sample'}];
+programmes.push(...[1,2,3].map(index=>({...programmes[0],id:'next-programme-'+index,title:'Next programme '+index,startDate:addProgrammeDays(today,3+index),endDate:addProgrammeDays(today,3+index)})));
+window.fixtureCalls=[];window.fixtureWrites=[];
+window.fetch=async(url,options={})=>{if(String(url)==='/api/programmes'){const body=JSON.parse(options.body);let data;if(body.action==='list')data=programmes.filter(p=>p.endDate>=body.from&&p.startDate<=body.to&&(body.includeCancelled||p.status!=='cancelled'));else if(body.action==='get')data=programmes.find(p=>p.id===body.id);else if(body.action==='save'){window.fixtureWrites.push(body);data={...body.data,id:body.id,status:'scheduled',createdById:'staff',updatedAt:String(Date.now())};programmes=programmes.filter(p=>p.id!==body.id).concat(data)}else if(body.action==='cancel'){data=programmes.find(p=>p.id===body.id);data.status='cancelled'}return{ok:true,json:async()=>({data})}}return{ok:true,text:async()=>'',json:async()=>({})}};
+window.AppAuth={getUser:()=>user};window.AppFirebaseAuth={currentUser:{uid:'staff',getIdToken:async()=>'fixture-token'}};
+window.AppUserService={getActiveStaff:async()=>[user,participant],get:async id=>[user,participant].find(row=>row.id===id)||null};
+window.AppDB={getISTDateKeys:()=>({todayKey:today,yesterdayKey:addProgrammeDays(today,-1)}),getIstNow:()=>new Date(),getAll:async()=>[],get:async()=>null};
+window.AppAnalyticsService={getWorkPlansByDateRange:async()=>workPlans,getUserWorkPlansByDateRange:async()=>workPlans};
+window.AppAttendance={getStatus:async()=>({status:'in',lastCheckIn:Date.now()-15584000,totalPausedMs:0}),getLogs:async()=>[]};
+const activityRows=[{userId:'staff',staffName:'Jomit Mathew',date:today,_displayDesc:'Own activity sample',status:'completed'},{userId:'other',staffName:'Another staff member',date:today,_displayDesc:'Other staff activity sample',status:'completed'}];
+const stats={label:'October 2026',totalLateDuration:'3h 48m',totalExtraDuration:'63h 34m',breakdown:{Present:14,Late:6,Absent:3}};
+const slowSummaries=Number(new URLSearchParams(location.search).get('slowSummaries'))||0;window.fixtureStatsCalls={monthly:0,yearly:0};
+const summary=async type=>{window.fixtureStatsCalls[type]++;if(slowSummaries)await new Promise(resolve=>setTimeout(resolve,slowSummaries));return type==='monthly'?stats:{...stats,label:'FY 2026–2027',totalExtraDuration:'311h 51m'};};
+window.AppAnalytics={getUserMonthlyStats:()=>summary('monthly'),getUserYearlyStats:()=>summary('yearly'),getDayType:()=> 'Work Day',getAllStaffActivities:async()=>[],getPersonalPerformance:async()=>({composite:62,dimensions:{planning:{label:'Planning',score:97,color:'#15803d'},punctuality:{label:'Punctuality',score:33,color:'#b45309'}},details:{},stats:{},trend:[{week:'Earlier',score:69},{week:'Previous',score:77},{week:'Current',score:62}],insights:[]})};
+window.AppLeaves={getPendingLeaves:async()=>[],getBalance:async()=>({})};window.AppLeaveService={getAll:async()=>[]};window.AppMinutes={getMinutes:async()=>[]};
+const fixtureUrl=new URLSearchParams(location.search);window.fixtureTaskUpdates=[];window.fixtureCompletionNotes=[];window.fixtureToasts=[];
+window.AppCalendar={getTodayKey:()=>today,getPlans:async()=>({events:[],leaves:[],workPlans,programmes:[...programmes]}),getDashboardPlans(){return this.getPlans();},_plansCache:new Map(),updateTaskStatus:async(planId,taskIndex,status,date,options)=>{window.fixtureTaskUpdates.push({planId,taskIndex,status,date,options});if(fixtureUrl.has('failComplete'))throw new Error('Sample save failure');workPlans[0].plans[taskIndex]={...workPlans[0].plans[taskIndex],status,completionComment:options?.completionComment||''};return workPlans[0]}};
+window._dashboardRefreshScheduled=true;window._heroEodRefreshScheduled=true;
+window.appConfirm=async()=>true;window.app_openDayPlan=(...args)=>{window.fixtureCalls.push(['day-planner',...args])};window.app_canCustomizeDashboard=()=>false;
+window.app_openPostponeModal=(...args)=>window.fixtureCalls.push(['postpone',...args]);
+window.app_promptOptionalComment=async()=>fixtureUrl.has('cancelComplete')?null:'Fixture completion note';
+window.app_appendCompletedTaskToSummary=async(...args)=>window.fixtureCompletionNotes.push(args);
+window.app_showSyncToast=(message)=>window.fixtureToasts.push(message);
+if(!fixtureUrl.has('realComplete'))window.app_teamActivitiesCompleteTask=(el,options)=>window.fixtureCalls.push(['complete',el.dataset.planId,Number(el.dataset.taskIndex),options]);
+const mocks=Object.fromEntries(['AppAuth','AppFirebaseAuth','AppUserService','AppDB','AppAnalyticsService','AppAttendance','AppAnalytics','AppLeaves','AppLeaveService','AppMinutes','AppCalendar'].map(key=>[key,window[key]]));
+await import('/js/modules/permissions.js');const {programmeDayEvents}=await import('/js/ui/programmes.js');window.app_getDayEvents=(date,plans)=>programmeDayEvents(date,plans.programmes);
+const slowSections=Number(new URLSearchParams(location.search).get('slowSections'))||0;
+const failCalendar=new URLSearchParams(location.search).has('failCalendar');
+if(slowSections || failCalendar){
+ const delay=()=>new Promise(resolve=>setTimeout(resolve,slowSections));
+ const originalPlans=mocks.AppCalendar.getPlans;
+ mocks.AppCalendar.getPlans=async()=>{await delay();if(failCalendar)throw new Error('Sample calendar outage');return originalPlans();};
+ mocks.AppMinutes.getMinutes=async()=>{await delay();return[]};
+ const originalRange=mocks.AppAnalyticsService.getWorkPlansByDateRange;
+ mocks.AppAnalyticsService.getWorkPlansByDateRange=async(from,to)=>{if(from!==to)await delay();return originalRange(from,to);};
+}
+const {renderDashboard}=await import('/js/ui/dashboard.js');const {patchContent}=await import('/js/utils/page-updates.js');
+const {renderDashboardSectionPage,initDashboardSectionPage}=await import('/js/ui/dashboard-sections.js');initDashboardSectionPage();
+Object.assign(window,mocks);window.AppJourneyReflection={buildDashboardState:async()=>null};
+window.AppAttendanceService={getByDateRange:async()=>[],get:async()=>null};
+window.AppAnalytics.getAllStaffActivities=async()=>activityRows;
+function fixtureTimer(){document.querySelector('#countdown-container').style.display='block';document.querySelector('#countdown-value').textContent='01:20:00';document.querySelector('#overtime-container').style.display='none';}
+window.app_refreshDashboard=async()=>{patchContent(document.querySelector('main'),await renderDashboard({preserveView:true}));fixtureTimer()};
+window.app_refreshCurrentPage=window.app_refreshDashboard;
+window.addEventListener('hashchange',async()=>{if(location.hash==='#dashboard-section/team-activity')document.querySelector('main').innerHTML=await renderDashboardSectionPage('team-activity');else if(location.hash==='#dashboard')await window.app_refreshDashboard()});
+window.fixtureRenderStart=performance.now();document.querySelector('main').innerHTML=await renderDashboard();window.fixtureRenderMs=performance.now()-window.fixtureRenderStart;
+fixtureTimer();
+window.fixtureReady=true;
+</script></body></html>
