@@ -1,3 +1,4 @@
+const { isFormerStaff } = require('./_staff-employment-core.js');
 const crypto = require('crypto');
 const { getDb } = require('./_firebase-admin');
 const { authenticateRequest, isGlobalAdmin } = require('./_api-auth');
@@ -65,6 +66,7 @@ async function resolveNotification(db, actor, body) {
     ]);
     if (!targetSnap.exists || !planSnap.exists) return null;
     const target = targetSnap.data() || {};
+    if (isFormerStaff(target)) return null;
     const plan = planSnap.data() || {};
     if (!isGlobalAdmin(actor) && String(plan.userId || '') !== uid) return null;
     const task = Array.isArray(plan.plans) ? plan.plans[taskIndex] : null;
@@ -99,6 +101,7 @@ module.exports = async (req, res) => {
             const userSnap = await db.collection('users').doc(auth.user.uid).get();
             if (!userSnap.exists) return sendJson(res, 404, { ok: false, error: 'User not found' });
             const user = userSnap.data() || {};
+            if (isFormerStaff(user)) return sendJson(res, 403, { ok: false, error: 'Staff account is no longer active' });
             const isCheckIn = event === 'check-in';
             const stamp = Number(isCheckIn ? user.lastCheckIn : user.lastCheckOut);
             if (!Number.isFinite(stamp) || stamp <= 0 || (isCheckIn ? user.status !== 'in' : user.status === 'in')) {

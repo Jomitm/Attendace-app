@@ -1,3 +1,4 @@
+const { isFormerStaff } = require('./_staff-employment-core.js');
 const crypto = require('crypto');
 const { getDb } = require('./_firebase-admin');
 
@@ -108,7 +109,7 @@ async function resolveLinkToken(db, token) {
 
 async function findUserByChatId(db, chatId) {
     const snap = await db.collection('users').where('telegramChatId', '==', String(chatId)).limit(1).get();
-    if (snap.empty) return null;
+    if (snap.empty || isFormerStaff(snap.docs[0].data())) return null;
     return { id: snap.docs[0].id, ...snap.docs[0].data() };
 }
 
@@ -476,7 +477,7 @@ module.exports = async (req, res) => {
                 if (linkedUserId) {
                     const targetRef = db.collection('users').doc(linkedUserId);
                     const targetSnap = await targetRef.get();
-                    if (targetSnap.exists) {
+                    if (targetSnap.exists && !isFormerStaff(targetSnap.data())) {
                         const existingChat = String(targetSnap.data()?.telegramChatId || '');
                         const newChat = String(chatId);
                         if (existingChat === newChat) {

@@ -1,3 +1,4 @@
+import { isFormerStaff, canManageStaff, formerStaffIds, filterFormerStaffRecords } from '../utils/staff-employment.js';
 import { AppConfig } from '../config.js';
 import { AppFirestore } from './firebase-config.js';
 import { PRIVATE_WORK_PLAN_COLLECTION, hydrateWorkPlanFromStorage, splitWorkPlanForStorage } from '../utils/private-work-plans.js';
@@ -17,6 +18,139 @@ export class Database {
             docsRead: 0,
             byCollection: {}
         };
+    }
+
+
+    inEmploymentAdminArea() {
+        return typeof window !== 'undefined' && String(window.location?.hash || '').split('?')[0] === '#admin'
+            && canManageStaff(window.AppAuth?.getUser?.());
+    }
+
+    shouldUseStaffReadGateway(collection) {
+        return typeof window !== 'undefined' && !!window.AppFirebaseAuth?.currentUser?.getIdToken &&
+            ['users', 'user_private', 'attendance', 'leaves', 'minutes', 'salaries', 'staff_messages', 'work_plans',
+                'location_audits', 'task_activity_events', 'daily_standups', 'journey_reflections', 'meetings',
+                'birthday_people', 'hero_selections', 'daily_summaries', 'events'].includes(collection);
+    }
+
+    async readStaffData(collection, query = {}, options = {}) {
+        const viewer = window.AppFirebaseAuth.currentUser;
+        const includeFormer = options.includeFormer === true && this.inEmploymentAdminArea();
+        const cacheKey = this.getCacheKey('protectedStaffRead', collection, { ...query, includeFormer, viewer: viewer.uid, orderBy: options.orderBy || [], limit: options.limit || null });
+        const load = async () => {
+            const token = await viewer.getIdToken();
+            const rows = [];
+            let cursor;
+            const requestedLimit = Number(options.limit) > 0 ? Number(options.limit) : Infinity;
+            for (let page = 0; page < 100; page++) {
+                const response = await fetch('/api/staff-data', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ collection, ...query, includeFormer, cursor, orderBy: options.orderBy || [], pageSize: Math.min(400, requestedLimit - rows.length) })
+                });
+                const result = await response.json();
+                if (window.AppFirebaseAuth?.currentUser?.uid !== viewer.uid) throw new Error('The signed-in account changed. Please refresh.');
+                if (!response.ok) throw new Error(result.error || 'Could not load staff records.');
+                rows.push(...result.data);
+                cursor = result.nextCursor;
+                if (!cursor || rows.length >= requestedLimit) return collection === 'work_plans' ? this.hydrateWorkPlans(rows.slice(0, requestedLimit)) : rows.slice(0, requestedLimit);
+            }
+            throw new Error('Too many staff records. Select a smaller date range.');
+        };
+        if (options.force || options.source === 'server') return load();
+        return this.getCached(cacheKey, collection === 'users' ? 30000 : 10000, load);
+    }
+
+    listenStaffData(collection, filters, options, callback) {
+        let stopped = false;
+        let busy = false;
+        let signature;
+        const refresh = async () => {
+            if (stopped || busy) return;
+            busy = true;
+            try {
+                const rows = await this.readStaffData(collection, options.recordId ? { id: options.recordId } : filters ? { filters } : {}, { ...options, source: 'server' });
+                const nextSignature = JSON.stringify(rows);
+                if (!stopped && nextSignature !== signature) {
+                    signature = nextSignature;
+                    this.invalidateCollectionCache?.(collection);
+                    callback(rows, { metadata: { fromCache: false, hasPendingWrites: false } });
+                }
+            } catch (error) { if (!stopped) console.error('Protected staff listener:', error.message); }
+            finally { busy = false; }
+        };
+        void refresh();
+        const timer = setInterval(refresh, 30000);
+        window.addEventListener('app:staff-employment-changed', refresh);
+        return () => { stopped = true; clearInterval(timer); window.removeEventListener('app:staff-employment-changed', refresh); };
+    }
+
+    applyEmploymentRoster(users) {
+        const signature = users.map(u => String(u.id) + ':' + isFormerStaff(u)).sort().join('|');
+        const changed = this.employmentSignature !== undefined && this.employmentSignature !== signature;
+        this.employmentSignature = signature;
+        this.employmentUsers = users;
+        if (changed) {
+            this.cache.clear();
+            window.AppAnalytics?.memo?.clear();
+            window.dispatchEvent(new CustomEvent('app:staff-employment-changed'));
+        }
+    }
+
+    startEmploymentRoster() {
+        if (this.employmentRosterUnsubscribe || !this.db) return;
+        if (this.shouldUseStaffReadGateway('users')) {
+            const refresh = () => this.readStaffData('users', {}, { source: 'server' }).then(users => this.applyEmploymentRoster(users)).catch(error => console.error('Staff roster:', error.message));
+            const stop = this.db.collection('staff_directory_state').doc('current').onSnapshot(refresh, error => console.error('Staff roster state:', error.message));
+            const timer = setInterval(refresh, 30000);
+            this.employmentRosterUnsubscribe = () => { stop(); clearInterval(timer); };
+            return;
+        }
+        this.employmentRosterUnsubscribe = this.db.collection('users').onSnapshot(snapshot => {
+            this.applyEmploymentRoster(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id })));
+        }, () => { this.employmentRosterUnsubscribe = null; this.employmentUsers = null; });
+    }
+
+    stopEmploymentRoster() {
+        this.employmentRosterUnsubscribe?.();
+        this.employmentRosterUnsubscribe = null;
+        this.employmentUsers = null;
+        this.cache.clear();
+        if (typeof window !== 'undefined') window.AppAnalytics?.memo?.clear();
+    }
+
+    async filterStaffRows(collection, rows, options = {}) {
+        if (options.includeFormer === true && this.inEmploymentAdminArea()) return rows;
+        if (typeof window === 'undefined' || !window.AppAuth?.getUser?.()) return rows;
+        const relevant = ['users', 'attendance', 'leaves', 'minutes', 'salaries', 'staff_messages', 'work_plans',
+            'location_audits', 'task_activity_events', 'daily_standups', 'journey_reflections', 'meetings', 'birthday_people', 'hero_selections', 'daily_summaries'];
+        if (!relevant.includes(collection)) return rows;
+        if (collection === 'users' && !this.employmentUsers) this.applyEmploymentRoster(await this._getAllRaw('users'));
+        else if (!this.employmentUsers) {
+            this.applyEmploymentRoster(await this._getAllRaw('users', { source: 'server' }));
+        }
+        const ids = formerStaffIds(this.employmentUsers || []);
+        if (collection === 'daily_summaries') rows = rows.filter(row =>
+            !ids.size && !row.staffEmploymentSignature || row.staffEmploymentSignature === this.employmentSignature);
+        return filterFormerStaffRecords(collection, rows, ids);
+    }
+
+    async getAll(collection, options = {}) {
+        return this.filterStaffRows(collection, await this._getAllRaw(collection, options), options);
+    }
+    async query(collection, field, operator, value, options = {}) {
+        return this.filterStaffRows(collection, await this._queryRaw(collection, field, operator, value), options);
+    }
+    async queryMany(collection, filters = [], options = {}) {
+        return this.filterStaffRows(collection, await this._queryManyRaw(collection, filters, options), options);
+    }
+    async queryManyStrict(collection, filters = [], options = {}) {
+        return this.filterStaffRows(collection, await this._queryManyStrictRaw(collection, filters, options), options);
+    }
+    async get(collection, id, options = {}) {
+        const row = await this._getRaw(collection, id, options);
+        // Authentication must still see its own employment state to sign out promptly.
+        if (!row || (this.inEmploymentAdminArea() && ['users', 'work_plans'].includes(collection)) || (collection === 'users' && String(id) === String(window.AppAuth?.getUser?.()?.id || ''))) return row;
+        return (await this.filterStaffRows(collection, [row], options))[0] || null;
     }
 
     async init() {
@@ -279,7 +413,8 @@ export class Database {
             id: key,
             dateKey: key,
             version: this.getSummarySchemaVersion(),
-            ...payload
+            ...payload,
+            staffEmploymentSignature: this.employmentSignature || ''
         };
         return this.put('daily_summaries', doc);
     }
@@ -394,6 +529,11 @@ export class Database {
             return fallback.summary ? { ...fallback.summary, _source: `fallback_${fallback.source}` } : null;
         }
 
+        // Ordinary staff may calculate their view, but cannot publish or replace
+        // another person's shared ranking/summary document.
+        if (window.AppAuth?.getUser?.()?.isAdmin !== true) {
+            return { ...(await generatorFn()), dateKey: key, _source: 'local_calculated' };
+        }
         const acquired = await this.acquireSummaryLock(key, owner, lockMs);
         if (acquired) {
             try {
@@ -472,16 +612,45 @@ export class Database {
     async putWorkPlan(item) {
         const docId = String(item.id);
         const ref = this.db.collection('work_plans').doc(docId);
-        const oldSnapshot = await ref.get();
-        const oldPlan = oldSnapshot.exists ? oldSnapshot.data() || {} : {};
-        const safeInput = { ...item, plans: [...(Array.isArray(item.plans) ? item.plans : [])] };
         const writerId = String(window.AppFirebaseAuth?.currentUser?.uid || window.AppAuth?.getUser?.()?.id || '').trim();
+        let oldSnapshot;
+        try {
+            oldSnapshot = await ref.get();
+        } catch (error) {
+            // The history rules cannot authorize resource.data for a document
+            // that does not exist yet. Confirm absence through the protected
+            // read API, only for the signed-in owner's canonical personal plan.
+            const isOwnPersonalPlan = writerId && String(item.userId) === writerId
+                && /^\d{4}-\d{2}-\d{2}$/.test(String(item.date || ''))
+                && docId === `plan_${writerId}_${item.date}`;
+            if (!this.isPermissionDenied(error) || !isOwnPersonalPlan || !this.shouldUseStaffReadGateway('work_plans')) throw error;
+            const existing = await this.readStaffData('work_plans', { id: docId }, { source: 'server' });
+            if (existing.length) throw error;
+            oldSnapshot = { exists: false };
+        }
+        const oldPlan = oldSnapshot.exists ? oldSnapshot.data() || {} : {};
+        // A hidden former-staff task is a display placeholder, never a deletion.
+        const preservedPlans = (Array.isArray(item.plans) ? item.plans : []).map((task, index) =>
+            task?.isEmploymentHidden ? oldPlan.plans?.[index] || task : task);
+        item = { ...item, plans: preservedPlans };
+        const retiredIds = formerStaffIds(this.employmentUsers || []);
+        const activeIds = new Set((this.employmentUsers || []).filter(user => !isFormerStaff(user)).map(user => String(user.id)));
+        item.plans = item.plans.map((task, index) => {
+            const old = task?.id ? (oldPlan.plans || []).find(prior => prior?.id === task.id) : oldPlan.plans?.[index];
+            const retainedTags = (old?.tags || []).filter(tag => (retiredIds.has(String(tag.id)) || this.shouldUseStaffReadGateway('work_plans') && !activeIds.has(String(tag.id))) && !(task?.tags || []).some(current => current.id === tag.id));
+            return retainedTags.length ? { ...task, tags: [...(task.tags || []), ...retainedTags] } : task;
+        });
+        const safeInput = { ...item, plans: [...(Array.isArray(item.plans) ? item.plans : [])] };
         const ownerId = String(oldPlan.userId === 'annual_shared' ? oldPlan.createdById : oldPlan.userId || item.userId || '').trim();
         const writerOwnsPlan = Boolean(writerId && writerId === ownerId);
-        if (!String(safeInput.createdById || '').trim()) {
-            const existingCreatorId = String(oldPlan.createdById || '').trim();
-            if (existingCreatorId) safeInput.createdById = existingCreatorId;
-            else if (writerOwnsPlan) safeInput.createdById = writerId;
+        // Editing a plan must preserve its original creator. Staff may edit
+        // their own admin-created plan, but rules forbid changing attribution.
+        const existingCreatorId = String(oldPlan.createdById || '').trim();
+        if (existingCreatorId) {
+            safeInput.createdById = existingCreatorId;
+            if (oldPlan.createdByName !== undefined) safeInput.createdByName = oldPlan.createdByName;
+        } else if (writerOwnsPlan) {
+            safeInput.createdById = writerId;
         }
         // A collaborator cannot see an owner's private task bodies. Preserve
         // those references when they save edits to the public tasks in a plan.
@@ -525,7 +694,8 @@ export class Database {
         return docId;
     }
 
-    async getAll(collectionName, options = {}) {
+    async _getAllRaw(collectionName, options = {}) {
+        if (this.shouldUseStaffReadGateway(collectionName)) return this.readStaffData(collectionName, {}, options);
         try {
             const source = String(options?.source || '').trim().toLowerCase();
             const canUseSource = source === 'server' || source === 'cache';
@@ -578,8 +748,9 @@ export class Database {
         }
     }
 
-    async get(collectionName, id, options = {}) {
+    async _getRaw(collectionName, id, options = {}) {
         if (!id) return null;
+        if (this.shouldUseStaffReadGateway(collectionName) && !(collectionName === 'users' && String(id) === String(window.AppFirebaseAuth.currentUser.uid))) return (await this.readStaffData(collectionName, { id: String(id) }, { ...options, includeFormer: options.includeFormer ?? (this.inEmploymentAdminArea() && ['users', 'work_plans'].includes(collectionName)) }))[0] || null;
         try {
             const docId = String(id);
             const docRef = this.db.collection(collectionName).doc(docId);
@@ -777,7 +948,8 @@ export class Database {
         return this.deleteMany(collectionName, ids, options);
     }
 
-    async query(collectionName, field, operator, value) {
+    async _queryRaw(collectionName, field, operator, value) {
+        if (this.shouldUseStaffReadGateway(collectionName)) return this.readStaffData(collectionName, { filters: [{ field, operator, value }] });
         try {
             const snapshot = await this.db.collection(collectionName).where(field, operator, value).get();
             const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
@@ -790,7 +962,8 @@ export class Database {
     }
 
 
-    async queryManyStrict(collectionName, filters = [], options = {}) {
+    async _queryManyStrictRaw(collectionName, filters = [], options = {}) {
+        if (this.shouldUseStaffReadGateway(collectionName)) return this.readStaffData(collectionName, { filters }, options);
         if (!this.db) throw new Error('Firestore is not initialized.');
         let ref = this.db.collection(collectionName);
         ref = this.applyFilters(ref, filters);
@@ -831,7 +1004,8 @@ export class Database {
         if (ids.size === 0) return [];
         return this.getManyByIds('work_plans', Array.from(ids));
     }
-    async queryMany(collectionName, filters = [], options = {}) {
+    async _queryManyRaw(collectionName, filters = [], options = {}) {
+        if (this.shouldUseStaffReadGateway(collectionName)) return this.readStaffData(collectionName, { filters }, options);
         const flags = this.getFlags();
         if (!flags.FF_READ_OPT_DB_QUERIES) {
             const rows = await this.getAll(collectionName, { ...options, silentPermissionDenied: true });
@@ -902,15 +1076,18 @@ export class Database {
         return reads.flat().filter(Boolean);
     }
 
-    listenDoc(collectionName, id, callback) {
+    listenDoc(collectionName, id, callback, options = {}) {
         if (!this.db || !id) return null;
+        if (this.shouldUseStaffReadGateway(collectionName) && !(collectionName === 'users' && String(id) === String(window.AppFirebaseAuth.currentUser.uid))) {
+            return this.listenStaffData(collectionName, [], { ...options, recordId: id }, (rows, snapshot) => callback(rows[0] || null, snapshot));
+        }
         const docId = String(id);
         try {
             return this.db.collection(collectionName).doc(docId).onSnapshot((doc) => {
                 const data = doc.exists ? { ...doc.data(), id: doc.id } : null;
                 this.track('listen', collectionName, 1);
-                if (String(collectionName) === 'work_plans') this.hydrateWorkPlans(data ? [data] : []).then((rows) => callback(rows[0] || null, doc));
-                else callback(data, doc);
+                if (String(collectionName) === 'work_plans') this.hydrateWorkPlans(data ? [data] : []).then(rows => this.filterStaffRows(collectionName, rows, options)).then(rows => callback(rows[0] || null, doc));
+                else this.filterStaffRows(collectionName, data ? [data] : [], options).then(rows => callback(rows[0] || null, doc)).catch(error => console.error('Staff visibility:', error));
             }, (error) => {
                 console.error(`Realtime listener error in ${collectionName}/${docId}:`, error);
             });
@@ -922,6 +1099,7 @@ export class Database {
 
     listenQuery(collectionName, filters = [], options = {}, callback) {
         if (!this.db) return null;
+        if (this.shouldUseStaffReadGateway(collectionName)) return this.listenStaffData(collectionName, filters, options, callback);
         try {
             let ref = this.db.collection(collectionName);
             ref = this.applyFilters(ref, filters);
@@ -929,8 +1107,8 @@ export class Database {
             return ref.onSnapshot((snapshot) => {
                 const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
                 this.track('listenQuery', collectionName, data.length);
-                if (String(collectionName) === 'work_plans') this.hydrateWorkPlans(data).then((rows) => callback(rows, snapshot));
-                else callback(data, snapshot);
+                if (String(collectionName) === 'work_plans') this.hydrateWorkPlans(data).then(rows => this.filterStaffRows(collectionName, rows, options)).then(rows => callback(rows, snapshot));
+                else this.filterStaffRows(collectionName, data, options).then(rows => callback(rows, snapshot)).catch(error => console.error('Staff visibility:', error));
             }, (error) => {
                 if (options.silentPermissionDenied && this.isPermissionDenied(error)) {
                     return;
@@ -943,13 +1121,14 @@ export class Database {
         }
     }
 
-    listen(collectionName, callback) {
+    listen(collectionName, callback, options = {}) {
         if (!this.db) return null;
+        if (this.shouldUseStaffReadGateway(collectionName)) return this.listenStaffData(collectionName, [], options, callback);
         return this.db.collection(collectionName).onSnapshot((snapshot) => {
             const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
             this.track('listen', collectionName, data.length);
-            if (String(collectionName) === 'work_plans') this.hydrateWorkPlans(data).then((rows) => callback(rows, snapshot));
-            else callback(data, snapshot);
+            if (String(collectionName) === 'work_plans') this.hydrateWorkPlans(data).then(rows => this.filterStaffRows(collectionName, rows, options)).then(rows => callback(rows, snapshot));
+            else this.filterStaffRows(collectionName, data, options).then(rows => callback(rows, snapshot)).catch(error => console.error('Staff visibility:', error));
         }, (error) => {
             console.error(`Realtime listener error in ${collectionName}:`, error);
         });

@@ -1,3 +1,4 @@
+import { refreshPage } from '../utils/page-updates.js';
 /**
  * Admin Late Notification Recipients Widget
  * Allows admins to configure which users receive late check-in notifications.
@@ -109,7 +110,7 @@ export function bindLateNotificationListeners() {
             const contentArea = document.getElementById('page-content');
             if (contentArea) {
                 const { renderAdmin } = await import('./admin.js');
-                contentArea.innerHTML = await renderAdmin();
+                await refreshPage(() => renderAdmin(), { root: contentArea, route: 'admin' });
             }
         }
     });
@@ -123,7 +124,7 @@ export function bindLateNotificationListeners() {
             const contentArea = document.getElementById('page-content');
             if (contentArea) {
                 const { renderAdmin } = await import('./admin.js');
-                contentArea.innerHTML = await renderAdmin();
+                await refreshPage(() => renderAdmin(), { root: contentArea, route: 'admin' });
             }
         }
     });

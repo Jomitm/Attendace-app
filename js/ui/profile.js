@@ -1,3 +1,4 @@
+import { refreshPage } from '../utils/page-updates.js';
 /**
  * Profile Component — Premium Redesign
  * Hero banner + stats + real leave data + sign-out
@@ -49,7 +50,7 @@ export async function renderProfile() {
         window.app_changeProfileStaff = async (staffId) => {
             window.app_profileTargetUserId = staffId || user.id;
             const contentArea = document.getElementById('page-content');
-            if (contentArea) contentArea.innerHTML = await renderProfile();
+            if (contentArea) await refreshPage(() => renderProfile(), { root: contentArea, route: 'profile' });
         };
 
         window.app_confirmSignOut = () => {

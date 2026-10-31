@@ -601,6 +601,9 @@ export class Attendance {
             validationStatus: String(options.validationStatus || 'compliant'),
             validationErrors: Array.isArray(options.validationErrors) ? options.validationErrors : [],
             taskUpdatesSubmittedAt: options.taskUpdatesSubmittedAt || null,
+            tomorrowGoal: String(options.tomorrowGoal || ''),
+            tomorrowGoalDate: String(options.tomorrowGoalDate || ''),
+            tomorrowBudgetHeadId: String(options.tomorrowBudgetHeadId || 'UNALLOCATED'),
             entrySource: 'checkin_checkout',
             attendanceEligible: true,
             synced: false
@@ -760,7 +763,7 @@ export class Attendance {
                     const filters = [{ field: "user_id", operator: "==", value: targetId }];
                     if (startDate) filters.push({ field: "date", operator: ">=", value: startDate });
                     if (endDate) filters.push({ field: "date", operator: "<=", value: endDate });
-                    userLogs = await AppDB.queryMany("attendance", filters).catch(() => []);
+                    userLogs = await AppDB.queryMany("attendance", filters, options).catch(() => []);
                 }
 
                 if (!Array.isArray(userLogs) || userLogs.length === 0) {
@@ -771,6 +774,7 @@ if (startDate) query = query.where("date", ">=", startDate);
 if (endDate) query = query.where("date", "<=", endDate);
 const snapshot = await query.get();
 userLogs = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+userLogs = await AppDB.filterStaffRows('attendance', userLogs, options);
                 }
 
                 const sortedLogs = (userLogs || []).sort((a, b) => String(b.id || "").localeCompare(String(a.id || ""))).map((log) => {

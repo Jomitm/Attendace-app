@@ -1,3 +1,4 @@
+import { isFormerStaff } from './_staff-employment-core.js';
 // api/_ai-briefing.js — Proactive daily briefing (push, not reactive chat).
 // Generates a short AI briefing from each opted-in user's snapshot and sends it
 // via the existing Telegram integration (api/_telegram-send.js). Designed for a
@@ -35,6 +36,7 @@ export default async function handler(req, res) {
 
         for (const doc of snap.docs) {
             const user = { id: doc.id, ...doc.data() };
+            if (isFormerStaff(user)) continue;
             try {
                 // Build a minimal snapshot from Firestore directly (server-side —
                 // no browser needed for a cron run).

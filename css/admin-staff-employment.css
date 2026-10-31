@@ -1,0 +1,15 @@
+.staff-employment-filters {display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:8px 0;font-size:12px}
+.staff-employment-filters label{display:flex;align-items:center;gap:5px}
+.staff-employment-filters input,.staff-employment-filters select{padding:5px 7px;border:1px solid #cbd5e1;border-radius:5px;font-size:12px;max-width:230px}
+.admin-staff-table tr[hidden]{display:none}
+.staff-avatar-fallback{display:inline-flex;align-items:center;justify-content:center;background:#e0e7ff;color:#3730a3;font-weight:700}
+.staff-employment-badge{display:inline-block;padding:3px 6px;border-radius:5px;font-size:11px;font-weight:600}
+.staff-employment-badge.active{background:#dcfce7;color:#166534}.staff-employment-badge.former{background:#f1f5f9;color:#475569}
+.staff-employment-date{display:block;font-size:10px;color:#64748b;margin-top:3px}
+.staff-employment-dialog{width:min(620px,calc(100vw - 24px));max-height:85vh;overflow:auto;border:1px solid #cbd5e1;border-radius:12px;padding:18px;background:var(--card-bg,#fff);color:var(--text-main,#1e293b)}
+.staff-employment-dialog::backdrop{background:#0f172a80}.staff-employment-dialog header,.staff-employment-dialog footer{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.staff-employment-dialog header>button{border:0;background:transparent;font-size:24px;color:inherit;cursor:pointer}
+.staff-employment-form{display:grid;gap:12px}.staff-employment-form label{display:grid;gap:5px;font-size:13px}
+.staff-employment-form input,.staff-employment-form select,.staff-employment-form textarea{padding:8px;border:1px solid #cbd5e1;border-radius:6px;background:var(--card-bg,#fff);color:inherit}
+.staff-employment-dialog details{margin:12px 0;border-top:1px solid #cbd5e1;padding-top:8px}.staff-employment-dialog summary{cursor:pointer;font-weight:600}.staff-employment-dialog li{padding:6px 0;font-size:13px}
+.staff-employment-dialog [role=alert]{color:#b91c1c}

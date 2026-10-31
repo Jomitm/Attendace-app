@@ -1516,7 +1516,9 @@ export class Calendar {
             if (cached && cached.expiresAt > Date.now()) {
                 return cached.value;
             }
-            const allPlans = await this.db.getAll('work_plans');
+            const allPlans = date
+                ? await this.db.getDayPlansByDate(date)
+                : await this.db.getAll('work_plans');
             const value = allPlans.filter(p =>
                 (!date || p.date === date) &&
                 p.plans &&
@@ -1542,7 +1544,8 @@ export class Calendar {
         const event = {
             id: 'ev_' + Date.now(),
             ...eventData,
-            createdOn: new Date().toISOString()
+            createdOn: new Date().toISOString(),
+            createdById: window.AppAuth?.getUser?.()?.id || ''
         };
         return await this.db.add('events', event);
     }

@@ -358,7 +358,6 @@
     "app_useWorkPlan",
     "app_viewLogs",
     "app_viewTaskDetails",
-    "app_workPlansLoadSource",
     "getLocation",
     "name",
     "requestAnimationFrame",

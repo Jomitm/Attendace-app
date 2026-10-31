@@ -1,378 +1,176 @@
-/**
- * Master Sheet Component
- * Handles rendering of the administrative attendance grid for all staff.
- */
-
 import { safeHtml } from './helpers.js';
-import { AppConfig } from '../config.js';
+import { patchContent } from '../utils/page-updates.js';
+import { canManageAttendanceSheet } from '../modules/permissions.js';
+import { attendanceToday, buildAttendanceSheet, filterAttendanceRows, attendanceSheetCSV } from '../utils/attendance-sheet.js';
+import '../../css/attendance-sheet.css';
+
+let activeSheet = null;
+let filters = { scope: 'team', search: '', department: '', attention: false };
+let requestVersion = 0;
+let loadVersion = 0;
+let selectedPeriod = null;
+let viewerId = '';
+const monthNames = Array.from({ length: 12 }, (_, i) => new Date(2026, i, 1).toLocaleString('en', { month: 'long' }));
+const departmentOf = user => user.dept || user.department || 'General';
+const sourceLabel = log => log.leaveGenerated ? 'Approved leave entry' : log.isManualOverride || log.entrySource === 'admin_override'
+    ? 'Manual override' : log.entrySource === 'checkin_checkout' ? 'Check-in / checkout' : log.entrySource === 'staff_manual_work' ? 'Work log' : 'Saved record';
+
+function visibleRows() {
+    return activeSheet ? filterAttendanceRows(activeSheet.rows, { ...filters, viewerId }) : [];
+}
+
+function renderResults() {
+    if (!activeSheet) return '';
+    const rows = visibleRows();
+    const total = rows.reduce((sum, row) => {
+        Object.keys(sum).forEach(key => { sum[key] += row.totals[key]; });
+        return sum;
+    }, { present: 0, late: 0, half: 0, leave: 0, absent: 0, review: 0 });
+    return `<div class="attendance-summary" role="status" aria-label="Totals for displayed staff" title="Present includes late, WFH and duty; late is a subset. Counts are dates, not payable days. Today is provisional.">
+        ${[['Staff', rows.length], ['Present', total.present], ['Late', total.late], ['Half days', total.half], ['Leave', total.leave], ['Absent', total.absent], ['Review', total.review]].map(([label, value]) => `<span><strong>${value}</strong> ${label}</span>`).join('')}
+        </div>
+        <div class="attendance-scroll" tabindex="0" role="region" aria-label="Monthly attendance grid, scroll horizontally for all dates">
+        <table class="attendance-grid"><caption>${monthNames[activeSheet.month]} ${activeSheet.year} attendance</caption><thead><tr><th scope="col" class="attendance-name">Staff member</th>
+        ${Array.from({ length: activeSheet.days }, (_, i) => {
+            const d = new Date(activeSheet.year, activeSheet.month, i + 1);
+            return `<th scope="col" class="${activeSheet.today.endsWith(`-${String(i + 1).padStart(2, '0')}`) && activeSheet.today.startsWith(`${activeSheet.year}-${String(activeSheet.month + 1).padStart(2, '0')}`) ? 'attendance-today' : ''}">${i + 1}<small>${d.toLocaleDateString('en', { weekday: 'short' })}</small></th>`;
+        }).join('')}<th scope="col">Present</th><th scope="col">Late</th><th scope="col">Half</th><th scope="col">Leave</th><th scope="col">Absent</th><th scope="col">Review</th></tr></thead><tbody>
+        ${rows.length ? rows.map(({ user, cells, totals }) => `<tr><th scope="row" class="attendance-name">${safeHtml(user.name)}<small>${safeHtml(departmentOf(user))}${String(user.id) === viewerId ? ' · You' : ''}</small></th>
+            ${cells.map(cell => `<td class="attendance-${cell.kind}"><button type="button" data-attendance-day="${cell.date}" data-staff-id="${safeHtml(user.id)}" aria-label="${safeHtml(`${user.name}, ${cell.date}: ${cell.label}${cell.review ? ', needs review' : ''}`)}" title="${safeHtml(`${cell.label}${cell.note ? ` — ${cell.note}` : ''}`)}">${cell.code}${cell.review ? '<sup aria-hidden="true">!</sup>' : ''}</button></td>`).join('')}
+            ${Object.values(totals).map(value => `<td class="attendance-total">${value}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${activeSheet.days + 7}" class="attendance-empty">No staff match these filters. Clear the search or change the view.</td></tr>`}
+        </tbody></table></div>`;
+}
+
+function showDay(userId, date) {
+    const row = visibleRows().find(r => String(r.user.id) === userId);
+    const cell = row?.cells.find(c => c.date === date);
+    if (!cell) return;
+    document.getElementById('attendance-day-dialog')?.remove();
+    const dialog = document.createElement('dialog');
+    dialog.id = 'attendance-day-dialog';
+    dialog.className = 'attendance-dialog';
+    dialog.setAttribute('aria-label', `${row.user.name} attendance on ${date}`);
+    const mayEdit = canManageAttendanceSheet(window.AppAuth.getUser());
+    dialog.innerHTML = `<header><div><h3>${safeHtml(row.user.name)}</h3><p>${safeHtml(date)} · ${safeHtml(cell.label)}</p></div><button type="button" data-sheet-action="close" aria-label="Close day details">×</button></header>
+        ${cell.note ? `<p class="attendance-callout">${safeHtml(cell.note)}</p>` : ''}
+        <p>${cell.log ? 'Attendance record used for this day is marked below.' : 'This status comes from the calendar or current check-in state; there is no saved attendance record for this day.'}</p>
+        ${cell.evidence.length ? `<ul class="attendance-evidence">${cell.evidence.map(log => `<li><strong>${safeHtml(log.type || 'Work log')}${log === cell.log ? ' · Used in sheet' : ''}</strong><p>${safeHtml(log.checkIn || 'No check-in')} → ${safeHtml(log.checkOut || 'No checkout')}${log.duration ? ` · ${safeHtml(log.duration)}` : ''}</p><small>${safeHtml(sourceLabel(log))}</small></li>`).join('')}</ul>` : ''}
+        <footer><a class="action-btn secondary" href="#timesheet" data-sheet-action="timesheet">My detailed timesheet</a>${mayEdit ? `<button type="button" class="action-btn" data-sheet-action="edit" data-staff-id="${safeHtml(userId)}" data-attendance-date="${date}">Edit attendance</button>` : ''}<button type="button" class="action-btn secondary" data-sheet-action="close">Close</button></footer>`;
+    document.body.appendChild(dialog);
+    dialog.addEventListener('close', () => dialog.remove(), { once: true });
+    dialog.showModal();
+}
 
 export async function renderMasterSheet(month = null, year = null) {
-    const currentUser = window.AppAuth.getUser();
-    const canAdminAttendance = window.app_hasPerm('attendance', 'admin', currentUser);
-    const users = (await window.AppUserService.getAll()).filter(u => !AppConfig.isDemoUser(u));
-
-    const now = new Date();
-    const currentMonth = month !== null ? parseInt(month) : now.getMonth();
-    const currentYear = year !== null ? parseInt(year) : now.getFullYear();
-
-    // Filtered Query for Logs
-    const startDateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
-    const endDateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-31`;
-
-    if (canAdminAttendance && typeof window.app_fixCurrentMonthFalseHalfDayLeaves === 'function') {
-        try {
-            await window.app_fixCurrentMonthFalseHalfDayLeaves({
-                silent: true,
-                year: currentYear,
-                month: currentMonth + 1
-            });
-        } catch (e) {
-            console.warn('MasterSheet: auto-fix for incorrect half-day leaves failed', e);
-        }
-    }
-
-    // Fallback if query() doesn't exist or work as expected
-    let filteredLogs = [];
+    const version = ++loadVersion;
+    const user = window.AppAuth.getUser();
+    if (!user) return '<div class="card">Please sign in to view attendance.</div>';
+    const nextViewer = String(user.id);
+    if (viewerId !== nextViewer) filters = { scope: 'team', search: '', department: '', attention: false };
+    viewerId = nextViewer;
+    const today = attendanceToday();
+    const selectedMonth = month === null ? Number(today.slice(5, 7)) - 1 : Number(month);
+    const selectedYear = year === null ? Number(today.slice(0, 4)) : Number(year);
+    if (!Number.isInteger(selectedMonth) || selectedMonth < 0 || selectedMonth > 11 || !Number.isInteger(selectedYear) || selectedYear < 2000 || selectedYear > 2100) return '<div class="card">Invalid attendance period.</div>';
+    selectedPeriod = { month: selectedMonth, year: selectedYear };
+    const start = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-01`;
+    const end = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${new Date(selectedYear, selectedMonth + 1, 0).getDate()}`;
+    const range = [{ field: 'date', operator: '>=', value: start }, { field: 'date', operator: '<=', value: end }];
+    const queryRange = collection => window.AppDB.queryManyStrict
+        ? window.AppDB.queryManyStrict(collection, range)
+        : window.AppDB.queryMany(collection, range);
+    let users, logs;
     try {
-        const logs = await window.AppDB.query('attendance', 'date', '>=', startDateStr);
-        filteredLogs = logs.filter(l => l.date <= endDateStr);
-    } catch (e) {
-        console.warn("MasterSheet: query failed, fetching all attendance logs", e);
-        const allLogs = await window.AppAttendanceService.getAll({ force: true });
-        filteredLogs = allLogs.filter(l => l.date >= startDateStr && l.date <= endDateStr);
+        [users, logs] = await Promise.all([window.AppUserService.getAll(), queryRange('attendance')]);
+    } catch (error) {
+        if (version !== loadVersion) return '';
+        console.error('Attendance sheet could not load attendance records', error);
+        activeSheet = null;
+        return '<div class="card"><h2>Attendance unavailable</h2><p>Attendance records could not be loaded. Please refresh and try again. No absence totals have been calculated.</p><button type="button" class="action-btn" data-sheet-action="refresh">Try again</button></div>';
     }
+    const warnings = [];
+    const [events, configured] = await Promise.all([
+        queryRange('events').catch(() => { warnings.push('Calendar holidays could not be loaded.'); return []; }),
+        (async () => {
+            try {
+                const settings = await window.AppDB.get('settings', 'holidays');
+                const saved = settings?.byYear?.[String(selectedYear)];
+                return Array.isArray(saved) && saved.length ? saved : (window.AppPolicies?.buildYearFromBaseline?.(selectedYear) || []);
+            } catch { warnings.push('Configured holidays could not be loaded.'); return []; }
+        })()
+    ]);
+    const holidays = [...(configured || []), ...(events || []).filter(event => /holiday/i.test(`${event.type || ''} ${event.title || ''}`))];
+    if (version !== loadVersion || String(window.AppAuth.getUser()?.id) !== nextViewer) return '';
+    activeSheet = buildAttendanceSheet({ users, logs, month: selectedMonth, year: selectedYear, holidays, today, calendarComplete: warnings.length === 0 });
+    const departments = [...new Set(activeSheet.rows.map(row => departmentOf(row.user)))].sort();
+    window.app_refreshMasterSheet = refreshSheet;
+    // Export the same loaded snapshot and filters as the visible grid.
+    return `<section class="card attendance-sheet"><header class="attendance-header"><h2>Attendance Sheet</h2><div class="attendance-period">
+        <button type="button" class="action-btn secondary" data-sheet-action="previous" aria-label="Previous month">←</button>
+        <label>Month<select id="sheet-month">${monthNames.map((name, i) => `<option value="${i}" ${i === selectedMonth ? 'selected' : ''}>${name}</option>`).join('')}</select></label>
+        <label>Year<input id="sheet-year" type="number" min="2000" max="2100" value="${selectedYear}"></label>
+        <button type="button" class="action-btn secondary" data-sheet-action="next" aria-label="Next month">→</button>
+        <button type="button" class="action-btn secondary" data-sheet-action="today">This month</button><button type="button" class="action-btn secondary" data-sheet-action="refresh">Refresh</button><button type="button" class="action-btn secondary" data-sheet-action="export">Download CSV</button></div></header>
+        <div class="attendance-controls"><label>View<select data-sheet-filter="scope"><option value="team" ${filters.scope === 'team' ? 'selected' : ''}>All staff</option><option value="mine" ${filters.scope === 'mine' ? 'selected' : ''}>My attendance</option></select></label>
+        <label>Find staff<input type="search" data-sheet-filter="search" placeholder="Name or staff ID" value="${safeHtml(filters.search)}"></label>
+        <label>Department<select data-sheet-filter="department"><option value="">All departments</option>${departments.map(dept => `<option value="${safeHtml(dept)}" ${filters.department === dept ? 'selected' : ''}>${safeHtml(dept)}</option>`).join('')}</select></label>
+        <label class="attendance-checkbox"><input type="checkbox" data-sheet-filter="attention" ${filters.attention ? 'checked' : ''}> Needs attention</label></div>
+        ${warnings.length ? `<p class="attendance-callout" role="alert">${safeHtml(warnings.join(' '))} Missing weekday records are shown as unknown until holidays can be loaded.</p>` : ''}
+        <div id="attendance-sheet-results">${renderResults()}</div>
+        <details class="attendance-legend"><summary>Attendance codes · Select a day for details</summary><p>P Present · L Late · HD Half day · LV Leave · SL Short leave · RL Retreat · SDL Staff development · W WFH · D On duty · H Holiday · IN Checked in · ? Pending/unknown · — No record/future · ! Needs review. Present includes late, WFH and duty; late is a subset. Counts are dates, not payable days.</p></details>
+        </section>`;
+}
 
-    let monthEvents = [];
-    try {
-        if (window.AppDB.queryMany) {
-            monthEvents = await window.AppDB.queryMany('events', [
-                { field: 'date', operator: '>=', value: startDateStr },
-                { field: 'date', operator: '<=', value: endDateStr }
-            ]);
-        } else {
-            const allEvents = await window.AppAnalyticsService.getEvents({ force: true });
-            monthEvents = (allEvents || []).filter((event) => {
-                const date = String(event?.date || '').trim();
-                return date >= startDateStr && date <= endDateStr;
-            });
-        }
-    } catch (e) {
-        console.warn('MasterSheet: events query failed, continuing without calendar holidays', e);
-        monthEvents = [];
+export function exportCurrentAttendanceSheet() {
+    const user = window.AppAuth.getUser();
+    if (!activeSheet || !user || String(user.id) !== viewerId || location.hash !== '#master-sheet') return;
+    window.AppReports.downloadFile(attendanceSheetCSV(activeSheet, visibleRows()), `Attendance_${activeSheet.year}_${String(activeSheet.month + 1).padStart(2, '0')}_${filters.scope}.csv`, 'text/csv;charset=utf-8');
+}
+
+async function refreshSheet(month, year) {
+    const m = month ?? Number(document.getElementById('sheet-month')?.value ?? selectedPeriod?.month);
+    const y = year ?? Number(document.getElementById('sheet-year')?.value ?? selectedPeriod?.year);
+    const version = ++requestVersion;
+    const html = await renderMasterSheet(m, y);
+    if (html && version === requestVersion && location.hash === '#master-sheet') {
+        const content = document.getElementById('page-content');
+        if (content) patchContent(content, html);
     }
+}
 
-    let configuredHolidays = [];
-    try {
-        if (window.AppPolicies?.getHolidaysForYear) {
-            configuredHolidays = await window.AppPolicies.getHolidaysForYear(currentYear, false);
-        } else {
-            const holidaySettings = await window.AppDB.get('settings', 'holidays').catch(() => null);
-            configuredHolidays = Array.isArray(holidaySettings?.byYear?.[String(currentYear)]) ? holidaySettings.byYear[String(currentYear)] : [];
-        }
-    } catch (e) {
-        console.warn('MasterSheet: holiday settings lookup failed, continuing without configured holidays', e);
-        configuredHolidays = [];
-    }
-
-    const normalizeEventDate = (value) => {
-        const raw = String(value || '').trim();
-        if (!raw) return '';
-        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-        const d = new Date(raw);
-        if (Number.isNaN(d.getTime())) return '';
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    };
-
-    const isHolidayEvent = (event) => {
-        const type = String(event?.type || '').trim().toLowerCase();
-        const title = String(event?.title || '').trim().toLowerCase();
-        return type.includes('holiday') || title.includes('holiday');
-    };
-
-    const holidayEventsByDate = new Map();
-    (monthEvents || []).forEach((event) => {
-        if (!isHolidayEvent(event)) return;
-        const dateStr = normalizeEventDate(event?.date);
-        if (!dateStr || dateStr < startDateStr || dateStr > endDateStr) return;
-        if (!holidayEventsByDate.has(dateStr)) holidayEventsByDate.set(dateStr, []);
-        const title = String(event?.title || '').trim() || 'Holiday';
-        holidayEventsByDate.get(dateStr).push(title);
+if (typeof document !== 'undefined') {
+    document.addEventListener('input', event => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement) || target.dataset.sheetFilter !== 'search') return;
+        filters.search = target.value;
+        const results = document.getElementById('attendance-sheet-results');
+        if (results) results.innerHTML = renderResults();
     });
-    (configuredHolidays || []).forEach((holiday) => {
-        const dateStr = normalizeEventDate(holiday?.date);
-        if (!dateStr || dateStr < startDateStr || dateStr > endDateStr) return;
-        if (!holidayEventsByDate.has(dateStr)) holidayEventsByDate.set(dateStr, []);
-        const title = String(holiday?.name || holiday?.title || 'Holiday').trim() || 'Holiday';
-        holidayEventsByDate.get(dateStr).push(title);
+    document.addEventListener('change', event => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
+        if (target.id === 'sheet-month' || target.id === 'sheet-year') { void refreshSheet(); return; }
+        const key = target.dataset.sheetFilter;
+        if (!key || key === 'search') return;
+        filters[key] = key === 'attention' ? target.checked : target.value;
+        const results = document.getElementById('attendance-sheet-results');
+        if (results) results.innerHTML = renderResults();
     });
-
-    // Days in selected month
-    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-    const daysArray = Array.from({ length: daysInMonth }, (_, i) => i + 1);
-
-    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-
-    const getWeekendPolicy = (dateStr) => {
-        const d = new Date(`${dateStr}T00:00:00`);
-        const day = d.getDay(); // 0=Sun, 6=Sat
-        if (day === 0) return 'holiday';
-        if (day === 6) {
-            const nthSaturday = Math.floor((d.getDate() - 1) / 7) + 1;
-            if (nthSaturday === 2 || nthSaturday === 4) return 'holiday';
-            if (nthSaturday === 1 || nthSaturday === 3 || nthSaturday === 5) return 'halfday';
+    document.addEventListener('click', async event => {
+        const target = event.target instanceof Element ? event.target.closest('[data-sheet-action], [data-attendance-day]') : null;
+        if (!target) return;
+        if (target.dataset.attendanceDay) { showDay(target.dataset.staffId, target.dataset.attendanceDay); return; }
+        const action = target.dataset.sheetAction;
+        if (action === 'close' || action === 'timesheet') { document.getElementById('attendance-day-dialog')?.close(); return; }
+        if (action === 'edit') {
+            document.getElementById('attendance-day-dialog')?.close();
+            await window.app_openCellOverride(target.dataset.staffId, target.dataset.attendanceDate);
+        } else if (action === 'export') window.app_exportMasterSheet();
+        else if (action === 'refresh') await refreshSheet();
+        else if (action === 'today') await refreshSheet(Number(attendanceToday().slice(5, 7)) - 1, Number(attendanceToday().slice(0, 4)));
+        else if ((action === 'previous' || action === 'next') && activeSheet) {
+            const date = new Date(activeSheet.year, activeSheet.month + (action === 'next' ? 1 : -1), 1);
+            await refreshSheet(date.getMonth(), date.getFullYear());
         }
-        return 'working';
-    };
-
-    const isLeaveLog = (log) => {
-        const t = String(log?.type || '');
-        return t.includes('Leave') || log?.location === 'On Leave';
-    };
-
-    const isActualCheckoutLog = (log) => {
-        if (!log || !log.checkOut || log.checkOut === 'Active Now') return false;
-        return (
-            typeof log.activityScore !== 'undefined' ||
-            typeof log.locationMismatched !== 'undefined' ||
-            !!log.checkOutLocation ||
-            typeof log.outLat !== 'undefined' ||
-            typeof log.outLng !== 'undefined'
-        );
-    };
-    const convertTo24h = (timeStr) => {
-        const raw = String(timeStr || '').trim();
-        if (!raw) return '00:00';
-        if (/^\d{2}:\d{2}$/.test(raw)) return raw;
-        const [time, ampmRaw] = raw.split(' ');
-        if (!time) return '00:00';
-        let [h, m] = time.split(':');
-        let hours = Number(h);
-        const ampm = String(ampmRaw || '').toUpperCase();
-        if (ampm === 'PM' && hours < 12) hours += 12;
-        if (ampm === 'AM' && hours === 12) hours = 0;
-        return `${String(Number.isFinite(hours) ? hours : 0).padStart(2, '0')}:${String(m || '00').padStart(2, '0')}`;
-    };
-
-    const getWorkedMs = (log) => {
-        if (!log || !log.checkIn || !log.checkOut || log.checkOut === 'Active Now' || !log.date) return 0;
-        const in24 = convertTo24h(log.checkIn);
-        const out24 = convertTo24h(log.checkOut);
-        const inDt = window.AppAttendance?.buildDateTime?.(log.date, in24);
-        const outDt = window.AppAttendance?.buildDateTime?.(log.date, out24);
-        if (!(inDt && outDt && outDt > inDt)) return 0;
-        return outDt - inDt;
-    };
-
-    const getAutoClosureNote = (log) => {
-        if (!log || !log.autoCheckout) return '';
-        if (String(log.missedCheckoutReasonStatus || '').toLowerCase() === 'approved' || log.missedCheckoutApprovedAsFullDay) {
-            return 'Auto-closed due to missed checkout. Admin approved and converted this entry to full day.';
-        }
-        if (String(log.missedCheckoutReasonStatus || '').toLowerCase() === 'rejected') {
-            return 'Auto-closed due to missed checkout. Admin rejected the submitted reason.';
-        }
-        if (String(log.missedCheckoutReasonStatus || '').toLowerCase() === 'approved') {
-            return 'Auto-closed due to missed checkout. Admin approved the submitted reason.';
-        }
-        return 'Auto-closed due to missed checkout.';
-    };
-
-    const getLogPriority = (log) => {
-        if (log?.isManualOverride) return 4;
-        if (isActualCheckoutLog(log) && getWorkedMs(log) >= (8 * 60 * 60 * 1000)) return 3.5;
-        if (isLeaveLog(log)) return 3;
-        if (isActualCheckoutLog(log)) return 2;
-        return 1;
-    };
-
-    const isAttendanceEligibleLog = (log) => {
-        if (Object.prototype.hasOwnProperty.call(log || {}, 'attendanceEligible')) {
-            return log.attendanceEligible === true;
-        }
-        const src = String(log?.entrySource || '');
-        if (src === 'staff_manual_work') return false;
-        if (src === 'admin_override' || src === 'checkin_checkout') return true;
-        if (log?.isManualOverride) return true;
-        if (log?.location === 'Office (Manual)' || log?.location === 'Office (Override)') return true;
-        const hasSystemSignals =
-            typeof log?.activityScore !== 'undefined' ||
-            typeof log?.locationMismatched !== 'undefined' ||
-            typeof log?.autoCheckout !== 'undefined' ||
-            !!log?.checkOutLocation ||
-            typeof log?.outLat !== 'undefined' ||
-            typeof log?.outLng !== 'undefined';
-        if (hasSystemSignals) return true;
-        const type = String(log?.type || '');
-        return type.includes('Leave') || log?.location === 'On Leave';
-    };
-
-    const todayIso = new Date().toISOString().split('T')[0];
-    const toLocalIso = (value) => {
-        const d = new Date(value);
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    };
-
-    // UI Handlers attached to window
-    window.app_refreshMasterSheet = async () => {
-        const m = document.getElementById('sheet-month')?.value;
-        const y = document.getElementById('sheet-year')?.value;
-        const contentArea = document.getElementById('page-content');
-        if (contentArea) contentArea.innerHTML = await renderMasterSheet(m, y);
-    };
-    window.app_runHalfDayLeaveFixForVisibleMonth = async () => {
-        if (!canAdminAttendance || typeof window.app_fixCurrentMonthFalseHalfDayLeaves !== 'function') return;
-        const monthValue = Number(document.getElementById('sheet-month')?.value);
-        const yearValue = Number(document.getElementById('sheet-year')?.value);
-        const month = Number.isFinite(monthValue) ? monthValue + 1 : (new Date().getMonth() + 1);
-        const year = Number.isFinite(yearValue) ? yearValue : new Date().getFullYear();
-        await window.app_fixCurrentMonthFalseHalfDayLeaves({
-            silent: false,
-            year,
-            month
-        });
-        await window.app_refreshMasterSheet();
-    };
-
-    return `
-        <div class="dashboard-grid dashboard-admin-view">
-            <div class="card full-width">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
-                    <div>
-                        <h2 style="font-size:1.1rem; margin-bottom:0.1rem;">Attendance Sheet</h2>
-                        <p style="color:var(--text-muted); font-size:0.75rem;">Master grid view for all staff logs, including Work From Home (WFH).</p>
-                    </div>
-                    <div style="display:flex; gap:0.5rem; align-items:center;">
-                        <select onchange="window.app_refreshMasterSheet()" id="sheet-month" style="padding:0.4rem; border-radius:6px; border:1px solid #ddd; font-size:0.8rem;">
-                            ${monthNames.map((m, i) => `<option value="${i}" ${i === currentMonth ? 'selected' : ''}>${m}</option>`).join('')}
-                        </select>
-                        <select onchange="window.app_refreshMasterSheet()" id="sheet-year" style="padding:0.4rem; border-radius:6px; border:1px solid #ddd; font-size:0.8rem;">
-                            <option value="${currentYear}" selected>${currentYear}</option>
-                            <option value="${currentYear - 1}">${currentYear - 1}</option>
-                        </select>
-                        ${canAdminAttendance ? `
-                        <button onclick="window.app_runHalfDayLeaveFixForVisibleMonth()" class="action-btn secondary" style="padding:0.4rem 0.75rem; font-size:0.8rem;">
-                            <i class="fa-solid fa-wand-magic-sparkles"></i> Fix Incorrect Half Day Leaves
-                        </button>
-                        <button onclick="window.app_syncLeaveCategoriesForVisibleMonth()" class="action-btn secondary" style="padding:0.4rem 0.75rem; font-size:0.8rem;">
-                            <i class="fa-solid fa-arrows-rotate"></i> Sync Leave Categories
-                        </button>
-                        <button onclick="window.app_exportMasterSheet()" class="action-btn secondary" style="padding:0.4rem 0.75rem; font-size:0.8rem;">
-                            <i class="fa-solid fa-file-excel"></i> Export Excel
-                        </button>
-                        ` : ''}
-                    </div>
-                </div>
-
-                <div style="display:flex; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.65rem; font-size:0.72rem; color:#475569;">
-                    <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#f8fafc;"><strong>P</strong> = Present</span>
-                    <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#fff7ed;"><strong>L</strong> = Late</span>
-                    <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#fff7ed;"><strong>HD</strong> = Half Day</span>
-                    <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#fef2f2;"><strong>A</strong> = Absent</span>
-                    <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#f5f3ff;"><strong>C</strong> = Leave (other)</span>
-                    <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#ecfeff;"><strong>RL</strong> = Retreat Leave</span>
-                    <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#f0fdf4;"><strong>SDL</strong> = Staff Development Leave</span>
-                    <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#f0f9ff;"><strong>W</strong> = Work From Home</span>
-                    <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#eff6ff;"><strong>D</strong> = On Duty</span>
-                    <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#f8fafc;"><strong>H</strong> = Holiday</span>
-                    <span style="padding:0.2rem 0.45rem; border:1px solid #e2e8f0; border-radius:999px; background:#f8fafc;"><strong>-</strong> = No Log / Future</span>
-                    <span style="padding:0.2rem 0.45rem; border:1px solid #c7d2fe; border-radius:999px; background:#eef2ff; color:#4338ca;"><strong>•</strong> = Auto-closed entry</span>
-                </div>
-
-                <div class="table-container" style="max-height: 70vh; overflow: auto; border: 1px solid #eee; border-radius: 8px;">
-                    <table style="font-size:0.85rem; border-collapse: separate; border-spacing: 0;">
-                        <thead>
-                            <tr style="position: sticky; top: 0; z-index: 10; background: #f8fafc;">
-                                <th style="border-right: 1px solid #eee; padding:6px; position: sticky; left: 0; background: #f8fafc; z-index: 20; font-size:0.75rem;">S.No</th>
-                                <th style="border-right: 2px solid #ddd; padding:6px; position: sticky; left: 35px; background: #f8fafc; z-index: 20; min-width: 120px; font-size:0.75rem;">Staff Name</th>
-                                ${daysArray.map(d => `<th style="text-align:center; min-width: 28px; padding:4px; border-right: 1px solid #eee; font-size:0.75rem;">${d}</th>`).join('')}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${users.sort((a, b) => a.name.localeCompare(b.name)).map((u, index) => {
-        return `
-                                <tr>
-                                    <td style="text-align:center; border-right: 1px solid #eee; position: sticky; left: 0; background: #fff; z-index: 5; padding:4px; font-size:0.75rem;">${index + 1}</td>
-                                    <td style="border-right: 2px solid #ddd; position: sticky; left: 35px; background: #fff; z-index: 5; font-weight: 500; padding:4px;">
-                                        <div style="display:flex; flex-direction:column;">
-                                            <span style="font-size:0.75rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:110px;">${safeHtml(u.name)}</span>
-                                            <span style="font-size:0.65rem; color:#666; font-weight:400;">${safeHtml(u.dept || 'General')}</span>
-                                        </div>
-                                    </td>
-                                    ${daysArray.map(day => {
-            const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-            const dayLogs = filteredLogs.filter(l => (l.userId === u.id || l.user_id === u.id) && l.date === dateStr);
-            const dayAttendanceLogs = dayLogs.filter(isAttendanceEligibleLog);
-            const dayPolicy = getWeekendPolicy(dateStr);
-            const holidayTitles = holidayEventsByDate.get(dateStr) || [];
-            const hasHolidayEvent = holidayTitles.length > 0;
-
-            let cellContent = '-';
-            let cellStyle = '';
-            let tooltip = 'No log';
-
-            if (dayAttendanceLogs.length > 0) {
-                const log = dayAttendanceLogs.slice().sort((a, b) => getLogPriority(b) - getLogPriority(a))[0];
-                const derivedType = (log.autoCheckout && String(log.missedCheckoutReasonStatus || '').toLowerCase() === 'approved')
-                    ? 'Present'
-                    : log.type;
-                const type = (window.AppAttendance && window.AppAttendance.normalizeType) ? window.AppAttendance.normalizeType(derivedType) : derivedType;
-                const autoClosureNote = getAutoClosureNote(log);
-                cellContent = type.charAt(0).toUpperCase();
-                tooltip = `${log.checkIn} - ${log.checkOut || 'Active'}\n${type}`;
-                if (autoClosureNote) tooltip += `\n${autoClosureNote}`;
-
-                if (type === 'Present') { cellStyle = 'color: #10b981; font-weight: bold; font-size: 0.9rem;'; }
-                else if (type === 'Late') { cellStyle = 'color: #f59e0b; font-weight: bold;'; cellContent = 'L'; }
-                else if (type === 'Half Day') { cellStyle = 'color: #c2410c; font-weight: bold;'; cellContent = 'HD'; }
-                else if (type === 'Absent') { cellStyle = 'color: #ef4444; font-weight: bold;'; cellContent = 'A'; }
-                else if (type.includes('Leave') && type.includes('Half Day')) { cellStyle = 'color: #7c3aed; font-weight: bold;'; cellContent = 'HD'; }
-                else if (type === 'Retreat Leave') { cellStyle = 'color: #0e7490; font-weight: bold;'; cellContent = 'RL'; }
-                else if (type === 'Staff Development Leave') { cellStyle = 'color: #166534; font-weight: bold;'; cellContent = 'SDL'; }
-                else if (type.includes('Leave')) { cellStyle = 'color: #8b5cf6; font-weight: bold;'; cellContent = 'C'; }
-                else if (type === 'Work - Home' || /work\s*[- ]?\s*from\s*[- ]?\s*home|wfh/i.test(String(type || ''))) { cellStyle = 'color: #0ea5e9; font-weight: bold;'; cellContent = 'W'; }
-                else if (type === 'On Duty') { cellStyle = 'color: #0369a1; font-weight: bold;'; cellContent = 'D'; }
-
-                if (log.isManualOverride) {
-                    cellStyle = 'color: #be185d; font-weight: bold; background: #fdf2f8;';
-                }
-
-                if (autoClosureNote) {
-                    cellContent = `<span style="display:inline-flex; align-items:flex-start; gap:2px;"><span>${cellContent}</span><span style="color:#4338ca; font-size:0.7rem; line-height:1;">•</span></span>`;
-                }
-            } else {
-                const isCheckedInToday = (dateStr === todayIso && u.status === 'in' && u.lastCheckIn && toLocalIso(u.lastCheckIn) === dateStr);
-                const isBeforeJoinDate = (typeof u.joinDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(u.joinDate)) ? dateStr < u.joinDate : false;
-                const isFutureDate = dateStr > todayIso;
-
-                if (isCheckedInToday) {
-                    cellContent = 'P'; cellStyle = 'color: #10b981; font-weight: bold; font-size: 0.9rem;'; tooltip = 'Checked in (pending checkout)';
-                } else if (isFutureDate || isBeforeJoinDate) {
-                    cellContent = '-'; cellStyle = 'color: #94a3b8; font-weight: 600;'; tooltip = isFutureDate ? 'Future date' : `Before joining date (${u.joinDate})`;
-                } else if (hasHolidayEvent) {
-                    cellContent = 'H';
-                    cellStyle = 'color: #64748b; font-weight: 700;';
-                    tooltip = `Holiday: ${Array.from(new Set(holidayTitles)).join(', ')}`;
-                } else if (dayPolicy === 'holiday') {
-                    cellContent = 'H';
-                    cellStyle = 'color: #64748b; font-weight: 700;';
-                    const d = new Date(`${dateStr}T00:00:00`);
-                    tooltip = d.getDay() === 0 ? 'Weekly off: Sunday' : 'Weekly off: Saturday';
-                } else if (dayPolicy === 'halfday') {
-                    cellContent = '-';
-                    cellStyle = 'color: #94a3b8; font-weight: 600;';
-                    tooltip = 'Half-day Saturday';
-                } else {
-                    cellContent = 'A'; cellStyle = 'color: #ef4444; font-weight: bold;'; tooltip = 'Absent';
-                }
-            }
-
-            return `<td style="text-align:center; ${canAdminAttendance ? 'cursor:pointer;' : ''} border-right: 1px solid #eee; padding:2px; font-size:0.75rem; ${cellStyle}" title="${tooltip}" ${canAdminAttendance ? `onclick="window.app_openCellOverride('${u.id}', '${dateStr}')"` : ''}>${cellContent}</td>`;
-        }).join('')}
-                                </tr>`;
-    }).join('')}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>`;
+    });
 }

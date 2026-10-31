@@ -7,14 +7,23 @@
         {
             "source": "/version.json",
             "headers": [
-                { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },
-                { "key": "Pragma", "value": "no-cache" }
+                {
+                    "key": "Cache-Control",
+                    "value": "no-cache, no-store, must-revalidate"
+                },
+                {
+                    "key": "Pragma",
+                    "value": "no-cache"
+                }
             ]
         },
         {
             "source": "/sw.js",
             "headers": [
-                { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+                {
+                    "key": "Cache-Control",
+                    "value": "no-cache, no-store, must-revalidate"
+                }
             ]
         }
     ],
@@ -24,6 +33,22 @@
         }
     },
     "rewrites": [
+        {
+            "source": "/api/staff-task-response",
+            "destination": "/api/index?route=staff-task-response"
+        },
+        {
+            "source": "/api/minutes-action",
+            "destination": "/api/index?route=minutes-action"
+        },
+        {
+            "source": "/api/staff-data",
+            "destination": "/api/index?route=staff-data"
+        },
+        {
+            "source": "/api/staff-employment",
+            "destination": "/api/index?route=staff-employment"
+        },
         {
             "source": "/api/auth-login",
             "destination": "/api/index?route=auth-login"

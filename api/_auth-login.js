@@ -3,6 +3,7 @@
 // The client never sees other users' passwords — all comparison happens here.
 
 const { getAdmin, getDb } = require('./_firebase-admin.js');
+const { isFormerStaff } = require('./_staff-employment-core.js');
 
 // Public Firebase Web API key (same value as the index.html client config).
 // Used only to verify passwords that auth-set-password migrated into
@@ -11,7 +12,7 @@ const { getAdmin, getDb } = require('./_firebase-admin.js');
 const FIREBASE_WEB_API_KEY =
     process.env.FIREBASE_WEB_API_KEY || 'AIzaSyC7a8AxukI0-egXimYTedwCa2RFnMTBu84';
 
-const USER_FIELDS = ['username', 'email', 'password', 'authMigrated', 'name', 'role', 'isAdmin', 'avatar', 'permissions', 'activeSessionToken', 'activeSessionStartedAt'];
+const USER_FIELDS = ['username', 'email', 'password', 'authMigrated', 'name', 'role', 'isAdmin', 'avatar', 'permissions', 'activeSessionToken', 'activeSessionStartedAt', 'employmentStatus', 'status'];
 
 // Case-insensitive username/email match. Firestore `==` is case-sensitive
 // while identifiers arrive lowercased, so a plain query misses stored
@@ -94,6 +95,7 @@ async function handler(req, res) {
 
         const userData = match.data;
         const uid = match.id;
+        if (isFormerStaff(userData)) return res.status(403).json({ error: 'This staff account is no longer active. Please contact the administrator.' });
 
         // Compare password. Plaintext copy in Firestore is the legacy path;
         // auth-set-password deletes it after migrating the password into

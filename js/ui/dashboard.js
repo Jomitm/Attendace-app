@@ -1,3 +1,4 @@
+import { refreshPage, patchContent } from '../utils/page-updates.js';
 /**
  * Dashboard Component
  * Handles rendering of the main dashboard and its sub-widgets.
@@ -549,12 +550,14 @@ const initDashboardCardControls = () => {
         const cardId = getDashboardCardId(card, index);
         const title = getDashboardCardTitle(card);
 
-        card.classList.add('dashboard-card-compact', 'dashboard-card-mode-tile');
-        card.classList.remove('dashboard-card-mode-original');
-        card.dataset.dashboardOriginalFullWidth = card.classList.contains('full-width') ? '1' : '0';
+        const mode = card.dataset.dashboardCardMode || DASHBOARD_CARD_MODE_TILE;
+        card.classList.add('dashboard-card-compact');
+        card.classList.toggle('dashboard-card-mode-tile', mode !== DASHBOARD_CARD_MODE_ORIGINAL);
+        card.classList.toggle('dashboard-card-mode-original', mode === DASHBOARD_CARD_MODE_ORIGINAL);
+        card.dataset.dashboardOriginalFullWidth ||= card.classList.contains('full-width') ? '1' : '0';
         card.classList.remove('full-width');
         card.dataset.dashboardCardId = cardId;
-        card.dataset.dashboardCardMode = DASHBOARD_CARD_MODE_TILE;
+        card.dataset.dashboardCardMode = mode;
 
         ensureDashboardCardControls(card, cardId, title);
 
@@ -567,7 +570,10 @@ const initDashboardCardControls = () => {
     });
 
     window._dashboardCardTemplates = templates;
-    window._dashboardCardModeState = {};
+    window._dashboardCardModeState ||= {};
+    const activeId = window._dashboardMaxCardId;
+    const body = document.getElementById(DASHBOARD_MAX_BODY_ID)?.querySelector('.dashboard-max-card-content');
+    if (body && templates[activeId]) patchContent(body, templates[activeId].expandedHtml || templates[activeId].originalHtml || '');
 };
 
 // --- Local State for Dashboard ---
@@ -2270,12 +2276,14 @@ export function renderStaffDirectory(allUsers, _notifications, currentUser) {
         </div>`;
 }
 
-export async function renderDashboard() {
+export async function renderDashboard({ preserveView = false } = {}) {
     markPerf('dashboard:render:start');
     const dashRenderStart = performance.now();
-    staffPerformanceModulePromise?.then((module) => module.cleanupPerformanceChart()).catch(() => {});
-    window.app_closeDashboardCardMaximize?.();
-    window.app_closeAttendanceSessionHelp?.();
+    if (!preserveView) staffPerformanceModulePromise?.then((module) => module.cleanupPerformanceChart()).catch(() => {});
+    if (!preserveView) {
+        window.app_closeDashboardCardMaximize?.();
+        window.app_closeAttendanceSessionHelp?.();
+    }
     const user = window.AppAuth.getUser();
     const isAdmin = window.app_hasPerm('dashboard', 'view', user);
     const isFullAdmin = window.app_hasPerm('dashboard', 'admin', user);
@@ -2291,14 +2299,8 @@ export async function renderDashboard() {
     const yesterdayStr = dateKeys.yesterdayKey;
     const targetStaffId = (isAdmin && window.app_selectedSummaryStaffId) ? window.app_selectedSummaryStaffId : user.id;
 
-    // Put the loading UI on screen before waiting for remote customization
-    // settings. The settings request can be slow on a cold Firestore session.
-    const { renderDashboardSkeletons } = await import('./dashboard-skeletons.js');
-    const skeletonTarget = document.getElementById('page-content');
-    if (skeletonTarget && !skeletonTarget.dataset.hasSkeletons) {
-        skeletonTarget.dataset.hasSkeletons = '1';
-        skeletonTarget.innerHTML = renderDashboardSkeletons();
-    }
+    // Navigation owns the loading skeleton. Save/background renders must not
+    // replace the mounted page while their data is still being fetched.
 
     // Start this read now, but let it run alongside the dashboard data reads.
     const customizationSettingsPromise = window.app_dashboardCustomization?.loadSettings?.() || Promise.resolve(null);
@@ -2331,10 +2333,8 @@ export async function renderDashboard() {
             tom.setHours(0, 0, 5, 0);
             const msUntil = tom.getTime() - istNow.getTime();
             setTimeout(() => {
-                renderDashboard().then(html => {
-                    const content = document.getElementById('page-content');
-                    if (content) content.innerHTML = html;
-                });
+                void refreshPage(() => renderDashboard({ preserveView: true }), { route: 'dashboard', after: () => window.setupDashboardEvents?.() })
+                    .catch(error => console.warn('Midnight refresh failed:', error));
                 window._dashboardRefreshScheduled = false;
             }, Math.max(0, msUntil));
         } catch (err) {
@@ -2842,7 +2842,7 @@ export async function renderDashboard() {
         minutesData: Array.isArray(minutesData) ? minutesData : [],
         workPlans: Array.isArray(currentWeekWorkPlans) ? currentWeekWorkPlans : [],
         targetStaffId,
-        page: 1,
+        page: preserveView && window.app_dashboardWorklogContext?.targetStaffId === targetStaffId ? window.app_dashboardWorklogContext.page || 1 : 1,
         pageSize: WORKLOG_PAGE_SIZE
     };
     setTimeout(() => initWorklogAutoScroll(document), 0);
@@ -2942,9 +2942,6 @@ export async function renderDashboard() {
         }, 0);
     }).catch(() => {});
 
-    // Clear skeleton loading state
-    const skeletonClearTarget = document.getElementById('page-content');
-    if (skeletonClearTarget) delete skeletonClearTarget.dataset.hasSkeletons;
 
     const viewportMode = typeof window !== 'undefined' && window.innerWidth < 768 ? 'mobile' : 'desktop';
     const todayDateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
@@ -3508,7 +3505,7 @@ if (typeof window !== 'undefined') {
         state.leaveHistoryDate = value || new Date().toISOString().slice(0, 10);
         const contentArea = document.getElementById('page-content');
         window.app_closeDashboardCardFullscreen?.();
-        if (contentArea) contentArea.innerHTML = await renderDashboard();
+        if (contentArea) await refreshPage(() => renderDashboard({ preserveView: true }), { root: contentArea, route: 'dashboard' });
     };
 
     window.app_expandTeamActivity = function () {
@@ -3795,12 +3792,7 @@ if (typeof window !== 'undefined') {
             if (refreshCount >= maxRefreshes) {
                 alert(`The Hero of the Week has already been refreshed ${maxRefreshes} times today.`);
                 // Reload dashboard to update UI
-                const html = await renderDashboard();
-                const content = document.getElementById('page-content');
-                if (content) {
-                    content.innerHTML = html;
-                    window.setupDashboardEvents?.();
-                }
+                await refreshPage(() => renderDashboard({ preserveView: true }), { route: 'dashboard', after: () => window.setupDashboardEvents?.() });
                 return;
             }
 
@@ -3835,12 +3827,7 @@ if (typeof window !== 'undefined') {
             alert("Hero stats refreshed successfully!");
             
             // Re-render
-            const html = await renderDashboard();
-            const content = document.getElementById('page-content');
-            if (content) {
-                content.innerHTML = html;
-                window.setupDashboardEvents?.();
-            }
+            await refreshPage(() => renderDashboard({ preserveView: true }), { route: 'dashboard', after: () => window.setupDashboardEvents?.() });
         } catch (err) {
             console.error("Failed to force refresh hero:", err);
             alert("Failed to refresh hero stats: " + err.message);

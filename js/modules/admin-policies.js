@@ -1,5 +1,6 @@
 
 import { safeHtml } from '../ui/helpers.js';
+import { refreshPage } from '../utils/page-updates.js';
 import { AppLeaves } from './leaves.js';
 import { AppAuth } from './auth.js';
 import { AppConfig } from '../config.js';
@@ -246,7 +247,8 @@ export const AdminPolicies = {
                 setTimeout(() => {
                     btn.innerHTML = originalText;
                     btn.style.background = '';
-                    window.location.reload();
+                    void refreshPage(() => window.AppPolicies.render(), { route: 'policies' })
+                        .catch(error => console.warn('Policy view refresh failed:', error));
                 }, 1000);
             } catch (err) {
                 alert("Failed to update policy: " + err.message);
@@ -361,7 +363,8 @@ export const AdminPolicies = {
                 setTimeout(() => {
                     btn.innerHTML = originalText;
                     btn.style.background = '';
-                    window.location.reload();
+                    void refreshPage(() => window.AppPolicies.render(), { route: 'policies' })
+                        .catch(error => console.warn('Policy view refresh failed:', error));
                 }, 1000);
             } catch (err) {
                 alert("Failed to update hero policy: " + err.message);
@@ -385,7 +388,9 @@ export const AdminPolicies = {
                 if (skippedDates.length) {
                     alert(`Leave approved. Existing attendance was preserved and no duplicate leave log was created for: ${skippedDates.join(', ')}.`);
                 }
-                window.location.reload();
+                const route = String(window.location.hash || '').replace(/^#/, '');
+                if (route === 'admin') await window.app_refreshAdminPage?.();
+                else if (route === 'policies') await refreshPage(() => window.AppPolicies.render(), { route });
             } catch (e) {
                 alert(e.message);
             }

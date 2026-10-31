@@ -100,7 +100,8 @@ function createAuthLoginDevPlugin() {
                     // across Vite's in-process configuration restarts.
                     const handlerPath = require.resolve('./api/_auth-login.js');
                     delete require.cache[handlerPath];
-                    await require(handlerPath)(Object.assign(req, { body }), apiResponse);
+                    const handlerModule = require(handlerPath);
+                    await (handlerModule.default || handlerModule)(Object.assign(req, { body }), apiResponse);
                 } catch (err) {
                     if (err instanceof SyntaxError) {
                         return sendJson(res, 400, { error: 'Invalid JSON body' });
@@ -138,12 +139,169 @@ function createAuthSetPasswordDevPlugin() {
                     };
                     const handlerPath = require.resolve('./api/_auth-set-password.js');
                     delete require.cache[handlerPath];
-                    await require(handlerPath)(Object.assign(req, { body }), apiResponse);
+                    const handlerModule = require(handlerPath);
+                    await (handlerModule.default || handlerModule)(Object.assign(req, { body }), apiResponse);
                 } catch (err) {
                     if (err instanceof SyntaxError) {
                         return sendJson(res, 400, { error: 'Invalid JSON body' });
                     }
                     console.error('[auth-set-password-dev] error:', err);
+                    return sendJson(res, 500, { error: 'Internal server error' });
+                }
+            });
+        }
+    };
+}
+
+function createStaffEmploymentDevPlugin() {
+    return {
+        name: 'staff-employment-dev',
+        configureServer(server) {
+            server.middlewares.use('/api/staff-employment', async (req, res) => {
+                if (req.method !== 'POST') {
+                    return sendJson(res, 405, { error: 'Method not allowed' });
+                }
+
+                try {
+                    const body = await readBody(req);
+                    req.localDevRequest = true;
+                    const apiResponse = {
+                        statusCode: 200,
+                        status(code) {
+                            this.statusCode = code;
+                            return this;
+                        },
+                        json(payload) {
+                            sendJson(res, this.statusCode, payload);
+                            return this;
+                        }
+                    };
+                    const handlerPath = require.resolve('./api/_staff-employment.js');
+                    delete require.cache[handlerPath];
+                    const handlerModule = require(handlerPath);
+                    await (handlerModule.default || handlerModule)(Object.assign(req, { body }), apiResponse);
+                } catch (err) {
+                    if (err instanceof SyntaxError) {
+                        return sendJson(res, 400, { error: 'Invalid JSON body' });
+                    }
+                    console.error('[staff-employment-dev] error:', err);
+                    return sendJson(res, 500, { error: 'Internal server error' });
+                }
+            });
+        }
+    };
+}
+
+function createStaffDataDevPlugin() {
+    return {
+        name: 'staff-data-dev',
+        configureServer(server) {
+            server.middlewares.use('/api/staff-data', async (req, res) => {
+                if (req.method !== 'POST') {
+                    return sendJson(res, 405, { error: 'Method not allowed' });
+                }
+
+                try {
+                    const body = await readBody(req);
+                    req.localDevRequest = true;
+                    const apiResponse = {
+                        statusCode: 200,
+                        status(code) {
+                            this.statusCode = code;
+                            return this;
+                        },
+                        json(payload) {
+                            sendJson(res, this.statusCode, payload);
+                            return this;
+                        }
+                    };
+                    const handlerPath = require.resolve('./api/_staff-data.js');
+                    delete require.cache[handlerPath];
+                    const handlerModule = require(handlerPath);
+                    await (handlerModule.default || handlerModule)(Object.assign(req, { body }), apiResponse);
+                } catch (err) {
+                    if (err instanceof SyntaxError) {
+                        return sendJson(res, 400, { error: 'Invalid JSON body' });
+                    }
+                    console.error('[staff-data-dev] error:', err);
+                    return sendJson(res, 500, { error: 'Internal server error' });
+                }
+            });
+        }
+    };
+}
+
+function createMinutesActionDevPlugin() {
+    return {
+        name: 'minutes-action-dev',
+        configureServer(server) {
+            server.middlewares.use('/api/minutes-action', async (req, res) => {
+                if (req.method !== 'POST') {
+                    return sendJson(res, 405, { error: 'Method not allowed' });
+                }
+
+                try {
+                    const body = await readBody(req);
+                    req.localDevRequest = true;
+                    const apiResponse = {
+                        statusCode: 200,
+                        status(code) {
+                            this.statusCode = code;
+                            return this;
+                        },
+                        json(payload) {
+                            sendJson(res, this.statusCode, payload);
+                            return this;
+                        }
+                    };
+                    const handlerPath = require.resolve('./api/_minutes-action.js');
+                    delete require.cache[handlerPath];
+                    const handlerModule = require(handlerPath);
+                    await (handlerModule.default || handlerModule)(Object.assign(req, { body }), apiResponse);
+                } catch (err) {
+                    if (err instanceof SyntaxError) {
+                        return sendJson(res, 400, { error: 'Invalid JSON body' });
+                    }
+                    console.error('[minutes-action-dev] error:', err);
+                    return sendJson(res, 500, { error: 'Internal server error' });
+                }
+            });
+        }
+    };
+}
+
+function createStaffTaskResponseDevPlugin() {
+    return {
+        name: 'staff-task-response-dev',
+        configureServer(server) {
+            server.middlewares.use('/api/staff-task-response', async (req, res) => {
+                if (req.method !== 'POST') {
+                    return sendJson(res, 405, { error: 'Method not allowed' });
+                }
+
+                try {
+                    const body = await readBody(req);
+                    req.localDevRequest = true;
+                    const apiResponse = {
+                        statusCode: 200,
+                        status(code) {
+                            this.statusCode = code;
+                            return this;
+                        },
+                        json(payload) {
+                            sendJson(res, this.statusCode, payload);
+                            return this;
+                        }
+                    };
+                    const handlerPath = require.resolve('./api/_staff-task-response.js');
+                    delete require.cache[handlerPath];
+                    const handlerModule = require(handlerPath);
+                    await (handlerModule.default || handlerModule)(Object.assign(req, { body }), apiResponse);
+                } catch (err) {
+                    if (err instanceof SyntaxError) {
+                        return sendJson(res, 400, { error: 'Invalid JSON body' });
+                    }
+                    console.error('[staff-task-response-dev] error:', err);
                     return sendJson(res, 500, { error: 'Internal server error' });
                 }
             });
@@ -407,7 +565,7 @@ export default defineConfig({
             }
         } catch { /* no .env file, that's fine */ }
 
-        return [createAuthLoginDevPlugin(), createAuthSetPasswordDevPlugin(), createFeastDevPlugin(), createAiInsightsDevPlugin(), createHeroSelectDevPlugin()];
+        return [createAuthLoginDevPlugin(), createAuthSetPasswordDevPlugin(), createStaffEmploymentDevPlugin(), createStaffDataDevPlugin(), createMinutesActionDevPlugin(), createStaffTaskResponseDevPlugin(), createFeastDevPlugin(), createAiInsightsDevPlugin(), createHeroSelectDevPlugin()];
     })(),
     define: {
         __APP_BUILD_META__: JSON.stringify(buildMeta)

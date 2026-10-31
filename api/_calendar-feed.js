@@ -1,3 +1,4 @@
+const { isFormerStaff } = require('./_staff-employment-core.js');
 const crypto = require('crypto');
 const { getDb } = require('./_firebase-admin');
 
@@ -161,6 +162,7 @@ module.exports = async (req, res) => {
                 .catch(() => ({ data: () => ({}) }))
         ]);
 
+        if (isFormerStaff(usersSnap.data?.())) { res.statusCode = 403; return res.end('Staff account is no longer active'); }
         const userName = (usersSnap.data ? usersSnap.data() : {}).name || 'Staff';
         const events = [];
         const makeUID = (kind, id, index = '') => `crwi-${userId}-${kind}-${id}${index === '' ? '' : `-${index}`}@crwi-attendance`;

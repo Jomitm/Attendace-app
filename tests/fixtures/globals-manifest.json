@@ -408,7 +408,6 @@
     "app_reviewMinuteAccessFromNotification",
     "app_reviewMissedCheckoutReasonFromNotification",
     "app_runAttendancePolicyMigration",
-    "app_runHalfDayLeaveFixForVisibleMonth",
     "app_runPolicyTest",
     "app_saveAllSalaries",
     "app_saveBudgetHeadRow",
